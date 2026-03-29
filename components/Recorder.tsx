@@ -1,16 +1,14 @@
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { User, Reel, ReactionType } from '../types';
 
-// Recorder.tsx – Upload-only Reel Creator (no camera, no drafts, trimming kept)
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { User } from '../types';
-
-// ==================== MEDIA FETCH & CACHE ====================
-const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
+// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
 const mediaWarmPromises = new Map<string, Promise<string>>();
-const CACHE_MAX_SIZE = 20;
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_MAX_SIZE = 10;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
-  if (!url) throw new Error("Missing media URL");
+  if (!url) throw new Error('Missing media URL');
 
   const cached = mediaBlobCache.get(url);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -27,24 +25,25 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
     return url;
   }
 
-  const p = fetch(url, { 
-    cache: "force-cache",
-    headers: { "Accept": "audio/mpeg,*/*" }
+  const p = fetch(url, {
+    cache: 'force-cache',
+    headers: { Accept: 'audio/mpeg,/*' },
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
-      
+
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      
+
       if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
-        const oldestKey = Array.from(mediaBlobCache.entries())
-          .sort((a, b) => a[1].timestamp - b[1].timestamp)[0][0];
+        const oldestKey = Array.from(mediaBlobCache.entries()).sort(
+          (a, b) => a[1].timestamp - b[1].timestamp
+        )[0][0];
         const oldest = mediaBlobCache.get(oldestKey);
         if (oldest) URL.revokeObjectURL(oldest.blobUrl);
         mediaBlobCache.delete(oldestKey);
       }
-      
+
       mediaBlobCache.set(url, { blobUrl, timestamp: Date.now() });
       return blobUrl;
     })
@@ -56,548 +55,8 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
-async function fetchAsArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const localUrl = await fetchAsBlobUrl(url, 'audio').catch(() => url);
-  const res = await fetch(localUrl);
-  if (!res.ok) throw new Error("Failed to fetch audio");
-  return await res.arrayBuffer();
-}
-
-// ==================== AUDIO TRIMMING UTILITIES ====================
-function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const length = buffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = length * blockAlign;
-
-  const ab = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(ab);
-
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, "WAVE");
-
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-
-  writeString(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  let offset = 44;
-  for (let i = 0; i < length; i++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      let sample = buffer.getChannelData(ch)[i];
-      sample = Math.max(-1, Math.min(1, sample));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-  }
-
-  return new Blob([ab], { type: "audio/wav" });
-}
-
-async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec: number) {
-  if (!audioUrl) throw new Error("Missing audioUrl");
-  if (!(endSec > startSec)) throw new Error("Invalid trim range");
-
-  const arrayBuffer = await fetchAsArrayBuffer(audioUrl);
-
-  const AudioCtx = (window.AudioContext || (window as any).webkitAudioContext);
-  const ctx = new AudioCtx();
-  const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-
-  const sr = decoded.sampleRate;
-  const startSample = Math.max(0, Math.floor(startSec * sr));
-  const endSample = Math.min(decoded.length, Math.floor(endSec * sr));
-  const frameCount = Math.max(0, endSample - startSample);
-
-  if (frameCount <= 0) throw new Error("Trim produced empty audio");
-
-  const trimmed = ctx.createBuffer(decoded.numberOfChannels, frameCount, sr);
-
-  for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
-    const channel = decoded.getChannelData(ch).slice(startSample, endSample);
-    trimmed.copyToChannel(channel, ch, 0);
-  }
-
-  const wavBlob = audioBufferToWavBlob(trimmed);
-
-  try { await ctx.close(); } catch {}
-  return { blob: wavBlob };
-}
-
-// ==================== VIDEO THUMBNAIL GENERATION ====================
-type VideoPrepareProgress = {
-  stage: 'analyzing' | 'thumbnail' | 'done';
-  percent: number;
-  message: string;
-};
-
-const createVideoElementFromFile = (file: File): Promise<{
-  video: HTMLVideoElement;
-  url: string;
-  width: number;
-  height: number;
-  duration: number;
-}> => {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true;
-    video.playsInline = true;
-    video.src = url;
-    video.load(); // ensure metadata loads
-
-    const cleanup = () => {
-      video.onloadedmetadata = null;
-      video.onerror = null;
-    };
-
-    video.onloadedmetadata = () => {
-      cleanup();
-      resolve({
-        video,
-        url,
-        width: video.videoWidth,
-        height: video.videoHeight,
-        duration: video.duration || 0,
-      });
-    };
-
-    video.onerror = () => {
-      cleanup();
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to read selected video.'));
-    };
-  });
-};
-
-const canvasToBlob = (
-  canvas: HTMLCanvasElement,
-  type: string,
-  quality?: number
-): Promise<Blob> => {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('Failed to create thumbnail.'));
-        return;
-      }
-      resolve(blob);
-    }, type, quality);
-  });
-};
-
-const createThumbnailFromVideo = async (
-  file: File,
-  maxWidth = 720
-): Promise<{ file: File; previewUrl: string }> => {
-  const { video, url, width, height, duration } = await createVideoElementFromFile(file);
-  
-  const calculateContainSize = (srcW: number, srcH: number, maxW: number, maxH: number) => {
-    if (!srcW || !srcH) {
-      return { width: maxW, height: maxH };
-    }
-    const ratio = Math.min(maxW / srcW, maxH / srcH);
-    return { width: Math.round(srcW * ratio), height: Math.round(srcH * ratio) };
-  };
-  
-  const { width: outW, height: outH } = calculateContainSize(width, height, maxWidth, maxWidth * 1.8);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = outW;
-  canvas.height = outH;
-
-  const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) {
-    URL.revokeObjectURL(url);
-    throw new Error('Canvas is not supported for thumbnail generation.');
-  }
-
-  // Safe seek
-  const captureAt = Math.max(0.2, Math.min(duration * 0.2 || 0.2, 2));
-  if (duration <= 0) {
-    video.currentTime = 0;
-  } else {
-    video.currentTime = captureAt;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const onSeeked = () => {
-      video.removeEventListener('seeked', onSeeked);
-      resolve();
-    };
-    const onError = () => {
-      video.removeEventListener('seeked', onSeeked);
-      reject(new Error('Failed to prepare thumbnail.'));
-    };
-    video.addEventListener('seeked', onSeeked, { once: true });
-    video.addEventListener('error', onError, { once: true });
-  });
-
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, outW, outH);
-  ctx.drawImage(video, 0, 0, outW, outH);
-
-  const blob = await canvasToBlob(canvas, 'image/webp', 0.78);
-  URL.revokeObjectURL(url);
-
-  const blobToFile = (blob: Blob, name: string, fallbackType: string) => {
-    const type = blob.type || fallbackType;
-    const ext = type.includes('jpeg') ? 'jpg' : type.includes('png') ? 'png' : 'webp';
-    return new File([blob], `${name}.${ext}`, { type });
-  };
-
-  const outFile = blobToFile(blob, `thumb-${Date.now()}`, 'image/webp');
-  const previewUrl = URL.createObjectURL(outFile);
-
-  return { file: outFile, previewUrl };
-};
-
-// ==================== AUDIO FOCUS MANAGER ====================
-const useAudioFocus = () => {
-  const stopAllAudio = useCallback(() => {
-    document.querySelectorAll('audio').forEach(audio => {
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch (error) {
-        console.warn('Failed to stop audio:', error);
-      }
-    });
-    
-    document.querySelectorAll('video').forEach(video => {
-      try {
-        video.pause();
-        video.muted = true;
-      } catch (error) {
-        console.warn('Failed to stop video:', error);
-      }
-    });
-  }, []);
-
-  return { stopAllAudio };
-};
-
-// ==================== API HELPER ====================
-const apiFetch = async (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem('unera_token');
-  const headers: HeadersInit = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers || {}),
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const res = await fetch(url, { 
-      ...options, 
-      headers,
-      signal: controller.signal 
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    let data: any = null;
-
-    try {
-      if (contentType.includes('application/json')) data = await res.json();
-      else {
-        const text = await res.text();
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = { error: text };
-        }
-      }
-    } catch (e: any) {
-      data = { error: e?.message || 'Failed to parse response' };
-    }
-
-    if (!res.ok) {
-      const msg = data?.error || data?.message || `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-
-    return data;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
-
-// ==================== FORMAT HELPERS ====================
-const formatClock = (secs: number) => {
-  const safe = Math.max(0, Math.floor(secs || 0));
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const safeRevoke = (url?: string | null) => {
-  if (!url) return;
-  if (url.startsWith('blob:')) {
-    try {
-      URL.revokeObjectURL(url);
-    } catch {}
-  }
-};
-
-// =========================
-// ENHANCED FILTER SYSTEM
-// =========================
-type FilterCategory = 'beauty' | 'bright' | 'mood' | 'vintage' | 'bw';
-
-type FilterPreset = {
-  id: string;
-  name: string;
-  category: FilterCategory;
-  base: {
-    brightness?: number;
-    contrast?: number;
-    saturate?: number;
-    sepia?: number;
-    grayscale?: number;
-    hueRotate?: number;
-  };
-  hasBeautyOverlay?: boolean;
-  description?: string;
-};
-
-const FILTER_PRESETS: FilterPreset[] = [
-  { id: 'none', name: 'Original', category: 'bright', base: {} },
-  { 
-    id: 'softGlow', 
-    name: 'Soft Glow', 
-    category: 'beauty',
-    base: { brightness: 1.06, contrast: 0.94, saturate: 1.06, sepia: 0.04 },
-    hasBeautyOverlay: true,
-    description: 'Softens skin, reduces harsh contrast'
-  },
-  { 
-    id: 'smoothWarm', 
-    name: 'Smooth Warm', 
-    category: 'beauty',
-    base: { brightness: 1.05, contrast: 0.95, saturate: 1.08, sepia: 0.08 },
-    hasBeautyOverlay: true,
-    description: 'Warms skin tones, gentle glow'
-  },
-  { 
-    id: 'cleanSkin', 
-    name: 'Clean Skin', 
-    category: 'beauty',
-    base: { brightness: 1.07, contrast: 0.93, saturate: 1.03 },
-    hasBeautyOverlay: true,
-    description: 'Brightens face, reduces shadows'
-  },
-  { 
-    id: 'peach', 
-    name: 'Peach', 
-    category: 'beauty',
-    base: { brightness: 1.06, contrast: 0.95, saturate: 1.08, sepia: 0.12, hueRotate: -4 },
-    hasBeautyOverlay: true,
-    description: 'Warm peach tone, flattering for skin'
-  },
-  { 
-    id: 'vividPop', 
-    name: 'Vivid Pop', 
-    category: 'bright',
-    base: { brightness: 1.04, contrast: 1.08, saturate: 1.18 },
-    description: 'Punchy colors, vibrant look'
-  },
-  { 
-    id: 'sunny', 
-    name: 'Sunny', 
-    category: 'bright',
-    base: { brightness: 1.08, contrast: 1.02, saturate: 1.10, sepia: 0.06 },
-    description: 'Bright and warm like sunlight'
-  },
-  { 
-    id: 'fresh', 
-    name: 'Fresh', 
-    category: 'bright',
-    base: { brightness: 1.05, contrast: 1.01, saturate: 1.12, hueRotate: -3 },
-    description: 'Clean, slightly cool bright look'
-  },
-  { 
-    id: 'clearDay', 
-    name: 'Clear Day', 
-    category: 'bright',
-    base: { brightness: 1.06, contrast: 1.04, saturate: 1.08 },
-    description: 'Crisp and clear like a perfect day'
-  },
-  { 
-    id: 'coolBlue', 
-    name: 'Cool Blue', 
-    category: 'mood',
-    base: { brightness: 1.02, contrast: 1.04, saturate: 0.95, hueRotate: 6 },
-    description: 'Cool, calm aesthetic'
-  },
-  { 
-    id: 'fade', 
-    name: 'Fade', 
-    category: 'mood',
-    base: { brightness: 1.04, contrast: 0.88, saturate: 0.92 },
-    description: 'Muted, faded film look'
-  },
-  { 
-    id: 'cinema', 
-    name: 'Cinema', 
-    category: 'mood',
-    base: { brightness: 0.98, contrast: 1.12, saturate: 0.92, sepia: 0.06 },
-    description: 'Cinematic contrast and tone'
-  },
-  { 
-    id: 'tokyo', 
-    name: 'Tokyo', 
-    category: 'mood',
-    base: { brightness: 1.01, contrast: 1.06, saturate: 1.08, hueRotate: 2 },
-    description: 'Neon-inspired cool tone'
-  },
-  { 
-    id: 'cocoa', 
-    name: 'Cocoa', 
-    category: 'mood',
-    base: { brightness: 0.96, contrast: 1.02, saturate: 0.94, sepia: 0.14 },
-    description: 'Warm, rich brown tones'
-  },
-  { 
-    id: 'retro', 
-    name: 'Retro', 
-    category: 'vintage',
-    base: { brightness: 1.00, contrast: 0.92, saturate: 0.88, sepia: 0.20 },
-    description: 'Classic vintage film look'
-  },
-  { 
-    id: 'dust', 
-    name: 'Dust', 
-    category: 'vintage',
-    base: { brightness: 1.03, contrast: 0.90, saturate: 0.86, sepia: 0.16 },
-    description: 'Faded, dusty aesthetic'
-  },
-  { 
-    id: 'goldenFilm', 
-    name: 'Golden', 
-    category: 'vintage',
-    base: { brightness: 1.02, contrast: 0.94, saturate: 0.96, sepia: 0.24 },
-    description: 'Warm golden vintage tone'
-  },
-  { 
-    id: 'oldCam', 
-    name: 'Old Cam', 
-    category: 'vintage',
-    base: { brightness: 1.00, contrast: 0.88, saturate: 0.84, sepia: 0.18 },
-    description: 'Aged camera look'
-  },
-  { 
-    id: 'monoSoft', 
-    name: 'Mono Soft', 
-    category: 'bw',
-    base: { grayscale: 1, brightness: 1.04, contrast: 0.95 },
-    description: 'Soft black and white'
-  },
-  { 
-    id: 'monoBold', 
-    name: 'Mono Bold', 
-    category: 'bw',
-    base: { grayscale: 1, contrast: 1.16 },
-    description: 'High contrast black and white'
-  },
-  { 
-    id: 'monoWarm', 
-    name: 'Mono Warm', 
-    category: 'bw',
-    base: { grayscale: 1, sepia: 0.15, brightness: 1.02, contrast: 1.04 },
-    description: 'Warm-toned black and white'
-  },
-];
-
-const buildFilterString = (preset: FilterPreset, intensity: number): string => {
-  if (intensity === 0 || preset.id === 'none') return 'none';
-
-  const mix = (neutral: number, target?: number) => {
-    if (target === undefined) return neutral;
-    return neutral + (target - neutral) * intensity;
-  };
-
-  const brightness = mix(1, preset.base.brightness);
-  const contrast = mix(1, preset.base.contrast);
-  const saturate = mix(1, preset.base.saturate);
-  const sepia = mix(0, preset.base.sepia);
-  const grayscale = mix(0, preset.base.grayscale);
-  const hueRotate = (preset.base.hueRotate || 0) * intensity;
-
-  const filters: string[] = [];
-
-  if (brightness !== 1) filters.push(`brightness(${brightness})`);
-  if (contrast !== 1) filters.push(`contrast(${contrast})`);
-  if (saturate !== 1) filters.push(`saturate(${saturate})`);
-  if (sepia > 0) filters.push(`sepia(${sepia})`);
-  if (grayscale > 0) filters.push(`grayscale(${grayscale})`);
-  if (hueRotate !== 0) filters.push(`hue-rotate(${hueRotate}deg)`);
-
-  return filters.length > 0 ? filters.join(' ') : 'none';
-};
-
-const FILTER_CATEGORIES: { id: FilterCategory; name: string; icon: string }[] = [
-  { id: 'beauty', name: 'Beauty', icon: 'fa-spa' },
-  { id: 'bright', name: 'Bright', icon: 'fa-sun' },
-  { id: 'mood', name: 'Mood', icon: 'fa-moon' },
-  { id: 'vintage', name: 'Vintage', icon: 'fa-camera-retro' },
-  { id: 'bw', name: 'B&W', icon: 'fa-circle' },
-];
-
-// =========================
-// TYPES
-// =========================
-export type Visibility = 'public' | 'friends' | 'private';
-
-export type ReelSound = {
-  songName: string;
-  audioUrl: string;
-  audioStart?: number;
-  audioEnd?: number;
-  songId?: string | number;
-  soundKey?: string;
-  originalUrl?: string;
-  isTrimmedAudio?: boolean;
-};
-
-export type LyricThemeId =
-  | 'classic'
-  | 'neon'
-  | 'cinema'
-  | 'glass'
-  | 'karaoke'
-  | 'outline';
-
-type LyricPreset = {
-  id: LyricThemeId;
-  name: string;
-  className: string;
-};
-
-type EditorMode = 'choose' | 'preview';
-
-// Sound type matching Reels.tsx exactly
-export type Sound = {
+// ==================== TYPES ====================
+interface Sound {
   id: string | number;
   name: string;
   url: string;
@@ -612,218 +71,1056 @@ export type Sound = {
   coverImage?: string;
   soundKey?: string;
   originalUrl?: string;
-  file?: File; // For local uploads
-};
-
-export type RecorderSoundOption = {
-  id: string | number;
-  name: string;
-  url: string;
-  originalUrl?: string;
-  duration?: number;
-  start?: number;
-  end?: number;
-  coverImage?: string;
-  creatorName?: string;
-  creatorImage?: string;
-  playCount?: number;
-  creationCount?: number;
-  soundKey?: string;
-  isOriginal?: boolean;
-  file?: File; // For local uploads
-};
-
-export interface RecorderSubmitPayload {
-  caption: string;
-  location?: string;
-  visibility: Visibility;
-  videoFile: File;
-  thumbnailFile?: File;
-  audioFile?: File;
-  songName?: string;
-  audioUrl?: string;
-  audioStart?: number;
-  audioEnd?: number;
-  soundKey?: string;
-  songId?: string | number;
-  originalSoundId?: string | number;
-  lyricsText?: string;
-  lyricsTheme?: LyricThemeId;
-  lyricsEnabled?: boolean;
-  filterId?: string;
-  filterIntensity?: number;
 }
 
-// Updated RecorderProps interface with new props
-interface RecorderProps {
-  currentUser: User;
-  selectedSound?: ReelSound | null;
-  sounds?: RecorderSoundOption[];
-  onSelectSound?: (sound: ReelSound | null) => void;
-  onBack: () => void;
-  onSubmit: (payload: RecorderSubmitPayload) => Promise<void> | void;
-  maxDurationSec?: number;
-  brandName?: string;
-  initialVideoFile?: File | null;
-  startInPreview?: boolean;
-}
+type NetworkLevel = 'low' | 'medium' | 'high';
 
-const LYRIC_PRESETS: LyricPreset[] = [
-  { id: 'classic', name: 'Classic', className: 'lyric-classic' },
-  { id: 'neon', name: 'Neon', className: 'lyric-neon' },
-  { id: 'cinema', name: 'Cinema', className: 'lyric-cinema' },
-  { id: 'glass', name: 'Glass', className: 'lyric-glass' },
-  { id: 'karaoke', name: 'Karaoke', className: 'lyric-karaoke' },
-  { id: 'outline', name: 'Outline', className: 'lyric-outline' },
+type ReelVideoSources = {
+  low?: string;
+  medium?: string;
+  hd?: string;
+};
+
+// ==================== HELPER: Get reel user ID ====================
+const getReelUserId = (reel: any): number => {
+  return Number(reel.userId ?? reel.user_id ?? 0);
+};
+
+// ==================== NETWORK / QUALITY HELPERS ====================
+const getNetworkLevel = (): NetworkLevel => {
+  const nav = navigator as any;
+  const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+
+  if (!conn) return 'medium';
+
+  const effectiveType = String(conn.effectiveType || '').toLowerCase();
+  const saveData = Boolean(conn.saveData);
+
+  if (saveData) return 'low';
+  if (effectiveType.includes('2g') || effectiveType === 'slow-2g') return 'low';
+  if (effectiveType === '3g') return 'medium';
+  return 'medium';
+};
+
+const getReelVideoSources = (reel: Reel): ReelVideoSources => ({
+  low: (reel as any).video_url_low || (reel as any).videoUrlLow || '',
+  medium:
+    (reel as any).video_url_medium ||
+    (reel as any).videoUrlMedium ||
+    (reel as any).video_url ||
+    (reel as any).videoUrl ||
+    '',
+  hd: (reel as any).video_url_hd || (reel as any).videoUrlHd || '',
+});
+
+const pickBestVideoUrl = (sources: ReelVideoSources, networkLevel: NetworkLevel): string => {
+  if (networkLevel === 'low') {
+    return sources.low || sources.medium || sources.hd || '';
+  }
+  return sources.medium || sources.low || sources.hd || '';
+};
+
+// ==================== REACTION EMOJIS ====================
+const REACTION_EMOJIS = [
+  '❤️', '🙏', '👍', '💪', '👀', '😊', '😍', '🤣', '😭', '😂', '😟', '🤑',
+  '😝', '😋', '🤧', '😪', '👏', '🤘', '✌️', '🤛', '🤝', '🖕', '🖐', '🙆‍♂️',
+  '🤦', '🤷‍♂️', '🫂',
 ];
 
-// ==================== ENHANCED AUDIO TRIMMER ====================
-const AudioTrimmer: React.FC<{ 
-  url: string, 
-  onClose: () => void, 
-  onConfirm: (start: number, end: number, trimmedFile?: File) => void,
-  initialStart: number,
-  initialEnd: number,
-  soundId?: string | number;
-  soundName?: string;
-  onMountStopAll?: () => void;
-  onStopVideo?: () => void;
-  isOriginal?: boolean;
-}> = ({ url, onClose, onConfirm, initialStart, initialEnd, soundId, soundName, onMountStopAll, onStopVideo, isOriginal }) => {
-  const { stopAllAudio } = useAudioFocus();
-  const [start, setStart] = useState(initialStart);
-  const [end, setEnd] = useState(initialEnd > 0 ? initialEnd : Math.min(60, initialStart + 15));
-  const [duration, setDuration] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [activeThumb, setActiveThumb] = useState<'start' | 'end'>('start');
-  const [isTrimming, setIsTrimming] = useState(false);
-  const [trimProgress, setTrimProgress] = useState(0);
-  const [trimStatus, setTrimStatus] = useState<'idle' | 'trimming' | 'success' | 'error'>('idle');
-  const [trimError, setTrimError] = useState<string>('');
-  
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const trimAudioRef = useRef<HTMLAudioElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playIntervalRef = useRef<any>(null);
-  
-  const MIN_WINDOW = 1;
-  const MAX_WINDOW = 60;
+// ==================== SPARK REACT ICON (from Feed.tsx) ====================
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="reelSparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="reelSparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <circle
+      cx="32"
+      cy="32"
+      r="18"
+      fill="url(#reelSparkGrad)"
+      opacity="0.14"
+    />
+    <g
+      stroke="url(#reelSparkGrad)"
+      strokeWidth="5.2"
+      strokeLinecap="round"
+      filter="url(#reelSparkGlow)"
+    >
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+    <circle cx="32" cy="32" r="6.2" fill="url(#reelSparkGrad)" />
+  </svg>
+);
+
+// ==================== DISCUSS SIGNAL ICON (from Feed.tsx) ====================
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
+  size = 28,
+  color = '#1877F2',
+}) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g
+      fill="none"
+      stroke={color}
+      strokeWidth="4.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
+  </svg>
+);
+
+// ==================== FORMAT HELPERS ====================
+const formatViewCount = (num?: number): string => {
+  const v = Number(num || 0);
+
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(v);
+};
+
+// ==================== REEL REACTION BUTTON ====================
+const ReelReactionButton: React.FC<{
+  hasReacted: boolean;
+  reactionCount: number;
+  onReact: () => void;
+  isLoading?: boolean;
+}> = ({ hasReacted, reactionCount, onReact, isLoading = false }) => {
+  const [showDock, setShowDock] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+  const timerRef = useRef<any>(null);
+  const longPressTimerRef = useRef<any>(null);
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😂', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35' },
+    { type: 'party', icon: '🎉', color: '#9C27B0' },
+    { type: 'clap', icon: '👏', color: '#4CAF50' },
+    { type: 'star', icon: '⭐', color: '#FFD700' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B' },
+    { type: 'crying', icon: '😭', color: '#2196F3' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63' },
+    { type: 'kiss', icon: '😘', color: '#FF4081' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800' },
+    { type: 'crown', icon: '👑', color: '#FFC107' },
+    { type: 'unicorn', icon: '🦄', color: '#E040FB' },
+    { type: 'rainbow', icon: '🌈', color: '#00E676' },
+    { type: 'money', icon: '💰', color: '#4CAF50' },
+    { type: 'muscle', icon: '💪', color: '#FF5722' },
+    { type: 'brain', icon: '🧠', color: '#9C27B0' },
+    { type: 'lightning', icon: '⚡', color: '#FFEB3B' },
+    { type: 'gem', icon: '💎', color: '#00BCD4' },
+  ];
+
+  const handleMouseEnter = () => {
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+    setShowPreview(false);
+  };
+
+  const handleTouchStart = () => {
+    longPressTimerRef.current = setTimeout(() => {
+      setShowDock(true);
+      setShowPreview(true);
+      setPreviewEmoji('👍');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    setTimeout(() => setShowPreview(false), 300);
+  };
+
+  const handleClick = () => {
+    if (hasReacted) {
+      setIsAnimating(true);
+      onReact();
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      setShowDock(!showDock);
+    }
+  };
+
+  const handleDockReact = (type: any) => {
+    setIsAnimating(true);
+    onReact();
+    setShowDock(false);
+    setShowPreview(false);
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleEmojiHover = (emoji: string) => {
+    if (showPreview) {
+      setPreviewEmoji(emoji);
+    }
+  };
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      {showPreview && (
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+          <div className="text-4xl">{previewEmoji}</div>
+        </div>
+      )}
+
+      {showDock && (
+        <div
+          className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center"
+        >
+          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+            {reactionConfig.map((r) => (
+              <div
+                key={r.type}
+                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDockReact(r.type);
+                }}
+                onMouseEnter={() => handleEmojiHover(r.icon)}
+                title={r.type}
+              >
+                {r.icon}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        disabled={isLoading}
+        className={`flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all ${
+          isAnimating ? 'scale-110' : ''
+        } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+      >
+        <SparkReactIcon size={24} />
+        <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
+      </button>
+    </div>
+  );
+};
+
+// ==================== REEL DISCUSS BUTTON ====================
+const ReelDiscussButton: React.FC<{
+  commentCount: number;
+  onClick: () => void;
+}> = ({ commentCount, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+    >
+      <DiscussSignalIcon size={24} color="#1877F2" />
+      <span className="text-white text-sm font-bold ml-1">{formatViewCount(commentCount)}</span>
+    </button>
+  );
+};
+
+// ==================== COMMENTS SHEET ====================
+const ReelCommentsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  comments: any[];
+  users: User[];
+  currentUser: User | null;
+  onAddComment: (payload: {
+    text: string;
+    parentId?: number | null;
+    imageFile?: File | null;
+  }) => Promise<void> | void;
+  onEditComment: (
+    commentId: number,
+    payload: {
+      text?: string;
+      imageFile?: File | null;
+      image_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteComment: (commentId: number) => Promise<void> | void;
+}> = ({
+  isOpen,
+  onClose,
+  comments,
+  users,
+  currentUser,
+  onAddComment,
+  onEditComment,
+  onDeleteComment,
+}) => {
+  const COMMENT_EMOJIS = ['😀', '😂', '😍', '🔥', '👏', '❤️', '👍', '🎉', '😮', '😢', '🙌', '🥰'];
+
+  const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [menuComment, setMenuComment] = useState<any | null>(null);
+  const [editingComment, setEditingComment] = useState<any | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [showEmojiBar, setShowEmojiBar] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
+  const [commentReactions, setCommentReactions] = useState<Record<number, string>>({});
+
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const startYRef = useRef<number>(0);
+  const [translateY, setTranslateY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    onStopVideo?.();
-    onMountStopAll?.();
-    stopAllAudio();
-    
-    if (trimAudioRef.current) {
-      trimAudioRef.current.src = url;
-      trimAudioRef.current.currentTime = start;
+    if (isOpen) {
+      setTranslateY(0);
+      setReplyTo(null);
+      setSelectedImage(null);
+      setImagePreview(null);
+      setShowEmojiBar(false);
+      setShowReactionPicker(null);
     }
-    
+  }, [isOpen]);
+
+  useEffect(() => {
     return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      clearTimeout(longPressTimerRef.current);
+    };
+  }, [imagePreview]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startYRef.current = e.touches[0].clientY;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || !sheetRef.current) return;
+    const deltaY = e.touches[0].clientY - startYRef.current;
+    if (deltaY > 0) setTranslateY(deltaY);
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    if (translateY > 150) onClose();
+    else setTranslateY(0);
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleSubmitComment = async () => {
+    if (!text.trim() && !selectedImage) return;
+
+    try {
+      await Promise.resolve(
+        onAddComment({
+          text: text.trim(),
+          parentId: replyTo?.id || null,
+          imageFile: selectedImage,
+        })
+      );
+
+      setText('');
+      setReplyTo(null);
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      setSelectedImage(null);
+      setImagePreview(null);
+      setShowEmojiBar(false);
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+    }
+  };
+
+  const isOwnerComment = (comment: any) => {
+    const commentUserId = Number(comment.userId ?? comment.user_id);
+    return commentUserId === Number(currentUser?.id);
+  };
+
+  const beginLongPress = (comment: any) => {
+    if (!isOwnerComment(comment)) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      setMenuComment(comment);
+    }, 450);
+  };
+
+  const cancelLongPress = () => {
+    clearTimeout(longPressTimerRef.current);
+  };
+
+  const openEditComment = (comment: any) => {
+    setMenuComment(null);
+    setEditingComment(comment);
+    setEditingText(comment.text || '');
+  };
+
+  const confirmDeleteComment = async (comment: any) => {
+    setMenuComment(null);
+    const ok = window.confirm('Delete this discussion?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteComment(comment.id));
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete discussion');
+    }
+  };
+
+  const saveEditedComment = async () => {
+    if (!editingComment) return;
+
+    try {
+      await Promise.resolve(
+        onEditComment(editingComment.id, {
+          text: editingText,
+        })
+      );
+      setEditingComment(null);
+      setEditingText('');
+    } catch (e: any) {
+      alert(e?.message || 'Failed to edit discussion');
+    }
+  };
+
+  const addReaction = (commentId: number, emoji: string) => {
+    setCommentReactions((prev) => ({
+      ...prev,
+      [commentId]: emoji,
+    }));
+    setShowReactionPicker(null);
+  };
+
+  const insertEmoji = (emoji: string) => setText((prev) => prev + emoji);
+  const insertEditEmoji = (emoji: string) => setEditingText((prev) => prev + emoji);
+
+  const getReplies = (commentId: number | string) =>
+    comments
+      .filter(
+        (c: any) =>
+          Number(c.parentId ?? c.parent_comment_id ?? c.parent_id) === Number(commentId)
+      )
+      .sort((a: any, b: any) => {
+        const ta = new Date(a.created_at || a.createdAt || 0).getTime();
+        const tb = new Date(b.created_at || b.createdAt || 0).getTime();
+        return ta - tb;
+      });
+
+  const getReplyPreviewText = (count: number) => {
+    if (count <= 0) return '';
+    if (count === 1) return 'View previous 1 reply';
+    return `View previous ${count} replies`;
+  };
+
+  if (!isOpen) return null;
+
+  const rootComments = comments.filter(
+    (c: any) => !c.parentId && !c.parent_comment_id && !c.parent_id
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[400] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
+      style={{ opacity: 1 - translateY / 500 }}
+      onClick={onClose}
+    >
+      <div
+        ref={sheetRef}
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[80vh] bg-[#121212] rounded-t-[40px] flex flex-col border-t border-white/10 shadow-2xl transition-transform duration-200 ease-out"
+        style={{ transform: `translateY(${translateY}px)` }}
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div className="pt-3 pb-2 flex justify-center">
+          <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
+        </div>
+
+        <div className="px-5 pb-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
+          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
+            {comments.length} {replyTo ? 'Replies' : 'Discussions'}
+          </span>
+          {replyTo && (
+            <button onClick={() => setReplyTo(null)} className="text-[#1877F2] text-xs font-bold">
+              Back to all
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
+          >
+            <i className="fas fa-times text-xs"></i>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {replyTo && (
+            <div className="mb-2 p-4 rounded-[22px] bg-white/5 border border-white/10">
+              <p className="text-[12px] uppercase tracking-[2px] text-[#1877F2] font-black mb-2">
+                Reply thread
+              </p>
+              <p className="text-white/70 text-[16px] line-clamp-2">
+                {replyTo.text || 'Image discussion'}
+              </p>
+            </div>
+          )}
+
+          {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
+            const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
+            const replies = getReplies(c.id);
+            const lastReply = replies.length ? replies[replies.length - 1] : null;
+            const hiddenRepliesCount = replies.length > 1 ? replies.length - 1 : replies.length;
+            const isReply = c.parentId || c.parent_comment_id || c.parent_id;
+            const isOwner = isOwnerComment(c);
+
+            return (
+              <div key={c.id} className={`${isReply ? 'ml-10' : ''}`}>
+                <div className="flex gap-4">
+                  <img
+                    src={author?.profile_image_url || author?.profileImage || 'https://via.placeholder.com/40'}
+                    className="w-12 h-12 rounded-full object-cover border-2 border-white/5 shrink-0"
+                    alt=""
+                  />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-white font-black text-[22px] leading-none tracking-[-0.02em]">
+                        {author?.name || 'User'}
+                      </p>
+                      {isOwner && (
+                        <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded-full text-white/60">
+                          You
+                        </span>
+                      )}
+                    </div>
+
+                    <div
+                      onTouchStart={() => beginLongPress(c)}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                      onMouseDown={() => beginLongPress(c)}
+                      onMouseUp={cancelLongPress}
+                      onMouseLeave={cancelLongPress}
+                    >
+                      {!!c.text && (
+                        <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
+                          {c.text}
+                        </p>
+                      )}
+
+                      {(c.image_url || c.imageUrl) && (
+                        <img
+                          src={c.image_url || c.imageUrl}
+                          alt=""
+                          className="mt-3 max-w-[240px] rounded-[20px] border border-white/10 object-cover"
+                        />
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-8">
+                      <span className="text-[13px] font-semibold text-white/45">
+                        {(() => {
+                          const created = c.created_at || c.createdAt;
+                          if (!created) return '';
+                          const diff = Math.floor((Date.now() - new Date(created).getTime()) / 1000);
+                          if (diff < 60) return 'now';
+                          if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+                          if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+                          if (diff < 2592000) return `${Math.floor(diff / 86400)}d`;
+                          return `${Math.floor(diff / 2592000)}mo`;
+                        })()}
+                      </span>
+
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowReactionPicker(showReactionPicker === c.id ? null : c.id)}
+                          className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
+                        >
+                          {commentReactions[c.id] ? (
+                            <span className="text-xl">{commentReactions[c.id]}</span>
+                          ) : (
+                            'React'
+                          )}
+                        </button>
+
+                        {showReactionPicker === c.id && (
+                          <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
+                            <div className="flex overflow-x-auto gap-2 max-w-[300px] scrollbar-hide pb-1">
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => addReaction(c.id, emoji)}
+                                  className="text-2xl hover:scale-125 transition-transform flex-shrink-0"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setReplyTo(c)}
+                        className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
+                      >
+                        Reply
+                      </button>
+                    </div>
+
+                    {!replyTo && replies.length > 0 && (
+                      <div className="mt-5">
+                        {hiddenRepliesCount > 0 && (
+                          <button
+                            onClick={() => setReplyTo(c)}
+                            className="text-[#1877F2] font-black text-[16px] leading-none hover:opacity-80 transition-opacity"
+                          >
+                            {getReplyPreviewText(hiddenRepliesCount)}
+                          </button>
+                        )}
+
+                        {lastReply && (
+                          <div className="mt-4 ml-2">
+                            <div className="flex gap-3">
+                              <img
+                                src={
+                                  users.find(
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                  )?.profile_image_url ||
+                                  users.find(
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                  )?.profileImage ||
+                                  'https://via.placeholder.com/40'
+                                }
+                                className="w-10 h-10 rounded-full object-cover border border-white/10 shrink-0"
+                                alt=""
+                              />
+
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white font-black text-[22px] leading-none mb-2">
+                                  {users.find(
+                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                  )?.name || 'User'}
+                                </p>
+
+                                {!!lastReply.text && (
+                                  <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
+                                    {lastReply.text}
+                                  </p>
+                                )}
+
+                                {(lastReply.image_url || lastReply.imageUrl) && (
+                                  <img
+                                    src={lastReply.image_url || lastReply.imageUrl}
+                                    alt=""
+                                    className="mt-3 max-w-[220px] rounded-[18px] border border-white/10 object-cover"
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
+          {replyTo && (
+            <div className="mb-3 flex items-center gap-2 bg-white/5 p-2 rounded-lg">
+              <span className="text-xs text-white/60">Replying to</span>
+              <span className="text-xs text-[#1877F2] font-bold">
+                @{users.find((u) => Number(u.id) === Number(replyTo.userId ?? replyTo.user_id))?.name || 'User'}
+              </span>
+              <button onClick={() => setReplyTo(null)} className="ml-auto text-white/40 hover:text-white">
+                <i className="fas fa-times text-xs"></i>
+              </button>
+            </div>
+          )}
+
+          {imagePreview && (
+            <div className="mb-3 relative inline-block">
+              <img src={imagePreview} className="h-20 rounded-lg border border-white/10" alt="" />
+              <button
+                onClick={() => {
+                  if (imagePreview) URL.revokeObjectURL(imagePreview);
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                }}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+              >
+                <i className="fas fa-times text-white text-xs"></i>
+              </button>
+            </div>
+          )}
+
+          {showEmojiBar && (
+            <div className="mb-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
+              {COMMENT_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => insertEmoji(emoji)}
+                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*"
+              onChange={handleImageSelect}
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white"
+            >
+              <i className="fas fa-image"></i>
+            </button>
+
+            <button
+              onClick={() => setShowEmojiBar((prev) => !prev)}
+              className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-colors ${
+                showEmojiBar
+                  ? 'bg-[#1877F2]/15 border-[#1877F2]/40 text-[#1877F2]'
+                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+              }`}
+            >
+              <i className="far fa-smile"></i>
+            </button>
+
+            <input
+              ref={inputRef}
+              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[17px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
+              placeholder={replyTo ? 'Write a reply...' : 'Add to discussion...'}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
+                  e.preventDefault();
+                  handleSubmitComment();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+
+            <button
+              onClick={handleSubmitComment}
+              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
+              disabled={!text.trim() && !selectedImage}
+            >
+              <i className="fas fa-paper-plane text-xs"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {menuComment && (
+        <div
+          className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm"
+          onClick={() => setMenuComment(null)}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+            <button
+              onClick={() => {
+                setShowReactionPicker(menuComment.id);
+                setMenuComment(null);
+              }}
+              className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+            >
+              <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center text-white/80">
+                <i className="fas fa-smile"></i>
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-sm">React</p>
+                <p className="text-white/50 text-xs">Add emoji reaction</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setReplyTo(menuComment);
+                setMenuComment(null);
+              }}
+              className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+            >
+              <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
+                <i className="fas fa-reply"></i>
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-sm">Reply</p>
+                <p className="text-white/50 text-xs">Respond to this discussion</p>
+              </div>
+            </button>
+
+            {isOwnerComment(menuComment) && (
+              <>
+                <button
+                  onClick={() => openEditComment(menuComment)}
+                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+                >
+                  <div className="w-11 h-11 rounded-full bg-[#45BD62]/15 flex items-center justify-center text-[#45BD62]">
+                    <i className="fas fa-pen"></i>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Edit</p>
+                    <p className="text-white/50 text-xs">Change your message</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => confirmDeleteComment(menuComment)}
+                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+                >
+                  <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
+                    <i className="fas fa-trash-alt"></i>
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">Delete</p>
+                    <p className="text-red-300/60 text-xs">Remove it permanently</p>
+                  </div>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={() => setMenuComment(null)}
+              className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingComment && (
+        <div className="fixed inset-0 z-[510] bg-black/70 backdrop-blur-sm flex items-end">
+          <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up">
+            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+            <h3 className="text-white text-lg font-black mb-4">Edit Discussion</h3>
+
+            <textarea
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+              placeholder="Update discussion..."
+            />
+
+            <div className="mt-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
+              {COMMENT_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => insertEditEmoji(emoji)}
+                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => {
+                  setEditingComment(null);
+                  setEditingText('');
+                }}
+                className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditedComment}
+                className="flex-1 py-4 rounded-2xl bg-[#1877F2] text-white font-bold"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================== SOUND DETAIL VIEW ====================
+interface SoundDetailViewProps {
+  sound: Sound;
+  onClose: () => void;
+  onReelClick: (id: number) => void;
+}
+
+export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
+  sound,
+  onClose,
+  onReelClick,
+}) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [soundReels, setSoundReels] = useState<Reel[]>([]);
+  const [soundStats, setSoundStats] = useState({
+    totalViews: 0,
+    totalLikes: 0,
+    totalComments: 0,
+    totalShares: 0,
+    totalUses: 0,
+  });
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const timerRef = useRef<any>(null);
+  const previewStopRef = useRef<any>(null);
+
+  useEffect(() => {
+    const fetchSoundReels = async () => {
+      try {
+        const soundKey = sound.soundKey || sound.id;
+        const response = await fetch(`/api/reels/by-sound?sound_key=${encodeURIComponent(String(soundKey))}&limit=60`);
+        const data = await response.json();
+
+        if (data?.success && data.reels) {
+          setSoundReels(data.reels);
+
+          const stats = {
+            totalViews: 0,
+            totalLikes: 0,
+            totalComments: 0,
+            totalShares: 0,
+            totalUses: data.reels.length,
+          };
+
+          data.reels.forEach((reel: Reel) => {
+            stats.totalViews += reel.views || 0;
+            stats.totalLikes += reel.reactions?.length || 0;
+            stats.totalComments += reel.comments?.length || 0;
+            stats.totalShares += reel.shares || 0;
+          });
+
+          setSoundStats(stats);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sound reels:', error);
+        setSoundReels([]);
       }
+    };
+
+    fetchSoundReels();
+  }, [sound.id, sound.soundKey]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      timerRef.current = setInterval(() => {
+        if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+      }, 100);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isPlaying]);
+
+  useEffect(() => {
+    return () => {
+      if (previewStopRef.current) clearTimeout(previewStopRef.current);
       if (audioRef.current) {
         audioRef.current.pause();
-      }
-      if (trimAudioRef.current) {
-        trimAudioRef.current.pause();
+        audioRef.current.currentTime = 0;
       }
     };
   }, []);
 
-  useEffect(() => {
-    const handleTimeUpdate = () => {
-      if (!isPlaying) return;
-      
-      setCurrentTime(trimAudioRef.current?.currentTime || 0);
-      
-      if (trimAudioRef.current && (trimAudioRef.current.currentTime < start || trimAudioRef.current.currentTime >= end)) {
-        trimAudioRef.current.currentTime = start;
-      }
-    };
+  const playSoundPreview = () => {
+    if (!audioRef.current) return;
 
-    const audio = trimAudioRef.current;
-    if (audio) {
-      audio.addEventListener('timeupdate', handleTimeUpdate);
-      return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
-    }
-  }, [isPlaying, start, end]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      playIntervalRef.current = setInterval(() => {
-        if (trimAudioRef.current) {
-          setCurrentTime(trimAudioRef.current.currentTime);
-        }
-      }, 100);
-    } else {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
-      }
-    }
-    
-    return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current);
-      }
-    };
-  }, [isPlaying]);
-
-  const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      const d = audioRef.current.duration;
-      setDuration(d);
-      if (initialEnd === 0 || initialEnd > d) {
-        const newEnd = Math.min(d, start + 15);
-        setEnd(newEnd);
-      }
-    }
-  };
-
-  const togglePlay = () => {
-    if (!trimAudioRef.current) return;
-
-    stopAllAudio();
+    if (previewStopRef.current) clearTimeout(previewStopRef.current);
 
     if (isPlaying) {
-      trimAudioRef.current.pause();
+      audioRef.current.pause();
       setIsPlaying(false);
-    } else {
-      trimAudioRef.current.currentTime = start;
-      trimAudioRef.current.play()
-        .then(() => setIsPlaying(true))
-        .catch(() => setIsPlaying(false));
+      return;
     }
-  };
 
-  const handleStartChange = (value: number) => {
-    const newStart = Math.min(value, end - MIN_WINDOW);
-    setStart(newStart);
-    if (trimAudioRef.current) {
-      trimAudioRef.current.currentTime = newStart;
-    }
-  };
+    audioRef.current.src = sound.url;
+    audioRef.current.currentTime = sound.start || 0;
+    audioRef.current.play().catch(() => {});
+    setIsPlaying(true);
 
-  const handleEndChange = (value: number) => {
-    const newEnd = Math.max(value, start + MIN_WINDOW);
-    setEnd(Math.min(newEnd, start + MAX_WINDOW));
-    if (trimAudioRef.current) {
-      trimAudioRef.current.currentTime = newEnd;
-    }
-  };
-
-  const handleTrackInteraction = (clientX: number) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = clientX - rect.left;
-    const clickPercent = Math.max(0, Math.min(1, clickX / rect.width));
-    const clickTime = clickPercent * duration;
-
-    const distStart = Math.abs(clickTime - start);
-    const distEnd = Math.abs(clickTime - end);
-    setActiveThumb(distStart < distEnd ? 'start' : 'end');
+    const duration = (sound.end || sound.duration || 30) - (sound.start || 0);
+    previewStopRef.current = setTimeout(() => {
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = sound.start || 0;
+      }
+    }, Math.min(duration * 1000, 10000));
   };
 
   const formatDuration = (seconds: number) => {
@@ -832,1757 +1129,1405 @@ const AudioTrimmer: React.FC<{
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleConfirm = async () => {
-    setIsTrimming(true);
-    setTrimStatus('trimming');
-    setTrimProgress(0);
-    setTrimError('');
-    
-    try {
-      setTrimProgress(10);
-      
-      const { blob } = await trimAudioUrlToWavBlob(url, start, end);
-      
-      setTrimProgress(80);
-      
-      const trimmedFile = new File([blob], `trimmed-${Date.now()}.wav`, { 
-        type: "audio/wav" 
-      });
-      
-      setTrimProgress(95);
-      setTrimStatus('success');
-      
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      onConfirm(start, end, trimmedFile);
-      
-    } catch (error: any) {
-      console.error('Audio trimming failed:', error);
-      setTrimStatus('error');
-      setTrimError(error?.message || 'Failed to trim audio');
-      setIsTrimming(false);
-    }
+  const formatCount = (num: number): string => {
+    if (!num && num !== 0) return '0';
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
+    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
+    return num.toString();
   };
 
   return (
-    <div className="fixed inset-0 z-[800] bg-black/98 flex flex-col justify-end animate-fade-in font-sans">
-      <style>{`
-        .precision-slider {
-          pointer-events: none;
-          appearance: none;
-          background: transparent;
-          width: 100%;
-          position: absolute;
-          left: 0;
-          z-index: 40;
-        }
-        .precision-slider::-webkit-slider-thumb {
-          pointer-events: auto;
-          appearance: none;
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-          border: 4px solid currentColor;
-        }
-        .slider-active { z-index: 50; }
-        .slider-blue::-webkit-slider-thumb { color: #1877F2; }
-        .slider-red::-webkit-slider-thumb { color: #F3425F; }
-      `}</style>
+    <div className="fixed inset-0 z-[600] bg-black flex flex-col animate-fade-in font-sans pb-20 overflow-hidden">
+      <div className="h-16 px-4 flex items-center justify-between border-b border-white/10 bg-black/90 backdrop-blur-xl shrink-0">
+        <button
+          onClick={onClose}
+          className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 transition-transform"
+        >
+          <i className="fas fa-chevron-left text-sm"></i>
+        </button>
+        <h3 className="font-black text-white text-[12px] uppercase tracking-[4px]">Sound Details</h3>
+        <button className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white">
+          <i className="fas fa-share-alt text-sm"></i>
+        </button>
+      </div>
 
-      {(isTrimming || trimStatus === 'trimming' || trimStatus === 'error') && (
-        <div className="absolute inset-0 z-[900] bg-black/95 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
-            <div className="flex flex-col items-center justify-center gap-6">
-              {trimStatus === 'trimming' ? (
-                <>
-                  <div className="w-24 h-24 relative">
-                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="45"
-                        fill="none"
-                        stroke="rgba(255, 255, 255, 0.1)"
-                        strokeWidth="8"
-                        strokeLinecap="round"
-                      />
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="45"
-                        fill="none"
-                        stroke="#1877F2"
-                        strokeWidth="8"
-                        strokeLinecap="round"
-                        strokeDasharray={`${trimProgress * 2.83} 283`}
-                        strokeDashoffset="0"
-                        className="transition-all duration-300 ease-out"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-16 h-16 rounded-full bg-black/50 flex items-center justify-center">
-                        <i className="fas fa-scissors text-2xl text-[#1877F2] animate-pulse"></i>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="text-center">
-                    <h3 className="text-xl font-bold text-white mb-2">Trimming Audio</h3>
-                    <p className="text-[#B0B3B8] text-sm">
-                      Creating trimmed audio file ({Math.round(trimProgress)}%)
-                    </p>
-                    <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-300"
-                        style={{ width: `${trimProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : trimStatus === 'error' ? (
-                <>
-                  <div className="w-24 h-24 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
-                    <i className="fas fa-exclamation-triangle text-3xl text-red-500"></i>
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-xl font-bold text-white mb-2">Trimming Failed</h3>
-                    <p className="text-[#B0B3B8] text-sm mb-6">{trimError || 'Failed to trim audio'}</p>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => {
-                          setTrimStatus('idle');
-                          setTrimError('');
-                          setIsTrimming(false);
-                        }}
-                        className="flex-1 bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity"
-                      >
-                        Try Again
-                      </button>
-                      <button
-                        onClick={onClose}
-                        className="flex-1 bg-white/10 text-white px-6 py-3 rounded-xl font-bold hover:bg-white/20 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : null}
+      <div className="p-8 flex flex-col md:flex-row items-center gap-10 bg-gradient-to-b from-white/10 to-transparent shrink-0">
+        <div className="relative group">
+          <div
+            onClick={playSoundPreview}
+            className={`w-36 h-36 rounded-full bg-gradient-to-tr from-gray-950 via-gray-900 to-black shadow-[0_0_50px_rgba(0,0,0,0.9)] border-4 border-white/20 flex items-center justify-center ${isPlaying ? 'animate-spin-slow' : ''} cursor-pointer hover:scale-105 transition-transform`}
+          >
+            <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 border border-white/10 flex items-center justify-center">
+              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-[#1877F2] text-2xl ml-1`}></i>
+            </div>
+          </div>
+          <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
+            <span className="text-white text-[10px] font-bold">
+              {formatDuration(currentTime)} / {formatDuration(sound.duration || 30)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 text-center md:text-left">
+          <h2 className="text-3xl font-black text-white mb-2 leading-tight tracking-tighter">
+            {sound.name}
+          </h2>
+          <div className="flex items-center gap-2 mb-1">
+            {sound.creator?.profile_image_url && (
+              <img src={sound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
+            )}
+            <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
+              BY {sound.creator?.name || 'Original Sound'}
+            </p>
+          </div>
+          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
+            {formatCount(soundStats.totalUses)} VIRAL CREATIONS • {formatCount(soundStats.totalViews)} VIEWS
+          </p>
+
+          <div className="flex">
+            <button
+              onClick={playSoundPreview}
+              className={`w-full px-8 py-4 rounded-2xl font-black text-base border transition-all flex items-center justify-center gap-3 ${isPlaying ? 'bg-[#45BD62]/20 text-[#45BD62] border-[#45BD62]' : 'bg-white/10 text-white border-white/20'}`}
+            >
+              <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-sm`}></i>
+              {isPlaying ? 'Playing...' : 'Preview'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-8 py-6 border-t border-white/5">
+        <h4 className="text-white font-black text-sm uppercase tracking-widest mb-4">Sound Statistics</h4>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Uses</p>
+            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalUses)}</p>
+          </div>
+          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Views</p>
+            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalViews)}</p>
+          </div>
+          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Total Reactions</p>
+            <p className="text-white text-2xl font-black mt-2">{formatCount(soundStats.totalLikes)}</p>
+          </div>
+          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Duration</p>
+            <p className="text-white text-2xl font-black mt-2">{formatDuration(sound.duration || 30)}</p>
+          </div>
+          <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Sound Type</p>
+            <p className="text-white text-2xl font-black mt-2">
+              {sound.isOriginal ? 'Original' : 'Shared'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-0.5 mt-4">
+        <div className="px-8 mb-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h4 className="text-white font-black text-sm uppercase tracking-widest">
+                Videos ({formatCount(soundStats.totalUses)})
+              </h4>
+              <p className="text-white/40 text-xs mt-1">
+                {soundStats.totalUses} videos using this sound • {formatCount(soundStats.totalViews)} total views
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[#45BD62] text-xs font-bold">
+                {soundStats.totalUses > 0 ? formatCount(Math.floor(soundStats.totalViews / soundStats.totalUses)) : 0} avg views per video
+              </p>
             </div>
           </div>
         </div>
-      )}
 
-      <div className="bg-[#121212] w-full rounded-t-[40px] p-8 pb-14 border-t border-white/10 animate-slide-up shadow-2xl relative">
-        <div className="flex justify-between items-center mb-10">
-          <button 
-            onClick={onClose} 
-            disabled={isTrimming}
-            className="text-[#B0B3B8] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+        {soundReels.length > 0 ? (
+          <div className="grid grid-cols-3 gap-0.5">
+            {soundReels.map((reel: Reel) => (
+              <ReelThumbnail
+                key={reel.id}
+                reel={reel}
+                onClick={() => {
+                  onClose();
+                  onReelClick(reel.id);
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
+            <p className="text-white/60">Be the first to use this sound!</p>
+            <p className="text-white/40 text-sm mt-2">No reels are using this sound yet.</p>
+          </div>
+        )}
+      </div>
+      <audio ref={audioRef} hidden />
+    </div>
+  );
+};
+
+// ==================== REEL THUMBNAIL COMPONENT ====================
+const ReelThumbnail: React.FC<{
+  reel: Reel;
+  onClick: () => void;
+}> = ({ reel, onClick }) => {
+  const sources = getReelVideoSources(reel);
+  const videoSrc =
+    sources.low ||
+    sources.medium ||
+    sources.hd ||
+    (reel as any).video_url ||
+    (reel as any).videoUrl ||
+    '';
+
+  return (
+    <div onClick={onClick} className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden">
+      <video
+        src={videoSrc}
+        className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+        muted
+        playsInline
+        preload="metadata"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+      <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
+        <i className="fas fa-eye text-[8px]"></i>
+        {formatViewCount(reel.views)}
+      </div>
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="w-8 h-8 bg-black/60 rounded-full flex items-center justify-center">
+          <i className="fas fa-play text-white text-xs"></i>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==================== REEL OWNER MENU ====================
+const ReelOwnerMenu: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}> = ({ isOpen, onClose, onEdit, onDelete }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[920] bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-5 animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+        <button
+          onClick={onEdit}
+          className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+        >
+          <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
+            <i className="fas fa-pen"></i>
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-sm">Edit Reel</p>
+            <p className="text-white/50 text-xs">Change caption, location, or visibility</p>
+          </div>
+        </button>
+
+        <button
+          onClick={onDelete}
+          className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+        >
+          <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
+            <i className="fas fa-trash-alt"></i>
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-sm">Delete Reel</p>
+            <p className="text-red-300/60 text-xs">This cannot be undone</p>
+          </div>
+        </button>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ==================== EDIT REEL MODAL ====================
+const EditReelModal: React.FC<{
+  reel: Reel | null;
+  caption: string;
+  location: string;
+  visibility: 'public' | 'followers' | 'private';
+  saving: boolean;
+  setCaption: (v: string) => void;
+  setLocation: (v: string) => void;
+  setVisibility: (v: 'public' | 'followers' | 'private') => void;
+  onClose: () => void;
+  onSave: () => void;
+}> = ({
+  reel,
+  caption,
+  location,
+  visibility,
+  saving,
+  setCaption,
+  setLocation,
+  setVisibility,
+  onClose,
+  onSave,
+}) => {
+  if (!reel) return null;
+
+  return (
+    <div className="fixed inset-0 z-[930] bg-black/70 backdrop-blur-sm flex items-end">
+      <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-6 animate-slide-up">
+        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+
+        <h3 className="text-white font-black text-lg mb-5">Edit Reel</h3>
+
+        <textarea
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+          placeholder="Update caption..."
+        />
+
+        <input
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+          placeholder="Location"
+        />
+
+        <select
+          value={visibility}
+          onChange={(e) => setVisibility(e.target.value as 'public' | 'followers' | 'private')}
+          className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+        >
+          <option value="public">🌍 Public</option>
+          <option value="followers">👥 Followers</option>
+          <option value="private">🔒 Private</option>
+        </select>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
           >
             Cancel
           </button>
-          <div className="text-center">
-            <h3 className="font-black text-white uppercase tracking-[4px] text-xs">Precision Sync</h3>
-            <p className="text-[9px] text-[#1877F2] font-black mt-1 uppercase tracking-tighter">Trim & Export Audio</p>
-            {soundName && (
-              <p className="text-[8px] text-white/60 font-bold mt-0.5 uppercase tracking-tight truncate max-w-[200px]">
-                {soundName}
-              </p>
-            )}
-          </div>
-          <button 
-            onClick={handleConfirm} 
-            disabled={isTrimming || trimStatus === 'trimming'}
-            className="text-[#1877F2] font-black uppercase text-[10px] tracking-widest px-4 py-2 disabled:opacity-50"
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="flex-1 py-4 rounded-2xl bg-[#1877F2] text-white font-bold disabled:opacity-50"
           >
-            {isTrimming ? 'Processing...' : 'Done'}
+            {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
-
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <button 
-            onClick={togglePlay}
-            disabled={isTrimming}
-            className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-white text-xl`}></i>
-          </button>
-          <div className="flex flex-col items-center">
-            <span className="text-white text-sm font-bold">
-              {formatDuration(currentTime - start)}
-            </span>
-            <span className="text-white/40 text-[9px] uppercase tracking-widest">Current</span>
-          </div>
-        </div>
-
-        <div 
-          ref={containerRef}
-          onMouseDown={(e) => !isTrimming && handleTrackInteraction(e.clientX)}
-          onTouchStart={(e) => !isTrimming && handleTrackInteraction(e.touches[0].clientX)}
-          className="relative h-28 w-full bg-white/5 rounded-3xl overflow-hidden px-8 border border-white/5 shadow-inner flex flex-col justify-center"
-        >
-          <div className="absolute inset-0 flex items-center gap-[2px] opacity-10 px-8 pointer-events-none">
-            {Array.from({ length: 100 }).map((_, i) => (
-              <div key={i} className="flex-1 bg-white rounded-full" style={{ height: `${15 + Math.random() * 70}%` }} />
-            ))}
-          </div>
-
-          <div 
-            className="absolute h-16 bg-[#1877F2]/10 border-x-2 border-white/30 pointer-events-none transition-all duration-75 z-10" 
-            style={{ left: `${(start / duration) * 100}%`, width: `${((end - start) / duration) * 100}%` }} 
-          />
-
-          <div className="relative w-full h-1 flex items-center bg-white/10 rounded-full">
-            <input 
-              type="range" 
-              min="0" 
-              max={duration} 
-              step="0.1" 
-              value={start} 
-              onMouseDown={() => { if (!isTrimming) { setActiveThumb('start'); } }}
-              onMouseUp={() => {}}
-              onChange={(e) => !isTrimming && handleStartChange(parseFloat(e.target.value))}
-              className={`precision-slider slider-blue ${activeThumb === 'start' ? 'slider-active' : ''}`}
-              disabled={isTrimming}
-            />
-            <input 
-              type="range" 
-              min="0" 
-              max={duration} 
-              step="0.1" 
-              value={end} 
-              onMouseDown={() => { if (!isTrimming) { setActiveThumb('end'); } }}
-              onMouseUp={() => {}}
-              onChange={(e) => !isTrimming && handleEndChange(parseFloat(e.target.value))}
-              className={`precision-slider slider-red ${activeThumb === 'end' ? 'slider-active' : ''}`}
-              disabled={isTrimming}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-center gap-4 mt-8">
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-[#1877F2] uppercase tracking-widest">In</span>
-            <p className="text-white text-xs font-black">{start.toFixed(1)}s</p>
-          </div>
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Out</span>
-            <p className="text-white text-xs font-black">{end.toFixed(1)}s</p>
-          </div>
-          <div className="bg-white/5 px-4 py-2 rounded-xl border border-white/10 flex flex-col items-center">
-            <span className="text-[8px] font-black text-[#45BD62] uppercase tracking-widest">Length</span>
-            <p className="text-white text-xs font-black">{(end - start).toFixed(1)}s</p>
-          </div>
-        </div>
-
-        <div className="mt-10 text-center">
-          <p className="text-white/50 text-xs mb-2">
-            <i className="fas fa-info-circle text-[#1877F2] mr-2"></i>
-            Trimmed audio will be exported as a new file
-          </p>
-          <p className="text-white/30 text-[10px]">
-            Original: {formatDuration(duration)} → Trimmed: {formatDuration(end - start)}
-          </p>
-        </div>
-
-        <audio 
-          ref={audioRef} 
-          src={url} 
-          hidden 
-          onLoadedMetadata={handleLoadedMetadata}
-        />
-        <audio 
-          ref={trimAudioRef} 
-          src={url} 
-          hidden 
-        />
       </div>
     </div>
   );
 };
 
-// =========================
-// MAIN COMPONENT
-// =========================
-const Recorder: React.FC<RecorderProps> = ({
+// ==================== REELS FEED ====================
+interface ReelsFeedProps {
+  reels: Reel[];
+  users: User[];
+  currentUser: User | null;
+  onProfileClick: (id: number) => void;
+  onReact: (reelId: number, type?: ReactionType) => void;
+  onComment: (
+    reelId: number,
+    payload: {
+      text: string;
+      parentId?: number | null;
+      imageFile?: File | null;
+    }
+  ) => Promise<void> | void;
+  onEditComment: (
+    commentId: number,
+    payload: {
+      text?: string;
+      imageFile?: File | null;
+      image_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteComment: (commentId: number) => Promise<void> | void;
+  onEditReel: (
+    reelId: number,
+    payload: {
+      caption?: string;
+      visibility?: string;
+      location?: string;
+      thumbnail_url?: string;
+    }
+  ) => Promise<void> | void;
+  onDeleteReel: (reelId: number) => Promise<void> | void;
+  onShare: (reelId: number, type: 'feed' | 'copy') => void;
+  onFollow: (targetUserId: number) => void;
+  checkIsFollowing: (targetUserId: number) => boolean;
+  followLoading: { [key: number]: boolean };
+  initialReelId?: number | null;
+  onBack?: () => void;
+  onVideoClick?: () => void;
+}
+
+export const ReelsFeed: React.FC<ReelsFeedProps> = ({
+  reels,
+  users,
   currentUser,
-  selectedSound,
-  sounds = [],
-  onSelectSound,
+  onProfileClick,
+  onReact,
+  onComment,
+  onEditComment,
+  onDeleteComment,
+  onEditReel,
+  onDeleteReel,
+  onShare,
+  onFollow,
+  checkIsFollowing,
+  followLoading = {},
+  initialReelId,
   onBack,
-  onSubmit,
-  maxDurationSec = 60,
-  brandName = 'UNERA',
-  initialVideoFile = null,
-  startInPreview = false,
+  onVideoClick,
 }) => {
-  const [mode, setMode] = useState<EditorMode>(
-    startInPreview && initialVideoFile ? 'preview' : 'choose'
+  // ==================== STATE ====================
+  const [activeReelId, setActiveReelId] = useState<number | null>(
+    initialReelId || reels[0]?.id || null
   );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitState, setSubmitState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
-  const [submitError, setSubmitError] = useState('');
-  const [submitProgress, setSubmitProgress] = useState(0);
-  const [videoPrepareMessage, setVideoPrepareMessage] = useState('');
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
-  const thumbnailPreviewRef = useRef<string | null>(null);
+  const [playingReelId, setPlayingReelId] = useState<number | null>(
+    initialReelId || reels[0]?.id || null
+  );
+  const [showComments, setShowComments] = useState(false);
+  const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
+  const [showReelMenu, setShowReelMenu] = useState(false);
+  const [menuReelId, setMenuReelId] = useState<number | null>(null);
+  const [editingReel, setEditingReel] = useState<Reel | null>(null);
+  const [editingReelCaption, setEditingReelCaption] = useState('');
+  const [editingReelLocation, setEditingReelLocation] = useState('');
+  const [editingReelVisibility, setEditingReelVisibility] = useState<'public' | 'followers' | 'private'>('public');
+  const [savingReelEdit, setSavingReelEdit] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
+  const [reactingReelId, setReactingReelId] = useState<number | null>(null);
+  const [reelProgress, setReelProgress] = useState<Record<number, number>>({});
 
-  const [caption, setCaption] = useState('');
-  const [location, setLocation] = useState('');
-  const [visibility, setVisibility] = useState<Visibility>('public');
+  const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
+  const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
+  const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
-  const [lyricsEnabled, setLyricsEnabled] = useState(true);
-  const [lyricsText, setLyricsText] = useState('Your words here\nMake them sing on screen');
-  const [lyricsTheme, setLyricsTheme] = useState<LyricThemeId>('karaoke');
-  const [lyricsScale, setLyricsScale] = useState(1);
-  const [lyricsBottomOffset, setLyricsBottomOffset] = useState(18);
+  // ==================== REFS ====================
+  const pendingPlayTimeoutRef = useRef<any>(null);
+  
+  const viewedReelsRef = useRef<Set<number>>(new Set());
+  const preloadLinksRef = useRef<Map<string, HTMLLinkElement>>(new Map());
+  const bufferingTimeoutsRef = useRef<Record<number, any>>({});
+  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const activeIdRef = useRef<number | null>(null);
+  const userInteractedRef = useRef(false);
+  const warmupTimerRef = useRef<any>(null);
+  const playRequestRef = useRef(0);
 
-  const [selectedFilterId, setSelectedFilterId] = useState<string>('none');
-  const [filterCategory, setFilterCategory] = useState<FilterCategory>('beauty');
-  const [filterIntensity, setFilterIntensity] = useState(0.75);
-  const [isEffectsOpen, setIsEffectsOpen] = useState(false);
-
-  const activeFilter = useMemo(
-    () => FILTER_PRESETS.find((f) => f.id === selectedFilterId) || FILTER_PRESETS[0],
-    [selectedFilterId]
+  const activeIndex = useMemo(
+    () => reels.findIndex((r) => r.id === activeReelId),
+    [reels, activeReelId]
   );
 
-  const activeFilterString = useMemo(
-    () => buildFilterString(activeFilter, filterIntensity),
-    [activeFilter, filterIntensity]
-  );
+  // ==================== HELPER FUNCTIONS ====================
+  
+  const truncateName = (name?: string, max = 9) => {
+    const value = String(name || '');
+    if (value.length <= max) return value;
+    return value.slice(0, max) + '...';
+  };
 
-  const isBeautyEffect = useMemo(
-    () => activeFilter.hasBeautyOverlay || false,
-    [activeFilter]
-  );
+  const addPreloadLink = useCallback((href: string) => {
+    if (!href || preloadLinksRef.current.has(href)) return;
 
-  const filteredFilters = useMemo(() => {
-    const categoryFilters = FILTER_PRESETS.filter(f => f.category === filterCategory && f.id !== 'none');
-    const original = FILTER_PRESETS.find(f => f.id === 'none');
-    return original ? [original, ...categoryFilters] : categoryFilters;
-  }, [filterCategory]);
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'video';
+    link.href = href;
+    document.head.appendChild(link);
+    preloadLinksRef.current.set(href, link);
 
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
-  const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
-  const [playPreview, setPlayPreview] = useState(true);
-  const [previewFillMode, setPreviewFillMode] = useState<'cover' | 'contain'>('cover');
-
-  const [isSoundPickerOpen, setIsSoundPickerOpen] = useState(false);
-  const [soundSearch, setSoundSearch] = useState('');
-  const [previewingSoundId, setPreviewingSoundId] = useState<string | number | null>(null);
-  const [trimStart, setTrimStart] = useState<number>(selectedSound?.audioStart || 0);
-  const [trimEnd, setTrimEnd] = useState<number>(selectedSound?.audioEnd || 0);
-
-  const [availableSounds, setAvailableSounds] = useState<RecorderSoundOption[]>(sounds);
-  const [popularSounds, setPopularSounds] = useState<RecorderSoundOption[]>([]);
-  const [localUploadedSounds, setLocalUploadedSounds] = useState<Sound[]>([]);
-  const [loadingSongs, setLoadingSongs] = useState(false);
-  const [loadingPopularSounds, setLoadingPopularSounds] = useState(false);
-
-  const [trimmedAudioFile, setTrimmedAudioFile] = useState<File | null>(null);
-  const [selectedUploadedSound, setSelectedUploadedSound] = useState<Sound | null>(null);
-
-  // Refs for file inputs and video preview
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const musicFileInputRef = useRef<HTMLInputElement>(null);
-  const previewVideoRef = useRef<HTMLVideoElement>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const soundAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  const resolvePlayableSoundUrl = useCallback(async (sound?: ReelSound | null) => {
-    if (!sound?.audioUrl) return '';
-    try {
-      return await fetchAsBlobUrl(sound.audioUrl, 'audio');
-    } catch {
-      return sound.audioUrl;
-    }
+    setTimeout(() => {
+      const existing = preloadLinksRef.current.get(href);
+      if (existing) {
+        existing.remove();
+        preloadLinksRef.current.delete(href);
+      }
+    }, 5000);
   }, []);
 
-  // Fetch popular sounds
-  useEffect(() => {
-    const fetchPopularSounds = async () => {
-      setLoadingPopularSounds(true);
+  const resolveReelMedia = useCallback(
+    async (reel: Reel) => {
+      const id = reel.id;
       try {
-        const data = await apiFetch('/api/sounds/popular?limit=20');
-        if (data?.success && data.sounds) {
-          const sounds = data.sounds.map((sound: any) => ({
-            id: sound.id,
-            name: sound.name,
-            url: sound.url,
-            originalUrl: sound.originalUrl || sound.url,
-            duration: sound.duration,
-            start: sound.start || 0,
-            end: sound.end || sound.duration || 60,
-            coverImage: sound.coverImage,
-            creatorName: sound.creatorName,
-            creatorImage: sound.creatorImage,
-            playCount: sound.playCount,
-            creationCount: sound.creationCount,
-            soundKey: sound.soundKey || `sound:${sound.id}`
-          }));
-          setPopularSounds(sounds);
-          
-          sounds.slice(0, 5).forEach((sound: any) => {
-            if (sound.url) {
-              fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
-            }
-            if (sound.coverImage) {
-              fetch(sound.coverImage, { cache: 'force-cache' }).catch(() => {});
-            }
-          });
+        const videoSources = getReelVideoSources(reel);
+        const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+        if (pickedVideoUrl && !resolvedVideoUrls[id]) {
+          setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: pickedVideoUrl }));
         }
-      } catch (error) {
-        console.error('Failed to fetch popular sounds:', error);
-      } finally {
-        setLoadingPopularSounds(false);
+      } catch (err) {
+        console.warn('Failed to resolve reel media', err);
       }
-    };
-
-    fetchPopularSounds();
-  }, []);
-
-  // Fetch songs from library
-  useEffect(() => {
-    const fetchSongs = async () => {
-      setLoadingSongs(true);
-      try {
-        const data = await apiFetch('/api/songs');
-        if (data?.success && data.songs) {
-          const songSounds = data.songs.map((song: any) => ({
-            id: `song:${song.id}`,
-            name: song.title,
-            url: song.audio_url,
-            originalUrl: song.audio_url,
-            duration: song.duration,
-            start: 0,
-            end: song.duration || 60,
-            coverImage: song.cover_url,
-            creatorName: song.artist,
-            creatorImage: song.cover_url,
-            playCount: song.playCount || 0,
-            soundKey: `song:${song.id}`
-          }));
-          setAvailableSounds(songSounds);
-        }
-      } catch (error) {
-        console.error('Failed to fetch songs:', error);
-      } finally {
-        setLoadingSongs(false);
-      }
-    };
-
-    fetchSongs();
-  }, []);
-
-  const [isTrimmerOpen, setIsTrimmerOpen] = useState(false);
-  const [trimmingSound, setTrimmingSound] = useState<RecorderSoundOption | null>(null);
-
-  const currentSelectedSound = selectedSound || null;
-  const soundLabel = currentSelectedSound?.songName || (selectedUploadedSound?.name || 'Original Sound');
-  const soundStart = trimStart;
-  const soundEnd = trimEnd;
-
-  const lyricPreset = useMemo(
-    () => LYRIC_PRESETS.find((p) => p.id === lyricsTheme) || LYRIC_PRESETS[0],
-    [lyricsTheme]
-  );
-
-  // Filter sounds for display - include local uploaded sounds first (no duplicates)
-  const filteredSounds = useMemo(() => {
-    const q = soundSearch.trim().toLowerCase();
-    
-    const localSounds = localUploadedSounds.map(sound => ({
-      id: sound.id,
-      name: sound.name,
-      url: sound.url,
-      originalUrl: sound.originalUrl || sound.url,
-      duration: sound.duration,
-      start: sound.start || 0,
-      end: sound.end || sound.duration || 60,
-      coverImage: sound.coverImage,
-      creatorName: sound.creator?.name || 'My Upload',
-      creatorImage: sound.creator?.profile_image_url,
-      playCount: sound.playCount,
-      creationCount: sound.creationCount,
-      soundKey: sound.soundKey || `upload:${sound.id}`,
-      isOriginal: true,
-      file: sound.file
-    }));
-    
-    const allSounds = [...localSounds, ...popularSounds, ...availableSounds];
-    
-    if (!q) return allSounds;
-    
-    return allSounds.filter((sound) =>
-      sound.name.toLowerCase().includes(q) ||
-      String(sound.creatorName || '').toLowerCase().includes(q)
-    );
-  }, [soundSearch, availableSounds, popularSounds, localUploadedSounds]);
-
-  const cleanupPreviewUrl = useCallback(() => {
-    if (previewUrlRef.current) {
-      safeRevoke(previewUrlRef.current);
-      previewUrlRef.current = null;
-    }
-  }, []);
-
-  const stopSoundPreview = useCallback(() => {
-    if (soundAudioRef.current) {
-      try {
-        soundAudioRef.current.pause();
-      } catch {}
-    }
-    setPreviewingSoundId(null);
-  }, []);
-
-  const playSoundPreview = useCallback(async (sound: RecorderSoundOption) => {
-    if (!sound.url) return;
-
-    if (!soundAudioRef.current) {
-      soundAudioRef.current = new Audio();
-    }
-
-    const audio = soundAudioRef.current;
-    const start = sound.start || 0;
-    const end = sound.end || sound.duration || 0;
-
-    if (previewingSoundId === sound.id && !audio.paused) {
-      audio.pause();
-      setPreviewingSoundId(null);
-      return;
-    }
-
-    audio.pause();
-    
-    let playableUrl = sound.url;
-    if (!sound.isOriginal && !sound.url.startsWith('blob:')) {
-      playableUrl = await fetchAsBlobUrl(sound.url, 'audio').catch(() => sound.url);
-    }
-    
-    audio.src = playableUrl;
-    audio.currentTime = start;
-    audio.onended = () => setPreviewingSoundId(null);
-    audio.ontimeupdate = () => {
-      if (end > start && audio.currentTime >= end) {
-        audio.pause();
-        audio.currentTime = start;
-        setPreviewingSoundId(null);
-      }
-    };
-
-    audio.play().then(() => {
-      setPreviewingSoundId(sound.id);
-    }).catch(() => {
-      setPreviewingSoundId(null);
-    });
-  }, [previewingSoundId]);
-
-  const setNextPreviewUrl = useCallback(
-    (url: string | null) => {
-      cleanupPreviewUrl();
-      previewUrlRef.current = url;
-      setVideoPreviewUrl(url);
     },
-    [cleanupPreviewUrl]
+    [networkLevel, resolvedVideoUrls]
   );
 
-  // ✅ CORRECT PLACEMENT - Effect moved here, after setNextPreviewUrl is defined
-  useEffect(() => {
-    if (!initialVideoFile) return;
-    
-    const objectUrl = URL.createObjectURL(initialVideoFile);
-    setVideoFile(initialVideoFile);
-    setNextPreviewUrl(objectUrl);
-    setMode('preview');
-    setSubmitState('idle');
-    setSubmitError('');
-    setSubmitProgress(0);
-    
-    return () => {
-      safeRevoke(objectUrl);
-    };
-  }, [initialVideoFile, setNextPreviewUrl]);
+  const warmReelMedia = useCallback(
+    async (reel: Reel) => {
+      try {
+        const videoSources = getReelVideoSources(reel);
+        const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+        if (pickedVideoUrl) {
+          addPreloadLink(pickedVideoUrl);
+        }
+      } catch (err) {
+        console.warn('Failed to warm reel media', err);
+      }
+    },
+    [networkLevel, addPreloadLink]
+  );
 
-  const resetAll = useCallback(() => {
-    stopSoundPreview();
-    setVideoFile(null);
-    setThumbnailFile(null);
-    setTrimmedAudioFile(null);
-    setSelectedUploadedSound(null);
-    onSelectSound?.(null);
-    setNextPreviewUrl(null);
-    setMode('choose');
-    setCaption('');
-    setLocation('');
-    setSubmitState('idle');
-    setSubmitError('');
-    setSubmitProgress(0);
-    setPlayPreview(true);
-    setSelectedFilterId('none');
-    setFilterIntensity(0.75);
-    setVideoPrepareMessage('');
-    if (thumbnailPreviewRef.current) {
-      safeRevoke(thumbnailPreviewRef.current);
-      thumbnailPreviewRef.current = null;
-    }
-  }, [setNextPreviewUrl, stopSoundPreview, onSelectSound]);
+  const unloadFarVideos = useCallback(
+    (activeId: number) => {
+      const currentIndex = reels.findIndex((r) => r.id === activeId);
+      if (currentIndex === -1) return;
 
-  const handlePickVideo = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      setSubmitState('error');
-      setSubmitError('Please choose a video file.');
-      return;
-    }
+      reels.forEach((reel, index) => {
+        const video = videoRefs.current[reel.id];
+        if (!video) return;
 
-    // Reset previous state
-    setSubmitState('idle');
-    setSubmitError('');
-    setSubmitProgress(0);
-    setVideoFile(file);
-    setNextPreviewUrl(URL.createObjectURL(file));
-    setMode('preview');
-    event.target.value = '';
-  }, [setNextPreviewUrl]);
+        const distance = Math.abs(index - currentIndex);
+        if (distance > 2) {
+          try {
+            video.pause();
+            video.muted = true;
+            video.removeAttribute('src');
+            video.load();
+          } catch (err) {
+            console.warn('Failed to unload video', err);
+          }
+        }
+      });
+    },
+    [reels]
+  );
 
-  const handlePickMusic = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    if (!file.type.startsWith('audio/')) {
-      alert('Please select a valid audio file (MP3, WAV, M4A, etc.)');
-      return;
-    }
-    
-    const url = URL.createObjectURL(file);
-    
-    const newSound: Sound = {
-      id: `upload-${Date.now()}`,
-      name: file.name.replace(/\.[^/.]+$/, ""),
-      url: url,
-      duration: 0,
-      start: 0,
-      end: 60,
-      isOriginal: true,
-      creator: currentUser,
-      soundKey: `original:upload-${Date.now()}`,
-      originalUrl: url,
-      file: file
-    };
-    
-    setLocalUploadedSounds(prev => [newSound, ...prev]);
-    setSelectedUploadedSound(newSound);
-    setTrimStart(0);
-    setTrimEnd(60);
-    
-    const reelSound: ReelSound = {
-      songName: newSound.name,
-      audioUrl: url,
-      originalUrl: url,
-      audioStart: 0,
-      audioEnd: 60,
-      songId: newSound.id,
-      soundKey: newSound.soundKey,
-      isTrimmedAudio: false,
-    };
-    
-    onSelectSound?.(reelSound);
-    setIsSoundPickerOpen(false);
-    
-    setTrimmingSound({
-      id: newSound.id,
-      name: newSound.name,
-      url: url,
-      originalUrl: url,
-      duration: 60,
-      start: 0,
-      end: 60,
-      isOriginal: true,
-      file: file
+  const waitUntilPlayable = useCallback((video: HTMLVideoElement) => {
+    return new Promise<void>((resolve) => {
+      if (video.readyState >= 3) {
+        resolve();
+        return;
+      }
+
+      const onCanPlay = () => {
+        video.removeEventListener('canplay', onCanPlay);
+        resolve();
+      };
+
+      video.addEventListener('canplay', onCanPlay, { once: true });
+      setTimeout(resolve, 2500);
     });
-    setIsTrimmerOpen(true);
-    
-    event.target.value = '';
-  }, [currentUser, onSelectSound]);
+  }, []);
 
-  const generateSoundKey = useCallback((): string => {
-    if (trimmedAudioFile) return `trimmed:${Date.now()}`;
-    if (selectedUploadedSound?.soundKey) return selectedUploadedSound.soundKey;
-    if (currentSelectedSound?.soundKey) return currentSelectedSound.soundKey;
-    if (currentSelectedSound?.songId) return `song:${currentSelectedSound.songId}`;
-    return 'original:none';
-  }, [currentSelectedSound, trimmedAudioFile, selectedUploadedSound]);
-
-  const handleSubmit = useCallback(async () => {
-    if (!videoFile) {
-      setSubmitState('error');
-      setSubmitError('Please select a video first.');
-      return;
-    }
-
-    if (typeof onSubmit !== 'function') {
-      setSubmitState('error');
-      setSubmitError('Recorder submit handler is missing.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setSubmitState('uploading');
-    setSubmitError('');
-    setSubmitProgress(10);
-
-    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = 'Your video is still uploading. Are you sure you want to leave?';
-    };
-    window.addEventListener('beforeunload', beforeUnloadHandler);
+  const incrementViewCount = useCallback(async (reelId: number) => {
+    if (viewedReelsRef.current.has(reelId)) return;
 
     try {
-      const soundKey = generateSoundKey();
-      const isTrimmedAudio = !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
+      viewedReelsRef.current.add(reelId);
 
-      const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
-
-      let audioFileToSend = trimmedAudioFile || undefined;
-
-      if (!audioFileToSend && selectedUploadedSound?.file) {
-        audioFileToSend = selectedUploadedSound.file;
-      }
-
-      setSubmitProgress(20);
-      setVideoPrepareMessage('Preparing thumbnail...');
-
-      // Generate thumbnail
-      const thumbnail = await createThumbnailFromVideo(videoFile, 720);
-      setThumbnailFile(thumbnail.file);
-      if (thumbnailPreviewRef.current) {
-        safeRevoke(thumbnailPreviewRef.current);
-      }
-      thumbnailPreviewRef.current = thumbnail.previewUrl;
-
-      setSubmitProgress(70);
-      setVideoPrepareMessage('Publishing...');
-
-      await onSubmit({
-        caption: caption.trim(),
-        location: location.trim(),
-        visibility,
-        videoFile,
-        thumbnailFile: thumbnail.file,
-        audioFile: audioFileToSend,
-        songName: currentSelectedSound?.songName || selectedUploadedSound?.name || 'Original Sound',
-        audioUrl: currentSelectedSound?.originalUrl || currentSelectedSound?.audioUrl || selectedUploadedSound?.originalUrl || selectedUploadedSound?.url || '',
-        audioStart,
-        audioEnd,
-        soundKey,
-        songId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-        originalSoundId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-        lyricsText: lyricsText.trim(),
-        lyricsTheme,
-        lyricsEnabled,
-        filterId: selectedFilterId,
-        filterIntensity,
+      const token = localStorage.getItem('unera_token');
+      const response = await fetch(`/api/reels/${reelId}/view`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
 
-      setSubmitProgress(100);
-      setVideoPrepareMessage('Done');
-      setSubmitState('success');
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      const data = await response.json();
 
-      await sleep(800);
-      onBack();
-    } catch (error: any) {
-      console.error('Submit error:', error);
-      setSubmitState('error');
-      setSubmitError(error?.message || 'Failed to publish reel.');
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-    } finally {
-      setIsSubmitting(false);
+      if (data.success && data.views_count !== undefined) {
+        console.log(`View count updated for reel ${reelId}: ${data.views_count}`);
+      }
+    } catch (error) {
+      console.error('Failed to increment view count:', error);
+      viewedReelsRef.current.delete(reelId);
     }
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      try {
+        video.pause();
+      } catch {}
+    });
+  }, []);
+
+  const stopActivePlayback = useCallback(() => {
+    if (pendingPlayTimeoutRef.current) {
+      clearTimeout(pendingPlayTimeoutRef.current);
+      pendingPlayTimeoutRef.current = null;
+    }
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      try {
+        video.pause();
+      } catch {}
+    });
+  }, []);
+
+  const playOnly = useCallback(
+    async (id: number) => {
+      const requestId = ++playRequestRef.current;
+
+      Object.entries(videoRefs.current).forEach(([key, video]) => {
+        if (!video) return;
+        const rid = Number(key);
+        if (rid !== id) {
+          try {
+            video.pause();
+            video.currentTime = 0;
+            video.muted = true;
+          } catch {}
+        }
+      });
+
+      stopAudio();
+
+      const reel = reels.find((r) => r.id === id);
+      const video = videoRefs.current[id];
+      if (!video || !reel) return;
+
+      setVideoErrors((prev) => ({ ...prev, [id]: false }));
+
+      await resolveReelMedia(reel);
+      if (playRequestRef.current !== requestId) return;
+
+      const chosenUrl =
+        resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+
+      if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
+        video.src = chosenUrl;
+        video.load();
+      }
+
+      unloadFarVideos(id);
+
+      setActiveReelId(id);
+      setPlayingReelId(id);
+
+      video.muted = !userInteractedRef.current;
+
+      try {
+        await waitUntilPlayable(video);
+        if (playRequestRef.current !== requestId) return;
+
+        await video.play();
+        incrementViewCount(id);
+      } catch (err) {
+        console.warn('Autoplay/play failed', err);
+      }
+    },
+    [
+      stopAudio,
+      reels,
+      resolveReelMedia,
+      resolvedVideoUrls,
+      networkLevel,
+      unloadFarVideos,
+      waitUntilPlayable,
+      incrementViewCount,
+    ]
+  );
+
+  const scrollToReelByIndex = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= reels.length) return;
+      const nextReel = reels[index];
+      if (!nextReel) return;
+
+      if (pendingPlayTimeoutRef.current) {
+        clearTimeout(pendingPlayTimeoutRef.current);
+        pendingPlayTimeoutRef.current = null;
+      }
+
+      const el = document.querySelector(`[data-reel-id="${nextReel.id}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      setActiveReelId(nextReel.id);
+      setPlayingReelId(nextReel.id);
+
+      pendingPlayTimeoutRef.current = setTimeout(() => {
+        playOnly(nextReel.id);
+      }, 40);
+    },
+    [reels, playOnly]
+  );
+
+  const goToNextReel = useCallback(() => {
+    if (activeIndex < reels.length - 1) {
+      scrollToReelByIndex(activeIndex + 1);
+    }
+  }, [activeIndex, reels.length, scrollToReelByIndex]);
+
+  const goToPreviousReel = useCallback(() => {
+    if (activeIndex > 0) {
+      scrollToReelByIndex(activeIndex - 1);
+    }
+  }, [activeIndex, scrollToReelByIndex]);
+
+  const handleCameraClick = useCallback(() => {
+    stopActivePlayback();
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+    if (onVideoClick) {
+      onVideoClick();
+    }
+  }, [onVideoClick, stopActivePlayback]);
+
+  // ==================== EFFECTS ====================
+  
+  useEffect(() => {
+    const nav = navigator as any;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    if (!conn?.addEventListener) return;
+
+    const handleChange = () => {
+      const next = getNetworkLevel();
+      setNetworkLevel(next);
+      setResolvedVideoUrls({});
+    };
+
+    conn.addEventListener('change', handleChange);
+    return () => conn.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      preloadLinksRef.current.forEach((link) => link.remove());
+      preloadLinksRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(bufferingTimeoutsRef.current).forEach((t) => {
+        if (t) clearTimeout(t);
+      });
+    };
+  }, []);
+
+  // Improved warm preload
+  useEffect(() => {
+    if (!activeReelId || reels.length === 0) return;
+
+    const currentIndex = reels.findIndex((r) => r.id === activeReelId);
+    if (currentIndex === -1) return;
+
+    if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+
+    warmupTimerRef.current = setTimeout(() => {
+      const targets = [
+        reels[currentIndex],
+        reels[currentIndex + 1],
+        reels[currentIndex + 2],
+        reels[currentIndex + 3],
+        reels[currentIndex - 1],
+      ].filter(Boolean) as Reel[];
+
+      targets.forEach((targetReel) => {
+        warmReelMedia(targetReel);
+        resolveReelMedia(targetReel);
+      });
+    }, 80);
+
+    return () => {
+      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+    };
+  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
+
+  useEffect(() => {
+    if (!activeReelId) return;
+    const reel = reels.find((r) => r.id === activeReelId);
+    if (reel) resolveReelMedia(reel);
+  }, [activeReelId, reels, resolveReelMedia]);
+
+  useEffect(() => {
+    activeIdRef.current = playingReelId;
+  }, [playingReelId]);
+
+  useEffect(() => {
+    if (!initialReelId || reels.length === 0) return;
+
+    const timer = setTimeout(() => {
+      playOnly(initialReelId);
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [initialReelId, reels, playOnly]);
+
+  // Unlock effect - no audio sync needed
+  useEffect(() => {
+    const unlock = () => {
+      userInteractedRef.current = true;
+      const id = activeIdRef.current;
+      if (!id) return;
+      const video = videoRefs.current[id];
+      if (video) {
+        video.muted = false;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('click', unlock, { once: true });
+    window.addEventListener('touchstart', unlock, { once: true });
+    return () => {
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+  }, []);
+
+  useEffect(() => {
+    const rootEl = scrollerRef.current;
+    if (!rootEl) return;
+
+    observerRef.current?.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        let best: { id: number; ratio: number } | null = null;
+
+        entries.forEach((entry) => {
+          const id = Number(entry.target.getAttribute('data-reel-id'));
+          if (!best || entry.intersectionRatio > best.ratio) {
+            best = { id, ratio: entry.intersectionRatio };
+          }
+        });
+
+        if (best && best.ratio > 0.6 && activeIdRef.current !== best.id) {
+          playOnly(best.id);
+        }
+      },
+      {
+        root: rootEl,
+        threshold: [0.4, 0.6, 0.8],
+      }
+    );
+
+    const els = rootEl.querySelectorAll('[data-reel-id]');
+    els.forEach((el) => observerRef.current?.observe(el));
+
+    return () => observerRef.current?.disconnect();
+  }, [reels, playOnly]);
+
+  useEffect(() => {
+    if (!showComments) return;
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+  }, [showComments]);
+
+  // Resume after comments close
+  useEffect(() => {
+    if (showComments) return;
+    const activeId = activeIdRef.current;
+    if (!activeId) return;
+    const video = videoRefs.current[activeId];
+    if (!video) return;
+    if (userInteractedRef.current) {
+      video.muted = false;
+    }
+    video.play().catch(() => {});
+  }, [showComments]);
+
+  // Visibility change effect
+  useEffect(() => {
+    const stopPlayback = () => {
+      Object.values(videoRefs.current).forEach((video) => {
+        if (!video) return;
+        try {
+          video.pause();
+        } catch {}
+      });
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPlayback();
+      } else if (!showComments && activeIdRef.current) {
+        const id = activeIdRef.current;
+        const video = videoRefs.current[id];
+        if (video) {
+          if (userInteractedRef.current) {
+            video.muted = false;
+          }
+          video.play().catch(() => {});
+        }
+      }
+    };
+    const handlePageHide = () => {
+      stopPlayback();
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [showComments]);
+
+  useEffect(() => {
+    if (selectedSoundData) {
+      const activeId = activeIdRef.current;
+      if (activeId) {
+        const video = videoRefs.current[activeId];
+        if (video) {
+          try {
+            video.pause();
+          } catch {}
+        }
+      }
+    }
+  }, [selectedSoundData]);
+
+  useEffect(() => {
+    if (!showReelMenu && !editingReel) return;
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+  }, [showReelMenu, editingReel]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopActivePlayback();
+    };
+  }, [stopActivePlayback]);
+
+  // Before unload stop
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      stopActivePlayback();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [stopActivePlayback]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showComments || selectedSoundData || showReelMenu || editingReel) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        goToNextReel();
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        goToPreviousReel();
+      }
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (activeReelId) handleVideoClick(activeReelId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    videoFile,
-    onSubmit,
-    caption,
-    location,
-    visibility,
-    currentSelectedSound,
-    selectedUploadedSound,
-    trimStart,
-    trimEnd,
-    lyricsText,
-    lyricsTheme,
-    lyricsEnabled,
-    generateSoundKey,
-    onBack,
-    trimmedAudioFile,
-    selectedFilterId,
-    filterIntensity,
+    showComments,
+    selectedSoundData,
+    showReelMenu,
+    editingReel,
+    goToNextReel,
+    goToPreviousReel,
+    activeReelId,
+    handleVideoClick,
   ]);
 
-  useEffect(() => {
-    setTrimStart(selectedSound?.audioStart || 0);
-    setTrimEnd(selectedSound?.audioEnd || 0);
-  }, [selectedSound]);
+  // ==================== HANDLERS ====================
+  const extractSoundFromReel = useCallback(
+    (reel: Reel): Sound => {
+      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
+      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
+      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
+      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
 
-  useEffect(() => {
-    return () => {
-      cleanupPreviewUrl();
-      stopSoundPreview();
-      localUploadedSounds.forEach(sound => {
-        if (sound.url.startsWith('blob:')) {
-          URL.revokeObjectURL(sound.url);
+      return {
+        id: soundKey,
+        name: songName,
+        url: audioUrl,
+        originalUrl: audioUrl,
+        start: audioStart,
+        end: audioEnd,
+        creator: author,
+        creationCount: 0,
+        isOriginal: String(soundKey).startsWith('original:'),
+        soundKey,
+      };
+    },
+    [users]
+  );
+
+  const handleSoundClick = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
+      setSelectedSoundData(sound);
+    },
+    [extractSoundFromReel]
+  );
+
+  const handleVideoClick = useCallback(
+    (reelId: number) => {
+      const video = videoRefs.current[reelId];
+      if (!video) return;
+      if (activeIdRef.current === reelId) {
+        if (video.paused) {
+          if (userInteractedRef.current) {
+            video.muted = false;
+          }
+          video.play().catch(() => {});
+        } else {
+          video.pause();
         }
-      });
-      if (soundAudioRef.current) {
-        try {
-          soundAudioRef.current.pause();
-        } catch {}
-        soundAudioRef.current = null;
+        return;
       }
-      if (thumbnailPreviewRef.current) {
-        safeRevoke(thumbnailPreviewRef.current);
-        thumbnailPreviewRef.current = null;
-      }
-    };
-  }, [cleanupPreviewUrl, stopSoundPreview, localUploadedSounds]);
+      playOnly(reelId);
+    },
+    [playOnly]
+  );
 
-  useEffect(() => {
-    if (mode !== 'preview' || !previewVideoRef.current || !videoPreviewUrl) return;
-    const video = previewVideoRef.current;
-    video.play().catch(() => {});
-  }, [mode, videoPreviewUrl]);
+  const formatCount = (num: number): string => formatViewCount(num);
 
-  const lyricStyle = useMemo<React.CSSProperties>(() => ({
-    transform: `translateX(-50%) scale(${lyricsScale})`,
-    bottom: `${lyricsBottomOffset}%`,
-  }), [lyricsBottomOffset, lyricsScale]);
+  const openEditReel = useCallback(() => {
+    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
+    if (!reel) return;
 
-  const handleTrimConfirm = useCallback((start: number, end: number, trimmedFile?: File) => {
-    setTrimStart(start);
-    setTrimEnd(end);
-    setIsTrimmerOpen(false);
+    setEditingReel(reel);
+    setEditingReelCaption(reel.caption || '');
+    setEditingReelLocation((reel as any).location || '');
+    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
+    setShowReelMenu(false);
+  }, [reels, menuReelId]);
 
-    if (trimmedFile) {
-      setTrimmedAudioFile(trimmedFile);
-    } else {
-      setTrimmedAudioFile(null);
+  const handleSaveReelEdit = useCallback(async () => {
+    if (!editingReel) return;
+
+    try {
+      setSavingReelEdit(true);
+      await Promise.resolve(
+        onEditReel(editingReel.id, {
+          caption: editingReelCaption,
+          location: editingReelLocation,
+          visibility: editingReelVisibility,
+        })
+      );
+      setEditingReel(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update reel');
+    } finally {
+      setSavingReelEdit(false);
     }
+  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
 
-    if (selectedUploadedSound) {
-      const updatedSound: ReelSound = {
-        songName: selectedUploadedSound.name,
-        audioUrl: selectedUploadedSound.url,
-        originalUrl: selectedUploadedSound.originalUrl || selectedUploadedSound.url,
-        audioStart: start,
-        audioEnd: end,
-        songId: selectedUploadedSound.id,
-        soundKey: selectedUploadedSound.soundKey,
-        isTrimmedAudio: !!trimmedFile,
-      };
-      onSelectSound?.(updatedSound);
-    } else if (currentSelectedSound) {
-      onSelectSound?.({
-        ...currentSelectedSound,
-        audioStart: start,
-        audioEnd: end,
-        isTrimmedAudio: !!trimmedFile,
-      });
+  const handleDeleteOwnedReel = useCallback(async () => {
+    if (!menuReelId) return;
+
+    const ok = window.confirm('Delete this reel?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteReel(menuReelId));
+      setShowReelMenu(false);
+      setMenuReelId(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete reel');
     }
-  }, [currentSelectedSound, selectedUploadedSound, onSelectSound]);
+  }, [menuReelId, onDeleteReel]);
 
-  const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
-    if (sound.isOriginal && sound.file) {
-      const uploadedSound: Sound = {
-        id: sound.id,
-        name: sound.name,
-        url: sound.url,
-        originalUrl: sound.originalUrl || sound.url,
-        start: sound.start || 0,
-        end: sound.end || sound.duration || 60,
-        isOriginal: true,
-        creator: currentUser,
-        soundKey: sound.soundKey || `upload:${sound.id}`,
-        file: sound.file
-      };
-      setSelectedUploadedSound(uploadedSound);
-    }
+  const handleReaction = useCallback((reelId: number, emoji: string) => {
+    if (reactingReelId === reelId) return;
+    setReactingReelId(reelId);
+    onReact(reelId, emoji as any);
+    setTimeout(() => setReactingReelId(null), 300);
+    setShowReactionPicker(null);
+  }, [onReact, reactingReelId]);
 
-    const normalized: ReelSound = {
-      songName: sound.name,
-      audioUrl: sound.url,
-      originalUrl: sound.originalUrl || sound.url,
-      audioStart: sound.start || 0,
-      audioEnd: sound.end || sound.duration || 0,
-      songId: sound.id,
-      soundKey: sound.soundKey || `song:${sound.id}`,
-      isTrimmedAudio: false,
-    };
+  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
 
-    setTrimmedAudioFile(null);
-    setTrimStart(normalized.audioStart || 0);
-    setTrimEnd(normalized.audioEnd || 0);
-    setTrimmingSound(sound);
-
-    onSelectSound?.(normalized);
-    setIsSoundPickerOpen(false);
-    setIsTrimmerOpen(true);
-  }, [currentUser, onSelectSound]);
-
-  const handleFilterSelect = useCallback((filterId: string) => {
-    setSelectedFilterId(filterId);
-  }, []);
-
+  // ==================== RENDER ====================
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black text-white overflow-hidden font-sans recorder-page"
-      style={{ width: '100vw', height: '100dvh' }}
+      className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
+      onContextMenu={(e) => e.preventDefault()}
     >
-      <style>{RECORDER_STYLES}</style>
-
-      {submitState === 'uploading' && (
-        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
-            <div className="flex flex-col items-center justify-center gap-6">
-              <div className="w-32 h-32 relative">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    fill="none"
-                    stroke="rgba(255, 255, 255, 0.1)"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="45"
-                    fill="none"
-                    stroke="#1877F2"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={`${submitProgress * 2.83} 283`}
-                    strokeDashoffset="0"
-                    className="transition-all duration-500 ease-out"
-                  />
-                </svg>
-                
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center">
-                    <i className="fas fa-cloud-upload-alt text-2xl text-[#1877F2] animate-pulse"></i>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white mb-2 animate-fade-in">
-                  {videoPrepareMessage || 'Preparing video...'}
-                </h3>
-                <p className="text-[#B0B3B8] text-sm">
-                  {submitProgress < 40
-                    ? `Getting your video ready (${Math.round(submitProgress)}%)`
-                    : submitProgress < 96
-                    ? `Uploading your video (${Math.round(submitProgress)}%)`
-                    : `Publishing your post (${Math.round(submitProgress)}%)`}
-                </p>
-                
-                <div className="space-y-3 mt-4">
-                  <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-[#1877F2] to-[#2D8CFF] rounded-full transition-all duration-500 ease-out"
-                      style={{ width: `${submitProgress}%` }}
-                    />
-                  </div>
-                  
-                  <div className="flex justify-between text-xs text-[#B0B3B8]">
-                    <span>{submitProgress < 40 ? 'Processing' : submitProgress < 96 ? 'Uploading' : 'Publishing'}</span>
-                    <span>≈ {submitProgress < 40 ? 'Please wait' : submitProgress < 96 ? 'Almost there' : 'Finalizing'}</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="text-xs text-white/50 text-center mt-4 px-4 py-2 bg-white/5 rounded-lg">
-                <i className="fas fa-exclamation-triangle mr-2"></i>
-                Please don't close this window or navigate away
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {submitState === 'success' && (
-        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
-            <div className="flex flex-col items-center justify-center gap-6">
-              <div className="w-24 h-24 rounded-full bg-[#45BD62]/20 flex items-center justify-center">
-                <i className="fas fa-check-circle text-4xl text-[#45BD62] animate-pulse"></i>
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white mb-2">Posted successfully!</h3>
-                <p className="text-[#B0B3B8] text-sm">Your reel is now live on UNERA</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {submitState === 'error' && (
-        <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
-            <div className="flex flex-col items-center justify-center gap-6">
-              <div className="w-24 h-24 rounded-full bg-red-500/10 flex items-center justify-center">
-                <i className="fas fa-exclamation-triangle text-4xl text-red-500"></i>
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white mb-2">Upload Failed</h3>
-                <p className="text-[#B0B3B8] text-sm mb-4">{submitError || 'Failed to publish reel'}</p>
-                <button
-                  onClick={() => setSubmitState('idle')}
-                  className="bg-[#1877F2] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity"
-                >
-                  Try Again
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(24,119,242,0.18),transparent_28%),radial-gradient(circle_at_bottom,rgba(243,66,95,0.16),transparent_25%)] pointer-events-none" />
-
-      <div className="absolute top-0 left-0 right-0 z-40 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-3 bg-gradient-to-b from-black/85 to-transparent flex items-center justify-between">
+      <div
+        className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
+      >
         <button
-          onClick={() => {
-            if (mode === 'preview' && !initialVideoFile) {
-              setMode('choose');
-              return;
-            }
-            onBack();
-          }}
-          className="w-11 h-11 rounded-full bg-white/10 border border-white/10 flex items-center justify-center active:scale-95 transition"
+          onClick={onBack || (() => window.history.back())}
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
         >
-          <i className="fas fa-arrow-left text-sm" />
+          <i className="fas fa-arrow-left text-white text-sm" />
         </button>
 
-        <div className="text-center">
-          <div className="text-[10px] tracking-[0.35em] uppercase text-[#7fb6ff] font-black">{brandName} Studio</div>
-          <div className="text-[12px] font-black tracking-[0.2em] uppercase">
-            {mode === 'choose' ? 'Create Reel' : 'Preview'}
-          </div>
+        <div className="flex items-center gap-3">
+          <h2 className="text-white text-[20px] font-black tracking-tight">Reels</h2>
         </div>
 
-        <button
-          onClick={resetAll}
-          className="w-11 h-11 rounded-full bg-white/10 border border-white/10 flex items-center justify-center active:scale-95 transition"
-          aria-label="Reset recorder"
-        >
-          <i className="fas fa-rotate-left text-sm" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Bigger transparent Facebook-style Create Reel button */}
+          <button
+            onClick={handleCameraClick}
+            className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
+            aria-label="Create reel"
+          >
+            <i className="fas fa-camera text-white text-xl" />
+          </button>
+
+          {/* Transparent views button */}
+          <button
+            className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
+            title="Views"
+          >
+            <i className="fas fa-eye text-[14px]" />
+            <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
+          </button>
+
+          {/* Transparent three-dots button */}
+          <button
+            onClick={() => {
+              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+              if (!reel) return;
+              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+              if (ownerId !== Number(currentUser?.id)) return;
+              setMenuReelId(reel.id);
+              setShowReelMenu(true);
+            }}
+            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
+          >
+            <i className="fas fa-ellipsis-h text-white text-base" />
+          </button>
+        </div>
       </div>
 
-      {mode === 'choose' && !initialVideoFile && (
-        <div className="relative h-full flex flex-col items-center justify-center px-6 pb-12 pt-24 overflow-y-auto">
-          <div className="w-full max-w-[420px] text-center mb-8">
-            <div className="w-24 h-24 mx-auto rounded-[32px] bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl mb-6">
-              <i className="fas fa-video text-4xl text-[#1877F2]" />
+      <div className="w-full h-full">
+        <div
+          ref={scrollerRef}
+          className="reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-black"
+        >
+          {reels.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-white p-8">
+              <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
+                <i className="fas fa-video text-3xl text-[#1877F2]"></i>
+              </div>
+              <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
+              <p className="text-[#B0B3B8] text-sm mb-8 text-center">No reels available right now.</p>
             </div>
-            <h1 className="text-3xl font-black tracking-tight mb-3">Create a Reel</h1>
-          </div>
+          ) : (
+            reels.map((reel: Reel, reelIndex) => {
+              const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+              if (!author) return null;
 
-          <div className="w-full max-w-[420px] space-y-4">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-6 text-left active:scale-[0.98] transition"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-3xl bg-white/10 flex items-center justify-center">
-                  <i className="fas fa-cloud-upload-alt text-2xl text-[#7fb6ff]" />
-                </div>
-                <div>
-                  <div className="text-lg font-black uppercase tracking-[0.18em]">Upload Video</div>
-                  <div className="text-white/60 text-xs mt-1 uppercase tracking-[0.12em]">From your gallery or file picker</div>
-                </div>
-              </div>
-            </button>
+              const isFollowing = checkIsFollowing(Number(author.id));
+              const isLoadingFollow = !!followLoading[Number(author.id)];
+              const hasReacted = reel.reactions?.some(
+                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
+              );
+              const isReacting = reactingReelId === reel.id;
 
-            <button
-              onClick={() => setIsSoundPickerOpen(true)}
-              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-3xl bg-[#1877F2]/15 border border-[#1877F2]/30 flex items-center justify-center">
-                  <i className="fas fa-music text-xl text-[#7fb6ff]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-black uppercase tracking-[0.18em] text-[#7fb6ff]">Sound</div>
-                  <div className="text-base font-bold truncate mt-1">{soundLabel}</div>
-                  <div className="text-white/55 text-xs mt-1">Tap to browse, upload from your phone, or preview songs</div>
-                </div>
-              </div>
-            </button>
+              const videoSources = getReelVideoSources(reel);
+              const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+              const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
+              const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
+              const showError = activeReelId === reel.id && videoErrors[reel.id];
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/*"
-              className="hidden"
-              onChange={handlePickVideo}
-            />
-            
-            <input
-              ref={musicFileInputRef}
-              type="file"
-              accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
-              className="hidden"
-              onChange={handlePickMusic}
-            />
-          </div>
-
-          {(currentSelectedSound || selectedUploadedSound) && (
-            <div className="w-full max-w-[420px] mt-5 rounded-[28px] bg-white/5 border border-white/10 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#7fb6ff]">Selected Sound</div>
-                  <div className="text-sm font-bold mt-1 truncate">{soundLabel}</div>
-                  {selectedUploadedSound && (
-                    <div className="text-[10px] text-green-500 mt-1">
-                      <i className="fas fa-phone-alt mr-1"></i> Uploaded from device
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setIsSoundPickerOpen(true)}
-                  className="px-4 py-2 rounded-2xl bg-white/10 border border-white/10 text-xs font-black uppercase tracking-[0.14em] active:scale-95"
+              return (
+                <div
+                  key={reel.id}
+                  id={`reel-${reel.id}`}
+                  data-reel-id={reel.id}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="reel-container w-full h-[100dvh] snap-start relative bg-black overflow-hidden"
                 >
-                  Change
-                </button>
-              </div>
-
-              <div className="mt-4 grid gap-4">
-                <RangeRow
-                  label="Trim start"
-                  value={trimStart}
-                  min={0}
-                  max={Math.max(trimEnd > 0 ? trimEnd - 1 : 1, 1)}
-                  step={0.1}
-                  display={`${trimStart.toFixed(1)}s`}
-                  onChange={(v) => setTrimStart(v)}
-                />
-                <RangeRow
-                  label="Trim end"
-                  value={trimEnd || 60}
-                  min={trimStart + 0.5}
-                  max={60}
-                  step={0.1}
-                  display={`${trimEnd.toFixed(1)}s`}
-                  onChange={(v) => setTrimEnd(v)}
-                />
-              </div>
-
-              <div className="mt-3 text-white/55 text-xs">
-                Fast trim mode: only start/end metadata changes, so there is no fake trimming delay.
-              </div>
-
-              <button
-                onClick={() => {
-                  const sound = {
-                    id: selectedUploadedSound?.id || currentSelectedSound?.songId || 'temp',
-                    name: selectedUploadedSound?.name || currentSelectedSound?.songName || 'Sound',
-                    url: selectedUploadedSound?.url || currentSelectedSound?.audioUrl || '',
-                    originalUrl: selectedUploadedSound?.originalUrl || currentSelectedSound?.originalUrl || '',
-                    duration: 60,
-                    start: trimStart,
-                    end: trimEnd,
-                    isOriginal: !!selectedUploadedSound,
-                    file: selectedUploadedSound?.file
-                  };
-                  setTrimmingSound(sound as RecorderSoundOption);
-                  setIsTrimmerOpen(true);
-                }}
-                className="w-full mt-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors"
-              >
-                <i className="fas fa-scissors mr-2"></i>
-                Advanced Trim & Export
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === 'preview' && videoPreviewUrl && (
-        <div className="absolute inset-0 bg-black overflow-y-auto pt-20 pb-28">
-          <div className="px-4 pb-6 max-w-[720px] mx-auto">
-            <div className="grid gap-5 md:grid-cols-[minmax(0,420px)_minmax(0,1fr)] items-start">
-              <div className="relative rounded-[34px] overflow-hidden border border-white/10 bg-[#0c0c0c] shadow-2xl w-full max-w-[420px] aspect-[9/16] mx-auto">
-                <video
-                  ref={previewVideoRef}
-                  src={videoPreviewUrl}
-                  className={`absolute inset-0 w-full h-full ${previewFillMode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
-                  style={{ filter: activeFilterString }}
-                  playsInline
-                  loop
-                  controls={false}
-                  muted={!(currentSelectedSound || selectedUploadedSound) || !soundPreviewEnabled}
-                  autoPlay
-                />
-
-                {isBeautyEffect && (
-                  <div 
-                    className="absolute inset-0 pointer-events-none"
-                    style={{
-                      backdropFilter: 'blur(1.2px)',
-                      background: 'rgba(255, 240, 240, 0.02)',
-                      mixBlendMode: 'soft-light',
-                    }}
-                  />
-                )}
-
-                {lyricsEnabled && (
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                      {lyricsText.split('\n').map((line, idx) => (
-                        <div key={idx}>{line || '\u00A0'}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-3">
-                  <button
-                    onClick={() =>
-                      setPreviewFillMode((prev) => (prev === 'cover' ? 'contain' : 'cover'))
-                    }
-                    className="px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black"
-                  >
-                    {previewFillMode === 'cover' ? 'Fill' : 'Fit'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      const video = previewVideoRef.current;
-                      if (!video) return;
-                      if (video.paused) {
-                        video.play().catch(() => {});
-                        setPlayPreview(true);
-                      } else {
-                        video.pause();
-                        setPlayPreview(false);
-                      }
-                    }}
-                    className="w-10 h-10 rounded-full bg-black/55 backdrop-blur-md border border-white/10 flex items-center justify-center"
-                  >
-                    <i className={`fas ${playPreview ? 'fa-pause' : 'fa-play'} text-xs`} />
-                  </button>
-                </div>
-
-                {selectedFilterId !== 'none' && (
-                  <div className="absolute top-3 right-16 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black text-[#7fb6ff]">
-                    {activeFilter.name} • {Math.round(filterIntensity * 100)}%
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <SectionCard title="Caption & publishing">
-                  <textarea
-                    value={caption}
-                    onChange={(e) => setCaption(e.target.value)}
-                    placeholder="Write a caption for your reel..."
-                    className="w-full min-h-[120px] rounded-3xl bg-white/5 border border-white/10 p-4 text-white outline-none resize-none"
-                  />
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                    <input
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="Add location"
-                      className="rounded-2xl bg-white/5 border border-white/10 p-3 text-white outline-none"
+                  <div className="reel-video-shell w-full h-full relative bg-black">
+                    <video
+                      ref={(el) => {
+                        if (el) videoRefs.current[reel.id] = el;
+                      }}
+                      src={isNearActive ? videoUrl : undefined}
+                      poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
+                      preload={isNearActive ? 'auto' : 'metadata'}
+                      playsInline
+                      loop
+                      controls={false}
+                      disablePictureInPicture
+                      controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
+                      }}
+                      muted={playingReelId !== reel.id || !userInteractedRef.current}
+                      draggable={false}
+                      tabIndex={-1}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onTimeUpdate={(e) => {
+                        const video = e.currentTarget;
+                        const duration = video.duration || 0;
+                        const current = video.currentTime || 0;
+                        const progress = duration > 0 ? Math.min(current / duration, 1) : 0;
+                        setReelProgress((prev) => {
+                          if (prev[reel.id] === progress) return prev;
+                          return { ...prev, [reel.id]: progress };
+                        });
+                      }}
+                      onLoadStart={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: false }));
+                      }}
+                      onWaiting={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                      }}
+                      onStalled={() => {}}
+                      onCanPlay={() => {}}
+                      onCanPlayThrough={() => {}}
+                      onPlaying={() => {}}
+                      onSeeked={() => {}}
+                      onError={() => {
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: true }));
+                      }}
                     />
-                    <select
-                      value={visibility}
-                      onChange={(e) => setVisibility(e.target.value as Visibility)}
-                      className="rounded-2xl bg-white/5 border border-white/10 p-3 text-white outline-none"
-                    >
-                      <option value="public">Public</option>
-                      <option value="friends">Friends only</option>
-                      <option value="private">Private</option>
-                    </select>
-                  </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <button
-                      onClick={onBack}
-                      className="rounded-2xl bg-white/8 border border-white/10 py-3 font-black uppercase tracking-[0.14em] active:scale-95"
-                    >
-                      Replace video
-                    </button>
-                    <button
-                      onClick={handleSubmit}
-                      disabled={isSubmitting}
-                      className="rounded-2xl bg-[#1877F2] py-3 font-black uppercase tracking-[0.14em] active:scale-95 disabled:opacity-50"
-                    >
-                      {isSubmitting ? 'Publishing...' : 'Publish'}
-                    </button>
-                  </div>
-                </SectionCard>
-
-                <SectionCard title="Professional lyrics design">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div>
-                      <div className="text-sm font-bold">Lyrics overlay</div>
-                      <div className="text-white/50 text-xs">TikTok-style text for singing, quotes, subtitles, or hooks.</div>
-                    </div>
-                    <button
-                      onClick={() => setLyricsEnabled((prev) => !prev)}
-                      className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-[0.14em] border ${lyricsEnabled ? 'bg-[#1877F2] border-[#1877F2]' : 'bg-white/5 border-white/10'}`}
-                    >
-                      {lyricsEnabled ? 'On' : 'Off'}
-                    </button>
-                  </div>
-
-                  <textarea
-                    value={lyricsText}
-                    onChange={(e) => setLyricsText(e.target.value)}
-                    placeholder="Type your lyrics or lines here..."
-                    className="w-full min-h-[120px] rounded-3xl bg-white/5 border border-white/10 p-4 text-white outline-none resize-none"
-                  />
-
-                  <div className="mt-4">
-                    <div className="text-xs uppercase tracking-[0.16em] font-black text-[#7fb6ff] mb-3">Text style</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {LYRIC_PRESETS.map((preset) => (
-                        <button
-                          key={preset.id}
-                          onClick={() => setLyricsTheme(preset.id)}
-                          className={`rounded-2xl px-4 py-3 border text-xs font-black uppercase tracking-[0.14em] ${lyricsTheme === preset.id ? 'bg-[#1877F2] border-[#1877F2]' : 'bg-white/5 border-white/10'}`}
-                        >
-                          {preset.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-4">
-                    <RangeRow
-                      label="Text size"
-                      value={lyricsScale}
-                      min={0.8}
-                      max={1.6}
-                      step={0.05}
-                      display={`${Math.round(lyricsScale * 100)}%`}
-                      onChange={(v) => setLyricsScale(v)}
-                    />
-                    <RangeRow
-                      label="Bottom position"
-                      value={lyricsBottomOffset}
-                      min={8}
-                      max={32}
-                      step={1}
-                      display={`${lyricsBottomOffset}%`}
-                      onChange={(v) => setLyricsBottomOffset(v)}
-                    />
-                  </div>
-                </SectionCard>
-
-                <SectionCard title="Sound">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold truncate">{soundLabel}</div>
-                      <div className="text-white/50 text-xs mt-1">
-                        {currentSelectedSound || selectedUploadedSound ? 'Trim is instant and uses the same fields as Reels playback.' : 'No sound selected yet.'}
-                      </div>
-                      {selectedUploadedSound && (
-                        <div className="text-[10px] text-green-500 mt-1">
-                          <i className="fas fa-phone-alt mr-1"></i> Uploaded from device
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setIsSoundPickerOpen(true)}
-                      className="px-4 py-2 rounded-2xl bg-white/10 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
-                    >
-                      {currentSelectedSound || selectedUploadedSound ? 'Change' : 'Pick'}
-                    </button>
-                  </div>
-
-                  {(currentSelectedSound || selectedUploadedSound) && (
-                    <div className="mt-4 grid gap-4">
-                      <RangeRow
-                        label="Start"
-                        value={trimStart}
-                        min={0}
-                        max={Math.max(trimEnd - 0.5, 0.5)}
-                        step={0.1}
-                        display={`${trimStart.toFixed(1)}s`}
-                        onChange={(v) => setTrimStart(v)}
-                      />
-                      <RangeRow
-                        label="End"
-                        value={trimEnd}
-                        min={trimStart + 0.5}
-                        max={60}
-                        step={0.1}
-                        display={`${trimEnd.toFixed(1)}s`}
-                        onChange={(v) => setTrimEnd(v)}
-                      />
-                      <button
-                        onClick={() => {
-                          const sound = {
-                            id: selectedUploadedSound?.id || currentSelectedSound?.songId || 'temp',
-                            name: selectedUploadedSound?.name || currentSelectedSound?.songName || 'Sound',
-                            url: selectedUploadedSound?.url || currentSelectedSound?.audioUrl || '',
-                            originalUrl: selectedUploadedSound?.originalUrl || currentSelectedSound?.originalUrl || '',
-                            duration: 60,
-                            start: trimStart,
-                            end: trimEnd,
-                            isOriginal: !!selectedUploadedSound,
-                            file: selectedUploadedSound?.file
-                          };
-                          setTrimmingSound(sound as RecorderSoundOption);
-                          setIsTrimmerOpen(true);
-                        }}
-                        className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors"
-                      >
-                        <i className="fas fa-scissors mr-2"></i>
-                        Advanced Trim & Export
-                      </button>
-                    </div>
-                  )}
-                </SectionCard>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isEffectsOpen && (
-        <div className="absolute inset-0 z-[10030] bg-black/70 backdrop-blur-sm flex items-end animate-fade-in">
-          <div className="w-full max-h-[75vh] rounded-t-[32px] border-t border-white/10 bg-[#0e0e0e] overflow-hidden animate-slide-up">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between">
-              <button
-                onClick={() => setIsEffectsOpen(false)}
-                className="px-4 py-2 rounded-2xl bg-white/8 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
-              >
-                Close
-              </button>
-
-              <div className="text-center">
-                <div className="text-[10px] uppercase tracking-[0.24em] font-black text-[#7fb6ff]">Effects</div>
-                <div className="text-sm font-black uppercase tracking-[0.14em]">Choose your style</div>
-              </div>
-
-              <button
-                onClick={() => {
-                  setSelectedFilterId('none');
-                  setFilterIntensity(0.75);
-                }}
-                className="px-4 py-2 rounded-2xl bg-white/8 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="p-4 border-b border-white/10 flex gap-2 overflow-x-auto scrollbar-hide">
-              {FILTER_CATEGORIES.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setFilterCategory(cat.id)}
-                  className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-[0.14em] whitespace-nowrap ${
-                    filterCategory === cat.id
-                      ? 'bg-[#1877F2] text-white'
-                      : 'bg-white/5 border border-white/10 text-white/70'
-                  }`}
-                >
-                  <i className={`fas ${cat.icon} mr-1 text-[10px]`} />
-                  {cat.name}
-                </button>
-              ))}
-            </div>
-
-            <div className="p-4 overflow-y-auto max-h-[calc(75vh-150px)]">
-              <div className="grid grid-cols-4 gap-3">
-                {filteredFilters.map((filter) => (
-                  <button
-                    key={filter.id}
-                    onClick={() => handleFilterSelect(filter.id)}
-                    className={`rounded-2xl p-3 border transition-all ${
-                      selectedFilterId === filter.id
-                        ? 'bg-[#1877F2]/12 border-[#1877F2] scale-105'
-                        : 'bg-white/5 border-white/10 hover:bg-white/10'
-                    }`}
-                    title={filter.description}
-                  >
                     <div
-                      className="w-12 h-12 rounded-full mx-auto mb-2 bg-gradient-to-br from-[#1877F2] to-[#F3425F]"
-                      style={{ filter: buildFilterString(filter, 1) }}
+                      className="absolute inset-0 z-10"
+                      onClick={() => handleVideoClick(reel.id)}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onTouchStart={(e) => {
+                        if (e.touches.length > 1) e.preventDefault();
+                      }}
                     />
-                    <div className="text-[10px] font-black uppercase tracking-[0.1em] text-center">
-                      {filter.name}
-                    </div>
-                  </button>
-                ))}
-              </div>
 
-              {selectedFilterId !== 'none' && (
-                <div className="mt-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-white/60">
-                      Intensity
+                    {showError && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
+                          <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+                          <p className="text-white text-sm font-bold">Video failed to load</p>
+                          <button
+                            onClick={() => playOnly(reel.id)}
+                            className="px-4 py-2 rounded-xl bg-[#1877F2] text-white text-sm font-bold"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
+                      {/* Facebook-like progress line */}
+                      <div className="mb-4 pointer-events-none">
+                        <div className="w-full h-[3px] bg-white/25 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
+                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mb-4 pointer-events-auto">
+                        <div className="flex items-center gap-3 mb-2">
+                          <img
+                            src={author.profile_image_url || author.profileImage}
+                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer shrink-0"
+                            alt=""
+                            onClick={() => onProfileClick(author.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="text-white font-bold text-[22px] cursor-pointer hover:underline truncate"
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {truncateName(author.name, 9)}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs shrink-0"></i>
+                              )}
+                              {currentUser?.id !== author.id && (
+                                <button
+                                  onClick={() => onFollow(author.id)}
+                                  disabled={isLoadingFollow}
+                                  className="ml-2 h-10 px-5 rounded-[12px] border border-white/35 text-white text-[15px] font-bold bg-transparent active:scale-95 transition-all shrink-0"
+                                >
+                                  {isLoadingFollow ? '...' : isFollowing ? 'Following' : 'Follow'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {!!reel.caption && (
+                          <p className="text-white text-[22px] leading-snug line-clamp-2 mb-2">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        <div
+                          className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
+                          onClick={() => handleSoundClick(reel)}
+                        >
+                          <i className="fas fa-music text-[#1877F2]" />
+                          <span className="font-semibold truncate max-w-[200px]">
+                            {reel.songName || (reel as any).song_name || 'Original Sound'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-around py-2 pointer-events-auto">
+                        <ReelReactionButton
+                          hasReacted={hasReacted || false}
+                          reactionCount={reel.reactions?.length || 0}
+                          onReact={() => setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id)}
+                          isLoading={isReacting}
+                        />
+
+                        <ReelDiscussButton
+                          commentCount={reel.comments?.length || 0}
+                          onClick={() => {
+                            setActiveReelId(reel.id);
+                            setShowComments(true);
+                          }}
+                        />
+
+                        <button
+                          onClick={() => onShare(reel.id, 'feed')}
+                          className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-share text-lg text-white" />
+                          <span className="text-white text-sm font-bold ml-1">
+                            {formatCount(reel.shares || 0)}
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#7fb6ff]">
-                      {Math.round(filterIntensity * 100)}%
-                    </div>
+
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
+                        onClick={() => handleVideoClick(reel.id)}
+                      >
+                        <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
+                          <i className="fas fa-play text-white text-2xl ml-1"></i>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={filterIntensity}
-                    onChange={(e) => setFilterIntensity(Number(e.target.value))}
-                    className="w-full"
-                    style={{ ['--value-percent' as any]: `${filterIntensity * 100}%` }}
-                  />
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSoundPickerOpen && (
-        <div className="absolute inset-0 z-[10020] bg-black/85 backdrop-blur-sm flex items-end">
-          <div className="w-full max-h-[84vh] rounded-t-[32px] border-t border-white/10 bg-[#0e0e0e] overflow-hidden">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-3">
-              <button
-                onClick={() => {
-                  stopSoundPreview();
-                  setIsSoundPickerOpen(false);
-                }}
-                className="px-4 py-2 rounded-2xl bg-white/8 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
-              >
-                Close
-              </button>
-              <div className="text-center">
-                <div className="text-[10px] uppercase tracking-[0.24em] font-black text-[#7fb6ff]">Sound Picker</div>
-              </div>
-              <button
-                onClick={() => {
-                  onSelectSound?.(null);
-                  setSelectedUploadedSound(null);
-                  setTrimStart(0);
-                  setTrimEnd(0);
-                  setTrimmedAudioFile(null);
-                }}
-                className="px-4 py-2 rounded-2xl bg-white/8 border border-white/10 text-xs font-black uppercase tracking-[0.14em]"
-              >
-                Clear
-              </button>
-            </div>
-
-            <div className="p-4 border-b border-white/10">
-              <input
-                value={soundSearch}
-                onChange={(e) => setSoundSearch(e.target.value)}
-                placeholder="Search songs or creators..."
-                className="w-full rounded-2xl bg-white/5 border border-white/10 p-4 text-white outline-none"
-              />
-            </div>
-
-            <div className="overflow-y-auto max-h-[calc(84vh-132px)] p-4 space-y-3">
-              <div 
-                onClick={() => musicFileInputRef.current?.click()}
-                className="bg-gradient-to-br from-[#1877F2]/30 to-[#1877F2]/10 border border-[#1877F2]/40 p-6 rounded-[32px] flex items-center gap-4 cursor-pointer hover:from-[#1877F2]/40 transition-all active:scale-95 shadow-2xl mb-4"
-              >
-                <div className="w-14 h-14 bg-[#1877F2] rounded-2xl flex items-center justify-center shadow-2xl">
-                  <i className="fas fa-phone-alt text-white text-2xl"></i>
-                </div>
-                <div>
-                  <p className="font-black text-white text-lg">Upload Music</p>
-                  <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest mt-1">From your device storage</p>
-                </div>
-              </div>
-
-              {filteredSounds.length > 0 ? (
-                <div className="space-y-3">
-                  {filteredSounds.map((sound) => {
-                    const selected = currentSelectedSound?.soundKey === sound.soundKey;
-                    return (
-                      <SoundItem
-                        key={String(sound.id)}
-                        sound={sound}
-                        selected={selected}
-                        previewingSoundId={previewingSoundId}
-                        onPreview={playSoundPreview}
-                        onSelect={handleSoundSelect}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-white/50">
-                  <i className="fas fa-music text-4xl mb-4 opacity-50"></i>
-                  <p>No sounds found.</p>
-                  <p className="text-sm mt-2">Try uploading music from your phone</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isTrimmerOpen && trimmingSound && (
-        <AudioTrimmer
-          url={trimmingSound.originalUrl || trimmingSound.url}
-          onClose={() => setIsTrimmerOpen(false)}
-          onConfirm={handleTrimConfirm}
-          initialStart={trimStart}
-          initialEnd={trimEnd}
-          soundId={trimmingSound.id}
-          soundName={trimmingSound.name}
-          onMountStopAll={() => {
-            stopSoundPreview();
-          }}
-          isOriginal={trimmingSound.isOriginal}
-        />
-      )}
-    </div>
-  );
-};
-
-// =========================
-// SOUND ITEM COMPONENT
-// =========================
-const SoundItem: React.FC<{
-  sound: RecorderSoundOption;
-  selected: boolean;
-  previewingSoundId: string | number | null;
-  onPreview: (sound: RecorderSoundOption) => void;
-  onSelect: (sound: RecorderSoundOption) => void;
-}> = ({ sound, selected, previewingSoundId, onPreview, onSelect }) => {
-  const formatClock = (secs: number) => {
-    const safe = Math.max(0, Math.floor(secs || 0));
-    const m = Math.floor(safe / 60);
-    const s = safe % 60;
-    return `${m}:${String(s).padStart(2, '0')}`;
-  };
-
-  const formatViewCount = (num?: number): string => {
-    const v = Number(num || 0);
-    if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-    if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-    return String(v);
-  };
-
-  return (
-    <div className={`rounded-[24px] border p-4 flex items-center gap-4 ${selected ? 'bg-[#1877F2]/12 border-[#1877F2]/40' : 'bg-white/5 border-white/10'}`}>
-      {sound.coverImage || sound.creatorImage ? (
-        <img
-          src={sound.coverImage || sound.creatorImage}
-          alt=""
-          className="w-14 h-14 rounded-2xl object-cover"
-        />
-      ) : (
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#F3425F] flex items-center justify-center">
-          <i className="fas fa-music text-white" />
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0">
-        <div className="font-bold truncate">{sound.name}</div>
-        <div className="text-white/50 text-xs truncate mt-1">{sound.creatorName || 'Original Sound'}</div>
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-white/50">
-          <span>{formatClock(sound.end && sound.start !== undefined ? sound.end - sound.start : sound.duration || 0)}</span>
-          {sound.playCount ? <span>{formatViewCount(sound.playCount)} plays</span> : null}
-          {sound.creationCount ? <span>{formatViewCount(sound.creationCount)} uses</span> : null}
-          {sound.isOriginal && (
-            <span className="text-green-400">
-              <i className="fas fa-phone-alt mr-1 text-[8px]"></i>
-              Local
-            </span>
+              );
+            })
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => onPreview(sound)}
-          className="w-11 h-11 rounded-full bg-white/8 border border-white/10 flex items-center justify-center active:scale-95"
-        >
-          <i className={`fas ${previewingSoundId === sound.id ? 'fa-pause' : 'fa-play'} text-sm`} />
-        </button>
-        <button
-          onClick={() => onSelect(sound)}
-          className={`px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-[0.14em] ${selected ? 'bg-[#1877F2] text-white' : 'bg-white/8 border border-white/10 text-white'}`}
-        >
-          {selected ? 'Selected' : 'Use'}
-        </button>
-      </div>
-    </div>
-  );
-};
+      {activeReelId && (
+        <ReelCommentsSheet
+          isOpen={showComments}
+          onClose={() => setShowComments(false)}
+          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []}
+          users={users}
+          currentUser={currentUser}
+          onAddComment={(payload) => onComment(activeReelId, payload)}
+          onEditComment={onEditComment}
+          onDeleteComment={onDeleteComment}
+        />
+      )}
 
-// =========================
-// SMALL UI PARTS
-// =========================
-const SectionCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
-  return (
-    <div className="rounded-[28px] bg-white/5 border border-white/10 p-4 md:p-5">
-      <div className="text-xs uppercase tracking-[0.18em] font-black text-[#7fb6ff] mb-4">{title}</div>
-      {children}
-    </div>
-  );
-};
+      {selectedSoundData && (
+        <SoundDetailView
+          sound={selectedSoundData}
+          onClose={() => setSelectedSoundData(null)}
+          onReelClick={(id) => {
+            setSelectedSoundData(null);
+            playOnly(id);
+          }}
+        />
+      )}
 
-const RangeRow: React.FC<{
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  display: string;
-  onChange: (value: number) => void;
-}> = ({ label, value, min, max, step, display, onChange }) => {
-  const safeMax = Number.isFinite(max) ? max : min + step;
-  const safeValue = Math.min(Math.max(value, min), safeMax);
-  const percent = safeMax > min ? ((safeValue - min) / (safeMax - min)) * 100 : 0;
+      <ReelOwnerMenu
+        isOpen={showReelMenu}
+        onClose={() => {
+          setShowReelMenu(false);
+          setMenuReelId(null);
+        }}
+        onEdit={openEditReel}
+        onDelete={handleDeleteOwnedReel}
+      />
 
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-4 mb-2">
-        <div className="text-sm font-bold">{label}</div>
-        <div className="text-white/60 text-xs font-black uppercase tracking-[0.14em]">{display}</div>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={safeMax}
-        step={step}
-        value={safeValue}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full"
-        style={{ ['--value-percent' as any]: `${percent}%` }}
+      <EditReelModal
+        reel={editingReel}
+        caption={editingReelCaption}
+        location={editingReelLocation}
+        visibility={editingReelVisibility}
+        saving={savingReelEdit}
+        setCaption={setEditingReelCaption}
+        setLocation={setEditingReelLocation}
+        setVisibility={setEditingReelVisibility}
+        onClose={() => setEditingReel(null)}
+        onSave={handleSaveReelEdit}
       />
     </div>
   );
 };
 
-// =========================
-// STYLES
-// =========================
-const RECORDER_STYLES = `
-.recorder-page .scrollbar-hide::-webkit-scrollbar { display: none; }
-.recorder-page .scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
-.recorder-page * { -webkit-tap-highlight-color: transparent; }
-
+// ==================== STYLES ====================
+const styles = `
 @keyframes slide-up {
   0% { transform: translateY(100%); }
   100% { transform: translateY(0); }
@@ -2599,127 +2544,56 @@ const RECORDER_STYLES = `
   animation: fade-in 0.3s ease-out;
 }
 
-@keyframes scale-in {
-  0% { transform: scale(0.9); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
-.animate-scale-in {
-  animation: scale-in 0.3s ease-out;
-}
-
-.lyric-overlay {
-  position: absolute;
-  left: 50%;
-  width: min(88%, 540px);
-  text-align: center;
-  padding: 0 10px;
-  font-weight: 900;
-  line-height: 1.08;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
 }
 
-.lyric-classic {
-  color: #fff;
-  font-size: clamp(28px, 5vw, 40px);
-  text-shadow: 0 3px 18px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85);
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-.lyric-neon {
-  color: #8bc3ff;
-  font-size: clamp(30px, 5.4vw, 42px);
-  text-shadow:
-    0 0 4px rgba(139,195,255,0.9),
-    0 0 16px rgba(24,119,242,0.9),
-    0 0 32px rgba(24,119,242,0.75),
-    0 4px 18px rgba(0,0,0,0.9);
+.reel-video-shell,
+.reel-video-shell * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-.lyric-cinema {
-  color: #f8f1d3;
-  font-size: clamp(28px, 5vw, 40px);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-shadow: 0 4px 20px rgba(0,0,0,0.95), 0 0 2px rgba(255,255,255,0.35);
+.reel-video-shell video {
+  pointer-events: none;
 }
 
-.lyric-glass {
-  color: #fff;
-  font-size: clamp(26px, 4.8vw, 38px);
-  background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.06));
-  border: 1px solid rgba(255,255,255,0.2);
-  backdrop-filter: blur(12px);
-  border-radius: 24px;
-  padding: 14px 16px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-}
-
-.lyric-karaoke {
-  font-size: clamp(30px, 5.5vw, 44px);
-  background: linear-gradient(90deg, #ffffff 0%, #ffffff 38%, #ffd54f 50%, #ffffff 62%, #ffffff 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 3px 18px rgba(0,0,0,0.9);
-  animation: karaokeGlow 2.6s linear infinite;
-}
-
-.lyric-outline {
-  color: #fff;
-  font-size: clamp(30px, 5.3vw, 42px);
-  -webkit-text-stroke: 2px rgba(0,0,0,0.85);
-  text-shadow: 0 0 16px rgba(0,0,0,0.55);
-}
-
-@keyframes karaokeGlow {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(1.2); }
-  100% { filter: brightness(1); }
-}
-
-input[type=range] {
-  -webkit-appearance: none;
-  height: 4px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
-  background-image: linear-gradient(to right, #1877F2, #2D8CFF);
-  background-size: var(--value-percent, 0%) 100%;
-  background-repeat: no-repeat;
-}
-
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #1877F2;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(24,119,242,0.5);
-  border: 2px solid white;
-}
-
-input[type=range]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #1877F2;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(24,119,242,0.5);
-  border: 2px solid white;
-}
-
-input[type=range]::-webkit-slider-runnable-track {
-  height: 4px;
-  background: transparent;
-  border-radius: 2px;
-}
-
-input[type=range]::-moz-range-track {
-  height: 4px;
-  background: transparent;
-  border-radius: 2px;
+.reel-container {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 `;
 
-export default Recorder;
- 
+if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'reels-styles';
+  styleSheet.innerText = styles;
+  document.head.appendChild(styleSheet);
+}
+
+// ==================== EXPORTS ====================
+export {
+  fetchAsBlobUrl,
+  formatViewCount,
+  getNetworkLevel,
+  getReelVideoSources,
+  pickBestVideoUrl,
+};
+
+export type { Sound, NetworkLevel, ReelVideoSources };
+
+export default ReelsFeed;
