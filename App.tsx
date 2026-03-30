@@ -7145,7 +7145,7 @@ const handleReelVideoSelected = useCallback(
             />
           )}
 
-         {view === 'recorder' && (
+{view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
@@ -7169,6 +7169,7 @@ const handleReelVideoSelected = useCallback(
     startInPreview={!!pendingReelFile}
     onBack={() => {
       setPendingReelFile(null);
+      setSelectedReelSound(null);
       setView('home');
     }}
     onSubmit={async (reelData) => {
@@ -7178,15 +7179,18 @@ const handleReelVideoSelected = useCallback(
           reelData.audioUrl ||
           (selectedReelSound?.songId &&
             songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+          selectedReelSound?.originalUrl ||
           selectedReelSound?.audioUrl ||
           '',
         originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
         songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
         audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
         audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+        soundKey: reelData.soundKey || selectedReelSound?.soundKey || 'original:none',
       });
 
       setPendingReelFile(null);
+      setSelectedReelSound(null);
       setView('home');
     }}
   />
