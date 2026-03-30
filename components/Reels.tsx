@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ReactionsSheet, ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
@@ -206,6 +205,19 @@ const formatViewCount = (num?: number): string => {
 };
 
 const formatCount = (num: number): string => formatViewCount(num);
+
+// Helper to get first reactor's name
+const getFirstReactorName = (reactions: any[], users: User[]): string => {
+  if (!reactions || reactions.length === 0) return 'Someone';
+  
+  const firstReaction = reactions[0];
+  const userId = Number(firstReaction.userId ?? firstReaction.user_id);
+  const user = users.find(u => Number(u.id) === userId);
+  
+  if (user?.name) return user.name;
+  if (firstReaction.user?.name) return firstReaction.user.name;
+  return 'Someone';
+};
 
 // ==================== UPDATED REEL REACTION BUTTON ====================
 const ReelReactionButton: React.FC<{
@@ -2488,6 +2500,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                 (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               )?.type;
 
+              // Get first reactor's name for the reaction text
+              const firstReactorName = getFirstReactorName(reel.reactions || [], users);
+
               const videoSources = getReelVideoSources(reel);
               const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
               const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
@@ -2630,7 +2645,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         </div>
                       </div>
 
-                      {/* Reaction count with emoji display */}
+                      {/* Reaction count with emoji display - SHOWING ACTUAL NAME */}
                       {reel.reactions && reel.reactions.length > 0 && (
                         <div 
                           className="mt-2 px-2 cursor-pointer hover:opacity-80 transition-opacity pointer-events-auto mb-3"
@@ -2649,7 +2664,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                               ))}
                             </div>
                             <span className="text-white/70 text-sm font-medium">
-                              {formatReactionText(reel.reactions.length, reel.reactions[0]?.user?.name || 'Someone')}
+                              {reel.reactions.length === 1 
+                                ? `${formatCount(reel.reactions.length)} · ${firstReactorName}`
+                                : `${formatCount(reel.reactions.length)} · ${firstReactorName} and ${formatCount(reel.reactions.length - 1)} other${reel.reactions.length - 1 !== 1 ? 's' : ''}`
+                              }
                             </span>
                           </div>
                         </div>
@@ -2657,13 +2675,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
                       <div className="flex items-center justify-around py-2 pointer-events-auto">
                         <ReelReactionButton
-  reelId={reel.id}
-  hasReacted={hasReacted || false}
-  reactionCount={reel.reactions?.length || 0}
-  currentUserReaction={currentUserReaction}
-  onReact={onReact}  // ← Pass the actual onReact function from props
-  isLoading={isReacting}
-/>
+                          reelId={reel.id}
+                          hasReacted={hasReacted || false}
+                          reactionCount={reel.reactions?.length || 0}
+                          currentUserReaction={currentUserReaction}
+                          onReact={onReact}
+                          isLoading={isReacting}
+                        />
 
                         <ReelDiscussButton
                           commentCount={reel.comments?.length || 0}
