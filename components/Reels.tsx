@@ -3,29 +3,13 @@ import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis } from './Feed';
 import { rankReels } from '../utils/rankReels';
 
-// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
+// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE - AUDIO ONLY) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
 const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 10;
 const CACHE_TTL = 5 * 60 * 1000;
-const MEDIA_CACHE_NAME = 'unera-reels-media-v1';
 
-async function getCachedMediaUrl(url: string): Promise<string> {
-  if (!url) throw new Error('Missing media URL');
-  const cache = await caches.open(MEDIA_CACHE_NAME);
-  const cached = await cache.match(url);
-  if (cached) {
-    const blob = await cached.blob();
-    return URL.createObjectURL(blob);
-  }
-  const res = await fetch(url, { cache: 'force-cache' });
-  if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
-  await cache.put(url, res.clone());
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
-}
-
-async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
+async function fetchAsBlobUrl(url: string): Promise<string> {
   if (!url) throw new Error('Missing media URL');
 
   const cached = mediaBlobCache.get(url);
@@ -37,8 +21,16 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
     return mediaWarmPromises.get(url)!;
   }
 
-  const p = getCachedMediaUrl(url)
-    .then((blobUrl) => {
+  const p = fetch(url, {
+    cache: 'force-cache',
+    headers: { Accept: 'audio/mpeg,/*' },
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
       if (mediaBlobCache.size >= CACHE_MAX_SIZE) {
         const oldestKey = Array.from(mediaBlobCache.entries()).sort(
           (a, b) => a[1].timestamp - b[1].timestamp
@@ -47,6 +39,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
         if (oldest) URL.revokeObjectURL(oldest.blobUrl);
         mediaBlobCache.delete(oldestKey);
       }
+
       mediaBlobCache.set(url, { blobUrl, timestamp: Date.now() });
       return blobUrl;
     })
@@ -211,7 +204,7 @@ const formatViewCount = (num?: number): string => {
 
 const formatCount = (num: number): string => formatViewCount(num);
 
-// Helper to get first reactor's name (UPDATED)
+// Helper to get first reactor's name
 const getFirstReactorName = (reactions: any[], users: User[]): string => {
   if (!Array.isArray(reactions) || reactions.length === 0) return 'Someone';
   const firstReaction = reactions[0];
@@ -245,7 +238,6 @@ const ReelReactionsSheet: React.FC<{
   const abortRef = useRef<AbortController | null>(null);
   const reelId = reel.id;
 
-  // Reaction helpers (UPDATED)
   const getReactionUserName = (reaction: any): string => {
     const uid = Number(
       reaction.user?.id ?? reaction.user_id ?? reaction.userId ?? 0
@@ -1531,7 +1523,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           </div>
         )}
       </div>
-      <audio ref={audioRef} hidden crossOrigin="anonymous" />
+      <audio ref={audioRef} hidden />
     </div>
   );
 };
@@ -1704,21 +1696,31 @@ const EditReelModal: React.FC<{
   );
 };
 
-// ==================== HELPER: hasEnoughBuffered ====================
-const hasEnoughBuffered = (video: HTMLVideoElement, minSeconds = 2) => {
-  try {
-    const current = video.currentTime || 0;
-    const ranges = video.buffered;
-    for (let i = 0; i < ranges.length; i++) {
-      const start = ranges.start(i);
-      const end = ranges.end(i);
-      if (current >= start && current <= end) {
-        return end - current >= minSeconds;
-      }
+// ==================== HELPER: waitUntilPlayable (SIMPLIFIED) ====================
+const waitUntilPlayable = useCallback((video: HTMLVideoElement) => {
+  return new Promise<void>((resolve) => {
+    if (video.readyState >= 2) {
+      resolve();
+      return;
     }
-  } catch {}
-  return false;
-};
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.removeEventListener('loadeddata', onReady);
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('canplaythrough', onReady);
+      resolve();
+    };
+    const onReady = () => {
+      if (video.readyState >= 2) finish();
+    };
+    video.addEventListener('loadeddata', onReady);
+    video.addEventListener('canplay', onReady);
+    video.addEventListener('canplaythrough', onReady);
+    setTimeout(finish, 1500);
+  });
+}, []);
 
 // ==================== REELS FEED ====================
 interface ReelsFeedProps {
@@ -1826,6 +1828,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const warmupTimerRef = useRef<any>(null);
   const playRequestRef = useRef(0);
   const rankingSeedRef = useRef<number>(Math.floor(Date.now() % 1000000));
+  const didInitialAutoplayRef = useRef(false);
 
   // ==================== RANKED REELS ====================
   const rankedReels = useMemo(() => {
@@ -1836,19 +1839,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     () => rankedReels.findIndex((r) => r.id === activeReelId),
     [rankedReels, activeReelId]
   );
-
-  // Initialize active reel from ranked list
-  useEffect(() => {
-    if (initialReelId) {
-      setActiveReelId(initialReelId);
-      setPlayingReelId(initialReelId);
-      return;
-    }
-    if (!activeReelId && rankedReels.length > 0) {
-      setActiveReelId(rankedReels[0].id);
-      setPlayingReelId(rankedReels[0].id);
-    }
-  }, [initialReelId, rankedReels, activeReelId]);
 
   // ==================== HELPER FUNCTIONS ====================
   
@@ -1890,7 +1880,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }, 5000);
   }, []);
 
-  // ==================== resolveReelMedia (UPDATED - caches video too) ====================
+  // ==================== resolveReelMedia (VIDEO DIRECT, AUDIO CACHED) ====================
   const resolveReelMedia = useCallback(
     async (reel: Reel) => {
       const id = reel.id;
@@ -1898,32 +1888,30 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       try {
         const videoSources = getReelVideoSources(reel);
         const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
-        if (pickedVideoUrl && !resolvedVideoUrls[id]) {
-          const cachedVideo = mediaBlobCache.get(pickedVideoUrl);
-          if (cachedVideo) {
-            setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: cachedVideo.blobUrl }));
-          } else {
-            const blobUrl = await fetchAsBlobUrl(pickedVideoUrl, 'video');
-            setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: blobUrl }));
-          }
+        // IMPORTANT: for videos, use direct URL, not blob URL
+        if (pickedVideoUrl) {
+          setResolvedVideoUrls((prev) => 
+            prev[id] === pickedVideoUrl ? prev : { ...prev, [id]: pickedVideoUrl }
+          );
         }
+        // audio can still use blob cache if you want
         if (audioUrl && !resolvedAudioUrls[id]) {
           const cachedAudio = mediaBlobCache.get(audioUrl);
           if (cachedAudio) {
-            setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: cachedAudio.blobUrl }));
+            setResolvedAudioUrls((prev) => prev[id] ? prev : { ...prev, [id]: cachedAudio.blobUrl });
           } else {
-            const blobUrl = await fetchAsBlobUrl(audioUrl, 'audio');
-            setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: blobUrl }));
+            const blobUrl = await fetchAsBlobUrl(audioUrl);
+            setResolvedAudioUrls((prev) => prev[id] ? prev : { ...prev, [id]: blobUrl });
           }
         }
       } catch (err) {
         console.warn('Failed to resolve reel media', err);
       }
     },
-    [networkLevel, resolvedVideoUrls, resolvedAudioUrls]
+    [networkLevel, resolvedAudioUrls]
   );
 
-  // ==================== warmReelMedia (UPDATED - uses real cached download) ====================
+  // ==================== warmReelMedia (PRELOAD DIRECT URL, AUDIO CACHED) ====================
   const warmReelMedia = useCallback(
     async (reel: Reel) => {
       try {
@@ -1931,19 +1919,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
         const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
         if (pickedVideoUrl) {
-          await fetchAsBlobUrl(pickedVideoUrl, 'video');
+          addPreloadLink(pickedVideoUrl);
         }
         if (audioUrl) {
-          await fetchAsBlobUrl(audioUrl, 'audio');
+          await fetchAsBlobUrl(audioUrl);
         }
       } catch (err) {
         console.warn('Failed to warm reel media', err);
       }
     },
-    [networkLevel]
+    [networkLevel, addPreloadLink]
   );
 
-  // ==================== unloadFarVideos (UPDATED - unloads farther reels) ====================
+  // ==================== unloadFarVideos (PAUSE ONLY, NO SRC REMOVAL) ====================
   const unloadFarVideos = useCallback(
     (activeId: number) => {
       const currentIndex = rankedReels.findIndex((r) => r.id === activeId);
@@ -1957,47 +1945,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         if (distance > 3) {
           try {
             video.pause();
-            video.currentTime = 0;
             video.muted = true;
             video.volume = 0;
-            video.removeAttribute('src');
-            video.load();
           } catch (err) {
-            console.warn('Failed to unload video', err);
+            console.warn('Failed to pause far video', err);
           }
         }
       });
     },
     [rankedReels]
   );
-
-  // ==================== waitUntilPlayable (UPDATED - checks buffering) ====================
-  const waitUntilPlayable = useCallback((video: HTMLVideoElement) => {
-    return new Promise<void>((resolve) => {
-      if (video.readyState >= 3 && hasEnoughBuffered(video, 2)) {
-        resolve();
-        return;
-      }
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        video.removeEventListener('canplay', onProgress);
-        video.removeEventListener('progress', onProgress);
-        video.removeEventListener('loadeddata', onProgress);
-        resolve();
-      };
-      const onProgress = () => {
-        if (video.readyState >= 3 && hasEnoughBuffered(video, 2)) {
-          finish();
-        }
-      };
-      video.addEventListener('canplay', onProgress);
-      video.addEventListener('progress', onProgress);
-      video.addEventListener('loadeddata', onProgress);
-      setTimeout(finish, 3000);
-    });
-  }, []);
 
   const incrementViewCount = useCallback(async (reelId: number) => {
     if (viewedReelsRef.current.has(reelId)) return;
@@ -2167,7 +2124,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     } catch {}
   }, []);
 
-  // ==================== stopAllPlayback (NEW) ====================
+  // ==================== stopAllPlayback ====================
   const stopAllPlayback = useCallback(() => {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
@@ -2271,7 +2228,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     stopSoundtrack();
   }, [stopSoundtrack]);
 
-  // ==================== playOnly (UPDATED - uses stopAllPlayback) ====================
+  // ==================== playOnly (SIMPLIFIED - DIRECT URL) ====================
   const playOnly = useCallback(
     async (id: number) => {
       const requestId = ++playRequestRef.current;
@@ -2282,19 +2239,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const video = videoRefs.current[id];
       if (!video || !reel) return;
 
-      // make this reel active first
       setActiveReelId(id);
       setPlayingReelId(id);
       activeIdRef.current = id;
 
-      // pause others
       Object.entries(videoRefs.current).forEach(([key, v]) => {
         if (!v) return;
         const rid = Number(key);
         if (rid !== id) {
           try {
             v.pause();
-            v.currentTime = 0;
             v.muted = true;
             v.volume = 0;
           } catch {}
@@ -2305,17 +2259,18 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       unloadFarVideos(id);
       setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
-      await resolveReelMedia(reel);
-      if (playRequestRef.current !== requestId) return;
-
       const chosenUrl = resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+      
+      if (!chosenUrl) {
+        setVideoErrors((prev) => ({ ...prev, [id]: true }));
+        return;
+      }
 
-      if (chosenUrl && video.currentSrc !== chosenUrl) {
+      if (video.src !== chosenUrl) {
         video.src = chosenUrl;
         video.load();
       }
 
-      // show loader without blocking playback
       if (shouldShowStartupLoader(id)) {
         runStartupPreload(id);
       }
@@ -2330,27 +2285,29 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           video.muted = true;
           video.volume = 0;
         } else {
-          // start muted first for browser safety
           video.muted = !userInteractedRef.current;
           video.volume = userInteractedRef.current ? 1 : 0;
         }
 
-        await video.play();
+        await video.play().catch((err) => {
+          console.warn('video.play failed', err);
+          throw err;
+        });
 
-        // only start soundtrack after real user interaction
         if (hasExternalSound && userInteractedRef.current) {
           startSoundtrackForReel(id);
         }
 
         incrementViewCount(id);
+        setPausedMap((prev) => ({ ...prev, [id]: false }));
       } catch (err) {
         console.warn('playOnly failed', err);
         setPausedMap((prev) => ({ ...prev, [id]: true }));
+        setVideoErrors((prev) => ({ ...prev, [id]: true }));
       }
     },
     [
       rankedReels,
-      resolveReelMedia,
       resolvedVideoUrls,
       networkLevel,
       stopAllPlayback,
@@ -2500,7 +2457,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     };
   }, []);
 
-  // Improved warm preload - reduced to 3 targets
+  // Warm preload
   useEffect(() => {
     if (!activeReelId || rankedReels.length === 0) return;
 
@@ -2537,11 +2494,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     activeIdRef.current = playingReelId;
   }, [playingReelId]);
 
-  // ==================== AUTOPLAY EFFECT ====================
+  // ==================== INITIAL AUTOPLAY (ONE-TIME) ====================
   useEffect(() => {
+    if (didInitialAutoplayRef.current) return;
     if (rankedReels.length === 0) return;
     const firstId = initialReelId || rankedReels[0]?.id;
     if (!firstId) return;
+    didInitialAutoplayRef.current = true;
     const timer = setTimeout(() => {
       setActiveReelId(firstId);
       setPlayingReelId(firstId);
@@ -2554,6 +2513,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }, 120);
     return () => clearTimeout(timer);
   }, [initialReelId, rankedReels, playOnly]);
+
+  // ==================== ACTIVE REEL INIT (NO RESET) ====================
+  useEffect(() => {
+    if (activeReelId) return;
+    if (rankedReels.length === 0) return;
+    const firstId = initialReelId || rankedReels[0].id;
+    setActiveReelId(firstId);
+    setPlayingReelId(firstId);
+    activeIdRef.current = firstId;
+  }, [initialReelId, rankedReels, activeReelId]);
 
   // ==================== unlock effect ====================
   useEffect(() => {
@@ -2590,36 +2559,39 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     };
   }, [activeReelId, rankedReels, startSoundtrackForReel]);
 
+  // ==================== INTERSECTION OBSERVER (STABLE) ====================
   useEffect(() => {
     const rootEl = scrollerRef.current;
     if (!rootEl) return;
-
     observerRef.current?.disconnect();
-
+    let ticking = false;
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        let best: { id: number; ratio: number } | null = null;
-
-        entries.forEach((entry) => {
-          const id = Number(entry.target.getAttribute('data-reel-id'));
-          if (!best || entry.intersectionRatio > best.ratio) {
-            best = { id, ratio: entry.intersectionRatio };
-          }
-        });
-
-        if (best && best.ratio > 0.6 && activeIdRef.current !== best.id) {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .map((entry) => ({
+            id: Number(entry.target.getAttribute('data-reel-id')),
+            ratio: entry.intersectionRatio,
+          }))
+          .sort((a, b) => b.ratio - a.ratio);
+        const best = visible[0];
+        if (!best || best.ratio < 0.7) return;
+        if (activeIdRef.current === best.id) return;
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
           playOnly(best.id);
-        }
+          ticking = false;
+        });
       },
       {
         root: rootEl,
-        threshold: [0.4, 0.6, 0.8],
+        threshold: [0.55, 0.7, 0.85],
+        rootMargin: '-10% 0px -10% 0px',
       }
     );
-
     const els = rootEl.querySelectorAll('[data-reel-id]');
     els.forEach((el) => observerRef.current?.observe(el));
-
     return () => observerRef.current?.disconnect();
   }, [rankedReels, playOnly]);
 
@@ -2785,7 +2757,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Hidden audio element for external soundtrack */}
-      <audio ref={globalAudioRef} hidden preload="metadata" playsInline crossOrigin="anonymous" />
+      <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
 
       <div
         className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
@@ -2896,8 +2868,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       controls={false}
                       disablePictureInPicture
                       controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-                      crossOrigin="anonymous"
-                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      className="absolute inset-0 w-full h-full object-cover select-none"
                       style={{
                         WebkitTouchCallout: 'none',
                         WebkitUserSelect: 'none',
