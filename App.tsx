@@ -1394,6 +1394,16 @@ type ReelSound = {
   isTrimmedAudio?: boolean;
   originalUrl?: string;
 };
+  type UseSoundPayload = {
+  songName?: string;
+  audioUrl?: string;
+  originalUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+};
 
 export type View =
   | 'home'
