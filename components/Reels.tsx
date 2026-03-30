@@ -1522,6 +1522,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
+  const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
   const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
 
   // ==================== REFS ====================
@@ -1531,6 +1532,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const preloadLinksRef = useRef<Map<string, HTMLLinkElement>>(new Map());
   const bufferingTimeoutsRef = useRef<Record<number, any>>({});
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioSyncCleanupRef = useRef<(() => void) | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const activeIdRef = useRef<number | null>(null);
@@ -1570,29 +1573,45 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }, 5000);
   }, []);
 
+  // ==================== UPDATED resolveReelMedia ====================
   const resolveReelMedia = useCallback(
     async (reel: Reel) => {
       const id = reel.id;
+      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
       try {
         const videoSources = getReelVideoSources(reel);
         const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
         if (pickedVideoUrl && !resolvedVideoUrls[id]) {
           setResolvedVideoUrls((prev) => (prev[id] ? prev : { ...prev, [id]: pickedVideoUrl }));
         }
+        if (audioUrl && !resolvedAudioUrls[id]) {
+          const cachedAudio = mediaBlobCache.get(audioUrl);
+          if (cachedAudio) {
+            setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: cachedAudio.blobUrl }));
+          } else {
+            const blobUrl = await fetchAsBlobUrl(audioUrl, 'audio');
+            setResolvedAudioUrls((prev) => (prev[id] ? prev : { ...prev, [id]: blobUrl }));
+          }
+        }
       } catch (err) {
         console.warn('Failed to resolve reel media', err);
       }
     },
-    [networkLevel, resolvedVideoUrls]
+    [networkLevel, resolvedVideoUrls, resolvedAudioUrls]
   );
 
+  // ==================== UPDATED warmReelMedia ====================
   const warmReelMedia = useCallback(
     async (reel: Reel) => {
       try {
         const videoSources = getReelVideoSources(reel);
         const pickedVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+        const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
         if (pickedVideoUrl) {
           addPreloadLink(pickedVideoUrl);
+        }
+        if (audioUrl) {
+          await fetchAsBlobUrl(audioUrl, 'audio');
         }
       } catch (err) {
         console.warn('Failed to warm reel media', err);
@@ -1678,6 +1697,85 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     });
   }, []);
 
+  // ==================== SOUNDTRACK HELPERS ====================
+  const stopSoundtrack = useCallback(() => {
+    if (audioSyncCleanupRef.current) {
+      audioSyncCleanupRef.current();
+      audioSyncCleanupRef.current = null;
+    }
+    const audio = globalAudioRef.current;
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = '';
+    } catch {}
+  }, []);
+
+  const startSoundtrackForReel = useCallback(
+    (id: number) => {
+      if (audioSyncCleanupRef.current) {
+        audioSyncCleanupRef.current();
+        audioSyncCleanupRef.current = null;
+      }
+      const reel = reels.find((r) => r.id === id);
+      const video = videoRefs.current[id];
+      const audio = globalAudioRef.current;
+      if (!reel || !video || !audio) return;
+      if (!userInteractedRef.current) return;
+
+      const soundtrackUrl = resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
+      if (!soundtrackUrl) return;
+
+      const start = Number(reel.audioStart || (reel as any).audio_start || 0);
+      const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
+
+      try {
+        video.muted = true;
+        video.volume = 0;
+      } catch {}
+
+      if (audio.src !== soundtrackUrl) {
+        audio.src = soundtrackUrl;
+      }
+
+      const syncAudio = () => {
+        if (video.paused) {
+          audio.pause();
+          return;
+        }
+        const targetTime = video.currentTime + start;
+        if (end > start && targetTime >= end) {
+          try {
+            video.currentTime = 0;
+            audio.currentTime = start;
+          } catch {}
+          return;
+        }
+        if (Math.abs(audio.currentTime - targetTime) > 0.35) {
+          try {
+            audio.currentTime = targetTime;
+          } catch {}
+        }
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        }
+      };
+
+      video.addEventListener('timeupdate', syncAudio);
+      audioSyncCleanupRef.current = () => {
+        video.removeEventListener('timeupdate', syncAudio);
+      };
+
+      try {
+        audio.currentTime = start;
+        audio.play().catch(() => {});
+      } catch {}
+    },
+    [reels, resolvedAudioUrls]
+  );
+
+  // ==================== UPDATED stopActivePlayback ====================
   const stopActivePlayback = useCallback(() => {
     if (pendingPlayTimeoutRef.current) {
       clearTimeout(pendingPlayTimeoutRef.current);
@@ -1687,9 +1785,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (!video) return;
       try {
         video.pause();
+        video.muted = true;
+        video.volume = 0;
       } catch {}
     });
-  }, []);
+    stopSoundtrack();
+  }, [stopSoundtrack]);
 
   // ==================== UPDATED playOnly ====================
   const playOnly = useCallback(
@@ -1708,6 +1809,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           } catch {}
         }
       });
+
+      stopSoundtrack();
 
       const reel = reels.find((r) => r.id === id);
       const video = videoRefs.current[id];
@@ -1736,7 +1839,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         await waitUntilPlayable(video);
         if (playRequestRef.current !== requestId) return;
 
-        if (userInteractedRef.current) {
+        const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+
+        if (hasExternalSound) {
+          video.muted = true;
+          video.volume = 0;
+        } else if (userInteractedRef.current) {
           video.muted = false;
           video.volume = 1;
         } else {
@@ -1745,6 +1853,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         }
 
         await video.play();
+
+        if (hasExternalSound && userInteractedRef.current) {
+          startSoundtrackForReel(id);
+        }
+
         incrementViewCount(id);
       } catch (err) {
         console.warn('Autoplay/play failed', err);
@@ -1758,6 +1871,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       unloadFarVideos,
       waitUntilPlayable,
       incrementViewCount,
+      stopSoundtrack,
+      startSoundtrackForReel,
     ]
   );
 
@@ -1799,7 +1914,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
-  // ==================== UPDATED handleCameraClick ====================
   const handleCameraClick = useCallback(() => {
     stopActivePlayback();
     if (onVideoClick) {
@@ -1812,22 +1926,31 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     (reelId: number) => {
       const video = videoRefs.current[reelId];
       if (!video) return;
-      activeIdRef.current = reelId;
       userInteractedRef.current = true;
 
       if (activeIdRef.current === reelId) {
         if (video.paused) {
-          video.muted = false;
-          video.volume = 1;
-          video.play().catch(() => {});
+          video.play().then(() => {
+            const reel = reels.find((r) => r.id === reelId);
+            const hasExternalSound = !!(reel?.audioUrl || (reel as any)?.audio_url);
+            if (hasExternalSound) {
+              video.muted = true;
+              video.volume = 0;
+              startSoundtrackForReel(reelId);
+            } else {
+              video.muted = false;
+              video.volume = 1;
+            }
+          }).catch(() => {});
         } else {
           video.pause();
+          stopSoundtrack();
         }
         return;
       }
       playOnly(reelId);
     },
-    [playOnly]
+    [playOnly, reels, startSoundtrackForReel, stopSoundtrack]
   );
 
   // ==================== EFFECTS ====================
@@ -1920,7 +2043,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       const id = activeIdRef.current ?? activeReelId;
       if (!id) return;
       const video = videoRefs.current[id];
-      if (video) {
+      const reel = reels.find((r) => r.id === id);
+      if (!video || !reel) return;
+
+      const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+
+      if (hasExternalSound) {
+        video.muted = true;
+        video.volume = 0;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+        startSoundtrackForReel(id);
+      } else {
         video.muted = false;
         video.volume = 1;
         if (video.paused) {
@@ -1934,7 +2069,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener('click', unlock);
       window.removeEventListener('touchstart', unlock);
     };
-  }, [activeReelId]);
+  }, [activeReelId, reels, startSoundtrackForReel]);
 
   useEffect(() => {
     const rootEl = scrollerRef.current;
@@ -1969,6 +2104,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => observerRef.current?.disconnect();
   }, [reels, playOnly]);
 
+  // ==================== UPDATED pause when comments open ====================
   useEffect(() => {
     if (!showComments) return;
     const activeId = activeIdRef.current;
@@ -1980,7 +2116,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         } catch {}
       }
     }
-  }, [showComments]);
+    stopSoundtrack();
+  }, [showComments, stopSoundtrack]);
 
   // ==================== UPDATED resume after comments close ====================
   useEffect(() => {
@@ -1988,16 +2125,28 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     const activeId = activeIdRef.current;
     if (!activeId) return;
     const video = videoRefs.current[activeId];
-    if (!video) return;
-    if (userInteractedRef.current) {
+    const reel = reels.find((r) => r.id === activeId);
+    if (!video || !reel) return;
+
+    const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+
+    if (hasExternalSound) {
+      video.muted = true;
+      video.volume = 0;
+    } else if (userInteractedRef.current) {
       video.muted = false;
       video.volume = 1;
     } else {
       video.muted = true;
       video.volume = 0;
     }
-    video.play().catch(() => {});
-  }, [showComments]);
+
+    video.play().then(() => {
+      if (hasExternalSound && userInteractedRef.current) {
+        startSoundtrackForReel(activeId);
+      }
+    }).catch(() => {});
+  }, [showComments, reels, startSoundtrackForReel]);
 
   // ==================== UPDATED visibility change effect ====================
   useEffect(() => {
@@ -2008,6 +2157,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           video.pause();
         } catch {}
       });
+      stopSoundtrack();
     };
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -2015,15 +2165,24 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       } else if (!showComments && activeIdRef.current) {
         const id = activeIdRef.current;
         const video = videoRefs.current[id];
-        if (video) {
-          if (userInteractedRef.current) {
+        const reel = reels.find((r) => r.id === id);
+        if (video && reel) {
+          const hasExternalSound = !!(reel.audioUrl || (reel as any)?.audio_url);
+          if (hasExternalSound) {
+            video.muted = true;
+            video.volume = 0;
+          } else if (userInteractedRef.current) {
             video.muted = false;
             video.volume = 1;
           } else {
             video.muted = true;
             video.volume = 0;
           }
-          video.play().catch(() => {});
+          video.play().then(() => {
+            if (hasExternalSound && userInteractedRef.current) {
+              startSoundtrackForReel(id);
+            }
+          }).catch(() => {});
         }
       }
     };
@@ -2036,7 +2195,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [showComments]);
+  }, [showComments, reels, startSoundtrackForReel, stopSoundtrack]);
 
   useEffect(() => {
     if (selectedSoundData) {
@@ -2049,8 +2208,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           } catch {}
         }
       }
+      stopSoundtrack();
     }
-  }, [selectedSoundData]);
+  }, [selectedSoundData, stopSoundtrack]);
 
   useEffect(() => {
     if (!showReelMenu && !editingReel) return;
@@ -2063,7 +2223,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         } catch {}
       }
     }
-  }, [showReelMenu, editingReel]);
+    stopSoundtrack();
+  }, [showReelMenu, editingReel, stopSoundtrack]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -2213,6 +2374,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Hidden audio element for external soundtrack */}
+      <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
+
       <div
         className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
@@ -2319,7 +2483,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         WebkitUserSelect: 'none',
                         userSelect: 'none',
                       }}
-                      // UPDATED: Removed userInteractedRef condition
                       muted={playingReelId !== reel.id}
                       draggable={false}
                       tabIndex={-1}
@@ -2380,8 +2543,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                     )}
 
                     <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
-                      {/* REMOVED old progress bar from here */}
-
                       <div className="mb-4 pointer-events-auto">
                         <div className="flex items-center gap-3 mb-2">
                           <img
@@ -2458,7 +2619,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         </button>
                       </div>
 
-                      {/* NEW progress bar below action buttons */}
+                      {/* Progress bar below action buttons */}
                       <div className="mt-2 px-1 pointer-events-none">
                         <div className="w-full h-[3px] bg-white/20 rounded-full overflow-hidden">
                           <div 
