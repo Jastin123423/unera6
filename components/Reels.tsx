@@ -1,6 +1,4 @@
-I'll help you apply all these updates to Reels.tsx. Let me provide the complete updated file with all the changes integrated:
 
-```typescript
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText } from './Feed';
