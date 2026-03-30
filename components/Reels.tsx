@@ -2657,15 +2657,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
                       <div className="flex items-center justify-around py-2 pointer-events-auto">
                         <ReelReactionButton
-                          reelId={reel.id}
-                          hasReacted={hasReacted || false}
-                          reactionCount={reel.reactions?.length || 0}
-                          currentUserReaction={currentUserReaction}
-                          onReact={() => {
-                            setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id);
-                          }}
-                          isLoading={isReacting}
-                        />
+  reelId={reel.id}
+  hasReacted={hasReacted || false}
+  reactionCount={reel.reactions?.length || 0}
+  currentUserReaction={currentUserReaction}
+  onReact={onReact}  // ← Pass the actual onReact function from props
+  isLoading={isReacting}
+/>
 
                         <ReelDiscussButton
                           commentCount={reel.comments?.length || 0}
