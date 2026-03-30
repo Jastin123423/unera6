@@ -267,86 +267,132 @@ const createThumbnailFromVideo = async (
   return { file: outFile, previewUrl };
 };
 
-// ==================== VIDEO -> AUDIO EXTRACTION ====================
+// ==================== SILENT AUDIO EXTRACTOR (NO UI) ====================
 async function extractAudioFromVideo(file: File): Promise<File | null> {
-  const videoUrl = URL.createObjectURL(file);
+  let video: HTMLVideoElement | null = null;
+  let audioContext: AudioContext | null = null;
+  let sourceNode: MediaElementAudioSourceNode | null = null;
+  let mediaRecorder: MediaRecorder | null = null;
+  let stream: MediaStream | null = null;
+  
   try {
-    const video = document.createElement('video');
+    const videoUrl = URL.createObjectURL(file);
+    video = document.createElement('video');
     video.src = videoUrl;
-    video.preload = 'auto';
+    video.crossOrigin = 'anonymous';
     video.muted = true;
     video.playsInline = true;
     
+    // Wait for metadata to load
     await new Promise<void>((resolve, reject) => {
+      if (!video) return reject(new Error('Video element not created'));
       video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('Failed to read video metadata'));
+      video.onerror = () => reject(new Error('Failed to load video metadata'));
     });
     
-    const captureStream = (video as any).captureStream || (video as any).mozCaptureStream;
-    if (!captureStream) {
+    const duration = video.duration;
+    if (!duration || duration <= 0) {
+      URL.revokeObjectURL(videoUrl);
       return null;
     }
     
-    const stream: MediaStream = captureStream.call(video);
+    // Create audio context
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    sourceNode = audioContext.createMediaElementSource(video);
+    
+    // Create destination stream for recording
+    const dest = audioContext.createMediaStreamDestination();
+    sourceNode.connect(dest);
+    sourceNode.connect(audioContext.destination);
+    
+    stream = dest.stream;
+    
+    // Check if there are audio tracks
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks.length) {
+      URL.revokeObjectURL(videoUrl);
       return null;
     }
     
-    const audioOnlyStream = new MediaStream(audioTracks);
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-      ? 'audio/webm;codecs=opus' 
-      : MediaRecorder.isTypeSupported('audio/webm') 
-        ? 'audio/webm' 
-        : '';
+    // Setup recorder
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : '';
     
     if (!mimeType) {
+      URL.revokeObjectURL(videoUrl);
       return null;
     }
     
-    const recorder = new MediaRecorder(audioOnlyStream, { mimeType });
-    const chunks: Blob[] = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
     
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
     };
     
-    const stopped = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
+    // Start recording
+    mediaRecorder.start(250);
+    
+    // Play video to extract audio
+    await video.play();
+    
+    // Record for the duration of the video (max 60 seconds to prevent huge files)
+    const maxRecordTime = Math.min(duration, 60);
+    await new Promise((resolve) => setTimeout(resolve, maxRecordTime * 1000));
+    
+    // Stop recording
+    const recordingStopped = new Promise<Blob>((resolve) => {
+      if (!mediaRecorder) return resolve(new Blob());
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        resolve(blob);
+      };
+      mediaRecorder.stop();
     });
     
-    recorder.start(250);
+    // Pause video
+    video.pause();
     
-    try {
-      video.currentTime = 0;
-      await video.play();
-    } catch {
-      recorder.stop();
-      await stopped;
-      return null;
-    }
+    // Wait for recording to finish
+    const recordedBlob = await recordingStopped;
     
-    await new Promise<void>((resolve) => {
-      video.onended = () => resolve();
-    });
+    // Cleanup
+    URL.revokeObjectURL(videoUrl);
+    if (audioContext) await audioContext.close();
     
-    if (recorder.state !== 'inactive') {
-      recorder.stop();
-    }
-    await stopped;
+    if (!recordedBlob.size) return null;
     
-    const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-    if (!blob.size) return null;
+    // Create file from recorded audio
+    return new File(
+      [recordedBlob],
+      `original-audio-${Date.now()}.webm`,
+      { type: mimeType }
+    );
     
-    const ext = mimeType.includes('opus') || mimeType.includes('webm') ? 'webm' : 'bin';
-    return new File([blob], `original-audio-${Date.now()}.${ext}`, { 
-      type: blob.type || 'audio/webm',
-    });
   } catch (error) {
     console.warn('Audio extraction from video failed:', error);
     return null;
   } finally {
-    URL.revokeObjectURL(videoUrl);
+    // Clean up resources
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch {}
+    }
+    if (sourceNode && audioContext) {
+      try { sourceNode.disconnect(); } catch {}
+    }
+    if (audioContext) {
+      try { await audioContext.close(); } catch {}
+    }
+    if (video) {
+      try { video.pause(); } catch {}
+      try { video.remove(); } catch {}
+    }
+    if (stream) {
+      try { stream.getTracks().forEach(track => track.stop()); } catch {}
+    }
   }
 }
 
@@ -1483,7 +1529,7 @@ const Recorder: React.FC<RecorderProps> = ({
     [cleanupPreviewUrl]
   );
 
-  // ✅ CORRECT PLACEMENT - Effect moved here, after setNextPreviewUrl is defined
+  // Handle initial video file from Reels.tsx (when coming from "Use this sound")
   useEffect(() => {
     if (!initialVideoFile) return;
     
@@ -1525,6 +1571,7 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [setNextPreviewUrl, stopSoundPreview, onSelectSound]);
 
+  // Silent audio extraction - runs only when user picks video WITHOUT a selected sound
   const handlePickVideo = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1540,16 +1587,18 @@ const Recorder: React.FC<RecorderProps> = ({
     setVideoFile(file);
     setNextPreviewUrl(URL.createObjectURL(file));
     setMode('preview');
-    setExtractedVideoAudioFile(null);
     
-    // Auto-extract original audio only when user has NOT already selected a sound
-    if (!hasSelectedSound) {
+    // 🔥 SILENT AUTO EXTRACTION LOGIC
+    // ONLY extract audio if:
+    // 1. No selected sound from "Use this sound"
+    // 2. No manually uploaded sound
+    if (!selectedSound && !selectedUploadedSound) {
       setIsExtractingAudio(true);
       try {
         const extracted = await extractAudioFromVideo(file);
         if (extracted) {
           const extractedUrl = URL.createObjectURL(extracted);
-          const generatedSoundKey = `original:local-video:${Date.now()}`;
+          const generatedSoundKey = `original:extracted:${Date.now()}`;
           const autoSound: ReelSound = {
             songName: 'Original Sound',
             audioUrl: extractedUrl,
@@ -1578,18 +1627,19 @@ const Recorder: React.FC<RecorderProps> = ({
           setTrimEnd(0);
           onSelectSound?.(autoSound);
         } else {
+          // No audio found in video
           setSelectedUploadedSound(null);
           onSelectSound?.(null);
         }
       } catch (error) {
-        console.warn('Original audio extraction failed:', error);
+        console.warn('Silent audio extraction failed:', error);
         setExtractedVideoAudioFile(null);
       } finally {
         setIsExtractingAudio(false);
       }
     }
     event.target.value = '';
-  }, [setNextPreviewUrl, hasSelectedSound, currentUser, onSelectSound]);
+  }, [setNextPreviewUrl, selectedSound, selectedUploadedSound, currentUser, onSelectSound]);
 
   const handlePickMusic = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1657,7 +1707,7 @@ const Recorder: React.FC<RecorderProps> = ({
     if (selectedUploadedSound?.soundKey) return selectedUploadedSound.soundKey;
     if (currentSelectedSound?.soundKey) return currentSelectedSound.soundKey;
     if (currentSelectedSound?.songId) return `song:${currentSelectedSound.songId}`;
-    if (extractedVideoAudioFile) return `original:video:${Date.now()}`;
+    if (extractedVideoAudioFile) return `original:extracted:${Date.now()}`;
     return 'original:none';
   }, [currentSelectedSound, trimmedAudioFile, selectedUploadedSound, extractedVideoAudioFile]);
 
@@ -1691,6 +1741,7 @@ const Recorder: React.FC<RecorderProps> = ({
       const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
 
+      // Priority: trimmed audio > uploaded sound > extracted video audio > none
       let audioFileToSend: File | undefined = trimmedAudioFile || selectedUploadedSound?.file || extractedVideoAudioFile || undefined;
 
       const finalSongName = currentSelectedSound?.songName || selectedUploadedSound?.name || (audioFileToSend ? 'Original Sound' : 'Original Sound');
@@ -2103,7 +2154,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   )}
                   {extractedVideoAudioFile && !currentSelectedSound?.songId && (
                     <div className="text-[10px] text-green-400 mt-1">
-                      <i className="fas fa-film mr-1"></i> Using audio extracted from this video
+                      <i className="fas fa-film mr-1"></i> Audio extracted from video
                     </div>
                   )}
                 </div>
@@ -2344,7 +2395,7 @@ const Recorder: React.FC<RecorderProps> = ({
                   {isExtractingAudio && (
                     <div className="mb-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white/80">
                       <i className="fas fa-wave-square mr-2 text-[#1877F2]" />
-                      Extracting original video sound...
+                      Extracting audio from video (silent)...
                     </div>
                   )}
                   
@@ -2361,7 +2412,12 @@ const Recorder: React.FC<RecorderProps> = ({
                       )}
                       {extractedVideoAudioFile && !currentSelectedSound?.songId && (
                         <div className="text-[10px] text-green-400 mt-1">
-                          <i className="fas fa-film mr-1"></i> Using audio extracted from this video
+                          <i className="fas fa-film mr-1"></i> Audio extracted from video
+                        </div>
+                      )}
+                      {selectedSound && !selectedUploadedSound && (
+                        <div className="text-[10px] text-[#1877F2] mt-1">
+                          <i className="fas fa-music mr-1"></i> Using sound from "Use this sound"
                         </div>
                       )}
                     </div>
