@@ -7145,7 +7145,7 @@ const handleReelVideoSelected = useCallback(
             />
           )}
 
-{view === 'recorder' && (
+           {view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
@@ -7170,7 +7170,7 @@ const handleReelVideoSelected = useCallback(
     onBack={() => {
       setPendingReelFile(null);
       setSelectedReelSound(null);
-      setView('home');
+      setView('reels');
     }}
     onSubmit={async (reelData) => {
       await createReel({
@@ -7191,11 +7191,10 @@ const handleReelVideoSelected = useCallback(
 
       setPendingReelFile(null);
       setSelectedReelSound(null);
-      setView('home');
+      setView('reels');
     }}
   />
 )}
-
           {view === 'notifications' && (
             <NotificationsPage
               notifications={notifications}
