@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
-import { ReactionsSheet, ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
+import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
@@ -217,6 +217,232 @@ const getFirstReactorName = (reactions: any[], users: User[]): string => {
   if (user?.name) return user.name;
   if (firstReaction.user?.name) return firstReaction.user.name;
   return 'Someone';
+};
+
+// ==================== REEL REACTIONS SHEET ====================
+const ReelReactionsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  reel: Reel;
+  users: User[];
+  onProfileClick: (id: number) => void;
+}> = ({ isOpen, onClose, reel, users, onProfileClick }) => {
+  const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState<string>('all');
+  const [items, setItems] = useState<any[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const abortRef = useRef<AbortController | null>(null);
+  const reelId = reel.id;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    setLoading(true);
+    setItems([]);
+    setCounts({});
+    setActive('all');
+    
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    
+    (async () => {
+      try {
+        const token = localStorage.getItem('unera_token');
+        const response = await fetch(`/api/reels/${reelId}/reactions?limit=500&offset=0`, {
+          signal: abortRef.current?.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        
+        const data = await response.json();
+        const arr = Array.isArray(data?.reactions) ? data.reactions : [];
+        setItems(arr);
+        
+        const map: Record<string, number> = {};
+        for (const r of arr) {
+          const t = String(r?.type || 'like').toLowerCase();
+          map[t] = (map[t] || 0) + 1;
+        }
+        setCounts(map);
+      } catch (e) {
+        // ignore abort
+      } finally {
+        setLoading(false);
+      }
+    })();
+    
+    return () => abortRef.current?.abort();
+  }, [isOpen, reelId]);
+
+  if (!isOpen) return null;
+
+  const typesSorted = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t]) => t);
+
+  const filtered = active === 'all'
+    ? items
+    : items.filter((x) => String(x?.type).toLowerCase() === active);
+
+  const reactionEmojiMap: Record<string, string> = {
+    like: '👍',
+    love: '❤️',
+    haha: '😂',
+    wow: '😮',
+    sad: '😢',
+    angry: '😡',
+    fire: '🔥',
+    party: '🎉',
+    clap: '👏',
+    star: '⭐',
+    thinking: '🤔',
+    crying: '😭',
+    heart_eyes: '🥰',
+    kiss: '😘',
+    sunglasses: '😎',
+    rocket: '🚀',
+    trophy: '🏆',
+    crown: '👑',
+    unicorn: '🦄',
+    rainbow: '🌈',
+    money: '💰',
+    muscle: '💪',
+    brain: '🧠',
+    lightning: '⚡',
+    gem: '💎',
+  };
+
+  const getReactionEmoji = (type: string): string => {
+    return reactionEmojiMap[type.toLowerCase()] || '👍';
+  };
+
+  const Tab = ({ t, label, count }: { t: string; label: React.ReactNode; count: number }) => (
+    <button
+      onClick={() => setActive(t)}
+      className={`px-3 py-2 text-[17px] font-bold border-b-2 whitespace-nowrap ${
+        active === t
+          ? 'text-[#1877F2] border-[#1877F2]'
+          : 'text-[#B0B3B8] border-transparent'
+      }`}
+    >
+      {label} {count ? <span className="ml-1">{count}</span> : null}
+    </button>
+  );
+
+  const getReactionUserName = (reaction: any): string => {
+    if (reaction.user?.name) return reaction.user.name;
+    if (reaction.user?.username) return reaction.user.username;
+    if (reaction.name) return reaction.name;
+    if (reaction.username) return reaction.username;
+    
+    const userId = Number(reaction.user_id ?? reaction.userId);
+    if (userId) {
+      const user = users.find(u => Number(u.id) === userId);
+      if (user?.name) return user.name;
+      if (user?.username) return user.username;
+    }
+    
+    return 'User';
+  };
+
+  const getReactionUserImage = (reaction: any): string => {
+    if (reaction.user?.profile_image_url) return reaction.user.profile_image_url;
+    if (reaction.user?.avatar) return reaction.user.avatar;
+    if (reaction.profile_image_url) return reaction.profile_image_url;
+    if (reaction.avatar) return reaction.avatar;
+    
+    const userId = Number(reaction.user_id ?? reaction.userId);
+    if (userId) {
+      const user = users.find(u => Number(u.id) === userId);
+      if (user?.profile_image_url) return user.profile_image_url;
+    }
+    
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(getReactionUserName(reaction))}&background=1877F2&color=fff&bold=true`;
+  };
+
+  const getReactionUserId = (reaction: any): number => {
+    if (reaction.user?.id) return Number(reaction.user.id);
+    if (reaction.user_id) return Number(reaction.user_id);
+    if (reaction.userId) return Number(reaction.userId);
+    if (reaction.id) return Number(reaction.id);
+    return 0;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-[#18191A] flex flex-col">
+      <div className="p-4 border-b border-[#3E4042] flex items-center gap-3 bg-[#242526]">
+        <button
+          className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
+          onClick={onClose}
+          aria-label="Back"
+        >
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+        </button>
+        <div className="text-[#E4E6EB] font-bold text-[20px]">
+          People who reacted
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-[#3E4042] bg-[#242526] scrollbar-hide">
+        <Tab t="all" label="All" count={items.length} />
+        {typesSorted.map((t) => (
+          <Tab
+            key={t}
+            t={t}
+            label={<span className="text-[20px]">{getReactionEmoji(t)}</span>}
+            count={counts[t] || 0}
+          />
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="p-6 text-[#B0B3B8] text-center text-[17px]">
+            Loading reactions...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-[#B0B3B8] text-center text-[17px]">
+            No reactions yet.
+          </div>
+        ) : (
+          <div className="p-2">
+            {filtered.map((r, idx) => {
+              const uid = getReactionUserId(r);
+              const name = getReactionUserName(r);
+              const img = getReactionUserImage(r);
+              const emoji = getReactionEmoji(String(r?.type));
+              
+              return (
+                <button
+                  key={String(uid) + '-' + idx}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-xl text-left"
+                  onClick={() => uid && onProfileClick(uid)}
+                >
+                  <div className="relative">
+                    <img
+                      src={img}
+                      className="w-12 h-12 rounded-full object-cover"
+                      alt=""
+                    />
+                    <div className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-[#242526] border border-[#3E4042] flex items-center justify-center text-[16px]">
+                      {emoji}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[#E4E6EB] font-bold text-[17px] truncate">
+                      {name}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 // ==================== UPDATED REEL REACTION BUTTON ====================
@@ -2744,15 +2970,16 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         />
       )}
 
-      {/* Reactions Sheet */}
+      {/* Reactions Sheet - Using ReelReactionsSheet */}
       {selectedReelForReactions && (
-        <ReactionsSheet
+        <ReelReactionsSheet
           isOpen={showReactionsSheet}
           onClose={() => {
             setShowReactionsSheet(false);
             setSelectedReelForReactions(null);
           }}
-          post={selectedReelForReactions as any}
+          reel={selectedReelForReactions}
+          users={users}
           onProfileClick={onProfileClick}
         />
       )}
