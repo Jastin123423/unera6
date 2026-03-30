@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
+import { ReactionsSheet, ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
@@ -204,13 +205,17 @@ const formatViewCount = (num?: number): string => {
   return String(v);
 };
 
-// ==================== REEL REACTION BUTTON ====================
+const formatCount = (num: number): string => formatViewCount(num);
+
+// ==================== UPDATED REEL REACTION BUTTON ====================
 const ReelReactionButton: React.FC<{
+  reelId: number;
   hasReacted: boolean;
   reactionCount: number;
-  onReact: () => void;
+  onReact: (reelId: number, type?: ReactionType) => void;
   isLoading?: boolean;
-}> = ({ hasReacted, reactionCount, onReact, isLoading = false }) => {
+  currentUserReaction?: string | null;
+}> = ({ reelId, hasReacted, reactionCount, onReact, isLoading = false, currentUserReaction }) => {
   const [showDock, setShowDock] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -219,32 +224,29 @@ const ReelReactionButton: React.FC<{
   const longPressTimerRef = useRef<any>(null);
 
   const reactionConfig = [
-    { type: 'like', icon: '👍', color: '#1877F2' },
-    { type: 'love', icon: '❤️', color: '#F3425F' },
-    { type: 'haha', icon: '😂', color: '#F7B928' },
-    { type: 'wow', icon: '😮', color: '#F7B928' },
-    { type: 'sad', icon: '😢', color: '#F7B928' },
-    { type: 'angry', icon: '😡', color: '#E41E3F' },
-    { type: 'fire', icon: '🔥', color: '#FF6B35' },
-    { type: 'party', icon: '🎉', color: '#9C27B0' },
-    { type: 'clap', icon: '👏', color: '#4CAF50' },
-    { type: 'star', icon: '⭐', color: '#FFD700' },
-    { type: 'thinking', icon: '🤔', color: '#607D8B' },
-    { type: 'crying', icon: '😭', color: '#2196F3' },
-    { type: 'heart_eyes', icon: '🥰', color: '#E91E63' },
-    { type: 'kiss', icon: '😘', color: '#FF4081' },
-    { type: 'sunglasses', icon: '😎', color: '#00BCD4' },
-    { type: 'rocket', icon: '🚀', color: '#3F51B5' },
-    { type: 'trophy', icon: '🏆', color: '#FF9800' },
-    { type: 'crown', icon: '👑', color: '#FFC107' },
-    { type: 'unicorn', icon: '🦄', color: '#E040FB' },
-    { type: 'rainbow', icon: '🌈', color: '#00E676' },
-    { type: 'money', icon: '💰', color: '#4CAF50' },
-    { type: 'muscle', icon: '💪', color: '#FF5722' },
-    { type: 'brain', icon: '🧠', color: '#9C27B0' },
-    { type: 'lightning', icon: '⚡', color: '#FFEB3B' },
-    { type: 'gem', icon: '💎', color: '#00BCD4' },
-  ];
+    { type: 'like', icon: '👍', color: '#1877F2', label: 'Like' },
+    { type: 'love', icon: '❤️', color: '#F3425F', label: 'Love' },
+    { type: 'haha', icon: '😂', color: '#F7B928', label: 'Haha' },
+    { type: 'wow', icon: '😮', color: '#F7B928', label: 'Wow' },
+    { type: 'sad', icon: '😢', color: '#F7B928', label: 'Sad' },
+    { type: 'angry', icon: '😡', color: '#E41E3F', label: 'Angry' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35', label: 'Fire' },
+    { type: 'party', icon: '🎉', color: '#9C27B0', label: 'Party' },
+    { type: 'clap', icon: '👏', color: '#4CAF50', label: 'Clap' },
+    { type: 'star', icon: '⭐', color: '#FFD700', label: 'Star' },
+    { type: 'thinking', icon: '🤔', color: '#607D8B', label: 'Thinking' },
+    { type: 'crying', icon: '😭', color: '#2196F3', label: 'Crying' },
+    { type: 'heart_eyes', icon: '🥰', color: '#E91E63', label: 'Heart Eyes' },
+    { type: 'kiss', icon: '😘', color: '#FF4081', label: 'Kiss' },
+    { type: 'sunglasses', icon: '😎', color: '#00BCD4', label: 'Cool' },
+    { type: 'rocket', icon: '🚀', color: '#3F51B5', label: 'Rocket' },
+    { type: 'trophy', icon: '🏆', color: '#FF9800', label: 'Trophy' },
+    { type: 'crown', icon: '👑', color: '#FFC107', label: 'Crown' },
+  ] as const;
+
+  const activeReaction = currentUserReaction
+    ? reactionConfig.find((r) => r.type === currentUserReaction)
+    : null;
 
   const handleMouseEnter = () => {
     timerRef.current = setTimeout(() => setShowDock(true), 500);
@@ -272,18 +274,18 @@ const ReelReactionButton: React.FC<{
   };
 
   const handleClick = () => {
-    if (hasReacted) {
+    if (hasReacted && currentUserReaction) {
       setIsAnimating(true);
-      onReact();
+      onReact(reelId, currentUserReaction as ReactionType);
       setTimeout(() => setIsAnimating(false), 300);
     } else {
       setShowDock(!showDock);
     }
   };
 
-  const handleDockReact = (type: any) => {
+  const handleDockReact = (type: string) => {
     setIsAnimating(true);
-    onReact();
+    onReact(reelId, type as ReactionType);
     setShowDock(false);
     setShowPreview(false);
     setTimeout(() => setIsAnimating(false), 300);
@@ -324,7 +326,7 @@ const ReelReactionButton: React.FC<{
                   handleDockReact(r.type);
                 }}
                 onMouseEnter={() => handleEmojiHover(r.icon)}
-                title={r.type}
+                title={r.label}
               >
                 {r.icon}
               </div>
@@ -342,8 +344,17 @@ const ReelReactionButton: React.FC<{
           isAnimating ? 'scale-110' : ''
         } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
       >
-        <SparkReactIcon size={24} />
-        <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
+        {activeReaction ? (
+          <>
+            <span className="text-2xl">{activeReaction.icon}</span>
+            <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
+          </>
+        ) : (
+          <>
+            <SparkReactIcon size={24} />
+            <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
+          </>
+        )}
       </button>
     </div>
   );
@@ -1519,6 +1530,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [reactingReelId, setReactingReelId] = useState<number | null>(null);
   const [reelProgress, setReelProgress] = useState<Record<number, number>>({});
+  
+  // New states for reactions sheet and share sheet
+  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
+  const [selectedReelForReactions, setSelectedReelForReactions] = useState<Reel | null>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [selectedReelForShare, setSelectedReelForShare] = useState<Reel | null>(null);
 
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -1953,6 +1970,26 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [playOnly, reels, startSoundtrackForReel, stopSoundtrack]
   );
 
+  // ==================== New Handlers for Reactions Sheet and Share ====================
+  const handleOpenReactions = useCallback((reel: Reel) => {
+    setSelectedReelForReactions(reel);
+    setShowReactionsSheet(true);
+  }, []);
+
+  const handleOpenShare = useCallback((reel: Reel) => {
+    setSelectedReelForShare(reel);
+    setShowShareSheet(true);
+  }, []);
+
+  const handleShareComplete = useCallback(async (destination: string, data?: any) => {
+    if (data?.success && selectedReelForShare) {
+      // Call parent share handler
+      onShare(selectedReelForShare.id, 'feed');
+    }
+    setShowShareSheet(false);
+    setSelectedReelForShare(null);
+  }, [selectedReelForShare, onShare]);
+
   // ==================== EFFECTS ====================
   
   useEffect(() => {
@@ -2310,8 +2347,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [extractSoundFromReel]
   );
 
-  const formatCount = (num: number): string => formatViewCount(num);
-
   const openEditReel = useCallback(() => {
     const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
     if (!reel) return;
@@ -2449,6 +2484,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                 (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
               );
               const isReacting = reactingReelId === reel.id;
+              const currentUserReaction = reel.reactions?.find(
+                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
+              )?.type;
 
               const videoSources = getReelVideoSources(reel);
               const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
@@ -2592,11 +2630,40 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         </div>
                       </div>
 
+                      {/* Reaction count with emoji display */}
+                      {reel.reactions && reel.reactions.length > 0 && (
+                        <div 
+                          className="mt-2 px-2 cursor-pointer hover:opacity-80 transition-opacity pointer-events-auto mb-3"
+                          onClick={() => handleOpenReactions(reel)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="flex -space-x-2">
+                              {topReactionEmojis(reel.reactions, 2).map((emoji, i) => (
+                                <span
+                                  key={i}
+                                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                                  style={{ zIndex: 10 - i }}
+                                >
+                                  {emoji}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-white/70 text-sm font-medium">
+                              {formatReactionText(reel.reactions.length, reel.reactions[0]?.user?.name || 'Someone')}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-around py-2 pointer-events-auto">
                         <ReelReactionButton
+                          reelId={reel.id}
                           hasReacted={hasReacted || false}
                           reactionCount={reel.reactions?.length || 0}
-                          onReact={() => setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id)}
+                          currentUserReaction={currentUserReaction}
+                          onReact={() => {
+                            setShowReactionPicker(showReactionPicker === reel.id ? null : reel.id);
+                          }}
                           isLoading={isReacting}
                         />
 
@@ -2609,7 +2676,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         />
 
                         <button
-                          onClick={() => onShare(reel.id, 'feed')}
+                          onClick={() => handleOpenShare(reel)}
                           className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
                         >
                           <i className="fas fa-share text-lg text-white" />
@@ -2658,6 +2725,46 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           onAddComment={(payload) => onComment(activeReelId, payload)}
           onEditComment={onEditComment}
           onDeleteComment={onDeleteComment}
+        />
+      )}
+
+      {/* Reactions Sheet */}
+      {selectedReelForReactions && (
+        <ReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => {
+            setShowReactionsSheet(false);
+            setSelectedReelForReactions(null);
+          }}
+          post={selectedReelForReactions as any}
+          onProfileClick={onProfileClick}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {selectedReelForShare && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setSelectedReelForShare(null);
+          }}
+          post={{
+            id: selectedReelForShare.id,
+            author: users.find(u => u.id === getReelUserId(selectedReelForShare)),
+            content: selectedReelForShare.caption,
+            media_url: selectedReelForShare.thumbnail_url || selectedReelForShare.videoUrl,
+            created_at: selectedReelForShare.created_at,
+            source: 'reel',
+            item_type: 'reel',
+            reel_id: selectedReelForShare.id,
+          }}
+          currentUser={currentUser}
+          users={users}
+          groups={[]}
+          brands={[]}
+          chats={[]}
+          onShareComplete={handleShareComplete}
         />
       )}
 
