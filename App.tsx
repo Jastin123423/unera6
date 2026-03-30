@@ -6870,7 +6870,7 @@ const handleReelVideoSelected = useCallback(
 
           {/* ReelsFeed render */}
 
-          {view === 'reels' && (
+         {view === 'reels' && (
   <ReelsFeed
     reels={safeArray(reels)}
     users={safeArray(users)}
@@ -6888,7 +6888,7 @@ const handleReelVideoSelected = useCallback(
     followLoading={followLoading}
     initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
     onBack={goBack}
-    onVideoClick={handleVideoClickFromCreate}
+    onVideoClick={openReelRecorderFromReels}
   />
 )}
           {view === 'marketplace' && (
