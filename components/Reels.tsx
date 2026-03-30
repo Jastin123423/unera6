@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis } from './Feed';
-import { rankReels } from '../utils/rankReels';
+
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE - AUDIO ONLY) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
