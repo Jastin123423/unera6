@@ -82,6 +82,17 @@ type ReelVideoSources = {
   hd?: string;
 };
 
+type UseSoundPayload = { 
+  songName: string; 
+  audioUrl: string; 
+  originalUrl?: string; 
+  audioStart?: number; 
+  audioEnd?: number; 
+  songId?: string | number; 
+  soundKey?: string; 
+  isTrimmedAudio?: boolean; 
+};
+
 // ==================== HELPER: Get reel user ID ====================
 const getReelUserId = (reel: any): number => {
   return Number(reel.userId ?? reel.user_id ?? 0);
@@ -1261,16 +1272,18 @@ const ReelCommentsSheet: React.FC<{
 };
 
 // ==================== SOUND DETAIL VIEW ====================
-interface SoundDetailViewProps {
-  sound: Sound;
-  onClose: () => void;
-  onReelClick: (id: number) => void;
+interface SoundDetailViewProps { 
+  sound: Sound; 
+  onClose: () => void; 
+  onReelClick: (id: number) => void; 
+  onUseSound?: (sound: Sound) => void; 
 }
 
-export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
-  sound,
-  onClose,
-  onReelClick,
+export const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
+  sound, 
+  onClose, 
+  onReelClick, 
+  onUseSound 
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1434,13 +1447,22 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             {formatCount(soundStats.totalUses)} VIRAL CREATIONS • {formatCount(soundStats.totalViews)} VIEWS
           </p>
 
-          <div className="flex">
+          <div className="flex gap-3">
             <button
               onClick={playSoundPreview}
-              className={`w-full px-8 py-4 rounded-2xl font-black text-base border transition-all flex items-center justify-center gap-3 ${isPlaying ? 'bg-[#45BD62]/20 text-[#45BD62] border-[#45BD62]' : 'bg-white/10 text-white border-white/20'}`}
+              className={`flex-1 px-8 py-4 rounded-2xl font-black text-base border transition-all flex items-center justify-center gap-3 ${
+                isPlaying ? 'bg-[#45BD62]/20 text-[#45BD62] border-[#45BD62]' : 'bg-white/10 text-white border-white/20'
+              }`}
             >
               <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play'} text-sm`}></i>
               {isPlaying ? 'Playing...' : 'Preview'}
+            </button>
+            <button
+              onClick={() => onUseSound?.(sound)}
+              className="flex-1 px-8 py-4 rounded-2xl font-black text-base border border-[#1877F2] bg-[#1877F2] text-white transition-all flex items-center justify-center gap-3 active:scale-95"
+            >
+              <i className="fas fa-plus text-sm"></i>
+              Use this sound
             </button>
           </div>
         </div>
@@ -1727,7 +1749,7 @@ interface ReelsFeedProps {
   followLoading: { [key: number]: boolean };
   initialReelId?: number | null;
   onBack?: () => void;
-  onVideoClick?: () => void;
+  onVideoClick?: (sound?: UseSoundPayload) => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -1808,6 +1830,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (value.length <= max) return value;
     return value.slice(0, max) + '...';
   };
+
+  const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
+    return {
+      songName: sound.name || 'Original Sound',
+      audioUrl: sound.originalUrl || sound.url || '',
+      originalUrl: sound.originalUrl || sound.url || '',
+      audioStart: sound.start || 0,
+      audioEnd: sound.end || sound.duration || 0,
+      songId: sound.id,
+      soundKey: sound.soundKey || `sound:${sound.id}`,
+      isTrimmedAudio: false,
+    };
+  }, []);
 
   const addPreloadLink = useCallback((href: string) => {
     if (!href || preloadLinksRef.current.has(href)) return;
@@ -2228,6 +2263,108 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
 
+  // ==================== Extract sound from reel ====================
+  const extractSoundFromReel = useCallback(
+    (reel: Reel): Sound => {
+      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
+      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
+      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
+      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
+
+      return {
+        id: soundKey,
+        name: songName,
+        url: audioUrl,
+        originalUrl: audioUrl,
+        start: audioStart,
+        end: audioEnd,
+        creator: author,
+        creationCount: 0,
+        isOriginal: String(soundKey).startsWith('original:'),
+        soundKey,
+      };
+    },
+    [users]
+  );
+
+  // ==================== Use sound handlers ====================
+  const handleUseSoundFromReel = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
+      const payload = buildUseSoundPayload(sound);
+      stopActivePlayback();
+      setSelectedSoundData(null);
+      onVideoClick?.(payload);
+    },
+    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback, onVideoClick]
+  );
+
+  const handleSoundClick = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
+      setSelectedSoundData(sound);
+    },
+    [extractSoundFromReel]
+  );
+
+  const openEditReel = useCallback(() => {
+    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
+    if (!reel) return;
+
+    setEditingReel(reel);
+    setEditingReelCaption(reel.caption || '');
+    setEditingReelLocation((reel as any).location || '');
+    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
+    setShowReelMenu(false);
+  }, [reels, menuReelId]);
+
+  const handleSaveReelEdit = useCallback(async () => {
+    if (!editingReel) return;
+
+    try {
+      setSavingReelEdit(true);
+      await Promise.resolve(
+        onEditReel(editingReel.id, {
+          caption: editingReelCaption,
+          location: editingReelLocation,
+          visibility: editingReelVisibility,
+        })
+      );
+      setEditingReel(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update reel');
+    } finally {
+      setSavingReelEdit(false);
+    }
+  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
+
+  const handleDeleteOwnedReel = useCallback(async () => {
+    if (!menuReelId) return;
+
+    const ok = window.confirm('Delete this reel?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteReel(menuReelId));
+      setShowReelMenu(false);
+      setMenuReelId(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete reel');
+    }
+  }, [menuReelId, onDeleteReel]);
+
+  const handleReaction = useCallback((reelId: number, emoji: string) => {
+    if (reactingReelId === reelId) return;
+    setReactingReelId(reelId);
+    onReact(reelId, emoji as any);
+    setTimeout(() => setReactingReelId(null), 300);
+    setShowReactionPicker(null);
+  }, [onReact, reactingReelId]);
+
+  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
+
   // ==================== EFFECTS ====================
   
   useEffect(() => {
@@ -2551,96 +2688,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     handleVideoClick,
   ]);
 
-  // ==================== HANDLERS ====================
-  const extractSoundFromReel = useCallback(
-    (reel: Reel): Sound => {
-      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
-      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-
-      return {
-        id: soundKey,
-        name: songName,
-        url: audioUrl,
-        originalUrl: audioUrl,
-        start: audioStart,
-        end: audioEnd,
-        creator: author,
-        creationCount: 0,
-        isOriginal: String(soundKey).startsWith('original:'),
-        soundKey,
-      };
-    },
-    [users]
-  );
-
-  const handleSoundClick = useCallback(
-    (reel: Reel) => {
-      const sound = extractSoundFromReel(reel);
-      setSelectedSoundData(sound);
-    },
-    [extractSoundFromReel]
-  );
-
-  const openEditReel = useCallback(() => {
-    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
-    if (!reel) return;
-
-    setEditingReel(reel);
-    setEditingReelCaption(reel.caption || '');
-    setEditingReelLocation((reel as any).location || '');
-    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
-    setShowReelMenu(false);
-  }, [reels, menuReelId]);
-
-  const handleSaveReelEdit = useCallback(async () => {
-    if (!editingReel) return;
-
-    try {
-      setSavingReelEdit(true);
-      await Promise.resolve(
-        onEditReel(editingReel.id, {
-          caption: editingReelCaption,
-          location: editingReelLocation,
-          visibility: editingReelVisibility,
-        })
-      );
-      setEditingReel(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to update reel');
-    } finally {
-      setSavingReelEdit(false);
-    }
-  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
-
-  const handleDeleteOwnedReel = useCallback(async () => {
-    if (!menuReelId) return;
-
-    const ok = window.confirm('Delete this reel?');
-    if (!ok) return;
-
-    try {
-      await Promise.resolve(onDeleteReel(menuReelId));
-      setShowReelMenu(false);
-      setMenuReelId(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to delete reel');
-    }
-  }, [menuReelId, onDeleteReel]);
-
-  const handleReaction = useCallback((reelId: number, emoji: string) => {
-    if (reactingReelId === reelId) return;
-    setReactingReelId(reelId);
-    onReact(reelId, emoji as any);
-    setTimeout(() => setReactingReelId(null), 300);
-    setShowReactionPicker(null);
-  }, [onReact, reactingReelId]);
-
-  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
-
   // ==================== RENDER ====================
   return (
     <div
@@ -2860,14 +2907,22 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           </p>
                         )}
 
-                        <div
-                          className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
-                          onClick={() => handleSoundClick(reel)}
-                        >
-                          <i className="fas fa-music text-[#1877F2]" />
-                          <span className="font-semibold truncate max-w-[200px]">
-                            {reel.songName || (reel as any).song_name || 'Original Sound'}
-                          </span>
+                        <div className="pointer-events-auto">
+                          <div
+                            className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
+                            onClick={() => handleSoundClick(reel)}
+                          >
+                            <i className="fas fa-music text-[#1877F2]" />
+                            <span className="font-semibold truncate max-w-[200px]">
+                              {reel.songName || (reel as any).song_name || 'Original Sound'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUseSoundFromReel(reel)}
+                            className="mt-2 px-4 py-2 rounded-full bg-[#1877F2] text-white text-xs font-black uppercase tracking-[0.12em] active:scale-95 transition-all"
+                          >
+                            Use this sound
+                          </button>
                         </div>
                       </div>
 
@@ -3019,6 +3074,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             setSelectedSoundData(null);
             playOnly(id);
           }}
+          onUseSound={(sound) => {
+            const payload = buildUseSoundPayload(sound);
+            stopActivePlayback();
+            setSelectedSoundData(null);
+            onVideoClick?.(payload);
+          }}
         />
       )}
 
@@ -3116,6 +3177,6 @@ export {
   pickBestVideoUrl,
 };
 
-export type { Sound, NetworkLevel, ReelVideoSources };
+export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
 
 export default ReelsFeed;
