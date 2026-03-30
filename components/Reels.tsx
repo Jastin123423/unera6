@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
-import { ShareBottomSheet, topReactionEmojis, formatReactionText } from './Feed';
+import { ShareBottomSheet, topReactionEmojis } from './Feed';
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
@@ -1798,11 +1797,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [editingReelLocation, setEditingReelLocation] = useState('');
   const [editingReelVisibility, setEditingReelVisibility] = useState<'public' | 'followers' | 'private'>('public');
   const [savingReelEdit, setSavingReelEdit] = useState(false);
-  const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [reactingReelId, setReactingReelId] = useState<number | null>(null);
   const [reelProgress, setReelProgress] = useState<Record<number, number>>({});
   
-  // New states for reactions sheet and share sheet
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
   const [selectedReelForReactions, setSelectedReelForReactions] = useState<Reel | null>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
@@ -1966,67 +1963,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       setTimeout(resolve, 2500);
     });
   }, []);
-
-  const recoverVideoPlayback = useCallback(
-    async (reelId: number) => {
-      const reel = reels.find((r) => r.id === reelId);
-      const video = videoRefs.current[reelId];
-      if (!reel || !video) return;
-      const currentTime = video.currentTime || 0;
-      const chosenUrl = resolvedVideoUrls[reelId] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
-      try {
-        video.pause();
-        if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
-          video.src = chosenUrl;
-        }
-        video.load();
-        const restore = () => {
-          try {
-            if (currentTime > 0 && Number.isFinite(currentTime)) {
-              video.currentTime = currentTime;
-            }
-          } catch {}
-        };
-        if (video.readyState >= 2) {
-          restore();
-        } else {
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              video.removeEventListener('loadedmetadata', done);
-              video.removeEventListener('canplay', done);
-              resolve();
-            };
-            video.addEventListener('loadedmetadata', done, { once: true });
-            video.addEventListener('canplay', done, { once: true });
-            setTimeout(() => {
-              video.removeEventListener('loadedmetadata', done);
-              video.removeEventListener('canplay', done);
-              resolve();
-            }, 2000);
-          });
-          restore();
-        }
-        const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
-        if (hasExternalSound) {
-          video.muted = true;
-          video.volume = 0;
-        } else if (userInteractedRef.current) {
-          video.muted = false;
-          video.volume = 1;
-        } else {
-          video.muted = true;
-          video.volume = 0;
-        }
-        await video.play().catch(() => {});
-        if (hasExternalSound && userInteractedRef.current) {
-          startSoundtrackForReel(reelId);
-        }
-      } catch (err) {
-        console.warn('recoverVideoPlayback failed', err);
-      }
-    },
-    [reels, resolvedVideoUrls, networkLevel, startSoundtrackForReel]
-  );
 
   const incrementViewCount = useCallback(async (reelId: number) => {
     if (viewedReelsRef.current.has(reelId)) return;
@@ -2194,7 +2130,69 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     } catch {}
   }, []);
 
-  // ==================== UPDATED stopActivePlayback ====================
+  // ==================== recoverVideoPlayback ====================
+  const recoverVideoPlayback = useCallback(
+    async (reelId: number) => {
+      const reel = reels.find((r) => r.id === reelId);
+      const video = videoRefs.current[reelId];
+      if (!reel || !video) return;
+      const currentTime = video.currentTime || 0;
+      const chosenUrl = resolvedVideoUrls[reelId] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+      try {
+        video.pause();
+        if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
+          video.src = chosenUrl;
+        }
+        video.load();
+        const restore = () => {
+          try {
+            if (currentTime > 0 && Number.isFinite(currentTime)) {
+              video.currentTime = currentTime;
+            }
+          } catch {}
+        };
+        if (video.readyState >= 2) {
+          restore();
+        } else {
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              video.removeEventListener('loadedmetadata', done);
+              video.removeEventListener('canplay', done);
+              resolve();
+            };
+            video.addEventListener('loadedmetadata', done, { once: true });
+            video.addEventListener('canplay', done, { once: true });
+            setTimeout(() => {
+              video.removeEventListener('loadedmetadata', done);
+              video.removeEventListener('canplay', done);
+              resolve();
+            }, 2000);
+          });
+          restore();
+        }
+        const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+        if (hasExternalSound) {
+          video.muted = true;
+          video.volume = 0;
+        } else if (userInteractedRef.current) {
+          video.muted = false;
+          video.volume = 1;
+        } else {
+          video.muted = true;
+          video.volume = 0;
+        }
+        await video.play().catch(() => {});
+        if (hasExternalSound && userInteractedRef.current) {
+          startSoundtrackForReel(reelId);
+        }
+      } catch (err) {
+        console.warn('recoverVideoPlayback failed', err);
+      }
+    },
+    [reels, resolvedVideoUrls, networkLevel, startSoundtrackForReel]
+  );
+
+  // ==================== stopActivePlayback ====================
   const stopActivePlayback = useCallback(() => {
     if (pendingPlayTimeoutRef.current) {
       clearTimeout(pendingPlayTimeoutRef.current);
@@ -2211,7 +2209,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     stopSoundtrack();
   }, [stopSoundtrack]);
 
-  // ==================== UPDATED playOnly ====================
+  // ==================== playOnly ====================
   const playOnly = useCallback(
     async (id: number) => {
       const requestId = ++playRequestRef.current;
@@ -2346,7 +2344,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [onVideoClick, stopActivePlayback]);
 
-  // ==================== UPDATED handleVideoClick ====================
+  // ==================== handleVideoClick ====================
   const handleVideoClick = useCallback(
     (reelId: number) => {
       const video = videoRefs.current[reelId];
@@ -2478,7 +2476,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return () => clearTimeout(timer);
   }, [initialReelId, reels, playOnly]);
 
-  // ==================== UPDATED unlock effect ====================
+  // ==================== unlock effect ====================
   useEffect(() => {
     const unlock = () => {
       userInteractedRef.current = true;
@@ -2729,14 +2727,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       alert(e?.message || 'Failed to delete reel');
     }
   }, [menuReelId, onDeleteReel]);
-
-  const handleReaction = useCallback((reelId: number, emoji: string) => {
-    if (reactingReelId === reelId) return;
-    setReactingReelId(reelId);
-    onReact(reelId, emoji as any);
-    setTimeout(() => setReactingReelId(null), 300);
-    setShowReactionPicker(null);
-  }, [onReact, reactingReelId]);
 
   const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
 
