@@ -3333,28 +3333,6 @@ const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSoun
 const soundKey = generateSoundKey(reelData, selectedReelSound);
 const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
-const audioStart =
-  isTrimmedAudio
-    ? 0
-    : (typeof reelData.audioStart === 'number'
-        ? reelData.audioStart
-        : (typeof selectedReelSound?.audioStart === 'number'
-            ? selectedReelSound.audioStart
-            : 0));
-
-const audioEnd =
-  isTrimmedAudio
-    ? 0
-    : (typeof reelData.audioEnd === 'number'
-        ? reelData.audioEnd
-        : (typeof selectedReelSound?.audioEnd === 'number'
-            ? selectedReelSound.audioEnd
-            : 0));
-
-
-    const soundKey = generateSoundKey(reelData, selectedReelSound);
-const isTrimmedAudio = soundKey.startsWith('trimmed:');
-
 let audioStart = 0;
 if (isTrimmedAudio) {
   audioStart = 0;
@@ -3372,6 +3350,7 @@ if (isTrimmedAudio) {
 } else if (typeof selectedReelSound?.audioEnd === 'number') {
   audioEnd = selectedReelSound.audioEnd;
 }
+
 const soundName =
   reelData.songName ||
   selectedReelSound?.songName ||
@@ -3379,10 +3358,12 @@ const soundName =
 
 const finalAudioUrl =
   audioUrl ||
-  reelData.audioUrl ||
-  selectedReelSound?.originalUrl ||
-  selectedReelSound?.audioUrl ||
-  '';
+  (reelData.audioFile ? '' : (
+    reelData.audioUrl ||
+    selectedReelSound?.originalUrl ||
+    selectedReelSound?.audioUrl ||
+    ''
+  ));
 
 const finalSongId =
   reelData.originalSoundId ||
