@@ -3329,27 +3329,27 @@ const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSoun
       } else if (reelData.audioUrl) {
         audioUrl = reelData.audioUrl;
       }
-      
-    const soundKey = generateSoundKey(reelData, selectedReelSound);
+
+const soundKey = generateSoundKey(reelData, selectedReelSound);
 const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
 const audioStart =
   isTrimmedAudio
     ? 0
-    : typeof reelData.audioStart === 'number'
-    ? reelData.audioStart
-    : typeof selectedReelSound?.audioStart === 'number'
-    ? selectedReelSound.audioStart
-    : 0;
+    : (typeof reelData.audioStart === 'number'
+        ? reelData.audioStart
+        : (typeof selectedReelSound?.audioStart === 'number'
+            ? selectedReelSound.audioStart
+            : 0));
 
 const audioEnd =
   isTrimmedAudio
     ? 0
-    : typeof reelData.audioEnd === 'number'
-    ? reelData.audioEnd
-    : typeof selectedReelSound?.audioEnd === 'number'
-    ? selectedReelSound.audioEnd
-    : 0;
+    : (typeof reelData.audioEnd === 'number'
+        ? reelData.audioEnd
+        : (typeof selectedReelSound?.audioEnd === 'number'
+            ? selectedReelSound.audioEnd
+            : 0));
 
 const soundPayload = {
   songName:
@@ -3365,9 +3365,9 @@ const soundPayload = {
     '',
 
   songId:
-    reelData.originalSoundId ??
-    reelData.songId ??
-    selectedReelSound?.songId ??
+    reelData.originalSoundId ||
+    (reelData as any).songId ||
+    selectedReelSound?.songId ||
     null,
 };
 
