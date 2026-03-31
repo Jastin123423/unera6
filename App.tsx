@@ -3238,32 +3238,27 @@ export default function App() {
     }
   }, [users]);
 
-const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
-  if (reelData.soundKey) return String(reelData.soundKey);
-
-  if (reelData.audioFile && !reelData.originalSoundId) {
-    return `original:extracted:${Date.now()}`;
-  }
-
-  if (reelData.originalSoundId) {
-    return `song:${reelData.originalSoundId}`;
-  }
-
-  if (selectedReelSound?.soundKey) {
-    return String(selectedReelSound.soundKey);
-  }
-
-  if (reelData.audioUrl) {
-    return `audio:${reelData.audioUrl}`;
-  }
-
-  if (selectedReelSound?.audioUrl) {
-    return `audio:${selectedReelSound.audioUrl}`;
-  }
-
-  return 'original:none';
-}, []);
-
+  const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+    if (reelData.soundKey) return String(reelData.soundKey);
+    
+    if (selectedReelSound?.songId) {
+      return `song:${selectedReelSound.songId}`;
+    }
+    
+    if (reelData.originalSoundId) {
+      return `original-song:${reelData.originalSoundId}`;
+    }
+    
+    if (selectedReelSound?.audioUrl) {
+      return `audio:${selectedReelSound.audioUrl}`;
+    }
+    
+    if (reelData.audioUrl) {
+      return `audio:${reelData.audioUrl}`;
+    }
+    
+    return 'original:none';
+  }, []);
 
   const createReel = useCallback(async (
     reelData: Partial<Reel> & {
@@ -3326,35 +3321,86 @@ const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSoun
         audioUrl = reelData.audioUrl;
       }
 
-const soundKey = 'original:none';
-const isTrimmedAudio = false;
-const audioStart = 0;
-const audioEnd = 0;
+      const soundKey = generateSoundKey(reelData, selectedReelSound);
+      const isTrimmedAudio = soundKey.startsWith('trimmed:');
+      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
+      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
 
-const payload = {
-  user_id: currentUser.id,
-  caption: reelData.caption || '',
-  video_url: videoUrl,
-  video_url_low: videoUrlLow,
-  video_url_medium: videoUrlMedium,
-  video_url_hd: videoUrlHd,
-  thumbnail_url: thumbnailUrl || '',
-  song_name: 'Original Sound',
-  audio_url: audioUrl || '',
-  audio_start: audioStart,
-  audio_end: audioEnd,
-  song_id: null,
-  sound_key: soundKey,
-  visibility: reelData.visibility || 'public',
-  location: reelData.location || '',
-  views: 0,
-  shares: 0,
-};
+      const soundPayload = selectedReelSound || {
+        songName: reelData.songName || 'Original Sound',
+        audioUrl: audioUrl || '',
+        audioStart,
+        audioEnd,
+        songId: reelData.originalSoundId,
+      };
 
-const data = await apiFetch('/api/reels', {
-  method: 'POST',
-  body: JSON.stringify(payload),
-});
+      const payload = {
+        user_id: currentUser.id,
+        caption: reelData.caption || '',
+        video_url: videoUrl,
+        video_url_low: videoUrlLow,
+        video_url_medium: videoUrlMedium,
+        video_url_hd: videoUrlHd,
+        thumbnail_url: thumbnailUrl || '',
+        song_name: soundPayload.songName,
+        audio_url: audioUrl,
+        audio_start: audioStart,
+        audio_end: audioEnd,
+        song_id: soundPayload.songId || null,
+        sound_key: soundKey,
+        visibility: reelData.visibility || 'public',
+        location: reelData.location || '',
+        views: 0,
+        shares: 0,
+      };
+
+      console.log("Sending to API:", payload);
+
+      const data = await apiFetch('/api/reels', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newReel = normalizeReel(data.reel || data);
+
+      newReel.author = currentUser.name;
+      newReel.author_name = currentUser.name;
+      newReel.avatar = currentUser.profile_image_url;
+      newReel.avatar_url = currentUser.profile_image_url;
+      newReel.verified = currentUser.is_verified;
+
+      setReels(prev => [newReel, ...safeArray(prev)]);
+      setLoginError('Reel posted successfully!');
+      setSelectedReelSound(null);
+    } catch (error: any) {
+      console.error('Failed to create reel:', error);
+      setLoginError(error?.message || 'Failed to create reel');
+      throw error;
+    } finally {
+      setIsFeedRefreshing(false);
+      setShowCreateReelModal(false);
+    }
+  }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
+
+  const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
+    if (!requireAuth('Reacting to reels')) return;
+    if (!currentUser) return;
+
+    const reactionType = type || 'love';
+    
+    setReels(prev => 
+      safeArray(prev).map(reel => 
+        reel.id === reelId 
+          ? applyOptimisticReelReaction(reel, reelId, reactionType, currentUser.id)
+          : reel
+      )
+    );
+
+    try {
+      await apiFetch(`/api/reels/${reelId}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ type: reactionType, user_id: currentUser.id }),
+      });
       
     } catch (error) {
       console.error('Failed to react to reel:', error);
