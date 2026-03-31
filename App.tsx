@@ -3238,27 +3238,38 @@ export default function App() {
     }
   }, [users]);
 
-  const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
-    if (reelData.soundKey) return String(reelData.soundKey);
-    
-    if (selectedReelSound?.songId) {
-      return `song:${selectedReelSound.songId}`;
+
+const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
+  if (reelData.soundKey) return String(reelData.soundKey);
+
+  if (reelData.audioFile) {
+    if (String(reelData.songName || '').toLowerCase() === 'original sound') {
+      return `original:extracted:${Date.now()}`;
     }
-    
-    if (reelData.originalSoundId) {
-      return `original-song:${reelData.originalSoundId}`;
-    }
-    
-    if (selectedReelSound?.audioUrl) {
-      return `audio:${selectedReelSound.audioUrl}`;
-    }
-    
-    if (reelData.audioUrl) {
-      return `audio:${reelData.audioUrl}`;
-    }
-    
-    return 'original:none';
-  }, []);
+  }
+
+  if (reelData.originalSoundId) {
+    return `song:${reelData.originalSoundId}`;
+  }
+
+  if (reelData.songId) {
+    return `song:${reelData.songId}`;
+  }
+
+  if (selectedReelSound?.soundKey) {
+    return String(selectedReelSound.soundKey);
+  }
+
+  if (reelData.audioUrl) {
+    return `audio:${reelData.audioUrl}`;
+  }
+
+  if (selectedReelSound?.audioUrl) {
+    return `audio:${selectedReelSound.audioUrl}`;
+  }
+
+  return 'original:none';
+}, []);
 
   const createReel = useCallback(async (
     reelData: Partial<Reel> & {
