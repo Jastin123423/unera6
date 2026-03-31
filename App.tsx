@@ -3238,22 +3238,19 @@ export default function App() {
     }
   }, [users]);
 
-
 const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
   if (reelData.soundKey) return String(reelData.soundKey);
 
-  if (reelData.audioFile) {
-    if (String(reelData.songName || '').toLowerCase() === 'original sound') {
-      return `original:extracted:${Date.now()}`;
-    }
+  if (reelData.audioFile && !reelData.originalSoundId && !(reelData as any).songId) {
+    return `original:extracted:${Date.now()}`;
   }
 
   if (reelData.originalSoundId) {
     return `song:${reelData.originalSoundId}`;
   }
 
-  if (reelData.songId) {
-    return `song:${reelData.songId}`;
+  if ((reelData as any).songId) {
+    return `song:${(reelData as any).songId}`;
   }
 
   if (selectedReelSound?.soundKey) {
@@ -3270,6 +3267,7 @@ const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSoun
 
   return 'original:none';
 }, []);
+
 
   const createReel = useCallback(async (
     reelData: Partial<Reel> & {
