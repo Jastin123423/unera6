@@ -3322,44 +3322,55 @@ export default function App() {
       }
 
       const soundKey = generateSoundKey(reelData, selectedReelSound);
-      const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
+const isTrimmedAudio = soundKey.startsWith('trimmed:');
+const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || selectedReelSound?.audioStart || 0);
+const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || selectedReelSound?.audioEnd || 0);
 
-      const soundPayload = selectedReelSound || {
-        songName: reelData.songName || 'Original Sound',
-        audioUrl: audioUrl || '',
-        audioStart,
-        audioEnd,
-        songId: reelData.originalSoundId,
-      };
+const soundPayload = {
+  songName:
+    reelData.songName ||
+    selectedReelSound?.songName ||
+    'Original Sound',
 
-      const payload = {
-        user_id: currentUser.id,
-        caption: reelData.caption || '',
-        video_url: videoUrl,
-        video_url_low: videoUrlLow,
-        video_url_medium: videoUrlMedium,
-        video_url_hd: videoUrlHd,
-        thumbnail_url: thumbnailUrl || '',
-        song_name: soundPayload.songName,
-        audio_url: audioUrl,
-        audio_start: audioStart,
-        audio_end: audioEnd,
-        song_id: soundPayload.songId || null,
-        sound_key: soundKey,
-        visibility: reelData.visibility || 'public',
-        location: reelData.location || '',
-        views: 0,
-        shares: 0,
-      };
+  audioUrl:
+    audioUrl ||
+    reelData.audioUrl ||
+    selectedReelSound?.originalUrl ||
+    selectedReelSound?.audioUrl ||
+    '',
 
-      console.log("Sending to API:", payload);
+  songId:
+    reelData.originalSoundId ||
+    selectedReelSound?.songId ||
+    null,
+};
 
-      const data = await apiFetch('/api/reels', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+const payload = {
+  user_id: currentUser.id,
+  caption: reelData.caption || '',
+  video_url: videoUrl,
+  video_url_low: videoUrlLow,
+  video_url_medium: videoUrlMedium,
+  video_url_hd: videoUrlHd,
+  thumbnail_url: thumbnailUrl || '',
+  song_name: soundPayload.songName,
+  audio_url: soundPayload.audioUrl,
+  audio_start: audioStart,
+  audio_end: audioEnd,
+  song_id: soundPayload.songId,
+  sound_key: soundKey,
+  visibility: reelData.visibility || 'public',
+  location: reelData.location || '',
+  views: 0,
+  shares: 0,
+};
+
+console.log("Sending to API:", payload);
+
+const data = await apiFetch('/api/reels', {
+  method: 'POST',
+  body: JSON.stringify(payload),
+});
 
       const newReel = normalizeReel(data.reel || data);
 
