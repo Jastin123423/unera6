@@ -3351,7 +3351,8 @@ const audioEnd =
             ? selectedReelSound.audioEnd
             : 0));
 
-const soundKey = generateSoundKey(reelData, selectedReelSound);
+
+    const soundKey = generateSoundKey(reelData, selectedReelSound);
 const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
 let audioStart = 0;
@@ -3371,7 +3372,6 @@ if (isTrimmedAudio) {
 } else if (typeof selectedReelSound?.audioEnd === 'number') {
   audioEnd = selectedReelSound.audioEnd;
 }
-
 const soundName =
   reelData.songName ||
   selectedReelSound?.songName ||
