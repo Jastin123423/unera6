@@ -3239,26 +3239,32 @@ export default function App() {
   }, [users]);
 
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
-    if (reelData.soundKey) return String(reelData.soundKey);
-    
-    if (selectedReelSound?.songId) {
-      return `song:${selectedReelSound.songId}`;
-    }
-    
-    if (reelData.originalSoundId) {
-      return `original-song:${reelData.originalSoundId}`;
-    }
-    
-    if (selectedReelSound?.audioUrl) {
-      return `audio:${selectedReelSound.audioUrl}`;
-    }
-    
-    if (reelData.audioUrl) {
-      return `audio:${reelData.audioUrl}`;
-    }
-    
-    return 'original:none';
-  }, []);
+  if (reelData.soundKey) return String(reelData.soundKey);
+
+  // ✅ NEW: prioritize extracted/original audio first
+  if (reelData.audioFile && !reelData.originalSoundId) {
+    return `original:extracted:${Date.now()}`;
+  }
+
+  if (reelData.originalSoundId) {
+    return `song:${reelData.originalSoundId}`;
+  }
+
+  // keep existing logic
+  if (selectedReelSound?.songId) {
+    return `song:${selectedReelSound.songId}`;
+  }
+
+  if (selectedReelSound?.audioUrl) {
+    return `audio:${selectedReelSound.audioUrl}`;
+  }
+
+  if (reelData.audioUrl) {
+    return `audio:${reelData.audioUrl}`;
+  }
+
+  return 'original:none';
+}, []);
 
   const createReel = useCallback(async (
     reelData: Partial<Reel> & {
