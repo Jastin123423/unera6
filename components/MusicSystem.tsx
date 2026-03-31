@@ -8,6 +8,188 @@ const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy
 const DEFAULT_PODCAST_COVER = 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
 
 /* =========================================================
+   HELPER COMPONENTS FOR MODERN FEED LAYOUT
+========================================================= */
+
+const formatCompactNumber = (value: number | string | undefined) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}m`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return `${n}`;
+};
+
+const SectionTitle: React.FC<{ title: string; subtitle?: string; onMore?: () => void; }> = ({ title, subtitle, onMore }) => (
+  <div className="flex items-center justify-between mb-4">
+    <div>
+      <h2 className="text-[28px] leading-none font-extrabold text-white">{title}</h2>
+      {subtitle ? <p className="text-[#9CA3AF] text-sm mt-1">{subtitle}</p> : null}
+    </div>
+    <button onClick={onMore} className="text-[#00E5FF] font-semibold text-sm hover:opacity-80" type="button">
+      More <i className="fas fa-angle-double-right ml-1"></i>
+    </button>
+  </div>
+);
+
+const QuickActionCircle: React.FC<{ icon: string; label: string; onClick?: () => void; }> = ({ icon, label, onClick }) => (
+  <button type="button" onClick={onClick} className="flex flex-col items-center min-w-[74px] group">
+    <div className="w-16 h-16 rounded-full bg-[#07E8F8] text-black flex items-center justify-center shadow-[0_0_18px_rgba(7,232,248,0.25)] group-hover:scale-105 transition-transform">
+      <i className={`${icon} text-[26px]`}></i>
+    </div>
+    <span className="text-white text-sm mt-2 font-medium">{label}</span>
+  </button>
+);
+
+const FeaturedBannerCard: React.FC<{ song: Song; artistName: string; onPlay: () => void; }> = ({ song, artistName, onPlay }) => (
+  <div onClick={onPlay} className="relative h-[220px] rounded-2xl overflow-hidden cursor-pointer border border-white/10">
+    <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="absolute inset-0 w-full h-full object-cover" />
+    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
+    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+    <div className="relative z-10 h-full flex items-end justify-between p-4">
+      <div className="max-w-[70%]">
+        <p className="text-[#07E8F8] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
+        <h3 className="text-white text-2xl font-extrabold leading-tight line-clamp-2">{song.title}</h3>
+        <p className="text-white/80 mt-1 text-sm">{artistName}</p>
+        <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3 py-1.5 text-xs text-white">
+          <i className="fas fa-headphones"></i>
+          <span>{formatCompactNumber((song.stats as any)?.plays)} plays</span>
+        </div>
+      </div>
+      <div className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
+        <i className="fas fa-play text-lg ml-1"></i>
+      </div>
+    </div>
+  </div>
+);
+
+const MusicFeedCard: React.FC<{
+  song: Song;
+  isLiked: boolean;
+  artistName: string;
+  artistAvatar?: string | null;
+  verified?: boolean;
+  badge?: string;
+  badgeColor?: string;
+  onPlay: () => void;
+  onLike: () => void;
+  onArtistClick?: () => void;
+}> = ({
+  song,
+  isLiked,
+  artistName,
+  artistAvatar,
+  verified,
+  badge,
+  badgeColor = 'bg-black/60 text-white',
+  onPlay,
+  onLike,
+  onArtistClick,
+}) => (
+  <div className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start">
+    <div onClick={onPlay} className="group cursor-pointer">
+      <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
+        <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+        {badge ? (
+          <div className={`absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full font-bold ${badgeColor}`}>
+            {badge}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onLike();
+          }}
+          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center"
+        >
+          <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
+        </button>
+        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
+          <div className="flex items-center justify-between text-white text-xs">
+            <span className="inline-flex items-center gap-1">
+              <i className="fas fa-headphones text-[10px]"></i>
+              {formatCompactNumber((song.stats as any)?.plays)}
+            </span>
+            <span>{(song as any).duration || '3:00'}</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-2">
+        <h3 className="text-white text-[15px] font-semibold leading-tight line-clamp-1">{song.title}</h3>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onArtistClick?.();
+          }}
+          className="mt-1 flex items-center gap-2 max-w-full text-left"
+        >
+          {artistAvatar ? (
+            <img src={artistAvatar} alt={artistName} className="w-4 h-4 rounded-full object-cover" />
+          ) : null}
+          <span className="text-[#B8BCC7] text-sm truncate inline-flex items-center gap-1">
+            {artistName}
+            {verified ? <i className="fas fa-check-circle text-[#07E8F8] text-[10px]"></i> : null}
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const HorizontalMusicRow: React.FC<{
+  title: string;
+  subtitle?: string;
+  songs: Song[];
+  users: User[];
+  isTrackLiked: (id: string | number, type: 'music' | 'podcast') => boolean;
+  onPlaySong: (song: Song) => void;
+  onLikeSong: (id: string) => void;
+  onArtistClick: (id: number) => void;
+  badgeBuilder?: (song: Song, index: number) => { text?: string; className?: string };
+}> = ({
+  title,
+  subtitle,
+  songs,
+  users,
+  isTrackLiked,
+  onPlaySong,
+  onLikeSong,
+  onArtistClick,
+  badgeBuilder,
+}) => {
+  if (!songs.length) return null;
+  return (
+    <div className="mb-8">
+      <SectionTitle title={title} subtitle={subtitle} />
+      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
+        {songs.map((song, index) => {
+          const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+          const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+          const artistAvatar = (uploaderProfile as any)?.profileImage || (uploaderProfile as any)?.profile_image_url || null;
+          const badge = badgeBuilder?.(song, index);
+          return (
+            <MusicFeedCard
+              key={song.id}
+              song={song}
+              isLiked={isTrackLiked(String(song.id), 'music')}
+              artistName={artistName}
+              artistAvatar={artistAvatar}
+              verified={Boolean((uploaderProfile as any)?.isVerified || (uploaderProfile as any)?.is_verified)}
+              badge={badge?.text}
+              badgeColor={badge?.className}
+              onPlay={() => onPlaySong(song)}
+              onLike={() => onLikeSong(String(song.id))}
+              onArtistClick={() => song.uploaderId && onArtistClick(song.uploaderId)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
    API CLIENT (safe JSON parsing + auth + errors)
 ========================================================= */
 
@@ -21,7 +203,6 @@ const getAuthHeaders = (): HeadersInit => {
 const safeParseJson = async (res: Response) => {
   const ct = res.headers.get('content-type') || '';
   if (ct.includes('application/json')) return res.json();
-  // fallback: try text for debugging
   const txt = await res.text();
   try {
     return JSON.parse(txt);
@@ -47,7 +228,6 @@ async function apiJson<T>(endpoint: string, options: RequestInit = {}): Promise<
       return { success: false, error: (payload?.error || payload?.message || `API Error: ${res.status}`) as string, data: payload };
     }
 
-    // many APIs return { data: [...] } or direct array/object
     const data = (payload?.data ?? payload) as T;
     return { success: true, data };
   } catch (e: any) {
@@ -81,18 +261,15 @@ async function apiForm<T>(endpoint: string, form: FormData, options: RequestInit
 }
 
 /* =========================================================
-   MAPPERS (backend -> UI types) - FIXED: reads plays_count/likes_count
+   MAPPERS (backend -> UI types)
 ========================================================= */
 
-// ✅ FIXED: Reads plays_count and likes_count from backend
 function mapSongFromApi(s: any): Song {
   const plays = Number(s.plays_count ?? s.plays ?? s.stats?.plays ?? 0);
   const likes = Number(s.likes_count ?? s.likes ?? s.stats?.likes ?? 0);
   
-  // ✅ FIX: Use default cover if none provided or invalid
   let cover = s.cover_image_url || s.cover || DEFAULT_MUSIC_COVER;
   
-  // Check if cover is a valid URL, otherwise use default
   if (!cover || cover.trim() === '' || 
       cover.includes('ui-avatars.com') || 
       !cover.startsWith('http')) {
@@ -121,15 +298,12 @@ function mapSongFromApi(s: any): Song {
   } as any;
 }
 
-// ✅ FIXED: Reads plays_count and likes_count from backend for episodes too
 function mapEpisodeFromApi(e: any): Episode {
   const plays = Number(e.plays_count ?? e.plays ?? e.stats?.plays ?? 0);
   const likes = Number(e.likes_count ?? e.likes ?? e.stats?.likes ?? 0);
   
-  // ✅ FIX: Use default cover if none provided or invalid
   let thumbnail = e.cover_url || e.cover_image_url || e.thumbnail || DEFAULT_PODCAST_COVER;
   
-  // Check if thumbnail is a valid URL, otherwise use default
   if (!thumbnail || thumbnail.trim() === '' || 
       thumbnail.includes('ui-avatars.com') || 
       !thumbnail.startsWith('http')) {
@@ -209,7 +383,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const [isRepeating, setIsRepeating] = useState(false);
   const [isShuffling, setIsShuffling] = useState(false);
 
-  // Clean up audio on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -220,12 +393,10 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     };
   }, []);
 
-  // ✅ ADDED: Reset started key when track changes
   useEffect(() => {
     startedKeyRef.current = "";
   }, [currentTrack?.id, currentTrack?.type]);
 
-  // ✅ ADDED: Fire onStarted ONLY when audio truly starts playing
   useEffect(() => {
     const el = audioRef.current;
     if (!el || !currentTrack || !onStarted) return;
@@ -234,7 +405,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       const k = `${currentTrack.type}:${currentTrack.id}`;
       if (startedKeyRef.current === k) return;
       startedKeyRef.current = k;
-      
       onStarted(currentTrack);
     };
 
@@ -242,7 +412,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     return () => el.removeEventListener("playing", onPlaying);
   }, [currentTrack, onStarted]);
 
-  // Handle audio playback based on props
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
@@ -271,7 +440,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
 
-    // Manage playback based on currentTrack and isPlaying
     const managePlayback = async () => {
       if (!currentTrack?.url) {
         audio.pause();
@@ -281,7 +449,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
         return;
       }
 
-      // If track changed, reset and load new audio
       if (lastUrlRef.current !== currentTrack.url) {
         audio.pause();
         audio.currentTime = 0;
@@ -289,7 +456,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
         lastUrlRef.current = currentTrack.url;
         audio.load();
         
-        // Auto-play when new track is loaded
         if (isPlaying) {
           try {
             if (playPromiseRef.current) {
@@ -302,7 +468,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           }
         }
       } else {
-        // Same track, just manage play/pause state
         if (isPlaying && audio.paused) {
           try {
             if (playPromiseRef.current) {
@@ -329,7 +494,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     };
   }, [currentTrack, isPlaying, onNext, isRepeating]);
 
-  // Update volume when changed
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
@@ -379,23 +543,14 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
   if (!currentTrack) return null;
 
-  // ✅ FIXED: Use ownerUser if provided, otherwise fallback to uploaderProfile or track artist
   const displayUser = ownerUser || uploaderProfile;
-  
-  // ✅ FIXED: Get profile picture from user object
   const profilePicture = displayUser 
     ? (displayUser as any).profileImage || (displayUser as any).profile_image_url 
     : null;
-  
-  // ✅ FIXED: Get display name from user object
   const displayName = displayUser 
     ? displayUser.name || displayUser.username 
     : currentTrack.artist;
-
-  // ✅ FIXED: For podcasts, always show "Host" if type is podcast
   const userRole = currentTrack.type === 'podcast' ? 'Host' : 'Artist';
-
-  // ✅ FIXED: Get track cover or use default
   const trackCover = currentTrack.cover && 
                     currentTrack.cover.trim() !== '' && 
                     currentTrack.cover.startsWith('http')
@@ -409,9 +564,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       }`}
     >
       {expanded ? (
-        // EXPANDED VIEW - MODERN BOOMPLAY STYLE
         <div className="flex flex-col h-full w-full relative overflow-hidden bg-gradient-to-b from-gray-900 to-black">
-          {/* Background Gradient */}
           <div
             className="absolute inset-0 z-0 opacity-40 blur-3xl scale-150 pointer-events-none"
             style={{
@@ -421,7 +574,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             }}
           ></div>
 
-          {/* Header */}
           <div className="relative z-10 flex justify-between items-center p-6 pt-8 text-white">
             <button
               onClick={() => setExpanded(false)}
@@ -448,37 +600,31 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             </button>
           </div>
 
-          {/* Rotating Album Art - BOOMPLAY STYLE */}
           <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-8">
             <div className="relative mb-12">
-              {/* Outer Ring with Gradient */}
               <div className="absolute inset-0 rounded-full animate-spin-slow" style={{
                 background: 'conic-gradient(from 0deg, #1877F2, #F3425F, #45BD62, #F7B928, #1877F2)',
                 filter: 'blur(8px)',
                 opacity: 0.3,
               }}></div>
               
-              {/* Album Art Container */}
               <div
                 className={`relative w-[280px] h-[280px] rounded-full border-[12px] border-[#1A1A1A]/80 shadow-[0_0_80px_rgba(0,0,0,0.7)] overflow-hidden flex items-center justify-center ${
                   isPlaying ? 'animate-spin-slow' : ''
                 }`}
                 style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}
               >
-                {/* Album Art */}
                 <img 
                   src={trackCover} 
                   className="w-full h-full object-cover" 
                   alt="Album Art" 
                 />
                 
-                {/* Center Circle */}
                 <div className="absolute w-12 h-12 bg-[#0A0A0A] rounded-full border-4 border-[#333] flex items-center justify-center">
                   <div className="w-4 h-4 bg-[#333] rounded-full"></div>
                 </div>
               </div>
               
-              {/* Play/Pause Button Overlay */}
               <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                 <button
                   onClick={onTogglePlay}
@@ -489,11 +635,9 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               </div>
             </div>
 
-            {/* Track Info */}
             <div className="text-center px-8 max-w-xl">
               <h2 className="text-2xl font-bold text-white mb-2">{currentTrack.title}</h2>
               
-              {/* Artist Info with Profile Picture */}
               <div
                 className="flex items-center justify-center gap-3 cursor-pointer group"
                 onClick={() => currentTrack.uploaderId && onArtistClick && onArtistClick(currentTrack.uploaderId)}
@@ -520,7 +664,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                 </div>
               </div>
 
-              {/* Total Plays */}
               {totalPlays > 0 && (
                 <div className="mt-4">
                   <div className="inline-flex items-center gap-2 bg-[#1877F2]/20 px-4 py-2 rounded-full">
@@ -534,9 +677,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             </div>
           </div>
 
-          {/* Progress Bar & Controls */}
           <div className="relative z-10 p-6 pb-10 bg-gradient-to-t from-black via-black/95 to-transparent">
-            {/* Progress Bar */}
             <div className="mb-8">
               <div className="flex justify-between text-sm text-[#B0B3B8] mb-2">
                 <span>{formatTime(currentTime)}</span>
@@ -552,7 +693,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               />
             </div>
 
-            {/* Player Controls */}
             <div className="flex items-center justify-between px-4 mb-8">
               <button
                 onClick={() => setIsShuffling(!isShuffling)}
@@ -584,7 +724,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               </button>
             </div>
 
-            {/* Volume & Additional Controls */}
             <div className="flex items-center justify-between">
               <button
                 onClick={handleStop}
@@ -619,14 +758,11 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           </div>
         </div>
       ) : (
-        // MINI PLAYER - MODERN DESIGN
         <div className="flex items-center justify-between h-full px-6 bg-gradient-to-r from-[#0A0A0A] to-[#1A1A1A]">
-          {/* Left: Track Info & Album Art */}
           <div 
             className="flex items-center gap-4 flex-1 cursor-pointer overflow-hidden"
             onClick={() => setExpanded(true)}
           >
-            {/* Rotating Mini Album Art */}
             <div className="relative">
               <div className={`w-14 h-14 rounded-full overflow-hidden border-2 border-[#333] ${isPlaying ? 'animate-spin-slow' : ''}`}>
                 <img 
@@ -640,7 +776,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               )}
             </div>
 
-            {/* Track Info */}
             <div className="flex-1 min-w-0">
               <h4 className="text-white font-semibold text-sm truncate">{currentTrack.title}</h4>
               <div className="flex items-center gap-2 mt-1">
@@ -661,7 +796,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             </div>
           </div>
 
-          {/* Center: Progress Bar (Mini) */}
           <div className="flex-1 max-w-md mx-4 hidden md:block">
             <div className="relative">
               <div className="h-1 bg-gray-700/50 rounded-full overflow-hidden">
@@ -677,7 +811,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             </div>
           </div>
 
-          {/* Right: Controls */}
           <div className="flex items-center gap-4">
             <button
               onClick={(e) => {
@@ -718,7 +851,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
         </div>
       )}
 
-      {/* Add CSS for custom animations */}
       <style>{`
         @keyframes spin-slow {
           from { transform: rotate(0deg); }
@@ -733,13 +865,13 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 };
 
 /* =========================================================
-   UPLOAD MODAL (fixed with R2 upload + metadata POST)
+   UPLOAD MODAL
 ========================================================= */
 
 interface AudioUploadModalProps {
   currentUser: User;
   onClose: () => void;
-  onUploaded: () => void; // refresh after success
+  onUploaded: () => void;
 }
 
 const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
@@ -783,7 +915,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
     setTempTrackCover('');
   };
 
-  // Upload file to R2 using /api/upload (expects field name "file")
   const uploadToR2 = async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -804,17 +935,12 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
     setSubmitting(true);
     try {
-      // 1) Upload audio to R2
       const audioUrl = await uploadToR2(audioFile);
-
-      // 2) Upload cover to R2 (optional)
       const coverUrl = coverFile ? await uploadToR2(coverFile) : null;
 
       if (type === "music") {
-        // ✅ FIXED: Use default cover if none uploaded
         const finalCoverUrl = coverUrl || DEFAULT_MUSIC_COVER;
         
-        // 3) Save metadata to DB (JSON) -> /api/songs
         const payload = {
           uploader_id: Number((currentUser as any).id),
           title: title.trim(),
@@ -837,11 +963,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
           return;
         }
       } else {
-        // PODCAST: your podcasts.ts expects JSON:
-        // { creator_id, title, description, audio_url, cover_url }
         if (!desc.trim()) return alert("Description required for podcast");
 
-        // ✅ FIXED: Use default cover if none uploaded
         const finalCoverUrl = coverUrl || DEFAULT_PODCAST_COVER;
         
         const payload = {
@@ -881,17 +1004,12 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
     setSubmitting(true);
     try {
-      // Optional: one shared cover for all tracks
       const sharedCoverUrl = coverFile ? await uploadToR2(coverFile) : null;
 
       for (const t of albumTracks) {
-        // 1) upload each track audio
         const audioUrl = await uploadToR2(t.file);
-
-        // 2) if track has a cover URL (external), use it; else shared coverUrl; else default
         const coverUrl = t.cover?.trim() ? t.cover.trim() : (sharedCoverUrl || DEFAULT_MUSIC_COVER);
 
-        // 3) create song in DB
         const payload = {
           uploader_id: Number((currentUser as any).id),
           title: (t.title || "").trim(),
@@ -1193,9 +1311,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
    API HELPER FUNCTIONS FOR PLAYS AND LIKES
 ========================================================= */
 
-// ✅ FIXED: Smart play recording with fallback
 async function recordSongPlay(songId: string, userId: any) {
-  // Try new endpoint first: /api/songs/:id/play
   try {
     const a = await apiJson<any>(`/api/songs/${encodeURIComponent(songId)}/play`, {
       method: "POST",
@@ -1206,7 +1322,6 @@ async function recordSongPlay(songId: string, userId: any) {
     console.warn('New play endpoint failed, trying fallback...');
   }
 
-  // Fallback to older endpoint: /api/song-plays
   try {
     const b = await apiJson<any>(`/api/song-plays`, {
       method: "POST",
@@ -1219,9 +1334,7 @@ async function recordSongPlay(songId: string, userId: any) {
   }
 }
 
-// ✅ FIXED: Smart podcast play recording with fallback
 async function recordEpisodePlay(episodeId: string, userId: any) {
-  // Try new endpoint first: /api/podcasts/:id/play
   try {
     const a = await apiJson<any>(`/api/podcasts/${encodeURIComponent(episodeId)}/play`, {
       method: "POST",
@@ -1232,7 +1345,6 @@ async function recordEpisodePlay(episodeId: string, userId: any) {
     console.warn('New podcast play endpoint failed, trying fallback...');
   }
 
-  // Fallback to older endpoint: /api/podcast-episode-plays
   try {
     const b = await apiJson<any>(`/api/podcast-episode-plays`, {
       method: "POST",
@@ -1245,9 +1357,7 @@ async function recordEpisodePlay(episodeId: string, userId: any) {
   }
 }
 
-// ✅ FIXED: Smart song like with fallback
 async function toggleSongLike(songId: string, userId: any, method: 'POST' | 'DELETE' = 'POST') {
-  // Try new endpoint first: /api/songs/:id/like
   try {
     const a = await apiJson<any>(`/api/songs/${encodeURIComponent(songId)}/like`, {
       method: method,
@@ -1258,7 +1368,6 @@ async function toggleSongLike(songId: string, userId: any, method: 'POST' | 'DEL
     console.warn('New like endpoint failed, trying fallback...');
   }
 
-  // Fallback to older endpoint: /api/song-likes
   try {
     const endpoint = method === 'DELETE' 
       ? `/api/song-likes?song_id=${encodeURIComponent(songId)}&user_id=${encodeURIComponent(userId)}`
@@ -1275,9 +1384,7 @@ async function toggleSongLike(songId: string, userId: any, method: 'POST' | 'DEL
   }
 }
 
-// ✅ FIXED: Smart episode like with fallback
 async function toggleEpisodeLike(episodeId: string, userId: any, method: 'POST' | 'DELETE' = 'POST') {
-  // Try new endpoint first: /api/podcasts/:id/like
   try {
     const a = await apiJson<any>(`/api/podcasts/${encodeURIComponent(episodeId)}/like`, {
       method: method,
@@ -1288,7 +1395,6 @@ async function toggleEpisodeLike(episodeId: string, userId: any, method: 'POST' 
     console.warn('New podcast like endpoint failed, trying fallback...');
   }
 
-  // Fallback to older endpoint: /api/podcast-episode-likes
   try {
     const endpoint = method === 'DELETE'
       ? `/api/podcast-episode-likes?episode_id=${encodeURIComponent(episodeId)}&user_id=${encodeURIComponent(userId)}`
@@ -1306,7 +1412,7 @@ async function toggleEpisodeLike(episodeId: string, userId: any, method: 'POST' 
 }
 
 /* =========================================================
-   MAIN MUSIC SYSTEM (PROFESSIONALLY FIXED WITH ALL REQUIREMENTS)
+   MAIN MUSIC SYSTEM (MODERN FEED LAYOUT)
 ========================================================= */
 
 interface MusicSystemProps {
@@ -1343,6 +1449,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
 
   const [songs, setSongs] = useState<Song[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
@@ -1350,7 +1457,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ FIX 1: Keep likedTracks synced with App.tsx changes
   const [likedTracks, setLikedTracks] = useState<string[]>(initialLikedTracks);
   const [downloads, setDownloads] = useState<string[]>([]);
 
@@ -1358,12 +1464,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
   const isAdmin = (currentUser as any)?.role === 'admin';
 
-  // ✅ FIX 1: Sync likedTracks when parent updates
   useEffect(() => {
     setLikedTracks(initialLikedTracks || []);
   }, [initialLikedTracks]);
 
-  // ✅ FIXED: Fetch my likes from backend when user exists
   const fetchMyLikes = useCallback(async () => {
     if (!currentUser) return;
 
@@ -1378,23 +1482,18 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       const songIds = songLikesRes.success ? (songLikesRes.data || []).map((x: any) => String(x.song_id ?? x.id)) : [];
       const epIds   = episodeLikesRes.success ? (episodeLikesRes.data || []).map((x: any) => String(x.episode_id ?? x.id)) : [];
 
-      // ✅ store as "type:id" so ids don't collide between songs and episodes
       const newLikedTracks = [
         ...songIds.map((id: string) => `music:${id}`),
         ...epIds.map((id: string) => `podcast:${id}`),
       ];
       
-      // ✅ FIX 2: Update local state only, App will sync via props
       setLikedTracks(newLikedTracks);
       
-      // ✅ FIX 2: Minimize parent sync - only sync if there's a significant difference
       const currentKeys = new Set(newLikedTracks);
       const prevKeys = new Set(initialLikedTracks);
       
-      // Only sync if there are actual differences
       if (newLikedTracks.length !== initialLikedTracks.length || 
           !newLikedTracks.every(k => initialLikedTracks.includes(k))) {
-        // Sync each track once
         newLikedTracks.forEach(key => {
           onToggleLike(key, true);
         });
@@ -1404,17 +1503,14 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     }
   }, [currentUser, onToggleLike, initialLikedTracks]);
 
-  // ✅ FIXED: Load likes when user changes
   useEffect(() => {
     fetchMyLikes();
   }, [fetchMyLikes]);
 
-  // ✅ FIXED: Check if a track is liked with typed IDs
   const isTrackLiked = useCallback((id: string | number, type: 'music' | 'podcast'): boolean => {
     return likedTracks.includes(`${type}:${String(id)}`);
   }, [likedTracks]);
 
-  // ✅ FIXED: UPDATED toggleLike with immediate heart color change
   const toggleLike = useCallback(async (id: string | number, type: 'music' | 'podcast') => {
     if (!currentUser) {
       return;
@@ -1425,7 +1521,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     const isLiked = likedTracks.includes(key);
     const userId = String((currentUser as any).id);
 
-    // ✅ 1. IMMEDIATE UI UPDATE: Change heart color instantly
     setLikedTracks(prev => {
       if (isLiked) {
         return prev.filter(x => x !== key);
@@ -1434,17 +1529,14 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       }
     });
     
-    // ✅ 2. Call parent handler (App.tsx) with updated state
     onToggleLike(key, !isLiked);
 
-    // ✅ 3. Now sync counts from backend response
     try {
       const res = type === "music"
         ? await toggleSongLike(trackId, userId, isLiked ? 'DELETE' : 'POST')
         : await toggleEpisodeLike(trackId, userId, isLiked ? 'DELETE' : 'POST');
 
       if (res) {
-        // ✅ Get the updated count from backend response
         const likesCount = Number(res.likes_count ?? res.likes ?? res.count ?? 0);
         
         if (type === "music") {
@@ -1475,14 +1567,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       }
     } catch (error) {
       console.error('Failed to sync like count from backend:', error);
-      // If backend fails, revert optimistic like toggle
       setLikedTracks(prev => isLiked ? [...prev, key] : prev.filter(x => x !== key));
-      // Also revert parent sync
       onToggleLike(key, isLiked);
     }
   }, [currentUser, likedTracks, onToggleLike]);
 
-  // Structured data (same behavior)
   const structuredData = useMemo(
     () => ({
       '@context': 'https://schema.org',
@@ -1528,23 +1617,18 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   }, []);
 
   useEffect(() => {
-    // load both so dashboard/artist works immediately
     fetchSongs();
     fetchPodcasts();
   }, [fetchSongs, fetchPodcasts]);
 
-  // ✅ FIXED: Record play count when track is played with smart fallback
   const handlePlayTrackFromSong = useCallback((song: Song) => {
-    // ✅ Get uploader profile from users list
     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
-    
-    // ✅ Use the user's actual name from profile, not just song.artist
     const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
     
     const audioTrack: AudioTrack = {
       id: String(song.id),
       title: song.title,
-      artist: artistName, // ✅ Use actual profile name
+      artist: artistName,
       duration:
         typeof song.duration === 'string'
           ? (() => {
@@ -1556,28 +1640,23 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           : (song.duration as any) || 180,
       url: song.audioUrl || '',
       uploaderId: song.uploaderId || 1,
-      cover: song.cover || DEFAULT_MUSIC_COVER, // ✅ Use default if no cover
+      cover: song.cover || DEFAULT_MUSIC_COVER,
       type: 'music',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
       likesCount: Number((song.stats as any)?.likes || 0),
     } as any;
 
-    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   }, [users, onPlayTrack]);
 
-  // ✅ FIXED: Record play count for podcasts with smart fallback
   const handlePlayTrackFromEpisode = useCallback((episode: Episode) => {
-    // ✅ Get uploader profile from users list
     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
-    
-    // ✅ Use the user's actual name from profile, not just episode.host
     const hostName = uploaderProfile?.name || uploaderProfile?.username || episode.host || 'Unknown Host';
     
     const audioTrack: AudioTrack = {
       id: String(episode.id),
       title: episode.title,
-      artist: hostName, // ✅ Use actual profile name
+      artist: hostName,
       duration:
         typeof episode.duration === 'string'
           ? (() => {
@@ -1589,13 +1668,12 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           : (episode.duration as any) || 1800,
       url: episode.audioUrl || '',
       uploaderId: episode.uploaderId || 1,
-      cover: (episode as any).thumbnail || DEFAULT_PODCAST_COVER, // ✅ Use default if no thumbnail
+      cover: (episode as any).thumbnail || DEFAULT_PODCAST_COVER,
       type: 'podcast',
       isVerified: Boolean((uploaderProfile as any)?.isVerified),
       likesCount: Number((episode.stats as any)?.likes || 0),
     } as any;
 
-    // ✅ Immediately play the track
     onPlayTrack(audioTrack);
   }, [users, onPlayTrack]);
 
@@ -1607,10 +1685,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     }
   };
 
-  // Delete: your list does not show delete endpoints,
-  // so this uses a common REST fallback:
-  // DELETE /api/songs?id=123   and   DELETE /api/podcasts?id=123
-  // If your backend uses a different pattern, tell me and I'll match it.
   const deleteSong = async (id: string) => {
     if (!currentUser || !isAdmin) return;
     if (!confirm('Delete this song?')) return;
@@ -1666,7 +1740,48 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       .slice(0, 5);
   }, [songs]);
 
-  // ✅ FIXED: Dashboard stats calculations
+  // Modern feed memo values
+  const featuredSongs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => ((b.stats as any)?.plays || 0) - ((a.stats as any)?.plays || 0))
+      .slice(0, 5);
+  }, [songs]);
+
+  const handpickedSongs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => ((b.stats as any)?.likes || 0) - ((a.stats as any)?.likes || 0))
+      .slice(0, 10);
+  }, [songs]);
+
+  const bestPickSongs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => {
+        const aScore = (((a.stats as any)?.plays || 0) * 0.7) + (((a.stats as any)?.likes || 0) * 1.5);
+        const bScore = (((b.stats as any)?.plays || 0) * 0.7) + (((b.stats as any)?.likes || 0) * 1.5);
+        return bScore - aScore;
+      })
+      .slice(0, 10);
+  }, [songs]);
+
+  const freshVibeSongs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => new Date(b.uploadDate || 0).getTime() - new Date(a.uploadDate || 0).getTime())
+      .slice(0, 10);
+  }, [songs]);
+
+  const heroSong = featuredSongs[heroIndex] || recentSongs[0] || songs[0] || null;
+
+  // Auto-rotate hero banner
+  useEffect(() => {
+    if (featuredSongs.length <= 1) return;
+    
+    const interval = setInterval(() => {
+      setHeroIndex((prev) => (prev + 1) % featuredSongs.length);
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [featuredSongs.length]);
+
   const dashboardStats = useMemo(() => {
     const totalPlays =
       songs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0) +
@@ -1708,11 +1823,9 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const selectedArtistUser: User | null = useMemo(() => {
     if (!selectedArtistId) return null;
 
-    // if profile exists in users, use it
     const found = users.find((u) => u.id === selectedArtistId);
     if (found) return found;
 
-    // fallback to artist name from songs
     const artistName = songs.find((s) => s.uploaderId === selectedArtistId)?.artist || 'Artist';
 
     return {
@@ -1729,7 +1842,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     } as any;
   }, [selectedArtistId, users, songs]);
 
-  // SEO schema
   useEffect(() => {
     const schema = {
       '@context': 'https://schema.org',
@@ -1768,402 +1880,282 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
       {/* Navigation Tabs */}
       <div className="sticky top-14 bg-[#0A0A0A]/95 backdrop-blur-md z-30 px-4 py-4 border-b border-[#222] flex gap-6 overflow-x-auto scrollbar-hide">
-        <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
+        <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
           MUSIC
         </button>
-        <button onClick={() => setView('podcasts')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'podcasts' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
+        <button onClick={() => setView('podcasts')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'podcasts' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
           PODCASTS
         </button>
 
         {currentUser && (
-          <button onClick={() => setView('dashboard')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'dashboard' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={() => setView('dashboard')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'dashboard' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
             DASHBOARD
           </button>
         )}
 
         {selectedArtistId && (
-          <button onClick={() => setView('artist')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'artist' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={() => setView('artist')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'artist' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
             ARTIST
           </button>
         )}
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div>
-              <h1 className="text-4xl font-bold text-white mb-2">🎵 UNERA Music</h1>
-              <p className="text-[#B0B3B8] text-lg">Stream and discover trending music</p>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search music or podcasts..."
-                  className="bg-[#242526] text-white px-4 py-3 pl-10 rounded-xl w-full md:w-64 border border-[#3E4042] focus:border-[#1877F2] focus:outline-none"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                <i className="fas fa-search absolute left-3 top-3.5 text-[#B0B3B8]"></i>
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl mb-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <i className="fas fa-triangle-exclamation"></i>
+                <span className="text-sm font-semibold">{error}</span>
               </div>
-
-              <button
-                onClick={() => {
-                  // manual refresh
-                  fetchSongs();
-                  fetchPodcasts();
-                }}
-                className="bg-[#242526] border border-[#3E4042] px-4 py-3 rounded-xl hover:border-[#1877F2] transition-colors"
-                title="Refresh"
-              >
-                <i className="fas fa-rotate-right text-[#B0B3B8]"></i>
+              <button onClick={() => { fetchSongs(); fetchPodcasts(); }} className="text-sm font-bold text-[#07E8F8] hover:underline">
+                Retry
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <i className="fas fa-triangle-exclamation"></i>
-                  <span className="text-sm font-semibold">{error}</span>
-                </div>
-                <button onClick={() => { fetchSongs(); fetchPodcasts(); }} className="text-sm font-bold text-[#1877F2] hover:underline">
-                  Retry
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
 
         {showLoading && (
           <div className="flex justify-center py-16">
-            <div className="w-10 h-10 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-[#07E8F8] border-t-transparent rounded-full animate-spin"></div>
           </div>
         )}
 
-        {/* MUSIC VIEW */}
+        {/* MODERN MUSIC FEED LAYOUT - Boomplay Style */}
         {view === 'music' && !showLoading && (
           <div className="space-y-8">
-            {/* Now Playing Stats */}
+            {/* Mobile Entertainment Header */}
+            <div className="rounded-[28px] bg-gradient-to-b from-[#0B0B0F] to-[#121217] border border-white/5 p-4 sm:p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+                    UNERA Music
+                  </h1>
+                  <p className="text-[#A8AFBC] mt-1 text-sm sm:text-base">
+                    Discover trending sounds, creators and fresh vibes
+                  </p>
+                </div>
+                {currentUser && (
+                  <button onClick={() => setView('dashboard')} className="shrink-0 px-4 py-2 rounded-full bg-[#07E8F8] text-black font-bold text-sm hover:opacity-90">
+                    Studio
+                  </button>
+                )}
+              </div>
+
+              {/* Search */}
+              <div className="relative mb-4">
+                <input
+                  type="text"
+                  placeholder="Search songs, artists..."
+                  className="w-full bg-[#1A1D24] text-white px-4 py-3 pl-11 rounded-2xl border border-[#2B313D] focus:border-[#07E8F8] focus:outline-none"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#8D96A8]"></i>
+              </div>
+
+              {/* Hero Banner */}
+              {heroSong && (
+                <div className="mb-5">
+                  <FeaturedBannerCard
+                    song={heroSong}
+                    artistName={
+                      users.find((u) => u.id === heroSong.uploaderId)?.name ||
+                      users.find((u) => u.id === heroSong.uploaderId)?.username ||
+                      heroSong.artist
+                    }
+                    onPlay={() => handlePlayTrackFromSong(heroSong)}
+                  />
+                </div>
+              )}
+
+              {/* Quick Actions */}
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                <QuickActionCircle icon="fas fa-chart-bar" label="Charts" onClick={() => setSearchQuery('')} />
+                <QuickActionCircle icon="fas fa-user-music" label="Artists" onClick={() => setView('artist')} />
+                <QuickActionCircle icon="fas fa-list-music" label="Playlists" />
+                <QuickActionCircle icon="fas fa-podcast" label="Podcasts" onClick={() => setView('podcasts')} />
+                <QuickActionCircle icon="fas fa-compact-disc" label="Genres" />
+              </div>
+
+              {/* Genre Chips */}
+              <div className="flex gap-2 mt-4 overflow-x-auto pb-1 scrollbar-hide">
+                {['Bongo Fleva', 'Amapiano', 'Afrobeats', 'Hip Hop', 'RnB', 'Gospel'].map((genre) => (
+                  <button
+                    key={genre}
+                    onClick={() => setSearchQuery(genre)}
+                    className="px-4 py-1.5 rounded-full bg-[#1A1D24] text-[#B8BCC7] text-sm hover:bg-[#07E8F8] hover:text-black transition-colors whitespace-nowrap"
+                  >
+                    {genre}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Mini now playing strip */}
             {currentUser && currentTrack && (
-              <div className="bg-[#242526] p-4 rounded-xl border border-[#333]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-12 h-12 rounded-full overflow-hidden ${isPlaying ? 'animate-spin-slow' : ''}`}>
-                      <img src={currentTrack.cover} className="w-full h-full object-cover" alt="" />
+              <div className="rounded-2xl bg-[#111318] border border-white/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-12 h-12 rounded-full overflow-hidden border border-white/10 ${isPlaying ? 'animate-spin-slow' : ''}`}>
+                      <img src={currentTrack.cover || DEFAULT_MUSIC_COVER} className="w-full h-full object-cover" alt="" />
                     </div>
-                    <div>
-                      <p className="text-[#B0B3B8] text-xs">Now Playing</p>
-                      <p className="text-lg font-bold text-white truncate max-w-xs">{currentTrack.title}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <span className="text-[#B0B3B8] text-sm">{currentTrack.artist}</span>
-                        {currentTrack.isVerified && <i className="fas fa-check-circle text-[10px] text-[#1877F2]"></i>}
-                      </div>
+                    <div className="min-w-0">
+                      <p className="text-[#8D96A8] text-xs">Now Playing</p>
+                      <p className="text-white font-bold truncate">{currentTrack.title}</p>
+                      <p className="text-[#B8BCC7] text-sm truncate">{currentTrack.artist}</p>
                     </div>
                   </div>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isPlaying ? 'bg-[#1877F2]' : 'bg-[#3E4042]'}`}>
-                    <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'} text-white`}></i>
+                  <div className={`w-11 h-11 rounded-full flex items-center justify-center ${isPlaying ? 'bg-[#07E8F8] text-black' : 'bg-[#2A2F39] text-white'}`}>
+                    <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'}`}></i>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Trending */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">🔥 Trending Now</h2>
-                  <p className="text-[#B0B3B8] text-sm mt-1">Most streamed music this week</p>
-                </div>
-                <button className="text-[#1877F2] hover:text-[#166FE5] font-semibold">View Chart</button>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {trendingSongs.length > 0 ? (
-                  trendingSongs.map((song) => {
-                    const isLiked = isTrackLiked(String(song.id), 'music');
-                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
-                    const profilePicture = uploaderProfile 
-                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
-                      : null;
-                    
-                    // ✅ Use actual profile name
-                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
-                    
-                    return (
-                      <div
-                        key={song.id}
-                        className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                        onClick={() => handlePlayTrackFromSong(song)}
-                      >
-                        <div className="relative aspect-square overflow-hidden">
-                          <img 
-                            src={song.cover || DEFAULT_MUSIC_COVER} 
-                            alt={song.title} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                          />
-                          <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">🔥 {(song.stats as any)?.plays || 0}</div>
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                              <i className="fas fa-play text-black text-xl ml-1"></i>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="p-3">
-                          <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            {profilePicture ? (
-                              <img 
-                                src={profilePicture} 
-                                className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt="Profile"
-                              />
-                            ) : null}
-                            <p 
-                              className="text-[#B0B3B8] text-xs truncate flex items-center gap-1 cursor-pointer hover:underline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (song.uploaderId) handleArtistClick(song.uploaderId);
-                              }}
-                            >
-                              {artistName}
-                              {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                            </p>
-                          </div>
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleLike(String(song.id), 'music');
-                              }}
-                              className="text-sm hover:scale-110 transition-transform flex items-center gap-1"
-                              title="Like"
-                            >
-                              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                              <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="col-span-5 text-center py-8">
-                    <i className="fas fa-fire text-4xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8]">No trending music yet</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* New Releases */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">✨ New Releases</h2>
-                  <p className="text-[#B0B3B8] text-sm mt-1">Recently uploaded music</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {recentSongs.length > 0 ? (
-                  recentSongs.map((song) => {
-                    const isLiked = isTrackLiked(String(song.id), 'music');
-                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
-                    const profilePicture = uploaderProfile 
-                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
-                      : null;
-                    
-                    // ✅ Use actual profile name
-                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
-                    
-                    return (
-                      <div
-                        key={song.id}
-                        className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
-                        onClick={() => handlePlayTrackFromSong(song)}
-                      >
-                        <div className="relative aspect-square overflow-hidden">
-                          <img 
-                            src={song.cover || DEFAULT_MUSIC_COVER} 
-                            alt={song.title} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                          />
-                          <div className="absolute top-2 left-2 bg-[#1877F2] text-white text-xs font-bold px-2 py-1 rounded">NEW</div>
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                              <i className="fas fa-play text-black text-xl ml-1"></i>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="p-3">
-                          <h3 className="font-bold text-white truncate text-sm">{song.title}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            {profilePicture ? (
-                              <img 
-                                src={profilePicture} 
-                                className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt="Profile"
-                              />
-                            ) : null}
-                            <p 
-                              className="text-[#B0B3B8] text-xs truncate flex items-center gap-1 cursor-pointer hover:underline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (song.uploaderId) handleArtistClick(song.uploaderId);
-                              }}
-                            >
-                              {artistName}
-                              {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                            </p>
-                          </div>
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-[#B0B3B8] text-xs">{(song as any).duration || '3:00'}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleLike(String(song.id), 'music');
-                              }}
-                              className="text-sm hover:scale-110 transition-transform flex items-center gap-1"
-                              title="Like"
-                            >
-                              <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                              <span className="text-xs ml-1 text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="col-span-5 text-center py-8">
-                    <i className="fas fa-music text-4xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8]">No new releases yet</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* All Music */}
-            <div className="bg-[#242526] rounded-2xl p-6">
-              <h2 className="text-2xl font-bold text-white mb-6">All Music ({filteredSongs.length})</h2>
-
-              <div className="space-y-2">
-                {filteredSongs.length > 0 ? (
-                  filteredSongs.map((song, index) => {
-                    const isCurrentTrack = currentTrack && 
-                      currentTrack.type === 'music' && 
-                      String(currentTrack.id) === String(song.id);
-                    const isLiked = isTrackLiked(String(song.id), 'music');
-                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
-                    const profilePicture = uploaderProfile 
-                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
-                      : null;
-                    
-                    // ✅ Use actual profile name
-                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
-                    
-                    return (
-                      <div
-                        key={song.id}
-                        className={`flex items-center gap-4 p-4 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group ${
-                          isCurrentTrack ? 'bg-[#1877F2]/10 border-l-4 border-[#1877F2]' : ''
-                        }`}
-                        onClick={() => handlePlayTrackFromSong(song)}
-                      >
-                        <div className="text-[#B0B3B8] font-bold w-6 text-center">
-                          {isCurrentTrack && isPlaying ? (
-                            <div className="flex items-center gap-1">
-                              <div className="w-1 h-3 bg-[#1877F2] animate-bounce"></div>
-                              <div className="w-1 h-3 bg-[#1877F2] animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                              <div className="w-1 h-3 bg-[#1877F2] animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                            </div>
-                          ) : (
-                            index + 1
-                          )}
-                        </div>
-
-                        <img 
-                          src={song.cover || DEFAULT_MUSIC_COVER} 
-                          alt={song.title} 
-                          className="w-12 h-12 rounded-lg object-cover" 
+            {/* Horizontal feed sections like Boomplay */}
+            {!searchQuery ? (
+              <>
+                <HorizontalMusicRow
+                  title="Ngoma Za Moto"
+                  subtitle="Most streamed right now"
+                  songs={featuredSongs}
+                  users={users}
+                  isTrackLiked={isTrackLiked}
+                  onPlaySong={handlePlayTrackFromSong}
+                  onLikeSong={(id) => toggleLike(id, 'music')}
+                  onArtistClick={handleArtistClick}
+                  badgeBuilder={(song, index) => ({
+                    text: index === 0 ? 'HOT' : `#${index + 1}`,
+                    className: index === 0 ? 'bg-[#FF7A00] text-white' : 'bg-black/65 text-white'
+                  })}
+                />
+                <HorizontalMusicRow
+                  title="Handpicked User Gems"
+                  subtitle="Loved by listeners"
+                  songs={handpickedSongs}
+                  users={users}
+                  isTrackLiked={isTrackLiked}
+                  onPlaySong={handlePlayTrackFromSong}
+                  onLikeSong={(id) => toggleLike(id, 'music')}
+                  onArtistClick={handleArtistClick}
+                  badgeBuilder={() => ({
+                    text: 'GEM',
+                    className: 'bg-[#8B5CF6] text-white'
+                  })}
+                />
+                <HorizontalMusicRow
+                  title="Best Picks"
+                  subtitle="Strong plays and likes"
+                  songs={bestPickSongs}
+                  users={users}
+                  isTrackLiked={isTrackLiked}
+                  onPlaySong={handlePlayTrackFromSong}
+                  onLikeSong={(id) => toggleLike(id, 'music')}
+                  onArtistClick={handleArtistClick}
+                  badgeBuilder={() => ({
+                    text: 'TOP',
+                    className: 'bg-[#07E8F8] text-black'
+                  })}
+                />
+                <HorizontalMusicRow
+                  title="Fresh Vibes Only"
+                  subtitle="New uploads from creators"
+                  songs={freshVibeSongs}
+                  users={users}
+                  isTrackLiked={isTrackLiked}
+                  onPlaySong={handlePlayTrackFromSong}
+                  onLikeSong={(id) => toggleLike(id, 'music')}
+                  onArtistClick={handleArtistClick}
+                  badgeBuilder={() => ({
+                    text: 'NEW',
+                    className: 'bg-[#1877F2] text-white'
+                  })}
+                />
+              </>
+            ) : (
+              <div className="rounded-2xl bg-[#111318] border border-white/5 p-4">
+                <SectionTitle title={`Search Results (${filteredSongs.length})`} subtitle="Matched songs" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {filteredSongs.length > 0 ? (
+                    filteredSongs.map((song) => {
+                      const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                      const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                      const artistAvatar = (uploaderProfile as any)?.profileImage || (uploaderProfile as any)?.profile_image_url || null;
+                      return (
+                        <MusicFeedCard
+                          key={song.id}
+                          song={song}
+                          isLiked={isTrackLiked(String(song.id), 'music')}
+                          artistName={artistName}
+                          artistAvatar={artistAvatar}
+                          verified={Boolean((uploaderProfile as any)?.isVerified || (uploaderProfile as any)?.is_verified)}
+                          badge="PLAY"
+                          badgeColor="bg-black/60 text-white"
+                          onPlay={() => handlePlayTrackFromSong(song)}
+                          onLike={() => toggleLike(String(song.id), 'music')}
+                          onArtistClick={() => song.uploaderId && handleArtistClick(song.uploaderId)}
                         />
+                      );
+                    })
+                  ) : (
+                    <div className="col-span-full text-center py-10">
+                      <i className="fas fa-magnifying-glass text-4xl text-[#677083] mb-3"></i>
+                      <p className="text-[#B8BCC7] text-lg">No songs found</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
+            {/* Optional compact all music list */}
+            {!searchQuery && filteredSongs.length > 0 && (
+              <div className="rounded-2xl bg-[#111318] border border-white/5 p-4">
+                <SectionTitle title="All Music" subtitle={`${filteredSongs.length} tracks available`} />
+                <div className="space-y-2">
+                  {filteredSongs.slice(0, 10).map((song, index) => {
+                    const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                    const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                    const isCurrentTrack = currentTrack && currentTrack.type === 'music' && String(currentTrack.id) === String(song.id);
+                    return (
+                      <div
+                        key={song.id}
+                        onClick={() => handlePlayTrackFromSong(song)}
+                        className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                          isCurrentTrack ? 'bg-[#07E8F8]/10 border border-[#07E8F8]/30' : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="w-6 text-center text-[#9CA3AF] font-bold text-sm">
+                          {index + 1}
+                        </div>
+                        <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-12 h-12 rounded-lg object-cover" />
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-white truncate">{song.title}</h3>
-
-                          <div
-                            className="flex items-center gap-2 text-[#B0B3B8] text-sm cursor-pointer hover:underline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (song.uploaderId) handleArtistClick(song.uploaderId);
-                            }}
-                          >
-                            {profilePicture ? (
-                              <img 
-                                src={profilePicture} 
-                                className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                alt="Profile"
-                              />
-                            ) : null}
-                            <span>{artistName}</span>
-                            {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
-                            {(song.stats as any)?.plays > 1000 && (
-                              <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded ml-2">🔥 {(song.stats as any).plays} plays</span>
-                            )}
-                          </div>
+                          <p className="text-white font-semibold truncate">{song.title}</p>
+                          <p className="text-[#9CA3AF] text-sm truncate">{artistName}</p>
                         </div>
-
-                        <div className="flex items-center gap-4">
-                          <span className="text-[#B0B3B8] text-sm">{(song as any).duration || '3:00'}</span>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleLike(String(song.id), 'music');
-                            }}
-                            className="text-lg hover:scale-110 transition-transform flex items-center gap-1"
-                            title="Like"
-                          >
-                            <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
-                            <span className="text-xs text-[#B0B3B8]">{(song.stats as any)?.likes || 0}</span>
-                          </button>
-
-                          {isAdmin && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteSong(String(song.id));
-                              }}
-                              className="text-red-500 hover:text-red-400"
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash"></i>
-                            </button>
-                          )}
+                        <div className="text-[#9CA3AF] text-xs hidden sm:block">
+                          {formatCompactNumber((song.stats as any)?.plays)} plays
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLike(String(song.id), 'music');
+                          }}
+                          className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center"
+                        >
+                          <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart`}></i>
+                        </button>
                       </div>
                     );
-                  })
-                ) : (
-                  <div className="text-center py-12">
-                    <i className="fas fa-music text-5xl text-[#B0B3B8] mb-4"></i>
-                    <p className="text-[#B0B3B8] text-lg">No songs found</p>
-                    {searchQuery && <p className="text-[#B0B3B8] text-sm mt-2">Try a different search term</p>}
-                  </div>
-                )}
+                  })}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
-        {/* PODCAST VIEW - ✅ FIXED: Show podcast owner profile */}
+        {/* PODCAST VIEW */}
         {view === 'podcasts' && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl p-6">
@@ -2181,14 +2173,13 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
                       : null;
                     
-                    // ✅ Use actual profile name for host
                     const hostName = uploaderProfile?.name || uploaderProfile?.username || episode.host || 'Host';
                     
                     return (
                       <div
                         key={episode.id}
                         className={`bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group ${
-                          isCurrentTrack ? 'border-2 border-[#1877F2]' : ''
+                          isCurrentTrack ? 'border-2 border-[#07E8F8]' : ''
                         }`}
                         onClick={() => handlePlayTrackFromEpisode(episode)}
                       >
@@ -2222,8 +2213,8 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                     if (episode.uploaderId) handleArtistClick(episode.uploaderId);
                                   }}
                                 >
-                                  {hostName} {/* ✅ Now shows actual user name */}
-                                  {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#1877F2] text-xs"></i>}
+                                  {hostName}
+                                  {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#07E8F8] text-xs"></i>}
                                   <span className="text-xs text-gray-500 ml-1">(Host)</span>
                                 </p>
                               </div>
@@ -2240,7 +2231,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                     className="text-lg hover:scale-110 transition-transform flex items-center gap-1"
                                     title="Like"
                                   >
-                                    <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                                    <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
                                     <span className="text-xs text-[#B0B3B8]">{(episode.stats as any)?.likes || 0}</span>
                                   </button>
 
@@ -2277,7 +2268,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
 
-        {/* DASHBOARD */}
+        {/* DASHBOARD VIEW */}
         {view === 'dashboard' && currentUser && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl p-6">
@@ -2293,7 +2284,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </button>
               </div>
 
-              {/* Dashboard stats cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
@@ -2301,7 +2291,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       <p className="text-[#B0B3B8] text-sm">Likes on Your Content</p>
                       <p className="text-2xl font-bold text-white">{dashboardStats.userLikesReceived.toLocaleString()}</p>
                     </div>
-                    <i className="fas fa-heart text-[#F3425F] text-xl"></i>
+                    <i className="fas fa-heart text-[#FF4D8D] text-xl"></i>
                   </div>
                   <p className="text-[#888] text-xs mt-2">Likes your content received</p>
                 </div>
@@ -2323,13 +2313,12 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       <p className="text-[#B0B3B8] text-sm">My Total Plays</p>
                       <p className="text-2xl font-bold text-white">{myTotalPlays.toLocaleString()}</p>
                     </div>
-                    <i className="fas fa-play-circle text-[#F7B928] text-xl"></i>
+                    <i className="fas fa-play-circle text-[#07E8F8] text-xl"></i>
                   </div>
                   <p className="text-[#888] text-xs mt-2">Plays you've made across UNERA</p>
                 </div>
               </div>
 
-              {/* Catalog */}
               <div className="bg-[#1E1E1E] rounded-2xl border border-[#333] overflow-hidden">
                 <div className="p-6 border-b border-[#333]">
                   <h3 className="text-xl font-bold text-white">Your Catalog</h3>
@@ -2399,7 +2388,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 </div>
               </div>
 
-              {/* Recent Activity */}
               <div className="mt-8 bg-[#1E1E1E] rounded-2xl border border-[#333] p-6">
                 <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
                 <div className="space-y-3">
@@ -2440,7 +2428,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   <div className="mb-2">
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                       {selectedArtistUser.name}
-                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>}
+                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#07E8F8] text-sm"></i>}
                     </h1>
                     <p className="text-[#CCC] text-sm">{((selectedArtistUser as any).followers?.length || 0)} Followers</p>
                   </div>
@@ -2484,7 +2472,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                 className="text-lg hover:scale-110 transition-transform"
                                 title="Like"
                               >
-                                <i className={`${isLiked ? 'fas text-[#F3425F]' : 'far'} fa-heart`}></i>
+                                <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
                               </button>
                             </div>
                           </div>
