@@ -3351,25 +3351,43 @@ const audioEnd =
             ? selectedReelSound.audioEnd
             : 0));
 
-const soundPayload = {
-  songName:
-    reelData.songName ||
-    selectedReelSound?.songName ||
-    'Original Sound',
+const soundKey = generateSoundKey(reelData, selectedReelSound);
+const isTrimmedAudio = soundKey.startsWith('trimmed:');
 
-  audioUrl:
-    audioUrl ||
-    reelData.audioUrl ||
-    selectedReelSound?.originalUrl ||
-    selectedReelSound?.audioUrl ||
-    '',
+let audioStart = 0;
+if (isTrimmedAudio) {
+  audioStart = 0;
+} else if (typeof reelData.audioStart === 'number') {
+  audioStart = reelData.audioStart;
+} else if (typeof selectedReelSound?.audioStart === 'number') {
+  audioStart = selectedReelSound.audioStart;
+}
 
-  songId:
-    reelData.originalSoundId ||
-    (reelData as any).songId ||
-    selectedReelSound?.songId ||
-    null,
-};
+let audioEnd = 0;
+if (isTrimmedAudio) {
+  audioEnd = 0;
+} else if (typeof reelData.audioEnd === 'number') {
+  audioEnd = reelData.audioEnd;
+} else if (typeof selectedReelSound?.audioEnd === 'number') {
+  audioEnd = selectedReelSound.audioEnd;
+}
+
+const soundName =
+  reelData.songName ||
+  selectedReelSound?.songName ||
+  'Original Sound';
+
+const finalAudioUrl =
+  audioUrl ||
+  reelData.audioUrl ||
+  selectedReelSound?.originalUrl ||
+  selectedReelSound?.audioUrl ||
+  '';
+
+const finalSongId =
+  reelData.originalSoundId ||
+  selectedReelSound?.songId ||
+  null;
 
 const payload = {
   user_id: currentUser.id,
@@ -3379,11 +3397,11 @@ const payload = {
   video_url_medium: videoUrlMedium,
   video_url_hd: videoUrlHd,
   thumbnail_url: thumbnailUrl || '',
-  song_name: soundPayload.songName,
-  audio_url: soundPayload.audioUrl,
+  song_name: soundName,
+  audio_url: finalAudioUrl,
   audio_start: audioStart,
   audio_end: audioEnd,
-  song_id: soundPayload.songId,
+  song_id: finalSongId,
   sound_key: soundKey,
   visibility: reelData.visibility || 'public',
   location: reelData.location || '',
