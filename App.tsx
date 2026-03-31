@@ -3330,45 +3330,10 @@ const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSoun
         audioUrl = reelData.audioUrl;
       }
 
-const soundKey = generateSoundKey(reelData, selectedReelSound);
-const isTrimmedAudio = soundKey.startsWith('trimmed:');
-
-let audioStart = 0;
-if (isTrimmedAudio) {
-  audioStart = 0;
-} else if (typeof reelData.audioStart === 'number') {
-  audioStart = reelData.audioStart;
-} else if (typeof selectedReelSound?.audioStart === 'number') {
-  audioStart = selectedReelSound.audioStart;
-}
-
-let audioEnd = 0;
-if (isTrimmedAudio) {
-  audioEnd = 0;
-} else if (typeof reelData.audioEnd === 'number') {
-  audioEnd = reelData.audioEnd;
-} else if (typeof selectedReelSound?.audioEnd === 'number') {
-  audioEnd = selectedReelSound.audioEnd;
-}
-
-const soundName =
-  reelData.songName ||
-  selectedReelSound?.songName ||
-  'Original Sound';
-
-const finalAudioUrl =
-  audioUrl ||
-  (reelData.audioFile ? '' : (
-    reelData.audioUrl ||
-    selectedReelSound?.originalUrl ||
-    selectedReelSound?.audioUrl ||
-    ''
-  ));
-
-const finalSongId =
-  reelData.originalSoundId ||
-  selectedReelSound?.songId ||
-  null;
+const soundKey = 'original:none';
+const isTrimmedAudio = false;
+const audioStart = 0;
+const audioEnd = 0;
 
 const payload = {
   user_id: currentUser.id,
@@ -3378,19 +3343,17 @@ const payload = {
   video_url_medium: videoUrlMedium,
   video_url_hd: videoUrlHd,
   thumbnail_url: thumbnailUrl || '',
-  song_name: soundName,
-  audio_url: finalAudioUrl,
+  song_name: 'Original Sound',
+  audio_url: audioUrl || '',
   audio_start: audioStart,
   audio_end: audioEnd,
-  song_id: finalSongId,
+  song_id: null,
   sound_key: soundKey,
   visibility: reelData.visibility || 'public',
   location: reelData.location || '',
   views: 0,
   shares: 0,
 };
-
-console.log('Sending to API:', payload);
 
 const data = await apiFetch('/api/reels', {
   method: 'POST',
