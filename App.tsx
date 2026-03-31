@@ -7204,7 +7204,7 @@ const handleReelVideoSelected = useCallback(
             />
           )}
 
-           {view === 'recorder' && (
+         {view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
@@ -7236,11 +7236,13 @@ const handleReelVideoSelected = useCallback(
         ...reelData,
         audioUrl:
           reelData.audioUrl ||
-          (selectedReelSound?.songId &&
-            songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-          selectedReelSound?.originalUrl ||
-          selectedReelSound?.audioUrl ||
-          '',
+          (reelData.audioFile ? '' : (
+            (selectedReelSound?.songId &&
+              songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+            selectedReelSound?.originalUrl ||
+            selectedReelSound?.audioUrl ||
+            ''
+          )),
         originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
         songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
         audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
@@ -7253,7 +7255,7 @@ const handleReelVideoSelected = useCallback(
       setView('reels');
     }}
   />
-)}
+)}  
           {view === 'notifications' && (
             <NotificationsPage
               notifications={notifications}
