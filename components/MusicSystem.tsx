@@ -1,3 +1,833 @@
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import type { Song, Episode, AudioTrack, User } from '../types';
+import { DiscussSignalIcon, SparkReactIcon } from './Feed';
+
+/* =========================================================
+   CONSTANTS & DEFAULTS
+========================================================= */
+const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
+const DEFAULT_PODCAST_COVER = 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?ixlib=rb-1.2.1&auto=format&fit=crop&w=800&q=80';
+
+/* =========================================================
+   HELPER COMPONENTS FOR MODERN FEED LAYOUT
+========================================================= */
+
+const formatCompactNumber = (value: number | string | undefined) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}m`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return `${n}`;
+};
+
+const formatReactionCount = (count: number): string => {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(count);
+};
+
+const SectionTitle: React.FC<{ title: string; subtitle?: string; onMore?: () => void; }> = ({ title, subtitle, onMore }) => (
+  <div className="flex items-center justify-between mb-4">
+    <div>
+      <h2 className="text-[28px] leading-none font-extrabold text-white">{title}</h2>
+      {subtitle ? <p className="text-[#9CA3AF] text-sm mt-1">{subtitle}</p> : null}
+    </div>
+    <button onClick={onMore} className="text-[#00E5FF] font-semibold text-sm hover:opacity-80" type="button">
+      More <i className="fas fa-angle-double-right ml-1"></i>
+    </button>
+  </div>
+);
+
+const QuickActionCircle: React.FC<{ icon: string; label: string; onClick?: () => void; }> = ({ icon, label, onClick }) => (
+  <button type="button" onClick={onClick} className="flex flex-col items-center min-w-[74px] group">
+    <div className="w-16 h-16 rounded-full bg-[#07E8F8] text-black flex items-center justify-center shadow-[0_0_18px_rgba(7,232,248,0.25)] group-hover:scale-105 transition-transform">
+      <i className={`${icon} text-[26px]`}></i>
+    </div>
+    <span className="text-white text-sm mt-2 font-medium">{label}</span>
+  </button>
+);
+
+const FeaturedBannerCard: React.FC<{ song: Song; artistName: string; onPlay: () => void; }> = ({ song, artistName, onPlay }) => (
+  <div onClick={onPlay} className="relative h-[220px] rounded-2xl overflow-hidden cursor-pointer border border-white/10">
+    <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="absolute inset-0 w-full h-full object-cover" />
+    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
+    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+    <div className="relative z-10 h-full flex items-end justify-between p-4">
+      <div className="max-w-[70%]">
+        <p className="text-[#07E8F8] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
+        <h3 className="text-white text-2xl font-extrabold leading-tight line-clamp-2">{song.title}</h3>
+        <p className="text-white/80 mt-1 text-sm">{artistName}</p>
+        <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3 py-1.5 text-xs text-white">
+          <i className="fas fa-headphones"></i>
+          <span>{formatCompactNumber((song.stats as any)?.plays)} plays</span>
+        </div>
+      </div>
+      <div className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
+        <i className="fas fa-play text-lg ml-1"></i>
+      </div>
+    </div>
+  </div>
+);
+
+// =========================================================
+// REACTION BUTTON COMPONENT (Icon only, like Feed.tsx)
+// =========================================================
+
+const MusicReactionButton: React.FC<{
+  hasReacted: boolean;
+  reactionCount: number;
+  onReact: () => void;
+  isLoading?: boolean;
+}> = ({ hasReacted, reactionCount, onReact, isLoading = false }) => {
+  const [showDock, setShowDock] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewEmoji, setPreviewEmoji] = useState<string>('👍');
+  const timerRef = useRef<any>(null);
+  const longPressTimerRef = useRef<any>(null);
+
+  const reactionConfig = [
+    { type: 'like', icon: '👍', color: '#1877F2' },
+    { type: 'love', icon: '❤️', color: '#F3425F' },
+    { type: 'haha', icon: '😂', color: '#F7B928' },
+    { type: 'wow', icon: '😮', color: '#F7B928' },
+    { type: 'sad', icon: '😢', color: '#F7B928' },
+    { type: 'angry', icon: '😡', color: '#E41E3F' },
+    { type: 'fire', icon: '🔥', color: '#FF6B35' },
+    { type: 'party', icon: '🎉', color: '#9C27B0' },
+    { type: 'clap', icon: '👏', color: '#4CAF50' },
+    { type: 'star', icon: '⭐', color: '#FFD700' },
+  ];
+
+  const handleMouseEnter = () => {
+    timerRef.current = setTimeout(() => setShowDock(true), 500);
+  };
+
+  const handleMouseLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setTimeout(() => setShowDock(false), 250);
+    setShowPreview(false);
+  };
+
+  const handleTouchStart = () => {
+    longPressTimerRef.current = setTimeout(() => {
+      setShowDock(true);
+      setShowPreview(true);
+      setPreviewEmoji('👍');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    setTimeout(() => setShowPreview(false), 300);
+  };
+
+  const handleClick = () => {
+    if (hasReacted) {
+      setIsAnimating(true);
+      onReact();
+      setTimeout(() => setIsAnimating(false), 300);
+    } else {
+      setShowDock(!showDock);
+    }
+  };
+
+  const handleDockReact = (type: any) => {
+    setIsAnimating(true);
+    onReact();
+    setShowDock(false);
+    setShowPreview(false);
+    setTimeout(() => setIsAnimating(false), 300);
+  };
+
+  const handleEmojiHover = (emoji: string) => {
+    if (showPreview) setPreviewEmoji(emoji);
+  };
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
+      {showPreview && (
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 bg-[#242526] rounded-full shadow-2xl p-3 border border-[#3E4042] z-50 reaction-preview">
+          <div className="text-4xl">{previewEmoji}</div>
+        </div>
+      )}
+
+      {showDock && (
+        <div className="absolute -top-16 left-0 bg-[#242526] rounded-full shadow-2xl p-2 border border-[#3E4042] z-50 react-pop flex items-center">
+          <div className="flex gap-1 overflow-x-auto max-w-[320px] scrollbar-hide px-1 py-1">
+            {reactionConfig.map((r) => (
+              <div
+                key={r.type}
+                className="text-3xl react-hover cursor-pointer p-1 rounded-full hover:bg-[#3A3B3C] transition-colors flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDockReact(r.type);
+                }}
+                onMouseEnter={() => handleEmojiHover(r.icon)}
+                title={r.type}
+              >
+                {r.icon}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        disabled={isLoading}
+        className={`flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 transition-all ${
+          isAnimating ? 'scale-110' : ''
+        } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+      >
+        <SparkReactIcon size={24} />
+        <span className="text-white text-sm font-bold">{formatReactionCount(reactionCount)}</span>
+      </button>
+    </div>
+  );
+};
+
+// =========================================================
+// DISCUSS BUTTON COMPONENT (Icon only, like Feed.tsx)
+// =========================================================
+
+const MusicDiscussButton: React.FC<{
+  commentCount: number;
+  onClick: () => void;
+}> = ({ commentCount, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+    >
+      <DiscussSignalIcon size={24} color="#1877F2" />
+      <span className="text-white text-sm font-bold">{formatReactionCount(commentCount)}</span>
+    </button>
+  );
+};
+
+// =========================================================
+// SHARE BUTTON COMPONENT
+// =========================================================
+
+const MusicShareButton: React.FC<{
+  shareCount: number;
+  onClick: () => void;
+}> = ({ shareCount, onClick }) => {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+    >
+      <i className="fas fa-share-alt text-white text-lg"></i>
+      <span className="text-white text-sm font-bold">{formatReactionCount(shareCount)}</span>
+    </button>
+  );
+};
+
+const MusicFeedCard: React.FC<{
+  song: Song;
+  isLiked: boolean;
+  artistName: string;
+  artistAvatar?: string | null;
+  verified?: boolean;
+  badge?: string;
+  badgeColor?: string;
+  onPlay: () => void;
+  onLike: () => void;
+  onArtistClick?: () => void;
+  onReact?: () => void;
+  onDiscuss?: () => void;
+  onShare?: () => void;
+  reactionCount?: number;
+  hasReacted?: boolean;
+  commentCount?: number;
+  shareCount?: number;
+  isReacting?: boolean;
+}> = ({
+  song,
+  isLiked,
+  artistName,
+  artistAvatar,
+  verified,
+  badge,
+  badgeColor = 'bg-black/60 text-white',
+  onPlay,
+  onLike,
+  onArtistClick,
+  onReact,
+  onDiscuss,
+  onShare,
+  reactionCount = 0,
+  hasReacted = false,
+  commentCount = 0,
+  shareCount = 0,
+  isReacting = false,
+}) => (
+  <div className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start">
+    <div onClick={onPlay} className="group cursor-pointer">
+      <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
+        <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+        {badge ? (
+          <div className={`absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full font-bold ${badgeColor}`}>
+            {badge}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onLike();
+          }}
+          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center"
+        >
+          <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
+        </button>
+        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
+          <div className="flex items-center justify-between text-white text-xs">
+            <span className="inline-flex items-center gap-1">
+              <i className="fas fa-headphones text-[10px]"></i>
+              {formatCompactNumber((song.stats as any)?.plays)}
+            </span>
+            <span>{(song as any).duration || '3:00'}</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-2">
+        <h3 className="text-white text-[15px] font-semibold leading-tight line-clamp-1">{song.title}</h3>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onArtistClick?.();
+          }}
+          className="mt-1 flex items-center gap-2 max-w-full text-left"
+        >
+          {artistAvatar ? (
+            <img src={artistAvatar} alt={artistName} className="w-4 h-4 rounded-full object-cover" />
+          ) : null}
+          <span className="text-[#B8BCC7] text-sm truncate inline-flex items-center gap-1">
+            {artistName}
+            {verified ? <i className="fas fa-check-circle text-[#07E8F8] text-[10px]"></i> : null}
+          </span>
+        </button>
+
+        {/* Action Buttons - React, Discuss, Share */}
+        <div className="flex items-center justify-between mt-3 gap-1">
+          <MusicReactionButton
+            hasReacted={hasReacted}
+            reactionCount={reactionCount}
+            onReact={onReact || (() => {})}
+            isLoading={isReacting}
+          />
+          <MusicDiscussButton
+            commentCount={commentCount}
+            onClick={onDiscuss || (() => {})}
+          />
+          <MusicShareButton
+            shareCount={shareCount}
+            onClick={onShare || (() => {})}
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const HorizontalMusicRow: React.FC<{
+  title: string;
+  subtitle?: string;
+  songs: Song[];
+  users: User[];
+  isTrackLiked: (id: string | number, type: 'music' | 'podcast') => boolean;
+  onPlaySong: (song: Song) => void;
+  onLikeSong: (id: string) => void;
+  onArtistClick: (id: number) => void;
+  onReact?: (song: Song) => void;
+  onDiscuss?: (song: Song) => void;
+  onShare?: (song: Song) => void;
+  getReactionData?: (song: Song) => { count: number; hasReacted: boolean };
+  getCommentCount?: (song: Song) => number;
+  getShareCount?: (song: Song) => number;
+  isReacting?: (songId: string) => boolean;
+  badgeBuilder?: (song: Song, index: number) => { text?: string; className?: string };
+}> = ({
+  title,
+  subtitle,
+  songs,
+  users,
+  isTrackLiked,
+  onPlaySong,
+  onLikeSong,
+  onArtistClick,
+  onReact,
+  onDiscuss,
+  onShare,
+  getReactionData,
+  getCommentCount,
+  getShareCount,
+  isReacting,
+  badgeBuilder,
+}) => {
+  if (!songs.length) return null;
+  return (
+    <div className="mb-8">
+      <SectionTitle title={title} subtitle={subtitle} />
+      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
+        {songs.map((song, index) => {
+          const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+          const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+          const artistAvatar = (uploaderProfile as any)?.profileImage || (uploaderProfile as any)?.profile_image_url || null;
+          const badge = badgeBuilder?.(song, index);
+          const reactionData = getReactionData?.(song) || { count: (song.stats as any)?.likes || 0, hasReacted: false };
+          const commentCount = getCommentCount?.(song) || 0;
+          const shareCount = getShareCount?.(song) || (song.stats as any)?.shares || 0;
+          const isReactingNow = isReacting?.(String(song.id)) || false;
+
+          return (
+            <MusicFeedCard
+              key={song.id}
+              song={song}
+              isLiked={isTrackLiked(String(song.id), 'music')}
+              artistName={artistName}
+              artistAvatar={artistAvatar}
+              verified={Boolean((uploaderProfile as any)?.isVerified || (uploaderProfile as any)?.is_verified)}
+              badge={badge?.text}
+              badgeColor={badge?.className}
+              onPlay={() => onPlaySong(song)}
+              onLike={() => onLikeSong(String(song.id))}
+              onArtistClick={() => song.uploaderId && onArtistClick(song.uploaderId)}
+              onReact={onReact ? () => onReact(song) : undefined}
+              onDiscuss={onDiscuss ? () => onDiscuss(song) : undefined}
+              onShare={onShare ? () => onShare(song) : undefined}
+              reactionCount={reactionData.count}
+              hasReacted={reactionData.hasReacted}
+              commentCount={commentCount}
+              shareCount={shareCount}
+              isReacting={isReactingNow}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
+   API CLIENT (safe JSON parsing + auth + errors)
+========================================================= */
+
+type ApiResult<T> = { success: true; data: T } | { success: false; error: string; data?: any };
+
+const getAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem('unera_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const safeParseJson = async (res: Response) => {
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return res.json();
+  const txt = await res.text();
+  try {
+    return JSON.parse(txt);
+  } catch {
+    return { raw: txt };
+  }
+};
+
+async function apiJson<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(endpoint, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+        ...(options.headers || {}),
+      },
+    });
+
+    const payload = await safeParseJson(res);
+
+    if (!res.ok) {
+      return { success: false, error: (payload?.error || payload?.message || `API Error: ${res.status}`) as string, data: payload };
+    }
+
+    const data = (payload?.data ?? payload) as T;
+    return { success: true, data };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error' };
+  }
+}
+
+async function apiForm<T>(endpoint: string, form: FormData, options: RequestInit = {}): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(endpoint, {
+      method: options.method || 'POST',
+      ...options,
+      body: form,
+      headers: {
+        ...getAuthHeaders(),
+        ...(options.headers || {}),
+      },
+    });
+
+    const payload = await safeParseJson(res);
+
+    if (!res.ok) {
+      return { success: false, error: (payload?.error || payload?.message || `API Error: ${res.status}`) as string, data: payload };
+    }
+
+    const data = (payload?.data ?? payload) as T;
+    return { success: true, data };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error' };
+  }
+}
+
+/* =========================================================
+   REACTION, COMMENT, SHARE API FUNCTIONS
+========================================================= */
+
+async function reactToSong(songId: string, userId: number, type: string): Promise<ApiResult<any>> {
+  return apiJson(`/api/songs/${songId}/react`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, type: type }),
+  });
+}
+
+async function reactToPodcast(episodeId: string, userId: number, type: string): Promise<ApiResult<any>> {
+  return apiJson(`/api/podcasts/${episodeId}/react`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, type: type }),
+  });
+}
+
+async function getComments(itemId: string, type: 'music' | 'podcast'): Promise<ApiResult<any[]>> {
+  const endpoint = type === 'music' 
+    ? `/api/songs/${itemId}/comments`
+    : `/api/podcasts/${itemId}/comments`;
+  return apiJson(endpoint, { method: 'GET' });
+}
+
+async function addComment(itemId: string, type: 'music' | 'podcast', userId: number, text: string): Promise<ApiResult<any>> {
+  const endpoint = type === 'music'
+    ? `/api/songs/${itemId}/comment`
+    : `/api/podcasts/${itemId}/comment`;
+  return apiJson(endpoint, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, text: text }),
+  });
+}
+
+async function shareSong(songId: string, userId: number, destination: string): Promise<ApiResult<any>> {
+  return apiJson(`/api/songs/${songId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, destination: destination }),
+  });
+}
+
+async function sharePodcast(episodeId: string, userId: number, destination: string): Promise<ApiResult<any>> {
+  return apiJson(`/api/podcasts/${episodeId}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, destination: destination }),
+  });
+}
+
+/* =========================================================
+   COMMENTS SHEET
+========================================================= */
+
+const MusicCommentsSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  item: Song | Episode | null;
+  currentUser: User | null;
+  onCommentAdded: () => void;
+}> = ({ isOpen, onClose, item, currentUser, onCommentAdded }) => {
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && item) {
+      fetchComments();
+    }
+  }, [isOpen, item]);
+
+  const fetchComments = async () => {
+    if (!item) return;
+    setLoading(true);
+    try {
+      const type = (item as any).type === 'podcast' ? 'podcast' : 'music';
+      const result = await getComments(String(item.id), type);
+      if (result.success) {
+        setComments(result.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch comments:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!text.trim() || !currentUser || !item) return;
+    
+    const type = (item as any).type === 'podcast' ? 'podcast' : 'music';
+    const userId = (currentUser as any).id;
+    
+    try {
+      const result = await addComment(String(item.id), type, userId, text.trim());
+      if (result.success) {
+        setText('');
+        fetchComments();
+        onCommentAdded();
+      }
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-[#242526] rounded-xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
+          <h3 className="text-white font-bold text-lg">Discussions</h3>
+          <button onClick={onClose} className="text-[#B0B3B8] hover:text-white">
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="text-center text-[#B0B3B8] py-8">Loading discussions...</div>
+          ) : comments.length === 0 ? (
+            <div className="text-center text-[#B0B3B8] py-8">No discussions yet. Be the first to comment!</div>
+          ) : (
+            <div className="space-y-4">
+              {comments.map((comment: any) => (
+                <div key={comment.id} className="flex gap-3">
+                  <img
+                    src={comment.user?.profile_image_url || `https://ui-avatars.com/api/?name=${comment.user?.name || 'U'}&background=1877F2&color=fff`}
+                    className="w-8 h-8 rounded-full object-cover"
+                    alt=""
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-bold text-sm">{comment.user?.name || 'User'}</span>
+                      <span className="text-[#B0B3B8] text-xs">{new Date(comment.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-[#E4E6EB] text-sm mt-1">{comment.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {currentUser && (
+          <div className="p-4 border-t border-[#3E4042]">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Write a comment..."
+                className="flex-1 bg-[#3A3B3C] text-white rounded-full px-4 py-2 outline-none focus:ring-1 focus:ring-[#1877F2]"
+                onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
+              />
+              <button
+                onClick={handleSubmit}
+                disabled={!text.trim()}
+                className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-full font-bold disabled:opacity-50"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
+   SHARE BOTTOM SHEET
+========================================================= */
+
+const MusicShareSheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  item: any;
+  currentUser: User | null;
+  onShareComplete: () => void;
+}> = ({ isOpen, onClose, item, currentUser, onShareComplete }) => {
+  const [sharing, setSharing] = useState(false);
+
+  const handleShare = async (destination: string) => {
+    if (!currentUser || !item) return;
+    setSharing(true);
+    
+    const type = item.type === 'podcast' ? 'podcast' : 'song';
+    const userId = (currentUser as any).id;
+    
+    try {
+      let result;
+      if (type === 'song') {
+        result = await shareSong(String(item.id), userId, destination);
+      } else {
+        result = await sharePodcast(String(item.id), userId, destination);
+      }
+      
+      if (result.success) {
+        onShareComplete();
+        onClose();
+      }
+    } catch (error) {
+      console.error('Failed to share:', error);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-black/80 flex items-end" onClick={onClose}>
+      <div className="bg-[#242526] w-full rounded-t-2xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-[#3E4042] text-center">
+          <div className="w-12 h-1 bg-[#3E4042] rounded-full mx-auto mb-2"></div>
+          <h3 className="text-white font-bold text-lg">Share</h3>
+        </div>
+        
+        <div className="p-4 space-y-2">
+          <button
+            onClick={() => handleShare('feed')}
+            disabled={sharing}
+            className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-lg transition-colors"
+          >
+            <div className="w-10 h-10 rounded-full bg-[#1877F2]/20 flex items-center justify-center">
+              <i className="fas fa-newspaper text-[#1877F2]"></i>
+            </div>
+            <span className="text-white font-medium">Share to Feed</span>
+          </button>
+          
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}/music/${item.id}`;
+              navigator.clipboard.writeText(url);
+              alert('Link copied to clipboard!');
+              onClose();
+            }}
+            className="w-full flex items-center gap-3 p-3 hover:bg-[#3A3B3C] rounded-lg transition-colors"
+          >
+            <div className="w-10 h-10 rounded-full bg-[#45BD62]/20 flex items-center justify-center">
+              <i className="fas fa-link text-[#45BD62]"></i>
+            </div>
+            <span className="text-white font-medium">Copy Link</span>
+          </button>
+        </div>
+        
+        <div className="p-4 border-t border-[#3E4042]">
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-white font-bold rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
+   MAPPERS (backend -> UI types)
+========================================================= */
+
+function mapSongFromApi(s: any): Song {
+  const plays = Number(s.plays_count ?? s.plays ?? s.stats?.plays ?? 0);
+  const likes = Number(s.likes_count ?? s.likes ?? s.stats?.likes ?? 0);
+  
+  let cover = s.cover_image_url || s.cover || DEFAULT_MUSIC_COVER;
+  
+  if (!cover || cover.trim() === '' || 
+      cover.includes('ui-avatars.com') || 
+      !cover.startsWith('http')) {
+    cover = DEFAULT_MUSIC_COVER;
+  }
+
+  return {
+    id: String(s.id),
+    title: s.title || 'Untitled',
+    artist: s.artist_name || s.artist || 'Unknown Artist',
+    cover: cover,
+    audioUrl: s.audio_url || s.audioUrl || '',
+    duration: s.duration || s.duration_seconds || '3:00',
+    uploaderId: Number(s.uploader_id ?? s.uploaderId ?? 0) || 0,
+    uploadDate: s.created_at || s.uploadDate || new Date().toISOString(),
+    genre: s.genre || '',
+    album: s.album_name || s.album || 'Single',
+    isVerified: Boolean(s.is_verified || s.isVerified),
+    type: 'music',
+    stats: {
+      plays,
+      likes,
+      shares: Number(s.shares_count ?? s.shares ?? s.stats?.shares ?? 0),
+      downloads: Number(s.downloads_count ?? s.downloads ?? s.stats?.downloads ?? 0),
+      reelsUse: Number(s.reels_use_count ?? s.reelsUse ?? s.stats?.reelsUse ?? 0),
+    },
+  } as any;
+}
+
+function mapEpisodeFromApi(e: any): Episode {
+  const plays = Number(e.plays_count ?? e.plays ?? e.stats?.plays ?? 0);
+  const likes = Number(e.likes_count ?? e.likes ?? e.stats?.likes ?? 0);
+  
+  let thumbnail = e.cover_url || e.cover_image_url || e.thumbnail || DEFAULT_PODCAST_COVER;
+  
+  if (!thumbnail || thumbnail.trim() === '' || 
+      thumbnail.includes('ui-avatars.com') || 
+      !thumbnail.startsWith('http')) {
+    thumbnail = DEFAULT_PODCAST_COVER;
+  }
+
+  return {
+    id: String(e.id),
+    title: e.title || 'Untitled',
+    description: e.description || '',
+    host: e.host || e.artist_name || 'Unknown Host',
+    thumbnail: thumbnail,
+    audioUrl: e.audio_url || e.audioUrl || '',
+    duration: e.duration || e.duration_seconds || '45:00',
+    uploaderId: Number(e.creator_id ?? e.uploader_id ?? e.uploaderId ?? 0) || 0,
+    uploadDate: e.created_at || e.uploadDate || new Date().toISOString(),
+    season: e.season || '',
+    episode: e.episode || '',
+    guests: e.guests || '',
+    type: 'podcast',
+    stats: {
+      plays,
+      likes,
+      shares: Number(e.shares_count ?? e.shares ?? e.stats?.shares ?? 0),
+      downloads: Number(e.downloads_count ?? e.downloads ?? e.stats?.downloads ?? 0),
+      reelsUse: Number(e.reels_use_count ?? e.reelsUse ?? e.stats?.reelsUse ?? 0),
+    },
+  } as any;
+}
+
+
 /* =========================================================
    MAIN MUSIC SYSTEM COMPONENT
 ========================================================= */
