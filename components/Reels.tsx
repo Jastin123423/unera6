@@ -28,7 +28,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
 
   const p = fetch(url, {
     cache: 'force-cache',
-    headers: { Accept: 'audio/mpeg,/*' },
+    headers: { Accept: '*/*' }, // fixed header
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
@@ -72,6 +72,7 @@ interface Sound {
   coverImage?: string;
   soundKey?: string;
   originalUrl?: string;
+  songId?: string | number | null; // ✅ added
 }
 
 type NetworkLevel = 'low' | 'medium' | 'high';
@@ -1831,6 +1832,34 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return value.slice(0, max) + '...';
   };
 
+  // ✅ Updated: Extract real songId from reel
+  const extractSoundFromReel = useCallback(
+    (reel: Reel): Sound => {
+      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
+      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
+      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
+      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
+      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
+      const realSongId = (reel as any).songId ?? (reel as any).song_id ?? null;
+      return {
+        id: soundKey,
+        songId: realSongId,
+        name: songName,
+        url: audioUrl,
+        originalUrl: audioUrl,
+        start: audioStart,
+        end: audioEnd,
+        creator: author,
+        creationCount: 0,
+        isOriginal: String(soundKey).startsWith('original:'),
+        soundKey,
+      };
+    },
+    [users]
+  );
+
+  // ✅ Updated: Use sound.songId instead of sound.id
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
       songName: sound.name || 'Original Sound',
@@ -1838,7 +1867,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       originalUrl: sound.originalUrl || sound.url || '',
       audioStart: sound.start || 0,
       audioEnd: sound.end || sound.duration || 0,
-      songId: sound.id,
+      songId: sound.songId ?? undefined,
       soundKey: sound.soundKey || `sound:${sound.id}`,
       isTrimmedAudio: false,
     };
@@ -2262,32 +2291,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setShowShareSheet(false);
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
-
-  // ==================== Extract sound from reel ====================
-  const extractSoundFromReel = useCallback(
-    (reel: Reel): Sound => {
-      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
-      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-
-      return {
-        id: soundKey,
-        name: songName,
-        url: audioUrl,
-        originalUrl: audioUrl,
-        start: audioStart,
-        end: audioEnd,
-        creator: author,
-        creationCount: 0,
-        isOriginal: String(soundKey).startsWith('original:'),
-        soundKey,
-      };
-    },
-    [users]
-  );
 
   // ==================== Use sound handlers ====================
   const handleUseSoundFromReel = useCallback(
