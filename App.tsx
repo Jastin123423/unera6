@@ -6928,7 +6928,6 @@ const handleReelVideoSelected = useCallback(
           )}
 
           {/* ReelsFeed render */}
-
          {view === 'reels' && (
   <ReelsFeed
     reels={safeArray(reels)}
@@ -6950,6 +6949,7 @@ const handleReelVideoSelected = useCallback(
     onVideoClick={openReelRecorderFromReels}
   />
 )}
+        
           {view === 'marketplace' && (
             <MarketplacePage
               currentUser={currentUser}
