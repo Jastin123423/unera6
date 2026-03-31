@@ -3241,16 +3241,12 @@ export default function App() {
 const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
   if (reelData.soundKey) return String(reelData.soundKey);
 
-  if (reelData.audioFile && !reelData.originalSoundId && !(reelData as any).songId) {
+  if (reelData.audioFile && !reelData.originalSoundId) {
     return `original:extracted:${Date.now()}`;
   }
 
   if (reelData.originalSoundId) {
     return `song:${reelData.originalSoundId}`;
-  }
-
-  if ((reelData as any).songId) {
-    return `song:${(reelData as any).songId}`;
   }
 
   if (selectedReelSound?.soundKey) {
