@@ -420,7 +420,7 @@ const ReactionButton: React.FC<{
    COMMENTS SHEET MODAL
 ========================================================= */
 
-const CommentsSheet: React.FC<{
+export const CommentsSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   track: AudioTrack;
@@ -3312,4 +3312,4 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   );
 };
 
-export { MusicSystem as default, MusicCommentsSheet };
+export default MusicSystem as default;
