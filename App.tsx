@@ -6094,7 +6094,6 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 // ============================================================================
 // ✅ HYBRID COMMENT HANDLERS
 // ============================================================================
-
 const fetchComments = useCallback(async (item: any) => {
   if (!requireAuth('Viewing comments')) return [];
   if (!item) return [];
@@ -6613,11 +6612,9 @@ const refreshComments = useCallback(async (item: any) => {
   return freshComments;
 }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
 
-   // ============================================================================
-// ✅ MUSIC REACTION/COMMENT/SHARE HANDLERS - Add these ONCE after the comment handlers
 // ============================================================================
-
-// Handle reaction for music tracks
+// ✅ MUSIC REACTION/COMMENT/SHARE HANDLERS
+// ============================================================================
 const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
   if (!currentUser) {
     setLoginError('Please login to react');
@@ -6636,7 +6633,7 @@ const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: Rea
     const newCount = isSameReaction 
       ? Math.max(0, current.count - 1)
       : current.myReaction 
-        ? current.count // If changing reaction, count stays same (remove old, add new)
+        ? current.count
         : current.count + 1;
     const newMyReaction = isSameReaction ? undefined : reactionType;
     
@@ -6667,7 +6664,6 @@ const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: Rea
     }
   } catch (error) {
     console.error('Failed to react:', error);
-    // Revert optimistic update on error
     setTrackReactions(prev => {
       const current = prev[trackId];
       if (!current) return prev;
@@ -6683,7 +6679,6 @@ const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: Rea
   }
 }, [currentUser]);
 
-// Handle open music comments
 const handleOpenMusicComments = useCallback((track: AudioTrack) => {
   if (!currentUser) {
     setLoginError('Please login to comment');
@@ -6694,7 +6689,6 @@ const handleOpenMusicComments = useCallback((track: AudioTrack) => {
   setShowMusicComments(true);
 }, [currentUser]);
 
-// Handle music share
 const handleMusicShare = useCallback((track: AudioTrack) => {
   if (!currentUser) {
     setLoginError('Please login to share');
@@ -6702,7 +6696,6 @@ const handleMusicShare = useCallback((track: AudioTrack) => {
     return;
   }
   
-  // Create a post-like object for the music track
   const musicPost = {
     id: track.id,
     user_id: currentUser.id,
@@ -6721,7 +6714,6 @@ const handleMusicShare = useCallback((track: AudioTrack) => {
   setShowShareSheet(true);
 }, [currentUser]);
 
-// Handle comment added for music track
 const handleMusicCommentAdded = useCallback((trackId: string) => {
   setTrackComments(prev => ({
     ...prev,
@@ -6729,7 +6721,6 @@ const handleMusicCommentAdded = useCallback((trackId: string) => {
   }));
 }, []);
 
-// Handle share complete for music track
 const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
   if (data?.success && track) {
     setTrackShares(prev => ({
@@ -6737,12 +6728,11 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
       [track.id]: (prev[track.id] || 0) + 1
     }));
   }
-}, []);     
+}, []);
 
 // ============================================================================
 // ✅ ORIGINAL FUNCTIONS (Preserved)
 // ============================================================================
-
 const onReactPost = useCallback((postId: number, type: ReactionType) => {
   const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
   if (post) {
@@ -6874,6 +6864,7 @@ const editPost = useCallback(
 // ============================================================================
 return (
   <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+    {/* Header component */}
     <Header
       onHomeClick={() => handleNavigate('home')}
       onProfileClick={(id: number) => openProfile(id)}
@@ -6908,6 +6899,7 @@ return (
     />
 
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+      {/* Sidebar */}
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
           <Sidebar
@@ -6920,14 +6912,17 @@ return (
         </div>
       )}
 
+      {/* Main Content Area */}
       <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
         <input
-  ref={reelVideoInputRef}
-  type="file"
-  accept="video/*"
-  className="hidden"
-  onChange={handleReelVideoSelected}
-/>
+          ref={reelVideoInputRef}
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={handleReelVideoSelected}
+        />
+        
+        {/* Home View */}
         {view === 'home' && (
           <div className="w-full pt-4 md:px-8 pb-10">
             {activeHashtag && (
@@ -6997,6 +6992,7 @@ return (
               }}>
                 {feedItems.length > 0 ? (
                   feedItems.map((item, idx) => {
+                    // Sponsored posts
                     if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
                       const isActive = item.campaign_status === 'active' || 
                                        (item.end_date && new Date(item.end_date) > new Date());
@@ -7017,6 +7013,7 @@ return (
                       );
                     }
 
+                    // Reels
                     if (item.type === 'reel') {
                       return (
                         <ReelFeedCard
@@ -7036,6 +7033,7 @@ return (
                       );
                     }
 
+                    // Regular posts
                     const postAuthorId = Number((item as any).user_id);
                     const isFollowing = checkIsFollowing(postAuthorId);
                     const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
@@ -7188,7 +7186,7 @@ return (
           </div>
         )}
 
-        {/* ReelsFeed render */}
+        {/* Reels View */}
         {view === 'reels' && (
           <ReelsFeed
             reels={safeArray(reels)}
@@ -7211,6 +7209,7 @@ return (
           />
         )}
         
+        {/* Marketplace View */}
         {view === 'marketplace' && (
           <MarketplacePage
             currentUser={currentUser}
@@ -7221,6 +7220,7 @@ return (
           />
         )}
 
+        {/* Groups View */}
         {view === 'groups' && (
           <ErrorBoundary>
             <GroupsPage
@@ -7279,6 +7279,7 @@ return (
           </ErrorBoundary>
         )}
 
+        {/* Brands View */}
         {view === 'brands' && (
           <BrandsPage
             currentUser={currentUser}
@@ -7303,6 +7304,7 @@ return (
           />
         )}
 
+        {/* Music View */}
         {view === 'music' && (
           <MusicSystem
             currentUser={currentUser}
@@ -7318,7 +7320,6 @@ return (
             isPlaying={isAudioPlaying}
             myTotalPlays={currentUser?.id ? myTotalPlays : 0}
             playsLoading={playsLoading}
-            // NEW PROPS FOR REACT/DISCUSS/SHARE
             reactionCounts={trackReactions}
             commentCounts={trackComments}
             shareCounts={trackShares}
@@ -7328,8 +7329,10 @@ return (
           />
         )}
 
+        {/* Tools View */}
         {view === 'tools' && <ToolsPage />}
 
+        {/* Suggested Profiles View */}
         {view === 'profiles' && (
           <SuggestedProfilesPage
             currentUser={currentUser as any}
@@ -7341,6 +7344,7 @@ return (
           />
         )}
 
+        {/* Events View */}
         {view === 'events' && (
           <ErrorBoundary>
             <AllEvents
@@ -7358,6 +7362,7 @@ return (
           </ErrorBoundary>
         )}
 
+        {/* Birthdays View */}
         {view === 'birthdays' && (
           <BirthdaysPage
             currentUser={currentUser as any}
@@ -7373,6 +7378,7 @@ return (
           />
         )}
 
+        {/* Memories View */}
         {view === 'memories' && currentUser && (
           <MemoriesPage
             currentUser={currentUser}
@@ -7398,14 +7404,17 @@ return (
           />
         )}
 
+        {/* Settings View */}
         {view === 'settings' && currentUser && (
           <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
         )}
 
+        {/* Legal Views */}
         {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
         {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
         {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
 
+        {/* Profile View */}
         {view === 'profile' && profileUser && (
           <UserProfile
             user={profileUser}
@@ -7454,6 +7463,7 @@ return (
           />
         )}
 
+        {/* Login View */}
         {view === 'login' && (
           <Login
             onLogin={handleLogin}
@@ -7464,6 +7474,7 @@ return (
           />
         )}
 
+        {/* Register View */}
         {view === 'register' && (
           <Register 
             onRegister={handleRegister} 
@@ -7472,6 +7483,7 @@ return (
           />
         )}
 
+        {/* Recorder View */}
         {view === 'recorder' && (
           <Recorder
             currentUser={currentUser}
@@ -7523,7 +7535,9 @@ return (
               setView('reels');
             }}
           />
-        )}  
+        )}
+
+        {/* Notifications View */}
         {view === 'notifications' && (
           <NotificationsPage
             notifications={notifications}
@@ -7533,6 +7547,7 @@ return (
           />
         )}
 
+        {/* Ads View */}
         {view === 'ads' && currentUser && (
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
             <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
@@ -7628,6 +7643,7 @@ return (
         )}
       </div>
 
+      {/* Right Sidebar */}
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
           <RightSidebar
@@ -7641,6 +7657,7 @@ return (
       )}
     </div>
 
+    {/* Back Button (Mobile) */}
     {view !== 'home' && (
       <button
         onClick={goBack}
@@ -7651,6 +7668,7 @@ return (
       </button>
     )}
 
+    {/* Product Detail Modal */}
     {activeProduct && (
       <ProductDetailModal
         product={activeProduct}
@@ -7666,6 +7684,7 @@ return (
       />
     )}
 
+    {/* Event Detail Modal */}
     {activeEventId && (
       <EventDetailModal
         eventId={activeEventId}
@@ -7673,6 +7692,7 @@ return (
       />
     )}
 
+    {/* Create Event Modal */}
     {showCreateEventModal && currentUser && (
       <CreateEventModal
         currentUser={currentUser}
@@ -7688,6 +7708,7 @@ return (
       />
     )}
 
+    {/* Create Post Modal */}
     {showCreatePostModal && currentUser && (
       <CreatePostModal
         currentUser={currentUser}
@@ -7702,6 +7723,7 @@ return (
       />
     )}
 
+    {/* Recorder Modal */}
     {showRecorder && currentUser && (
       <Recorder
         currentUser={currentUser}
@@ -7743,6 +7765,7 @@ return (
       />
     )}
 
+    {/* Comments Sheet */}
     {activePost && currentUser && (
       <CommentsSheet
         post={activePost}
@@ -7762,7 +7785,7 @@ return (
       />
     )}
 
-    {/* MUSIC COMMENTS SHEET */}
+    {/* Music Comments Sheet */}
     {showMusicComments && selectedMusicTrack && currentUser && (
       <MusicCommentsSheet
         isOpen={showMusicComments}
@@ -7778,6 +7801,7 @@ return (
       />
     )}
 
+    {/* Share Bottom Sheet */}
     {activeSharePost && (
       <ShareBottomSheet
         isOpen={showShareSheet}
@@ -7793,7 +7817,6 @@ return (
         chats={chats}
         onShareComplete={(destination, data) => {
           handleShareComplete(destination, data);
-          // If this was a music share, update music share count
           if (activeSharePost?.type === 'music' || activeSharePost?.type === 'podcast') {
             handleMusicShareComplete(destination, data, activeSharePost as AudioTrack);
           }
@@ -7803,6 +7826,7 @@ return (
       />
     )}
 
+    {/* Story Viewer Modal */}
     {activeStoryId && activeStory && (
       <StoryViewerModal
         story={activeStory}
@@ -7828,6 +7852,7 @@ return (
       />
     )}
 
+    {/* Create Story Modal */}
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
         currentUser={currentUser}
@@ -7837,6 +7862,7 @@ return (
       />
     )}
 
+    {/* Global Audio Player */}
     {currentAudioTrack && (
       <GlobalAudioPlayer
         currentTrack={currentAudioTrack}
@@ -7859,7 +7885,6 @@ return (
         totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
         totalPlaysLoading={playsLoading}
         onStarted={onStarted}
-        // NEW PROPS FOR REACT/DISCUSS/SHARE
         reactionCount={trackReactions[currentAudioTrack.id]?.count || 0}
         commentCount={trackComments[currentAudioTrack.id] || 0}
         shareCount={trackShares[currentAudioTrack.id] || 0}
@@ -7870,8 +7895,10 @@ return (
       />
     )}
 
+    {/* Image Viewer */}
     {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
+    {/* Incoming Call */}
     {incomingCall && currentUser && (
       <CallScreen
         open={true}
@@ -7921,6 +7948,7 @@ return (
       />
     )}
 
+    {/* Chat Window */}
     {isChatOpen && activeChatUser && currentUser && (
       <ChatWindow
         currentUser={currentUser}
@@ -7930,6 +7958,7 @@ return (
       />
     )}
 
+    {/* Chats List */}
     {isChatsListOpen && currentUser && (
       <ChatsList
         currentUser={currentUser}
@@ -7943,6 +7972,7 @@ return (
       />
     )}
 
+    {/* Ad Analytics Modal */}
     {showAdAnalytics && adAnalyticsId && (
       <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
         <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
@@ -7960,13 +7990,9 @@ return (
       </div>
     )}
   </div>
-);    
-                            
-  
-  
-  
-      
-                                                      ) : !feedHydrated ? (
-                                  
-
+);
     
+    
+    
+    
+                  
