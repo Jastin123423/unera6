@@ -2179,7 +2179,6 @@ interface MusicSystemProps {
   onOpenComments?: (track: AudioTrack) => void;
   onShare?: (track: AudioTrack) => void;
 }
-
 const MusicSystem: React.FC<MusicSystemProps> = ({ 
   currentUser, 
   onPlayTrack, 
@@ -2190,11 +2189,19 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   onFollow,
   checkIsFollowing,
   users = [],
-  currentTrack,
-  isPlaying,
+  currentTrack: externalCurrentTrack,
+  isPlaying: externalIsPlaying,
   myTotalPlays = 0,
-  playsLoading = false
+  playsLoading = false,
+  // ADD THESE:
+  reactionCounts = {},
+  commentCounts = {},
+  shareCounts = {},
+  onReact,
+  onOpenComments,
+  onShare,
 }) => {
+
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
