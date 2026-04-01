@@ -2171,6 +2171,13 @@ interface MusicSystemProps {
   isPlaying?: boolean;
   myTotalPlays?: number;
   playsLoading?: boolean;
+  // ADD THESE:
+  reactionCounts?: Record<string, { count: number; myReaction?: ReactionType }>;
+  commentCounts?: Record<string, number>;
+  shareCounts?: Record<string, number>;
+  onReact?: (track: AudioTrack, type: ReactionType) => void;
+  onOpenComments?: (track: AudioTrack) => void;
+  onShare?: (track: AudioTrack) => void;
 }
 
 const MusicSystem: React.FC<MusicSystemProps> = ({ 
