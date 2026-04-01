@@ -6613,8 +6613,8 @@ const refreshComments = useCallback(async (item: any) => {
   return freshComments;
 }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
 
-// ============================================================================
-// ✅ MUSIC REACTION/COMMENT/SHARE HANDLERS
+   // ============================================================================
+// ✅ MUSIC REACTION/COMMENT/SHARE HANDLERS - Add these ONCE after the comment handlers
 // ============================================================================
 
 // Handle reaction for music tracks
@@ -6737,7 +6737,7 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
       [track.id]: (prev[track.id] || 0) + 1
     }));
   }
-}, []);
+}, []);     
 
 // ============================================================================
 // ✅ ORIGINAL FUNCTIONS (Preserved)
