@@ -3296,8 +3296,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
       </div>
-
-      {/* Upload Modal */}
+       {/* Upload Modal */}
       {showUploadModal && currentUser && (
         <AudioUploadModal
           currentUser={currentUser}
@@ -3310,4 +3309,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       )}
     </div>
   );
-  export default MusicSystem;
+};
+
+export default MusicSystem;
