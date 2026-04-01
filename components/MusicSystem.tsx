@@ -1567,17 +1567,16 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           }
         `}</style>
       </div>
-      {currentTrack && (
+{currentTrack && (
   <CommentsSheet
     isOpen={showComments}
     onClose={() => setShowComments(false)}
     track={currentTrack}
-    currentUser={currentUser}  // Now uses the currentUser prop
+    currentUser={currentUser}  // <-- USE currentUser
     users={users}
     onProfileClick={(id) => onArtistClick?.(id)}
   />
 )}
-
 
       {/* Share Bottom Sheet Modal */}
       {currentTrack && (
