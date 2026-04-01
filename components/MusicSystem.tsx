@@ -3310,5 +3310,4 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
       )}
     </div>
   );
-};
   export default MusicSystem;
