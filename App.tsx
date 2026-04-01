@@ -6612,9 +6612,6 @@ const refreshComments = useCallback(async (item: any) => {
   return freshComments;
 }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
 
-// ============================================================================
-// ✅ MUSIC HANDLERS
-// ============================================================================
 
 // ============================================================================
 // ✅ ORIGINAL FUNCTIONS (Preserved)
