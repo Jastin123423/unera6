@@ -5948,572 +5948,453 @@ const handleReelVideoSelected = useCallback(
       </div>
     );
   }, [events, onRSVPEvent]);
-    // ============================================================================
-  // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
-  // ============================================================================
-  const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
-    if (!requireAuth('Reacting')) return;
-    if (!currentUser || !item) return;
-
-    // Get identity and ID safely
-    let identity = '';
-    let itemId = 0;
-    let itemType = 'post';
     
-    try {
-      identity = getFeedKey(item);
-      itemId = getFeedItemId(item);
-      itemType = getFeedItemType(item);
-    } catch (error) {
-      console.error('Failed to get feed identity:', error);
-      // Fallback to treating as post with ID
-      if (typeof item === 'number') {
-        itemId = item;
-        identity = `post:${item}`;
-      } else if (item?.id) {
-        itemId = Number(item.id);
-        identity = `post:${itemId}`;
-      } else {
-        return;
-      }
-      itemType = 'post';
-    }
-    
-    const meId = currentUser.id;
+// ============================================================================
+// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
+// ============================================================================
+const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
+  if (!requireAuth('Reacting')) return;
+  if (!currentUser || !item) return;
 
-    // Prevent multiple taps
-    if (reactingMap[identity]) return;
-
-    // Get current item from appropriate source
-    const sourceList = view === 'profile' ? profilePosts : posts;
-    const previousItem = safeArray(sourceList).find((p: any) => {
-      try {
-        return getFeedKey(p) === identity;
-      } catch {
-        return Number(p?.id) === itemId;
-      }
-    }) || item;
-    
-    if (!previousItem) return;
-
-    // Helper to replace item by identity or ID
-    const replaceItem = (list: any[], replacement: any) => 
-      safeArray(list).map(p => {
-        try {
-          if (getFeedKey(p) === identity) return replacement;
-        } catch {
-          if (Number(p?.id) === itemId) return replacement;
-        }
-        return p;
-      });
-
-    // Set reacting lock
-    setReacting(identity, true);
-
-    // Apply optimistic update
-    const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
-    setPosts(prev => replaceItem(prev, optimisticItem));
-    setProfilePosts(prev => replaceItem(prev, optimisticItem));
-    
-    if (activeCommentsIdentity === identity) {
-      setCommentPostSnapshot(optimisticItem);
-    }
-
-    try {
-      let endpoint = '';
-      switch (itemType) {
-        case 'event':
-          endpoint = `/api/events/${itemId}/react`;
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
-          break;
-        case 'product':
-          endpoint = `/api/products/${itemId}/react`;
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${itemId}/react`;
-          break;
-        case 'music':
-          endpoint = `/api/songs/${itemId}/react`;
-          break;
-        case 'podcast':
-          endpoint = `/api/podcasts/${itemId}/react`;
-          break;
-        default:
-          endpoint = `/api/posts/${itemId}/react`;
-      }
-
-      const data = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ type, user_id: meId }),
-      });
-
-      if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
-        const serverMy = data.my_reaction ?? null;
-        const serverCount = safeNumber(data.reactions_count, 0);
-
-        const applyServerTruth = (p: any) => {
-          try {
-            if (getFeedKey(p) !== identity) return p;
-          } catch {
-            if (Number(p?.id) !== itemId) return p;
-          }
-
-          const prevArr = safeArray<any>(p?.reactions);
-          const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
-          const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
-
-          return {
-            ...p,
-            reactions: nextArr,
-            my_reaction: serverMy,
-            myReaction: serverMy,
-            reactions_count: serverCount,
-            reactionsCount: serverCount,
-            likesCount: serverCount,
-          };
-        };
-
-        setPosts(prev => safeArray(prev).map(applyServerTruth));
-        setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-        setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
-      }
-    } catch (error) {
-      console.error('Failed to react:', error);
-      // Restore previous state on failure
-      setPosts(prev => replaceItem(prev, previousItem));
-      setProfilePosts(prev => replaceItem(prev, previousItem));
-      setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
-    } finally {
-      setReacting(identity, false);
-    }
-  }, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
-
-  // ============================================================================
-  // ✅ HYBRID COMMENT HANDLERS
-  // ============================================================================
+  // Get identity and ID safely
+  let identity = '';
+  let itemId = 0;
+  let itemType = 'post';
   
-  const fetchComments = useCallback(async (item: any) => {
-    if (!requireAuth('Viewing comments')) return [];
-    if (!item) return [];
-    
-    let type = 'post';
-    let id = 0;
-    
-    try {
-      type = getFeedItemType(item);
-      id = getFeedItemId(item);
-    } catch {
-      type = 'post';
-      id = Number(item?.id ?? 0);
+  try {
+    identity = getFeedKey(item);
+    itemId = getFeedItemId(item);
+    itemType = getFeedItemType(item);
+  } catch (error) {
+    console.error('Failed to get feed identity:', error);
+    // Fallback to treating as post with ID
+    if (typeof item === 'number') {
+      itemId = item;
+      identity = `post:${item}`;
+    } else if (item?.id) {
+      itemId = Number(item.id);
+      identity = `post:${itemId}`;
+    } else {
+      return;
     }
-    
+    itemType = 'post';
+  }
+  
+  const meId = currentUser.id;
+
+  // Prevent multiple taps
+  if (reactingMap[identity]) return;
+
+  // Get current item from appropriate source
+  const sourceList = view === 'profile' ? profilePosts : posts;
+  const previousItem = safeArray(sourceList).find((p: any) => {
     try {
-      let endpoint = '';
-      switch (type) {
-        case 'event':
-          endpoint = `/api/events/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'product':
-          endpoint = `/api/products/${id}/reviews?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'music':
-          endpoint = `/api/songs/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'podcast':
-          endpoint = `/api/podcasts/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        default:
-          endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+      return getFeedKey(p) === identity;
+    } catch {
+      return Number(p?.id) === itemId;
+    }
+  }) || item;
+  
+  if (!previousItem) return;
+
+  // Helper to replace item by identity or ID
+  const replaceItem = (list: any[], replacement: any) => 
+    safeArray(list).map(p => {
+      try {
+        if (getFeedKey(p) === identity) return replacement;
+      } catch {
+        if (Number(p?.id) === itemId) return replacement;
       }
-      
-      const data = await apiFetch(endpoint);
-      return safeArray(data?.comments ?? data);
-    } catch (error) {
-      console.error('Failed to fetch comments:', error);
-      return [];
-    }
-  }, [currentUser, requireAuth]);
+      return p;
+    });
 
-  const handleOpenComments = useCallback((item: any) => {
-    if (!requireAuth('Viewing comments')) return;
-    if (!item) return;
-    
-    let identity = '';
-    try {
-      identity = getFeedKey(item);
-    } catch {
-      identity = `post:${item?.id}`;
-    }
-    
-    setActiveCommentsIdentity(identity);
-    
-    const source = view === 'profile' ? profilePosts : posts;
-    let found = null;
-    
-    try {
-      found = source.find((p: any) => getFeedKey(p) === identity) || null;
-    } catch {
-      found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
-    }
-    
-    setCommentPostSnapshot(found || item);
-  }, [requireAuth, view, posts, profilePosts]);
+  // Set reacting lock
+  setReacting(identity, true);
 
-  const handleCloseComments = useCallback(() => {
-    setActiveCommentsIdentity(null);
-    setCommentPostSnapshot(null);
-  }, []);
+  // Apply optimistic update
+  const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
+  setPosts(prev => replaceItem(prev, optimisticItem));
+  setProfilePosts(prev => replaceItem(prev, optimisticItem));
+  
+  if (activeCommentsIdentity === identity) {
+    setCommentPostSnapshot(optimisticItem);
+  }
 
-  const createComment = useCallback(async (
-    item: any,
-    text: string,
-    parentCommentId: number | null = null,
-    imageFile?: File | null
-  ) => {
-    if (!requireAuth('Commenting')) return null;
-    if (!currentUser) return null;
-    if (!text?.trim() && !imageFile) {
-      setLoginError('Comment cannot be empty');
-      return null;
+  try {
+    let endpoint = '';
+    switch (itemType) {
+      case 'event':
+        endpoint = `/api/events/${itemId}/react`;
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
+        break;
+      case 'product':
+        endpoint = `/api/products/${itemId}/react`;
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${itemId}/react`;
+        break;
+      case 'music':
+        endpoint = `/api/songs/${itemId}/react`;
+        break;
+      case 'podcast':
+        endpoint = `/api/podcasts/${itemId}/react`;
+        break;
+      default:
+        endpoint = `/api/posts/${itemId}/react`;
     }
 
-    let identity = '';
-    let type = 'post';
-    let id = 0;
-    
-    try {
-      identity = getFeedKey(item);
-      type = getFeedItemType(item);
-      id = getFeedItemId(item);
-    } catch {
-      identity = `post:${item?.id}`;
-      type = 'post';
-      id = Number(item?.id ?? 0);
-    }
+    const data = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ type, user_id: meId }),
+    });
 
-    try {
-      let image_url = '';
+    if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
+      const serverMy = data.my_reaction ?? null;
+      const serverCount = safeNumber(data.reactions_count, 0);
 
-      if (imageFile) {
-        image_url = await ensureR2Url(
-          imageFile,
-          'comments',
-          `comment-${Date.now()}.jpg`
-        );
-      }
+      const applyServerTruth = (p: any) => {
+        try {
+          if (getFeedKey(p) !== identity) return p;
+        } catch {
+          if (Number(p?.id) !== itemId) return p;
+        }
 
-      let endpoint = '';
-      let payload: any = {};
+        const prevArr = safeArray<any>(p?.reactions);
+        const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
+        const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
 
-      switch (type) {
-        case 'event':
-          endpoint = `/api/events/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'product':
-          endpoint = `/api/products/${id}/review`;
-          payload = {
-            user_id: currentUser.id,
-            rating: null,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        default:
-          endpoint = `/api/posts/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-      }
-
-      const data = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newComment: any = {
-        id: safeNumber(data?.comment?.id ?? 0),
-        user_id: currentUser.id,
-        parent_comment_id: parentCommentId ?? null,
-        text: text || '',
-        image_url: image_url || '',
-        created_at: data?.comment?.created_at ?? new Date().toISOString(),
-        user: {
-          id: currentUser.id,
-          name: currentUser.name,
-          username: currentUser.username,
-          profile_image_url: currentUser.profile_image_url,
-          is_verified: currentUser.is_verified,
-        },
-        likes_count: 0,
-        liked_by_me: false,
-        replies: [],
-        replies_count: 0,
+        return {
+          ...p,
+          reactions: nextArr,
+          my_reaction: serverMy,
+          myReaction: serverMy,
+          reactions_count: serverCount,
+          reactionsCount: serverCount,
+          likesCount: serverCount,
+        };
       };
 
-      // Add type-specific ID field
-      switch (type) {
-        case 'event':
-          newComment.event_id = id;
-          break;
-        case 'product':
-          newComment.product_id = id;
-          break;
-        case 'reel':
-          newComment.reel_id = id;
-          break;
-        default:
-          newComment.post_id = id;
-      }
-
-      // Update posts state with new comment using identity
-      const updatePostsWithComment = (postsList: any[]) => {
-        return postsList.map(post => {
-          try {
-            if (getFeedKey(post) !== identity) return post;
-          } catch {
-            if (Number(post?.id) !== id) return post;
-          }
-          
-          const existingComments = safeArray((post as any).comments);
-          return {
-            ...post,
-            comments: [newComment, ...existingComments],
-            comments_count: safeNumber((post as any).comments_count) + 1,
-          };
-        });
-      };
-
-      setPosts(prev => updatePostsWithComment(safeArray(prev)));
-      
-      if (view === 'profile' && selectedUserId) {
-        setProfilePosts(prev => updatePostsWithComment(safeArray(prev)));
-      }
-
-      if (activeCommentsIdentity === identity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          const existingComments = safeArray((prev as any).comments);
-          return {
-            ...prev,
-            comments: [newComment, ...existingComments],
-            comments_count: safeNumber((prev as any).comments_count) + 1,
-          } as any;
-        });
-      }
-
-      return newComment;
-    } catch (error) {
-      console.error('Failed to create comment:', error);
-      setLoginError('Failed to post comment');
-      return null;
+      setPosts(prev => safeArray(prev).map(applyServerTruth));
+      setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+      setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
     }
-  }, [currentUser, requireAuth, view, selectedUserId, activeCommentsIdentity, commentPostSnapshot]);
+  } catch (error) {
+    console.error('Failed to react:', error);
+    // Restore previous state on failure
+    setPosts(prev => replaceItem(prev, previousItem));
+    setProfilePosts(prev => replaceItem(prev, previousItem));
+    setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
+  } finally {
+    setReacting(identity, false);
+  }
+}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
 
-  const editComment = useCallback(async (
-    commentId: number,
-    text: string,
-    imageFile?: File | null,
-    existingImageUrl?: string
-  ) => {
-    if (!requireAuth('Editing comments')) return null;
-    if (!currentUser) return null;
+// ============================================================================
+// ✅ HYBRID COMMENT HANDLERS
+// ============================================================================
 
-    try {
-      let image_url = existingImageUrl || '';
+const fetchComments = useCallback(async (item: any) => {
+  if (!requireAuth('Viewing comments')) return [];
+  if (!item) return [];
+  
+  let type = 'post';
+  let id = 0;
+  
+  try {
+    type = getFeedItemType(item);
+    id = getFeedItemId(item);
+  } catch {
+    type = 'post';
+    id = Number(item?.id ?? 0);
+  }
+  
+  try {
+    let endpoint = '';
+    switch (type) {
+      case 'event':
+        endpoint = `/api/events/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'product':
+        endpoint = `/api/products/${id}/reviews?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'music':
+        endpoint = `/api/songs/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'podcast':
+        endpoint = `/api/podcasts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      default:
+        endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+    }
+    
+    const data = await apiFetch(endpoint);
+    return safeArray(data?.comments ?? data);
+  } catch (error) {
+    console.error('Failed to fetch comments:', error);
+    return [];
+  }
+}, [currentUser, requireAuth]);
 
-      if (imageFile) {
-        image_url = await ensureR2Url(
-          imageFile,
-          'comments',
-          `comment-edit-${Date.now()}.jpg`
-        );
-      }
+const handleOpenComments = useCallback((item: any) => {
+  if (!requireAuth('Viewing comments')) return;
+  if (!item) return;
+  
+  let identity = '';
+  try {
+    identity = getFeedKey(item);
+  } catch {
+    identity = `post:${item?.id}`;
+  }
+  
+  setActiveCommentsIdentity(identity);
+  
+  const source = view === 'profile' ? profilePosts : posts;
+  let found = null;
+  
+  try {
+    found = source.find((p: any) => getFeedKey(p) === identity) || null;
+  } catch {
+    found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
+  }
+  
+  setCommentPostSnapshot(found || item);
+}, [requireAuth, view, posts, profilePosts]);
 
-      const data = await apiFetch(`/api/comments/${commentId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
+const handleCloseComments = useCallback(() => {
+  setActiveCommentsIdentity(null);
+  setCommentPostSnapshot(null);
+}, []);
+
+const createComment = useCallback(async (
+  item: any,
+  text: string,
+  parentCommentId: number | null = null,
+  imageFile?: File | null
+) => {
+  if (!requireAuth('Commenting')) return null;
+  if (!currentUser) return null;
+  if (!text?.trim() && !imageFile) {
+    setLoginError('Comment cannot be empty');
+    return null;
+  }
+
+  let identity = '';
+  let type = 'post';
+  let id = 0;
+  
+  try {
+    identity = getFeedKey(item);
+    type = getFeedItemType(item);
+    id = getFeedItemId(item);
+  } catch {
+    identity = `post:${item?.id}`;
+    type = 'post';
+    id = Number(item?.id ?? 0);
+  }
+
+  try {
+    let image_url = '';
+
+    if (imageFile) {
+      image_url = await ensureR2Url(
+        imageFile,
+        'comments',
+        `comment-${Date.now()}.jpg`
+      );
+    }
+
+    let endpoint = '';
+    let payload: any = {};
+
+    switch (type) {
+      case 'event':
+        endpoint = `/api/events/${id}/comment`;
+        payload = {
           user_id: currentUser.id,
           text: text || '',
-          image_url,
-        }),
-      });
-
-      const updatedComment = data?.comment || {};
-
-      const updateCommentInPosts = (postsList: any[]) => {
-        return postsList.map(post => ({
-          ...post,
-          comments: safeArray(post.comments).map((comment: any) => {
-            if (Number(comment.id) !== Number(commentId)) return comment;
-            return {
-              ...comment,
-              text: updatedComment.text ?? text ?? comment.text,
-              image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
-            };
-          }),
-        }));
-      };
-
-      setPosts(prev => updateCommentInPosts(safeArray(prev)));
-      
-      if (view === 'profile') {
-        setProfilePosts(prev => updateCommentInPosts(safeArray(prev)));
-      }
-
-      if (activeCommentsIdentity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            comments: safeArray((prev as any).comments).map((comment: any) => {
-              if (Number(comment.id) !== Number(commentId)) return comment;
-              return {
-                ...comment,
-                text: updatedComment.text ?? text ?? comment.text,
-                image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
-              };
-            }),
-          } as any;
-        });
-      }
-
-      return updatedComment;
-    } catch (error) {
-      console.error('Failed to edit comment:', error);
-      setLoginError('Failed to edit comment');
-      return null;
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'product':
+        endpoint = `/api/products/${id}/review`;
+        payload = {
+          user_id: currentUser.id,
+          rating: null,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      default:
+        endpoint = `/api/posts/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
     }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const deleteComment = useCallback(async (commentId: number) => {
-    if (!requireAuth('Deleting comments')) return false;
-    if (!currentUser) return false;
+    const data = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-    try {
-      await apiFetch(`/api/comments/${commentId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      const removeCommentFromPosts = (postsList: any[]) => {
-        return postsList.map(post => {
-          const before = safeArray(post.comments);
-          
-          const filtered = before.filter((comment: any) => {
-            const commentIdNum = Number(comment.id);
-            const parentId = Number(comment.parent_comment_id);
-            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
-          });
-          
-          const removedCount = before.length - filtered.length;
-          
-          if (removedCount === 0) return post;
-          
-          return {
-            ...post,
-            comments: filtered,
-            comments_count: Math.max(0, safeNumber(post.comments_count) - removedCount),
-          };
-        });
-      };
-
-      setPosts(prev => removeCommentFromPosts(safeArray(prev)));
-      
-      if (view === 'profile') {
-        setProfilePosts(prev => removeCommentFromPosts(safeArray(prev)));
-      }
-
-      if (activeCommentsIdentity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          const before = safeArray((prev as any).comments);
-          const filtered = before.filter((comment: any) => {
-            const commentIdNum = Number(comment.id);
-            const parentId = Number(comment.parent_comment_id);
-            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
-          });
-          
-          return {
-            ...prev,
-            comments: filtered,
-            comments_count: filtered.length,
-          } as any;
-        });
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Failed to delete comment:', error);
-      setLoginError('Failed to delete comment');
-      return false;
-    }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
-
-  const likeComment = useCallback(async (commentId: number) => {
-    if (!requireAuth('Liking comments')) return null;
-    if (!currentUser) return null;
-
-    const updateCommentLike = (comment: any) => {
-      const currentlyLiked = comment.liked_by_me;
-      return {
-        ...comment,
-        liked_by_me: !currentlyLiked,
-        likes_count: currentlyLiked 
-          ? Math.max(0, (comment.likes_count || 0) - 1)
-          : (comment.likes_count || 0) + 1,
-      };
+    const newComment: any = {
+      id: safeNumber(data?.comment?.id ?? 0),
+      user_id: currentUser.id,
+      parent_comment_id: parentCommentId ?? null,
+      text: text || '',
+      image_url: image_url || '',
+      created_at: data?.comment?.created_at ?? new Date().toISOString(),
+      user: {
+        id: currentUser.id,
+        name: currentUser.name,
+        username: currentUser.username,
+        profile_image_url: currentUser.profile_image_url,
+        is_verified: currentUser.is_verified,
+      },
+      likes_count: 0,
+      liked_by_me: false,
+      replies: [],
+      replies_count: 0,
     };
 
-    const updateLikesInPosts = (postsList: any[]) => {
+    // Add type-specific ID field
+    switch (type) {
+      case 'event':
+        newComment.event_id = id;
+        break;
+      case 'product':
+        newComment.product_id = id;
+        break;
+      case 'reel':
+        newComment.reel_id = id;
+        break;
+      default:
+        newComment.post_id = id;
+    }
+
+    // Update posts state with new comment using identity
+    const updatePostsWithComment = (postsList: any[]) => {
+      return postsList.map(post => {
+        try {
+          if (getFeedKey(post) !== identity) return post;
+        } catch {
+          if (Number(post?.id) !== id) return post;
+        }
+        
+        const existingComments = safeArray((post as any).comments);
+        return {
+          ...post,
+          comments: [newComment, ...existingComments],
+          comments_count: safeNumber((post as any).comments_count) + 1,
+        };
+      });
+    };
+
+    setPosts(prev => updatePostsWithComment(safeArray(prev)));
+    
+    if (view === 'profile' && selectedUserId) {
+      setProfilePosts(prev => updatePostsWithComment(safeArray(prev)));
+    }
+
+    if (activeCommentsIdentity === identity && commentPostSnapshot) {
+      setCommentPostSnapshot(prev => {
+        if (!prev) return prev;
+        const existingComments = safeArray((prev as any).comments);
+        return {
+          ...prev,
+          comments: [newComment, ...existingComments],
+          comments_count: safeNumber((prev as any).comments_count) + 1,
+        } as any;
+      });
+    }
+
+    return newComment;
+  } catch (error) {
+    console.error('Failed to create comment:', error);
+    setLoginError('Failed to post comment');
+    return null;
+  }
+}, [currentUser, requireAuth, view, selectedUserId, activeCommentsIdentity, commentPostSnapshot]);
+
+const editComment = useCallback(async (
+  commentId: number,
+  text: string,
+  imageFile?: File | null,
+  existingImageUrl?: string
+) => {
+  if (!requireAuth('Editing comments')) return null;
+  if (!currentUser) return null;
+
+  try {
+    let image_url = existingImageUrl || '';
+
+    if (imageFile) {
+      image_url = await ensureR2Url(
+        imageFile,
+        'comments',
+        `comment-edit-${Date.now()}.jpg`
+      );
+    }
+
+    const data = await apiFetch(`/api/comments/${commentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        text: text || '',
+        image_url,
+      }),
+    });
+
+    const updatedComment = data?.comment || {};
+
+    const updateCommentInPosts = (postsList: any[]) => {
       return postsList.map(post => ({
         ...post,
         comments: safeArray(post.comments).map((comment: any) => {
           if (Number(comment.id) !== Number(commentId)) return comment;
-          return updateCommentLike(comment);
+          return {
+            ...comment,
+            text: updatedComment.text ?? text ?? comment.text,
+            image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+          };
         }),
       }));
     };
 
-    setPosts(prev => updateLikesInPosts(safeArray(prev)));
+    setPosts(prev => updateCommentInPosts(safeArray(prev)));
     
     if (view === 'profile') {
-      setProfilePosts(prev => updateLikesInPosts(safeArray(prev)));
+      setProfilePosts(prev => updateCommentInPosts(safeArray(prev)));
     }
 
     if (activeCommentsIdentity && commentPostSnapshot) {
@@ -6523,1279 +6404,1569 @@ const handleReelVideoSelected = useCallback(
           ...prev,
           comments: safeArray((prev as any).comments).map((comment: any) => {
             if (Number(comment.id) !== Number(commentId)) return comment;
-            return updateCommentLike(comment);
+            return {
+              ...comment,
+              text: updatedComment.text ?? text ?? comment.text,
+              image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+            };
           }),
         } as any;
       });
     }
 
-    try {
-      const data = await apiFetch(`/api/comments/${commentId}/like`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-      
-      return data;
-    } catch (error) {
-      console.error('Failed to like comment:', error);
-      if (commentPostSnapshot) {
-        refreshComments(commentPostSnapshot).catch(() => {});
-      }
-      return null;
-    }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+    return updatedComment;
+  } catch (error) {
+    console.error('Failed to edit comment:', error);
+    setLoginError('Failed to edit comment');
+    return null;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const fetchCommentReplies = useCallback(async (commentId: number) => {
-    if (!requireAuth('Viewing replies')) return [];
-    
-    try {
-      const data = await apiFetch(`/api/comments/${commentId}/replies`);
-      return safeArray(data?.replies ?? data);
-    } catch (error) {
-      console.error('Failed to fetch replies:', error);
-      return [];
-    }
-  }, [requireAuth]);
+const deleteComment = useCallback(async (commentId: number) => {
+  if (!requireAuth('Deleting comments')) return false;
+  if (!currentUser) return false;
 
-  const getCommentAuthor = useCallback((userId: number) => {
-    return users.find(u => Number(u.id) === Number(userId)) || null;
-  }, [users]);
+  try {
+    await apiFetch(`/api/comments/${commentId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
 
-  const refreshComments = useCallback(async (item: any) => {
-    if (!item) return [];
-    
-    let identity = '';
-    let id = 0;
-    
-    try {
-      identity = getFeedKey(item);
-      id = getFeedItemId(item);
-    } catch {
-      identity = `post:${item?.id}`;
-      id = Number(item?.id ?? 0);
-    }
-    
-    const freshComments = await fetchComments(item);
-    
-    const updateCommentsInPosts = (postsList: any[]) => {
+    const removeCommentFromPosts = (postsList: any[]) => {
       return postsList.map(post => {
-        try {
-          if (getFeedKey(post) !== identity) return post;
-        } catch {
-          if (Number(post?.id) !== id) return post;
-        }
+        const before = safeArray(post.comments);
+        
+        const filtered = before.filter((comment: any) => {
+          const commentIdNum = Number(comment.id);
+          const parentId = Number(comment.parent_comment_id);
+          return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+        });
+        
+        const removedCount = before.length - filtered.length;
+        
+        if (removedCount === 0) return post;
+        
         return {
           ...post,
-          comments: freshComments,
-          comments_count: freshComments.length,
+          comments: filtered,
+          comments_count: Math.max(0, safeNumber(post.comments_count) - removedCount),
         };
       });
     };
-    
-    setPosts(prev => updateCommentsInPosts(safeArray(prev)));
+
+    setPosts(prev => removeCommentFromPosts(safeArray(prev)));
     
     if (view === 'profile') {
-      setProfilePosts(prev => updateCommentsInPosts(safeArray(prev)));
+      setProfilePosts(prev => removeCommentFromPosts(safeArray(prev)));
     }
-    
-    if (activeCommentsIdentity === identity && commentPostSnapshot) {
+
+    if (activeCommentsIdentity && commentPostSnapshot) {
       setCommentPostSnapshot(prev => {
         if (!prev) return prev;
+        const before = safeArray((prev as any).comments);
+        const filtered = before.filter((comment: any) => {
+          const commentIdNum = Number(comment.id);
+          const parentId = Number(comment.parent_comment_id);
+          return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+        });
+        
         return {
           ...prev,
-          comments: freshComments,
-          comments_count: freshComments.length,
+          comments: filtered,
+          comments_count: filtered.length,
         } as any;
       });
     }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to delete comment:', error);
+    setLoginError('Failed to delete comment');
+    return false;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+
+const likeComment = useCallback(async (commentId: number) => {
+  if (!requireAuth('Liking comments')) return null;
+  if (!currentUser) return null;
+
+  const updateCommentLike = (comment: any) => {
+    const currentlyLiked = comment.liked_by_me;
+    return {
+      ...comment,
+      liked_by_me: !currentlyLiked,
+      likes_count: currentlyLiked 
+        ? Math.max(0, (comment.likes_count || 0) - 1)
+        : (comment.likes_count || 0) + 1,
+    };
+  };
+
+  const updateLikesInPosts = (postsList: any[]) => {
+    return postsList.map(post => ({
+      ...post,
+      comments: safeArray(post.comments).map((comment: any) => {
+        if (Number(comment.id) !== Number(commentId)) return comment;
+        return updateCommentLike(comment);
+      }),
+    }));
+  };
+
+  setPosts(prev => updateLikesInPosts(safeArray(prev)));
+  
+  if (view === 'profile') {
+    setProfilePosts(prev => updateLikesInPosts(safeArray(prev)));
+  }
+
+  if (activeCommentsIdentity && commentPostSnapshot) {
+    setCommentPostSnapshot(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        comments: safeArray((prev as any).comments).map((comment: any) => {
+          if (Number(comment.id) !== Number(commentId)) return comment;
+          return updateCommentLike(comment);
+        }),
+      } as any;
+    });
+  }
+
+  try {
+    const data = await apiFetch(`/api/comments/${commentId}/like`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
     
-    return freshComments;
-  }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
-
-  // ============================================================================
-  // ✅ ORIGINAL FUNCTIONS (Preserved)
-  // ============================================================================
-
-  const onReactPost = useCallback((postId: number, type: ReactionType) => {
-    const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
-    if (post) {
-      reactToFeedItem(post, type);
+    return data;
+  } catch (error) {
+    console.error('Failed to like comment:', error);
+    if (commentPostSnapshot) {
+      refreshComments(commentPostSnapshot).catch(() => {});
     }
-  }, [posts, profilePosts, reactToFeedItem]);
+    return null;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const handleOpenShareSheet = useCallback(
-    (post: any) => {
-      if (!currentUser) {
-        setLoginError('Please login to share posts.');
-        setView('login');
-        return;
-      }
-      setActiveSharePost(post);
-      setShowShareSheet(true);
-    },
-    [currentUser]
-  );
+const fetchCommentReplies = useCallback(async (commentId: number) => {
+  if (!requireAuth('Viewing replies')) return [];
+  
+  try {
+    const data = await apiFetch(`/api/comments/${commentId}/replies`);
+    return safeArray(data?.replies ?? data);
+  } catch (error) {
+    console.error('Failed to fetch replies:', error);
+    return [];
+  }
+}, [requireAuth]);
 
-  const handleShareComplete = useCallback(
-    async (destination: string, data?: any) => {
-      if (data?.success && activeSharePost) {
-        setPosts((prev) => {
-          const next = safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-          lastGoodPostsRef.current = next;
-          stableFeedRef.current = next;
-          return next;
-        });
+const getCommentAuthor = useCallback((userId: number) => {
+  return users.find(u => Number(u.id) === Number(userId)) || null;
+}, [users]);
 
-        setProfilePosts((prev) => {
-          return safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-        });
-
-        try {
-          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
-            method: 'POST',
-            body: JSON.stringify({ destination }),
-          });
-        } catch (error) {
-          console.error('Failed to record share:', error);
-        }
-      }
-
-      setShareInProgress(false);
-      setActiveSharePost(null);
-      setShowShareSheet(false);
-      scheduleSilentRefresh();
-    },
-    [activeSharePost, scheduleSilentRefresh]
-  );
-
-  const deletePost = useCallback(
-    async (postId: number) => {
-      if (!requireAuth('Deleting posts')) return;
-
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
-
+const refreshComments = useCallback(async (item: any) => {
+  if (!item) return [];
+  
+  let identity = '';
+  let id = 0;
+  
+  try {
+    identity = getFeedKey(item);
+    id = getFeedItemId(item);
+  } catch {
+    identity = `post:${item?.id}`;
+    id = Number(item?.id ?? 0);
+  }
+  
+  const freshComments = await fetchComments(item);
+  
+  const updateCommentsInPosts = (postsList: any[]) => {
+    return postsList.map(post => {
       try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+        if (getFeedKey(post) !== identity) return post;
       } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+        if (Number(post?.id) !== id) return post;
       }
+      return {
+        ...post,
+        comments: freshComments,
+        comments_count: freshComments.length,
+      };
+    });
+  };
+  
+  setPosts(prev => updateCommentsInPosts(safeArray(prev)));
+  
+  if (view === 'profile') {
+    setProfilePosts(prev => updateCommentsInPosts(safeArray(prev)));
+  }
+  
+  if (activeCommentsIdentity === identity && commentPostSnapshot) {
+    setCommentPostSnapshot(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        comments: freshComments,
+        comments_count: freshComments.length,
+      } as any;
+    });
+  }
+  
+  return freshComments;
+}, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
+
+// ============================================================================
+// ✅ MUSIC REACTION/COMMENT/SHARE HANDLERS
+// ============================================================================
+
+// Handle reaction for music tracks
+const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
+  if (!currentUser) {
+    setLoginError('Please login to react');
+    setView('login');
+    return;
+  }
+
+  const trackId = track.id;
+  const itemType = track.type;
+  const userId = currentUser.id;
+
+  // Optimistic update
+  setTrackReactions(prev => {
+    const current = prev[trackId] || { count: 0, myReaction: undefined };
+    const isSameReaction = current.myReaction === reactionType;
+    const newCount = isSameReaction 
+      ? Math.max(0, current.count - 1)
+      : current.myReaction 
+        ? current.count // If changing reaction, count stays same (remove old, add new)
+        : current.count + 1;
+    const newMyReaction = isSameReaction ? undefined : reactionType;
+    
+    return {
+      ...prev,
+      [trackId]: { count: newCount, myReaction: newMyReaction }
+    };
+  });
+
+  try {
+    const endpoint = itemType === 'music'
+      ? `/api/songs/${trackId}/react`
+      : `/api/podcasts/${trackId}/react`;
+    
+    const result = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, type: reactionType }),
+    });
+    
+    if (result) {
+      setTrackReactions(prev => ({
+        ...prev,
+        [trackId]: {
+          count: result.reactions_count || 0,
+          myReaction: result.my_reaction || undefined
+        }
+      }));
+    }
+  } catch (error) {
+    console.error('Failed to react:', error);
+    // Revert optimistic update on error
+    setTrackReactions(prev => {
+      const current = prev[trackId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [trackId]: {
+          count: current.count,
+          myReaction: current.myReaction === reactionType ? undefined : current.myReaction
+        }
+      };
+    });
+    setLoginError('Failed to react. Please try again.');
+  }
+}, [currentUser]);
+
+// Handle open music comments
+const handleOpenMusicComments = useCallback((track: AudioTrack) => {
+  if (!currentUser) {
+    setLoginError('Please login to comment');
+    setView('login');
+    return;
+  }
+  setSelectedMusicTrack(track);
+  setShowMusicComments(true);
+}, [currentUser]);
+
+// Handle music share
+const handleMusicShare = useCallback((track: AudioTrack) => {
+  if (!currentUser) {
+    setLoginError('Please login to share');
+    setView('login');
+    return;
+  }
+  
+  // Create a post-like object for the music track
+  const musicPost = {
+    id: track.id,
+    user_id: currentUser.id,
+    content: `${track.title} by ${track.artist}`,
+    type: track.type,
+    media_url: track.cover,
+    author: {
+      name: currentUser.name,
+      username: currentUser.username,
+      profile_image_url: currentUser.profile_image_url,
     },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
+    created_at: new Date().toISOString(),
+  };
+  
+  setActiveSharePost(musicPost);
+  setShowShareSheet(true);
+}, [currentUser]);
 
-  const editPost = useCallback(
-    async (postId: number, content: string) => {
-      if (!requireAuth('Editing posts')) return;
-      const trimmed = (content || '').trim();
-      if (!trimmed) return;
+// Handle comment added for music track
+const handleMusicCommentAdded = useCallback((trackId: string) => {
+  setTrackComments(prev => ({
+    ...prev,
+    [trackId]: (prev[trackId] || 0) + 1
+  }));
+}, []);
 
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).map((x: any) =>
-          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+// Handle share complete for music track
+const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
+  if (data?.success && track) {
+    setTrackShares(prev => ({
+      ...prev,
+      [track.id]: (prev[track.id] || 0) + 1
+    }));
+  }
+}, []);
+
+// ============================================================================
+// ✅ ORIGINAL FUNCTIONS (Preserved)
+// ============================================================================
+
+const onReactPost = useCallback((postId: number, type: ReactionType) => {
+  const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+  if (post) {
+    reactToFeedItem(post, type);
+  }
+}, [posts, profilePosts, reactToFeedItem]);
+
+const handleOpenShareSheet = useCallback(
+  (post: any) => {
+    if (!currentUser) {
+      setLoginError('Please login to share posts.');
+      setView('login');
+      return;
+    }
+    setActiveSharePost(post);
+    setShowShareSheet(true);
+  },
+  [currentUser]
+);
+
+const handleShareComplete = useCallback(
+  async (destination: string, data?: any) => {
+    if (data?.success && activeSharePost) {
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
       });
 
-      setProfilePosts((prev) =>
-        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
-      );
+      setProfilePosts((prev) => {
+        return safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
+        );
+      });
 
       try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+        await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+          method: 'POST',
+          body: JSON.stringify({ destination }),
+        });
+      } catch (error) {
+        console.error('Failed to record share:', error);
       }
-    },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
+    }
 
-  // ============================================================================
-  // ✅ RENDER
-  // ============================================================================
-  return (
-    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
-      <Header
-        onHomeClick={() => handleNavigate('home')}
-        onProfileClick={(id: number) => openProfile(id)}
-        onReelsClick={() => navigateTo('reels')}
-        onMarketplaceClick={() => navigateTo('marketplace')}
-        onGroupsClick={() => navigateTo('groups')}
-        onAdsClick={() => {
-          if (!currentUser) {
-            setLoginError('Please login to access ads dashboard.');
-            setView('login');
-            return;
-          }
-          navigateTo('ads');
-          setActiveAdTab('dashboard');
-        }}
-        currentUser={currentUser}
-        notifications={notifications}
-        users={users}
-        onLogout={handleLogout}
-        onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={() => {}}
-        activeTab={activeTab}
-        onNavigate={(v: any) => handleNavigate(v)}
-        unreadNotifications={unreadNotifications}
-        onNotificationClick={() => {
-          navigateTo('notifications');
-          markNotificationsRead();
-        }}
-        showBackButton={view !== 'home'}
-        onBack={goBack}
-        currentView={view}
-      />
+    setShareInProgress(false);
+    setActiveSharePost(null);
+    setShowShareSheet(false);
+    scheduleSilentRefresh();
+  },
+  [activeSharePost, scheduleSilentRefresh]
+);
 
-      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
-            <Sidebar
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onReelsClick={() => navigateTo('reels')}
-              onMarketplaceClick={() => navigateTo('marketplace')}
-              onGroupsClick={() => navigateTo('groups')}
-            />
-          </div>
-        )}
+const deletePost = useCallback(
+  async (postId: number) => {
+    if (!requireAuth('Deleting posts')) return;
 
-        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
-          <input
-    ref={reelVideoInputRef}
-    type="file"
-    accept="video/*"
-    className="hidden"
-    onChange={handleReelVideoSelected}
-  />
-          {view === 'home' && (
-            <div className="w-full pt-4 md:px-8 pb-10">
-              {activeHashtag && (
-                <div className="mb-3 px-4">
-                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
-                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
-                    <button 
-                      onClick={clearHashtag} 
-                      className="text-[#B0B3B8] hover:text-white ml-1"
-                    >
-                      <i className="fas fa-times" />
-                    </button>
-                  </div>
-                  <p className="text-[#B0B3B8] text-xs mt-1">
-                    Showing posts with {activeHashtag}
-                  </p>
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+const editPost = useCallback(
+  async (postId: number, content: string) => {
+    if (!requireAuth('Editing posts')) return;
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).map((x: any) =>
+        Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+      );
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) =>
+      safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+    );
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+// ============================================================================
+// ✅ RENDER
+// ============================================================================
+return (
+  <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+    <Header
+      onHomeClick={() => handleNavigate('home')}
+      onProfileClick={(id: number) => openProfile(id)}
+      onReelsClick={() => navigateTo('reels')}
+      onMarketplaceClick={() => navigateTo('marketplace')}
+      onGroupsClick={() => navigateTo('groups')}
+      onAdsClick={() => {
+        if (!currentUser) {
+          setLoginError('Please login to access ads dashboard.');
+          setView('login');
+          return;
+        }
+        navigateTo('ads');
+        setActiveAdTab('dashboard');
+      }}
+      currentUser={currentUser}
+      notifications={notifications}
+      users={users}
+      onLogout={handleLogout}
+      onLoginClick={() => setView('login')}
+      onMarkNotificationsRead={() => {}}
+      activeTab={activeTab}
+      onNavigate={(v: any) => handleNavigate(v)}
+      unreadNotifications={unreadNotifications}
+      onNotificationClick={() => {
+        navigateTo('notifications');
+        markNotificationsRead();
+      }}
+      showBackButton={view !== 'home'}
+      onBack={goBack}
+      currentView={view}
+    />
+
+    <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+          <Sidebar
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReelsClick={() => navigateTo('reels')}
+            onMarketplaceClick={() => navigateTo('marketplace')}
+            onGroupsClick={() => navigateTo('groups')}
+          />
+        </div>
+      )}
+
+      <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+        <input
+  ref={reelVideoInputRef}
+  type="file"
+  accept="video/*"
+  className="hidden"
+  onChange={handleReelVideoSelected}
+/>
+        {view === 'home' && (
+          <div className="w-full pt-4 md:px-8 pb-10">
+            {activeHashtag && (
+              <div className="mb-3 px-4">
+                <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
+                  <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
+                  <button 
+                    onClick={clearHashtag} 
+                    className="text-[#B0B3B8] hover:text-white ml-1"
+                  >
+                    <i className="fas fa-times" />
+                  </button>
                 </div>
-              )}
-
-              <StoryReel
-                stories={orderedStories}
-                onProfileClick={(id) => openProfile(id)}
-                onCreateStory={() => {
-                  if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true);
-                }}
-                onViewStory={openStoryViewer}
-                currentUser={currentUser}
-                onRequestLogin={() => setView('login')}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                followLoading={followLoading}
-                onFetchViewers={fetchStoryViewers}
-                onReaction={reactToStory}
-                onReply={replyToStory}
-                onToggleMute={() => setStoryMuted(!storyMuted)}
-                muted={storyMuted}
-              />
-
-              {currentUser && (
-                <CreatePost
-                  currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
-                  onClick={() => {
-                    if (!requireAuth('Creating posts')) return;
-                    setShowCreatePostModal(true);
-                  }}
-                  onPhotoClick={handlePhotoClick}
-                  onVideoClick={handleVideoClickFromCreate}
-                  onCreateEventClick={() => {
-                    if (!requireAuth('Creating events')) return;
-                    setShowCreateEventModal(true);
-                  }}
-                />
-              )}
-
-              <div className="space-y-2">
-                <MarketplaceContext.Provider value={{
-                  onViewProduct: (productId) => {
-                    const product = products.find(p => Number(p.id) === Number(productId));
-                    if (product) {
-                      navigateTo('marketplace');
-                      setActiveProduct(product);
-                    }
-                  },
-                  getProductData
-                }}>
-                  {feedItems.length > 0 ? (
-                    feedItems.map((item, idx) => {
-                      if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-                        const isActive = item.campaign_status === 'active' || 
-                                         (item.end_date && new Date(item.end_date) > new Date());
-                        
-                        return (
-                          <SponsoredPostCard
-                            key={item.id}
-                            ad={item}
-                            currentUser={currentUser}
-                            onProfileClick={openProfile}
-                            onReact={(ad, type) => reactToFeedItem(ad, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onOpenComments={(ad) => handleOpenComments(ad)}
-                            isActive={isActive}
-                          />
-                        );
-                      }
-
-                      if (item.type === 'reel') {
-                        return (
-                          <ReelFeedCard
-                            key={item.id}
-                            reel={item.reel}
-                            onOpen={(reelId) => {
-                              setSelectedReelId(reelId);
-                              navigateTo('reels');
-                            }}
-                            onOpenMenu={(reel) => {
-                              // Handle menu options
-                            }}
-                            onProfileClick={(userId) => {
-                              openProfile(Number(userId));
-                            }}
-                          />
-                        );
-                      }
-
-                      const postAuthorId = Number((item as any).user_id);
-                      const isFollowing = checkIsFollowing(postAuthorId);
-                      const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-                      const isAdminUser = currentUser && currentUser.role === 'admin';
-                      const showPushButton = isPostOwner || isAdminUser;
-
-                      const showFirstPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex1 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex1;
-
-                      const showSecondPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex2 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex2;
-
-                      const showGroupsYouMayJoin = currentUser &&
-                        groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex;
-
-                      return (
-                        <React.Fragment key={getStableItemKey(item, 'post')}>
-                          <Post
-                            post={item as PostType}
-                            author={getPostAuthor(item as PostType)}
-                            currentUser={currentUser}
-                            users={users}
-                            onProfileClick={openProfile}
-                            onReact={(post, type) => reactToFeedItem(post, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onViewImage={setFullScreenImage}
-                            onOpenComments={(post) => handleOpenComments(post)}
-                            onVideoClick={handleVideoClick}
-                            onPlayAudioTrack={onPlayTrack}
-                            groups={groups}
-                            brands={brands}
-                            chats={chats}
-                            onHashtagClick={handleHashtagClick}
-                            isFollowing={isFollowing}
-                            onFollow={() => followUser(postAuthorId)}
-                            followLoading={followLoading[postAuthorId] || false}
-                            onViewProductFromPost={openProductFromPost}
-                            onRSVPEvent={onRSVPEvent}
-                            pushButton={showPushButton ? (
-                              <button
-                                onClick={() => pushMore(item.id)}
-                                disabled={pushedPosts[item.id]}
-                                className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-                                  pushedPosts[item.id]
-                                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                                }`}
-                              >
-                                {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
-                              </button>
-                            ) : undefined}
-                          />
-
-                          {showFirstPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showSecondPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="More People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showGroupsYouMayJoin && (
-                            <GroupsYouMayJoinCard
-                              groups={groupsYouMayJoin}
-                              currentUser={currentUser}
-                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
-                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                              onLoginClick={() => setView('login')}
-                              onOpenGroup={(groupId: number) => {
-                                navigateTo('groups');
-                              }}
-                              onProfileClick={openProfile}
-                              title="Groups You May Join"
-                              maxDisplay={8}
-                            />
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  ) : !feedHydrated ? (
-                    <div className="text-center py-20 text-[#B0B3B8]"></div>
-                  ) : activeHashtag ? (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts found with {activeHashtag}.</p>
-                      <button 
-                        onClick={clearHashtag}
-                        className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                      >
-                        Clear filter
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts available.</p>
-                      {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                    </div>
-                  )}
-                </MarketplaceContext.Provider>
+                <p className="text-[#B0B3B8] text-xs mt-1">
+                  Showing posts with {activeHashtag}
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ReelsFeed render */}
-         {view === 'reels' && (
-  <ReelsFeed
-    reels={safeArray(reels)}
-    users={safeArray(users)}
-    currentUser={currentUser}
-    onProfileClick={(id) => openProfile(id)}
-    onReact={reactToReel}
-    onComment={commentOnReel}
-    onEditComment={editCommentOnReel}
-    onDeleteComment={deleteCommentOnReel}
-    onEditReel={editReel}
-    onDeleteReel={deleteReel}
-    onShare={shareReel}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-    followLoading={followLoading}
-    initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
-    onBack={goBack}
-    onVideoClick={openReelRecorderFromReels}
-  />
-)}
-        
-          {view === 'marketplace' && (
-            <MarketplacePage
-              currentUser={currentUser}
-              products={products}
-              onNavigateHome={() => handleNavigate('home')}
-              onCreateProduct={createProduct}
-              onViewProduct={setActiveProduct}
-            />
-          )}
-
-          {view === 'groups' && (
-            <ErrorBoundary>
-              <GroupsPage
-                currentUser={currentUser}
-                groups={groups}
-                users={users}
-                onCreateGroup={createGroup}
-                onJoinGroup={joinGroup}
-                onLeaveGroup={leaveGroup}
-                onDeleteGroup={deleteGroup}
-                onUpdateGroupImage={updateGroupImage}
-                onPostToGroup={createGroupPost}
-                onCreateGroupEvent={createGroupEvent}
-                onInviteToGroup={inviteToGroup}
-                onProfileClick={openProfile}
-                onLikePost={toggleGroupPostLike}
-                onSharePost={(postId: number, newShareCount: number) => {
-                  setPosts(prev => prev.map(p => 
-                    p.id === postId ? { ...p, shares: newShareCount } as any : p
-                  ));
-                }}
-                onDeleteGroupPost={deleteGroupPost}
-                onEditGroupPost={editGroupPost}
-                onRemoveMember={removeGroupMember}
-                onUpdateGroupSettings={updateGroupSettings}
-                onEventRSVP={handleEventRSVP}
-                fetchGroupPosts={fetchGroupPosts}
-                fetchGroupDetails={fetchGroupDetails}
-                fetchGroupEvents={fetchGroupEvents}
-                fetchComments={fetchGroupPostComments}
-                onComment={createGroupPostComment}
-                onLikeComment={handleLikeComment}
-                onPlayAudioTrack={onPlayTrack}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                onHashtagClick={handleHashtagClick}
-                onViewImage={setFullScreenImage}
-                onVideoClick={handleVideoClick}
-                initialGroupId={null}
-                onApplyToJob={async (postId: number, applicationData?: any) => {
-                  console.log('Apply to job:', postId, applicationData);
-                }}
-                onMessageSeller={(userId: number) => {
-                  const recipient = users.find(u => u.id === userId);
-                  if (recipient) {
-                    handleOpenChat(recipient);
-                  }
-                }}
-                onMakeOffer={async (postId: number, amount: number) => {
-                  console.log('Make offer:', postId, amount);
-                }}
-                onPlayVideo={(postId: number, url: string) => {
-                  console.log('Play video:', postId, url);
-                }}
-              />
-            </ErrorBoundary>
-          )}
-
-          {view === 'brands' && (
-            <BrandsPage
-              currentUser={currentUser}
-              brands={brands}
-              posts={posts}
-              users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
-              onFollowBrand={(id: number) => followUser(id)}
+            <StoryReel
+              stories={orderedStories}
               onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onOpenComments={(id: any) => {
-                if (!requireAuth('Commenting')) return;
-                const post = posts.find(p => p.id === id);
-                if (post) handleOpenComments(post);
+              onCreateStory={() => {
+                if (!requireAuth('Creating stories')) return;
+                setShowCreateStoryModal(true);
               }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
-              onPlayAudioTrack={onPlayTrack}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-            />
-          )}
-
-          {view === 'music' && (
-            <MusicSystem
+              onViewStory={openStoryViewer}
               currentUser={currentUser}
-              onPlayTrack={onPlayTrack}
-              onProfileClick={(id) => openProfile(id)}
-              likedTracks={likedTracks}
-              onToggleLike={handleMusicSystemLikeSync}
-              playHistory={playHistory}
+              onRequestLogin={() => setView('login')}
               onFollow={followUser}
               checkIsFollowing={checkIsFollowing}
-              users={users}
-              currentTrack={currentAudioTrack}
-              isPlaying={isAudioPlaying}
-              myTotalPlays={currentUser?.id ? myTotalPlays : 0}
-              playsLoading={playsLoading}
-            />
-          )}
-
-          {view === 'tools' && <ToolsPage />}
-
-          {view === 'profiles' && (
-            <SuggestedProfilesPage
-              currentUser={currentUser as any}
-              users={users}
-              onFollow={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
-              checkIsFollowing={checkIsFollowing}
               followLoading={followLoading}
+              onFetchViewers={fetchStoryViewers}
+              onReaction={reactToStory}
+              onReply={replyToStory}
+              onToggleMute={() => setStoryMuted(!storyMuted)}
+              muted={storyMuted}
             />
-          )}
 
-          {view === 'events' && (
-            <ErrorBoundary>
-              <AllEvents
-                currentUser={currentUser ?? null}
-                users={users}
+            {currentUser && (
+              <CreatePost
+                currentUser={currentUser}
                 onProfileClick={(id) => openProfile(id)}
-                onEventClick={(eventId) => {
-                  setActiveEventId(eventId);
+                onClick={() => {
+                  if (!requireAuth('Creating posts')) return;
+                  setShowCreatePostModal(true);
                 }}
+                onPhotoClick={handlePhotoClick}
+                onVideoClick={handleVideoClickFromCreate}
                 onCreateEventClick={() => {
                   if (!requireAuth('Creating events')) return;
                   setShowCreateEventModal(true);
                 }}
               />
-            </ErrorBoundary>
-          )}
+            )}
 
-          {view === 'birthdays' && (
-            <BirthdaysPage
-              currentUser={currentUser as any}
-              users={users}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
-                setIsChatOpen(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
-          )}
+            <div className="space-y-2">
+              <MarketplaceContext.Provider value={{
+                onViewProduct: (productId) => {
+                  const product = products.find(p => Number(p.id) === Number(productId));
+                  if (product) {
+                    navigateTo('marketplace');
+                    setActiveProduct(product);
+                  }
+                },
+                getProductData
+              }}>
+                {feedItems.length > 0 ? (
+                  feedItems.map((item, idx) => {
+                    if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
+                      const isActive = item.campaign_status === 'active' || 
+                                       (item.end_date && new Date(item.end_date) > new Date());
+                      
+                      return (
+                        <SponsoredPostCard
+                          key={item.id}
+                          ad={item}
+                          currentUser={currentUser}
+                          onProfileClick={openProfile}
+                          onReact={(ad, type) => reactToFeedItem(ad, type)}
+                          onShare={(postId, newShareCount) => {
+                            console.log('Share:', postId, newShareCount);
+                          }}
+                          onOpenComments={(ad) => handleOpenComments(ad)}
+                          isActive={isActive}
+                        />
+                      );
+                    }
 
-          {view === 'memories' && currentUser && (
-            <MemoriesPage
+                    if (item.type === 'reel') {
+                      return (
+                        <ReelFeedCard
+                          key={item.id}
+                          reel={item.reel}
+                          onOpen={(reelId) => {
+                            setSelectedReelId(reelId);
+                            navigateTo('reels');
+                          }}
+                          onOpenMenu={(reel) => {
+                            // Handle menu options
+                          }}
+                          onProfileClick={(userId) => {
+                            openProfile(Number(userId));
+                          }}
+                        />
+                      );
+                    }
+
+                    const postAuthorId = Number((item as any).user_id);
+                    const isFollowing = checkIsFollowing(postAuthorId);
+                    const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+                    const isAdminUser = currentUser && currentUser.role === 'admin';
+                    const showPushButton = isPostOwner || isAdminUser;
+
+                    const showFirstPymk = currentUser &&
+                      peopleYouMayKnow.length > 0 &&
+                      peopleYouMayKnowInsertIndex1 >= 0 &&
+                      idx === peopleYouMayKnowInsertIndex1;
+
+                    const showSecondPymk = currentUser &&
+                      peopleYouMayKnow.length > 0 &&
+                      peopleYouMayKnowInsertIndex2 >= 0 &&
+                      idx === peopleYouMayKnowInsertIndex2;
+
+                    const showGroupsYouMayJoin = currentUser &&
+                      groupsYouMayJoin.length > 0 &&
+                      groupsYouMayJoinInsertIndex >= 0 &&
+                      idx === groupsYouMayJoinInsertIndex;
+
+                    return (
+                      <React.Fragment key={getStableItemKey(item, 'post')}>
+                        <Post
+                          post={item as PostType}
+                          author={getPostAuthor(item as PostType)}
+                          currentUser={currentUser}
+                          users={users}
+                          onProfileClick={openProfile}
+                          onReact={(post, type) => reactToFeedItem(post, type)}
+                          onShare={(postId, newShareCount) => {
+                            console.log('Share:', postId, newShareCount);
+                          }}
+                          onViewImage={setFullScreenImage}
+                          onOpenComments={(post) => handleOpenComments(post)}
+                          onVideoClick={handleVideoClick}
+                          onPlayAudioTrack={onPlayTrack}
+                          groups={groups}
+                          brands={brands}
+                          chats={chats}
+                          onHashtagClick={handleHashtagClick}
+                          isFollowing={isFollowing}
+                          onFollow={() => followUser(postAuthorId)}
+                          followLoading={followLoading[postAuthorId] || false}
+                          onViewProductFromPost={openProductFromPost}
+                          onRSVPEvent={onRSVPEvent}
+                          pushButton={showPushButton ? (
+                            <button
+                              onClick={() => pushMore(item.id)}
+                              disabled={pushedPosts[item.id]}
+                              className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
+                                pushedPosts[item.id]
+                                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                  : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                              }`}
+                            >
+                              {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
+                            </button>
+                          ) : undefined}
+                        />
+
+                        {showFirstPymk && (
+                          <div className="relative">
+                            <PeopleYouMayKnowGrid
+                              users={peopleYouMayKnow}
+                              onFollow={(id: number) => followFromPymk(id)}
+                              currentUser={currentUser}
+                              isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                              onLoginClick={() => setView('login')}
+                              onProfileClick={openProfile}
+                              title="People You May Know"
+                              maxDisplay={8}
+                            />
+                            
+                            {peopleYouMayKnow[0] && (
+                              <button
+                                onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                                className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                                aria-label="Hide suggestions"
+                              >
+                                <i className="fas fa-times text-sm" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {showSecondPymk && (
+                          <div className="relative">
+                            <PeopleYouMayKnowGrid
+                              users={peopleYouMayKnow}
+                              onFollow={(id: number) => followFromPymk(id)}
+                              currentUser={currentUser}
+                              isLoading={pymkLoading && peopleYouMayKnow.length === 0}
+                              onLoginClick={() => setView('login')}
+                              onProfileClick={openProfile}
+                              title="More People You May Know"
+                              maxDisplay={8}
+                            />
+                            
+                            {peopleYouMayKnow[0] && (
+                              <button
+                                onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
+                                className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
+                                aria-label="Hide suggestions"
+                              >
+                                <i className="fas fa-times text-sm" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {showGroupsYouMayJoin && (
+                          <GroupsYouMayJoinCard
+                            groups={groupsYouMayJoin}
+                            currentUser={currentUser}
+                            isLoading={gymjLoading && groupsYouMayJoin.length === 0}
+                            onJoin={(groupId: number) => joinFromSuggestion(groupId)}
+                            onLoginClick={() => setView('login')}
+                            onOpenGroup={(groupId: number) => {
+                              navigateTo('groups');
+                            }}
+                            onProfileClick={openProfile}
+                            title="Groups You May Join"
+                            maxDisplay={8}
+                          />
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                ) : !feedHydrated ? (
+                  <div className="text-center py-20 text-[#B0B3B8]"></div>
+                ) : activeHashtag ? (
+                  <div className="text-center py-20 text-[#B0B3B8]">
+                    <p>No posts found with {activeHashtag}.</p>
+                    <button 
+                      onClick={clearHashtag}
+                      className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
+                    >
+                      Clear filter
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-[#B0B3B8]">
+                    <p>No posts available.</p>
+                    {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
+                  </div>
+                )}
+              </MarketplaceContext.Provider>
+            </div>
+          </div>
+        )}
+
+        {/* ReelsFeed render */}
+        {view === 'reels' && (
+          <ReelsFeed
+            reels={safeArray(reels)}
+            users={safeArray(users)}
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReact={reactToReel}
+            onComment={commentOnReel}
+            onEditComment={editCommentOnReel}
+            onDeleteComment={deleteCommentOnReel}
+            onEditReel={editReel}
+            onDeleteReel={deleteReel}
+            onShare={shareReel}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+            initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
+            onBack={goBack}
+            onVideoClick={openReelRecorderFromReels}
+          />
+        )}
+        
+        {view === 'marketplace' && (
+          <MarketplacePage
+            currentUser={currentUser}
+            products={products}
+            onNavigateHome={() => handleNavigate('home')}
+            onCreateProduct={createProduct}
+            onViewProduct={setActiveProduct}
+          />
+        )}
+
+        {view === 'groups' && (
+          <ErrorBoundary>
+            <GroupsPage
               currentUser={currentUser}
-              posts={allKnownPosts}
-              users={users}
-              onProfileClick={(id: number) => openProfile(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(postId: number) => {
-                const post = posts.find(p => p.id === postId);
-                if (post) handleOpenComments(post);
-              }}
-              onVideoClick={handleVideoClick}
-              onPlayAudioTrack={onPlayTrack}
-              onHashtagClick={handleHashtagClick}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
               groups={groups}
-              brands={brands}
-              chats={chats}
-            />
-          )}
-
-          {view === 'settings' && currentUser && (
-            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
-          )}
-
-          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
-          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
-          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
-
-          {view === 'profile' && profileUser && (
-            <UserProfile
-              user={profileUser}
-              currentUser={currentUser}
               users={users}
-              posts={profilePosts}
-              reels={reels}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={(id: number) => followUser(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-              onComment={() => requireAuth('Commenting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                const recipient = users.find((u) => u.id === id);
+              onCreateGroup={createGroup}
+              onJoinGroup={joinGroup}
+              onLeaveGroup={leaveGroup}
+              onDeleteGroup={deleteGroup}
+              onUpdateGroupImage={updateGroupImage}
+              onPostToGroup={createGroupPost}
+              onCreateGroupEvent={createGroupEvent}
+              onInviteToGroup={inviteToGroup}
+              onProfileClick={openProfile}
+              onLikePost={toggleGroupPostLike}
+              onSharePost={(postId: number, newShareCount: number) => {
+                setPosts(prev => prev.map(p => 
+                  p.id === postId ? { ...p, shares: newShareCount } as any : p
+                ));
+              }}
+              onDeleteGroupPost={deleteGroupPost}
+              onEditGroupPost={editGroupPost}
+              onRemoveMember={removeGroupMember}
+              onUpdateGroupSettings={updateGroupSettings}
+              onEventRSVP={handleEventRSVP}
+              fetchGroupPosts={fetchGroupPosts}
+              fetchGroupDetails={fetchGroupDetails}
+              fetchGroupEvents={fetchGroupEvents}
+              fetchComments={fetchGroupPostComments}
+              onComment={createGroupPostComment}
+              onLikeComment={handleLikeComment}
+              onPlayAudioTrack={onPlayTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              onHashtagClick={handleHashtagClick}
+              onViewImage={setFullScreenImage}
+              onVideoClick={handleVideoClick}
+              initialGroupId={null}
+              onApplyToJob={async (postId: number, applicationData?: any) => {
+                console.log('Apply to job:', postId, applicationData);
+              }}
+              onMessageSeller={(userId: number) => {
+                const recipient = users.find(u => u.id === userId);
                 if (recipient) {
                   handleOpenChat(recipient);
                 }
               }}
-              onCreatePost={createPost as any}
-              onUpdateProfileImage={updateProfileImage as any}
-              onUpdateCoverImage={updateCoverImage as any}
-              onUpdateUserDetails={updateUserDetails as any}
-              onDeletePost={(postId: number) => deletePost(postId)}
-              onEditPost={(postId: number, content: string) => editPost(postId, content)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => {
-                const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
-                if (post) handleOpenComments(post);
+              onMakeOffer={async (postId: number, amount: number) => {
+                console.log('Make offer:', postId, amount);
               }}
-              onVideoClick={handleVideoClick}
-              onPlayAudioTrack={onPlayTrack}
-              onCreateStoryClick={handleCreateStoryFromProfile}
-              onVerifyUser={(id) => verifyUser(id)}
-              onRestrictUser={(id, duration) => suspendUser(id, duration)}
-              onDeleteUser={(id) => deleteUserAccount(id)}
-              onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
-              isFollowing={checkIsFollowing(Number(profileUser.id))}
-              followLoading={followLoading[Number(profileUser.id)] || false}
-              onOpenChat={handleOpenChat}
-              isChatOpen={isChatOpen}
-              activeChatRecipient={activeChatUser}
-              onOpenChatsList={handleOpenChatsList}
-              isChatsListOpen={isChatsListOpen}
+              onPlayVideo={(postId: number, url: string) => {
+                console.log('Play video:', postId, url);
+              }}
             />
-          )}
+          </ErrorBoundary>
+        )}
 
-          {view === 'login' && (
-            <Login
-              onLogin={handleLogin}
-              onNavigateToRegister={() => setView('register')}
-              onNavigateToForgotPassword={() => setView('login')}
-              onClose={() => setView('home')}
-              error={loginError}
-            />
-          )}
+        {view === 'brands' && (
+          <BrandsPage
+            currentUser={currentUser}
+            brands={brands}
+            posts={posts}
+            users={users}
+            onCreateBrand={() => requireAuth('Creating brands')}
+            onFollowBrand={(id: number) => followUser(id)}
+            onProfileClick={(id) => openProfile(id)}
+            onPostAsBrand={() => requireAuth('Posting')}
+            onReact={() => requireAuth('Reacting')}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onOpenComments={(id: any) => {
+              if (!requireAuth('Commenting')) return;
+              const post = posts.find(p => p.id === id);
+              if (post) handleOpenComments(post);
+            }}
+            onDeleteBrand={() => requireAuth('Deleting brands')}
+            onPlayAudioTrack={onPlayTrack}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
+        )}
 
-          {view === 'register' && (
-            <Register 
-              onRegister={handleRegister} 
-              onBackToLogin={() => setView('login')} 
-              error={loginError}
-            />
-          )}
+        {view === 'music' && (
+          <MusicSystem
+            currentUser={currentUser}
+            onPlayTrack={onPlayTrack}
+            onProfileClick={(id) => openProfile(id)}
+            likedTracks={likedTracks}
+            onToggleLike={handleMusicSystemLikeSync}
+            playHistory={playHistory}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            users={users}
+            currentTrack={currentAudioTrack}
+            isPlaying={isAudioPlaying}
+            myTotalPlays={currentUser?.id ? myTotalPlays : 0}
+            playsLoading={playsLoading}
+            // NEW PROPS FOR REACT/DISCUSS/SHARE
+            reactionCounts={trackReactions}
+            commentCounts={trackComments}
+            shareCounts={trackShares}
+            onReact={handleMusicReact}
+            onOpenComments={handleOpenMusicComments}
+            onShare={handleMusicShare}
+          />
+        )}
 
-         {view === 'recorder' && (
-  <Recorder
-    currentUser={currentUser}
-    selectedSound={selectedReelSound}
-    sounds={songs.map((song: any) => ({
-      id: song.id,
-      name: song.title || song.name || 'Song',
-      url: song.audio_fetch_url || song.audio_url || song.url || '',
-      originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-      duration: song.duration || 30,
-      start: 0,
-      end: song.duration || 30,
-      coverImage: song.cover_url || song.cover || '',
-      creatorName: song.artist || '',
-      creatorImage: song.artist_image || song.cover_url || '',
-      playCount: song.playCount || song.plays || 0,
-      creationCount: song.creationCount || song.uses || 0,
-      soundKey: `song:${song.id}`,
-    }))}
-    onSelectSound={setSelectedReelSound}
-    initialVideoFile={pendingReelFile}
-    startInPreview={!!pendingReelFile}
-    onBack={() => {
-      setPendingReelFile(null);
-      setSelectedReelSound(null);
-      setView('reels');
-    }}
-    onSubmit={async (reelData) => {
-      await createReel({
-        ...reelData,
-        audioUrl:
-          reelData.audioUrl ||
-          (reelData.audioFile ? '' : (
-            (selectedReelSound?.songId &&
-              songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-            selectedReelSound?.originalUrl ||
-            selectedReelSound?.audioUrl ||
-            ''
-          )),
-        originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-        songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-        audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-        audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-        soundKey: reelData.soundKey || selectedReelSound?.soundKey || 'original:none',
-      });
+        {view === 'tools' && <ToolsPage />}
 
-      setPendingReelFile(null);
-      setSelectedReelSound(null);
-      setView('reels');
-    }}
-  />
-)}  
-          {view === 'notifications' && (
-            <NotificationsPage
-              notifications={notifications}
+        {view === 'profiles' && (
+          <SuggestedProfilesPage
+            currentUser={currentUser as any}
+            users={users}
+            onFollow={(id: number) => followUser(id)}
+            onProfileClick={(id) => openProfile(id)}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
+        )}
+
+        {view === 'events' && (
+          <ErrorBoundary>
+            <AllEvents
+              currentUser={currentUser ?? null}
               users={users}
-              onBack={() => navigateTo('home')}
-              onProfileClick={(id)=>openProfile(id)}
-            />
-          )}
-
-          {view === 'ads' && currentUser && (
-            <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
-              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
-                <button
-                  onClick={() => setActiveAdTab('dashboard')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'dashboard'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('create')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'create'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                  Create Campaign
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('ads')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'ads'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
-                  My Campaigns
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('analytics')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'analytics'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
-                  Analytics
-                </button>
-              </div>
-
-              {activeAdTab === 'dashboard' && (
-                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
-              )}
-              
-              {activeAdTab === 'create' && (
-                <AdCreator 
-                  onSuccess={() => {
-                    setActiveAdTab('ads');
-                    fetchMyAds();
-                    if (selectedPostForAd) {
-                      setPushedPosts(prev => ({
-                        ...prev,
-                        [selectedPostForAd.id]: true
-                      }));
-                    }
-                    setSelectedPostForAd(null);
-                  }}
-                  onBack={() => {
-                    setActiveAdTab('dashboard');
-                    setSelectedPostForAd(null);
-                  }}
-                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
-                  onCreateCampaign={createAdCampaign}
-                  currentUser={currentUser}
-                  initialPost={selectedPostForAd}
-                />
-              )}
-              
-              {activeAdTab === 'ads' && (
-                <AdsManager 
-                  campaigns={adCampaigns} 
-                  onUpdate={fetchMyAds}
-                  onPause={pauseCampaign}
-                  onResume={resumeCampaign}
-                  onDelete={deleteCampaign}
-                  loading={adsLoading}
-                />
-              )}
-              
-              {activeAdTab === 'analytics' && (
-                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
-              )}
-            </div>
-          )}
-        </div>
-
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar
-              contacts={users.filter((u) => u.id !== currentUser.id)}
               onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
+              onEventClick={(eventId) => {
+                setActiveEventId(eventId);
+              }}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
             />
+          </ErrorBoundary>
+        )}
+
+        {view === 'birthdays' && (
+          <BirthdaysPage
+            currentUser={currentUser as any}
+            users={users}
+            onMessage={(id) => {
+              if (!requireAuth('Messaging')) return;
+              setActiveChatUser(users.find((u) => u.id === id) || null);
+              setIsChatOpen(true);
+            }}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+          />
+        )}
+
+        {view === 'memories' && currentUser && (
+          <MemoriesPage
+            currentUser={currentUser}
+            posts={allKnownPosts}
+            users={users}
+            onProfileClick={(id: number) => openProfile(id)}
+            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onViewImage={setFullScreenImage}
+            onOpenComments={(postId: number) => {
+              const post = posts.find(p => p.id === postId);
+              if (post) handleOpenComments(post);
+            }}
+            onVideoClick={handleVideoClick}
+            onPlayAudioTrack={onPlayTrack}
+            onHashtagClick={handleHashtagClick}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+            groups={groups}
+            brands={brands}
+            chats={chats}
+          />
+        )}
+
+        {view === 'settings' && currentUser && (
+          <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+        )}
+
+        {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+        {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+        {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
+
+        {view === 'profile' && profileUser && (
+          <UserProfile
+            user={profileUser}
+            currentUser={currentUser}
+            users={users}
+            posts={profilePosts}
+            reels={reels}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={(id: number) => followUser(id)}
+            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+            onComment={() => requireAuth('Commenting')}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onMessage={(id) => {
+              if (!requireAuth('Messaging')) return;
+              const recipient = users.find((u) => u.id === id);
+              if (recipient) {
+                handleOpenChat(recipient);
+              }
+            }}
+            onCreatePost={createPost as any}
+            onUpdateProfileImage={updateProfileImage as any}
+            onUpdateCoverImage={updateCoverImage as any}
+            onUpdateUserDetails={updateUserDetails as any}
+            onDeletePost={(postId: number) => deletePost(postId)}
+            onEditPost={(postId: number, content: string) => editPost(postId, content)}
+            getCommentAuthor={(id) => users.find((u) => u.id === id)}
+            onViewImage={setFullScreenImage}
+            onOpenComments={(postId) => {
+              const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+              if (post) handleOpenComments(post);
+            }}
+            onVideoClick={handleVideoClick}
+            onPlayAudioTrack={onPlayTrack}
+            onCreateStoryClick={handleCreateStoryFromProfile}
+            onVerifyUser={(id) => verifyUser(id)}
+            onRestrictUser={(id, duration) => suspendUser(id, duration)}
+            onDeleteUser={(id) => deleteUserAccount(id)}
+            onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
+            isFollowing={checkIsFollowing(Number(profileUser.id))}
+            followLoading={followLoading[Number(profileUser.id)] || false}
+            onOpenChat={handleOpenChat}
+            isChatOpen={isChatOpen}
+            activeChatRecipient={activeChatUser}
+            onOpenChatsList={handleOpenChatsList}
+            isChatsListOpen={isChatsListOpen}
+          />
+        )}
+
+        {view === 'login' && (
+          <Login
+            onLogin={handleLogin}
+            onNavigateToRegister={() => setView('register')}
+            onNavigateToForgotPassword={() => setView('login')}
+            onClose={() => setView('home')}
+            error={loginError}
+          />
+        )}
+
+        {view === 'register' && (
+          <Register 
+            onRegister={handleRegister} 
+            onBackToLogin={() => setView('login')} 
+            error={loginError}
+          />
+        )}
+
+        {view === 'recorder' && (
+          <Recorder
+            currentUser={currentUser}
+            selectedSound={selectedReelSound}
+            sounds={songs.map((song: any) => ({
+              id: song.id,
+              name: song.title || song.name || 'Song',
+              url: song.audio_fetch_url || song.audio_url || song.url || '',
+              originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+              duration: song.duration || 30,
+              start: 0,
+              end: song.duration || 30,
+              coverImage: song.cover_url || song.cover || '',
+              creatorName: song.artist || '',
+              creatorImage: song.artist_image || song.cover_url || '',
+              playCount: song.playCount || song.plays || 0,
+              creationCount: song.creationCount || song.uses || 0,
+              soundKey: `song:${song.id}`,
+            }))}
+            onSelectSound={setSelectedReelSound}
+            initialVideoFile={pendingReelFile}
+            startInPreview={!!pendingReelFile}
+            onBack={() => {
+              setPendingReelFile(null);
+              setSelectedReelSound(null);
+              setView('reels');
+            }}
+            onSubmit={async (reelData) => {
+              await createReel({
+                ...reelData,
+                audioUrl:
+                  reelData.audioUrl ||
+                  (reelData.audioFile ? '' : (
+                    (selectedReelSound?.songId &&
+                      songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+                    selectedReelSound?.originalUrl ||
+                    selectedReelSound?.audioUrl ||
+                    ''
+                  )),
+                originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+                songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+                audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+                audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+                soundKey: reelData.soundKey || selectedReelSound?.soundKey || 'original:none',
+              });
+
+              setPendingReelFile(null);
+              setSelectedReelSound(null);
+              setView('reels');
+            }}
+          />
+        )}  
+        {view === 'notifications' && (
+          <NotificationsPage
+            notifications={notifications}
+            users={users}
+            onBack={() => navigateTo('home')}
+            onProfileClick={(id)=>openProfile(id)}
+          />
+        )}
+
+        {view === 'ads' && currentUser && (
+          <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
+            <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
+              <button
+                onClick={() => setActiveAdTab('dashboard')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'dashboard'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveAdTab('create')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'create'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
+                Create Campaign
+              </button>
+              <button
+                onClick={() => setActiveAdTab('ads')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'ads'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
+                My Campaigns
+              </button>
+              <button
+                onClick={() => setActiveAdTab('analytics')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'analytics'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
+                Analytics
+              </button>
+            </div>
+
+            {activeAdTab === 'dashboard' && (
+              <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+            )}
+            
+            {activeAdTab === 'create' && (
+              <AdCreator 
+                onSuccess={() => {
+                  setActiveAdTab('ads');
+                  fetchMyAds();
+                  if (selectedPostForAd) {
+                    setPushedPosts(prev => ({
+                      ...prev,
+                      [selectedPostForAd.id]: true
+                    }));
+                  }
+                  setSelectedPostForAd(null);
+                }}
+                onBack={() => {
+                  setActiveAdTab('dashboard');
+                  setSelectedPostForAd(null);
+                }}
+                userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
+                onCreateCampaign={createAdCampaign}
+                currentUser={currentUser}
+                initialPost={selectedPostForAd}
+              />
+            )}
+            
+            {activeAdTab === 'ads' && (
+              <AdsManager 
+                campaigns={adCampaigns} 
+                onUpdate={fetchMyAds}
+                onPause={pauseCampaign}
+                onResume={resumeCampaign}
+                onDelete={deleteCampaign}
+                loading={adsLoading}
+              />
+            )}
+            
+            {activeAdTab === 'analytics' && (
+              <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+            )}
           </div>
         )}
       </div>
 
-      {view !== 'home' && (
-        <button
-          onClick={goBack}
-          className="fixed bottom-6 left-6 z-50 w-14 h-14 bg-[#1877F2] rounded-full shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors md:hidden"
-          aria-label="Go back"
-        >
-          <i className="fas fa-arrow-left text-white text-2xl"></i>
-        </button>
-      )}
-
-      {activeProduct && (
-        <ProductDetailModal
-          product={activeProduct}
-          currentUser={currentUser}
-          onClose={() => setActiveProduct(null)}
-          onMessage={(id) => {
-            if (!requireAuth('Messaging')) return;
-            const recipient = users.find((u) => u.id === id);
-            if (recipient) {
-              handleOpenChat(recipient);
-            }
-          }}
-        />
-      )}
-
-      {activeEventId && (
-        <EventDetailModal
-          eventId={activeEventId}
-          onClose={() => setActiveEventId(null)}
-        />
-      )}
-
-      {showCreateEventModal && currentUser && (
-        <CreateEventModal
-          currentUser={currentUser}
-          onClose={() => setShowCreateEventModal(false)}
-          onCreate={async (eventData) => {
-            try {
-              const newEvent = await createEvent(eventData);
-              setShowCreateEventModal(false);
-            } catch (error) {
-              console.error('Failed to create event:', error);
-            }
-          }}
-        />
-      )}
-
-      {showCreatePostModal && currentUser && (
-  <CreatePostModal
-    currentUser={currentUser}
-    users={users}
-    onClose={() => setShowCreatePostModal(false)}
-    onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
-    onCreateEventClick={() => {
-      setShowCreatePostModal(false);
-      setShowCreateEventModal(true);
-    }}
-    onVideoClick={handleVideoClickFromCreate}
-  />
-)}
-
-      {showRecorder && currentUser && (
-        <Recorder
-          currentUser={currentUser}
-          selectedSound={selectedReelSound}
-          sounds={songs.map((song: any) => ({
-            id: song.id,
-            name: song.title || song.name || 'Song',
-            url: song.audio_fetch_url || song.audio_url || song.url || '',
-            originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-            duration: song.duration || 30,
-            start: 0,
-            end: song.duration || 30,
-            coverImage: song.cover_url || song.cover || '',
-            creatorName: song.artist || '',
-            creatorImage: song.artist_image || song.cover_url || '',
-            playCount: song.playCount || song.plays || 0,
-            creationCount: song.creationCount || song.uses || 0,
-            soundKey: `song:${song.id}`,
-          }))}
-          onSelectSound={setSelectedReelSound}
-          onBack={() => setShowRecorder(false)}
-          onSubmit={async (reelData) => {
-            await createReel({
-              ...reelData,
-              audioUrl:
-                reelData.audioUrl ||
-                (selectedReelSound?.songId &&
-                  songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-                selectedReelSound?.audioUrl ||
-                '',
-              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-            });
-
-            setShowRecorder(false);
-          }}
-        />
-      )}
-
-      {activePost && currentUser && (
-        <CommentsSheet
-          post={activePost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setActiveCommentsIdentity(null);
-            setCommentPostSnapshot(null);
-          }}
-          onComment={createGroupPostComment}
-          onLikeComment={handleLikeComment}
-          getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-          onHashtagClick={handleHashtagClick}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
-
-      {activeSharePost && (
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => {
-            setShowShareSheet(false);
-            setActiveSharePost(null);
-          }}
-          post={activeSharePost}
-          currentUser={currentUser}
-          users={users}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onShareComplete={handleShareComplete}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
-
-      {activeStoryId && activeStory && (
-        <StoryViewerModal
-          story={activeStory}
-          onClose={closeStoryViewer}
-          onProfileClick={(id) => {
-            closeStoryViewer();
-            openProfile(id);
-          }}
-          currentUser={currentUser}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-          followLoading={followLoading}
-          allStories={orderedStories}
-          onFetchViewers={fetchStoryViewers}
-          onFetchAnalytics={fetchStoryAnalytics}
-          onReply={replyToStory}
-          onLike={likeStory}
-          onReaction={reactToStory}
-          onNext={handleStoryNext}
-          onPrev={handleStoryPrev}
-          muted={storyMuted}
-          onToggleMute={() => setStoryMuted(!storyMuted)}
-        />
-      )}
-
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal
-          currentUser={currentUser}
-          songs={songs}
-          onClose={() => setShowCreateStoryModal(false)}
-          onCreate={createStory}
-        />
-      )}
-
-      {currentAudioTrack && (
-        <GlobalAudioPlayer
-          currentTrack={currentAudioTrack}
-          isPlaying={isAudioPlaying}
-          onTogglePlay={onTogglePlay}
-          onNext={onNext}
-          onPrevious={onPrevious}
-          onClose={onClosePlayer}
-          onDownload={(id) => {
-            console.log('Download track:', id);
-          }}
-          onLike={(id, type) => {
-            const k = `${type}:${String(id)}`;
-            const nextLiked = !likedTracks.includes(k);
-            handleMusicSystemLikeSync(k, nextLiked);
-          }}
-          onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
-          isLiked={isPlayerLiked}
-          ownerUser={resolveTrackOwner(currentAudioTrack)}
-          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
-          totalPlaysLoading={playsLoading}
-          onStarted={onStarted}
-        />
-      )}
-
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {incomingCall && currentUser && (
-        <CallScreen
-          open={true}
-          mode={incomingCall.call_type === "video" ? "video" : "voice"}
-          phase="incoming"
-          peerName={incomingCall.caller_name || "User"}
-          peerAvatar={incomingCall.caller_avatar || null}
-          micOn={true}
-          camOn={true}
-          speakerOn={true}
-          onAccept={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            openChatWith(incomingCall.caller_id);
-            setIncomingCall(null);
-          }}
-          onDecline={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            apiFetch(
-              "/api/calls/signal",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  call_id: incomingCall.id,
-                  to_user_id: incomingCall.caller_id,
-                  type: "decline",
-                }),
-              },
-            ).catch(err => console.error('Failed to decline call:', err));
-            setIncomingCall(null);
-          }}
-          onHangup={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            setIncomingCall(null);
-          }}
-          onToggleMic={() => {}}
-          onToggleCam={() => {}}
-          onToggleSpeaker={() => {}}
-        />
-      )}
-
-      {isChatOpen && activeChatUser && currentUser && (
-        <ChatWindow
-          currentUser={currentUser}
-          recipient={activeChatUser}
-          onClose={handleCloseChat}
-          onSendMessage={handleSendMessage}
-        />
-      )}
-
-      {isChatsListOpen && currentUser && (
-        <ChatsList
-          currentUser={currentUser}
-          onOpenChat={handleOpenChat}
-          onOpenRequests={() => {
-            console.log('Open message requests');
-          }}
-          onNewChat={() => {
-            console.log('Create new chat');
-          }}
-        />
-      )}
-
-      {showAdAnalytics && adAnalyticsId && (
-        <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
-          <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-white">Ad Analytics</h2>
-              <button
-                onClick={() => setShowAdAnalytics(false)}
-                className="text-[#B0B3B8] hover:text-white"
-              >
-                <i className="fas fa-times" />
-              </button>
-            </div>
-            <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
-          </div>
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
+          <RightSidebar
+            contacts={users.filter((u) => u.id !== currentUser.id)}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
         </div>
       )}
     </div>
-  );
-}
- 
+
+    {view !== 'home' && (
+      <button
+        onClick={goBack}
+        className="fixed bottom-6 left-6 z-50 w-14 h-14 bg-[#1877F2] rounded-full shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors md:hidden"
+        aria-label="Go back"
+      >
+        <i className="fas fa-arrow-left text-white text-2xl"></i>
+      </button>
+    )}
+
+    {activeProduct && (
+      <ProductDetailModal
+        product={activeProduct}
+        currentUser={currentUser}
+        onClose={() => setActiveProduct(null)}
+        onMessage={(id) => {
+          if (!requireAuth('Messaging')) return;
+          const recipient = users.find((u) => u.id === id);
+          if (recipient) {
+            handleOpenChat(recipient);
+          }
+        }}
+      />
+    )}
+
+    {activeEventId && (
+      <EventDetailModal
+        eventId={activeEventId}
+        onClose={() => setActiveEventId(null)}
+      />
+    )}
+
+    {showCreateEventModal && currentUser && (
+      <CreateEventModal
+        currentUser={currentUser}
+        onClose={() => setShowCreateEventModal(false)}
+        onCreate={async (eventData) => {
+          try {
+            const newEvent = await createEvent(eventData);
+            setShowCreateEventModal(false);
+          } catch (error) {
+            console.error('Failed to create event:', error);
+          }
+        }}
+      />
+    )}
+
+    {showCreatePostModal && currentUser && (
+      <CreatePostModal
+        currentUser={currentUser}
+        users={users}
+        onClose={() => setShowCreatePostModal(false)}
+        onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+        onCreateEventClick={() => {
+          setShowCreatePostModal(false);
+          setShowCreateEventModal(true);
+        }}
+        onVideoClick={handleVideoClickFromCreate}
+      />
+    )}
+
+    {showRecorder && currentUser && (
+      <Recorder
+        currentUser={currentUser}
+        selectedSound={selectedReelSound}
+        sounds={songs.map((song: any) => ({
+          id: song.id,
+          name: song.title || song.name || 'Song',
+          url: song.audio_fetch_url || song.audio_url || song.url || '',
+          originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+          duration: song.duration || 30,
+          start: 0,
+          end: song.duration || 30,
+          coverImage: song.cover_url || song.cover || '',
+          creatorName: song.artist || '',
+          creatorImage: song.artist_image || song.cover_url || '',
+          playCount: song.playCount || song.plays || 0,
+          creationCount: song.creationCount || song.uses || 0,
+          soundKey: `song:${song.id}`,
+        }))}
+        onSelectSound={setSelectedReelSound}
+        onBack={() => setShowRecorder(false)}
+        onSubmit={async (reelData) => {
+          await createReel({
+            ...reelData,
+            audioUrl:
+              reelData.audioUrl ||
+              (selectedReelSound?.songId &&
+                songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+              selectedReelSound?.audioUrl ||
+              '',
+            originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+            songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+            audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+            audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+          });
+
+          setShowRecorder(false);
+        }}
+      />
+    )}
+
+    {activePost && currentUser && (
+      <CommentsSheet
+        post={activePost}
+        currentUser={currentUser}
+        users={users}
+        onClose={() => {
+          setActiveCommentsIdentity(null);
+          setCommentPostSnapshot(null);
+        }}
+        onComment={createGroupPostComment}
+        onLikeComment={handleLikeComment}
+        getCommentAuthor={(id) => users.find((u) => u.id === id)}
+        onProfileClick={(id) => openProfile(id)}
+        onHashtagClick={handleHashtagClick}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+      />
+    )}
+
+    {/* MUSIC COMMENTS SHEET */}
+    {showMusicComments && selectedMusicTrack && currentUser && (
+      <MusicCommentsSheet
+        isOpen={showMusicComments}
+        onClose={() => {
+          setShowMusicComments(false);
+          setSelectedMusicTrack(null);
+        }}
+        track={selectedMusicTrack}
+        currentUser={currentUser}
+        users={users}
+        onProfileClick={openProfile}
+        onCommentAdded={() => handleMusicCommentAdded(selectedMusicTrack.id)}
+      />
+    )}
+
+    {activeSharePost && (
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => {
+          setShowShareSheet(false);
+          setActiveSharePost(null);
+        }}
+        post={activeSharePost}
+        currentUser={currentUser}
+        users={users}
+        groups={groups}
+        brands={brands}
+        chats={chats}
+        onShareComplete={(destination, data) => {
+          handleShareComplete(destination, data);
+          // If this was a music share, update music share count
+          if (activeSharePost?.type === 'music' || activeSharePost?.type === 'podcast') {
+            handleMusicShareComplete(destination, data, activeSharePost as AudioTrack);
+          }
+        }}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+      />
+    )}
+
+    {activeStoryId && activeStory && (
+      <StoryViewerModal
+        story={activeStory}
+        onClose={closeStoryViewer}
+        onProfileClick={(id) => {
+          closeStoryViewer();
+          openProfile(id);
+        }}
+        currentUser={currentUser}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+        followLoading={followLoading}
+        allStories={orderedStories}
+        onFetchViewers={fetchStoryViewers}
+        onFetchAnalytics={fetchStoryAnalytics}
+        onReply={replyToStory}
+        onLike={likeStory}
+        onReaction={reactToStory}
+        onNext={handleStoryNext}
+        onPrev={handleStoryPrev}
+        muted={storyMuted}
+        onToggleMute={() => setStoryMuted(!storyMuted)}
+      />
+    )}
+
+    {showCreateStoryModal && currentUser && (
+      <CreateStoryModal
+        currentUser={currentUser}
+        songs={songs}
+        onClose={() => setShowCreateStoryModal(false)}
+        onCreate={createStory}
+      />
+    )}
+
+    {currentAudioTrack && (
+      <GlobalAudioPlayer
+        currentTrack={currentAudioTrack}
+        isPlaying={isAudioPlaying}
+        onTogglePlay={onTogglePlay}
+        onNext={onNext}
+        onPrevious={onPrevious}
+        onClose={onClosePlayer}
+        onDownload={(id) => {
+          console.log('Download track:', id);
+        }}
+        onLike={(id, type) => {
+          const k = `${type}:${String(id)}`;
+          const nextLiked = !likedTracks.includes(k);
+          handleMusicSystemLikeSync(k, nextLiked);
+        }}
+        onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+        isLiked={isPlayerLiked}
+        ownerUser={resolveTrackOwner(currentAudioTrack)}
+        totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+        totalPlaysLoading={playsLoading}
+        onStarted={onStarted}
+        // NEW PROPS FOR REACT/DISCUSS/SHARE
+        reactionCount={trackReactions[currentAudioTrack.id]?.count || 0}
+        commentCount={trackComments[currentAudioTrack.id] || 0}
+        shareCount={trackShares[currentAudioTrack.id] || 0}
+        myReaction={trackReactions[currentAudioTrack.id]?.myReaction}
+        onReact={(track, type) => handleMusicReact(track, type)}
+        onOpenComments={(track) => handleOpenMusicComments(track)}
+        onShare={(track) => handleMusicShare(track)}
+      />
+    )}
+
+    {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
+
+    {incomingCall && currentUser && (
+      <CallScreen
+        open={true}
+        mode={incomingCall.call_type === "video" ? "video" : "voice"}
+        phase="incoming"
+        peerName={incomingCall.caller_name || "User"}
+        peerAvatar={incomingCall.caller_avatar || null}
+        micOn={true}
+        camOn={true}
+        speakerOn={true}
+        onAccept={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          openChatWith(incomingCall.caller_id);
+          setIncomingCall(null);
+        }}
+        onDecline={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          apiFetch(
+            "/api/calls/signal",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                call_id: incomingCall.id,
+                to_user_id: incomingCall.caller_id,
+                type: "decline",
+              }),
+            },
+          ).catch(err => console.error('Failed to decline call:', err));
+          setIncomingCall(null);
+        }}
+        onHangup={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          setIncomingCall(null);
+        }}
+        onToggleMic={() => {}}
+        onToggleCam={() => {}}
+        onToggleSpeaker={() => {}}
+      />
+    )}
+
+    {isChatOpen && activeChatUser && currentUser && (
+      <ChatWindow
+        currentUser={currentUser}
+        recipient={activeChatUser}
+        onClose={handleCloseChat}
+        onSendMessage={handleSendMessage}
+      />
+    )}
+
+    {isChatsListOpen && currentUser && (
+      <ChatsList
+        currentUser={currentUser}
+        onOpenChat={handleOpenChat}
+        onOpenRequests={() => {
+          console.log('Open message requests');
+        }}
+        onNewChat={() => {
+          console.log('Create new chat');
+        }}
+      />
+    )}
+
+    {showAdAnalytics && adAnalyticsId && (
+      <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
+        <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-white">Ad Analytics</h2>
+            <button
+              onClick={() => setShowAdAnalytics(false)}
+              className="text-[#B0B3B8] hover:text-white"
+            >
+              <i className="fas fa-times" />
+            </button>
+          </div>
+          <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
+        </div>
+      </div>
+    )}
+  </div>
+);    
+                            
+  
+  
+  
+      
+                                                      ) : !feedHydrated ? (
+                                  
+
+    
