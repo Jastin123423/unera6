@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -28,7 +27,7 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
-import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
+import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
@@ -1677,6 +1676,15 @@ export default function App() {
 
   const unreadNotifications = notifications.filter(n => !n.is_read).length;
 
+  // ============================================================================
+  // ✅ MUSIC REACTION/COMMENT/SHARE STATE (NEW)
+  // ============================================================================
+  const [trackReactions, setTrackReactions] = useState<Record<string, { count: number; myReaction?: ReactionType }>>({});
+  const [trackComments, setTrackComments] = useState<Record<string, number>>({});
+  const [trackShares, setTrackShares] = useState<Record<string, number>>({});
+  const [showMusicComments, setShowMusicComments] = useState(false);
+  const [selectedMusicTrack, setSelectedMusicTrack] = useState<AudioTrack | null>(null);
+
   const requireAuth = useCallback(
     (actionName = 'This action') => {
       if (currentUser) return true;
@@ -1917,6 +1925,133 @@ export default function App() {
     
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
+  // ============================================================================
+  // ✅ MUSIC HANDLERS
+  // ============================================================================
+
+  // Handle reaction for music tracks
+  const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
+    if (!currentUser) {
+      setLoginError('Please login to react');
+      setView('login');
+      return;
+    }
+
+    const trackId = track.id;
+    const itemType = track.type;
+    const userId = currentUser.id;
+    const key = `${itemType}:${trackId}`;
+
+    // Optimistic update
+    setTrackReactions(prev => {
+      const current = prev[trackId] || { count: 0, myReaction: undefined };
+      const isSameReaction = current.myReaction === reactionType;
+      const newCount = isSameReaction 
+        ? Math.max(0, current.count - 1)
+        : current.myReaction 
+          ? current.count // If changing reaction, count stays same (remove old, add new)
+          : current.count + 1;
+      const newMyReaction = isSameReaction ? undefined : reactionType;
+      
+      return {
+        ...prev,
+        [trackId]: { count: newCount, myReaction: newMyReaction }
+      };
+    });
+
+    try {
+      const endpoint = itemType === 'music'
+        ? `/api/songs/${trackId}/react`
+        : `/api/podcasts/${trackId}/react`;
+      
+      const result = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId, type: reactionType }),
+      });
+      
+      if (result) {
+        setTrackReactions(prev => ({
+          ...prev,
+          [trackId]: {
+            count: result.reactions_count || 0,
+            myReaction: result.my_reaction || undefined
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to react:', error);
+      // Revert optimistic update on error
+      setTrackReactions(prev => {
+        const current = prev[trackId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [trackId]: {
+            count: current.count,
+            myReaction: current.myReaction === reactionType ? undefined : current.myReaction
+          }
+        };
+      });
+      setLoginError('Failed to react. Please try again.');
+    }
+  }, [currentUser]);
+
+  // Handle open music comments
+  const handleOpenMusicComments = useCallback((track: AudioTrack) => {
+    if (!currentUser) {
+      setLoginError('Please login to comment');
+      setView('login');
+      return;
+    }
+    setSelectedMusicTrack(track);
+    setShowMusicComments(true);
+  }, [currentUser]);
+
+  // Handle music share
+  const handleMusicShare = useCallback((track: AudioTrack) => {
+    if (!currentUser) {
+      setLoginError('Please login to share');
+      setView('login');
+      return;
+    }
+    
+    // Create a post-like object for the music track
+    const musicPost = {
+      id: track.id,
+      user_id: currentUser.id,
+      content: `${track.title} by ${track.artist}`,
+      type: track.type,
+      media_url: track.cover,
+      author: {
+        name: currentUser.name,
+        username: currentUser.username,
+        profile_image_url: currentUser.profile_image_url,
+      },
+      created_at: new Date().toISOString(),
+    };
+    
+    setActiveSharePost(musicPost);
+    setShowShareSheet(true);
+  }, [currentUser]);
+
+  // Handle comment added for music track
+  const handleMusicCommentAdded = useCallback((trackId: string) => {
+    setTrackComments(prev => ({
+      ...prev,
+      [trackId]: (prev[trackId] || 0) + 1
+    }));
+  }, []);
+
+  // Handle share complete for music track
+  const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
+    if (data?.success && track) {
+      setTrackShares(prev => ({
+        ...prev,
+        [track.id]: (prev[track.id] || 0) + 1
+      }));
+    }
+  }, []);
 
   // Incoming call polling effect
   useEffect(() => {
@@ -5813,8 +5948,7 @@ const handleReelVideoSelected = useCallback(
       </div>
     );
   }, [events, onRSVPEvent]);
-
-  // ============================================================================
+    // ============================================================================
   // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
   // ============================================================================
   const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
