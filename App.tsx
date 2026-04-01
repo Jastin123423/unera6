@@ -7175,30 +7175,29 @@ return (
             followLoading={followLoading}
           />
         )}
-
-        {view === 'music' && (
-          <MusicSystem
-            currentUser={currentUser}
-            onPlayTrack={onPlayTrack}
-            onProfileClick={(id) => openProfile(id)}
-            likedTracks={likedTracks}
-            onToggleLike={handleMusicSystemLikeSync}
-            playHistory={playHistory}
-            onFollow={followUser}
-            checkIsFollowing={checkIsFollowing}
-            users={users}
-            currentTrack={currentAudioTrack}
-            isPlaying={isAudioPlaying}
-            myTotalPlays={currentUser?.id ? myTotalPlays : 0}
-            playsLoading={playsLoading}
-            reactionCounts={trackReactions}
-            commentCounts={trackComments}
-            shareCounts={trackShares}
-            onReact={handleMusicReact}
-            onOpenComments={handleOpenMusicComments}
-            onShare={handleMusicShare}
-          />
-        )}
+       {view === 'music' && (
+  <MusicSystem
+    currentUser={currentUser}
+    onPlayTrack={onPlayTrack}
+    onProfileClick={(id) => openProfile(id)}
+    likedTracks={likedTracks}
+    onToggleLike={handleMusicSystemLikeSync}
+    playHistory={playHistory}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    users={users}
+    currentTrack={currentAudioTrack}
+    isPlaying={isAudioPlaying}
+    myTotalPlays={currentUser?.id ? myTotalPlays : 0}
+    playsLoading={playsLoading}
+    reactionCounts={trackReactions}
+    commentCounts={trackComments}
+    shareCounts={trackShares}
+    onReact={handleMusicReact}
+    onOpenComments={handleOpenMusicComments}
+    onShare={handleMusicShare}
+  />
+)}
 
         {view === 'tools' && <ToolsPage />}
 
