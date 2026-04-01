@@ -3312,4 +3312,4 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   );
 };
 
-export default,MusicCommentsSheet, MusicSystem;
+export { MusicSystem as default, GlobalAudioPlayer, MusicCommentsSheet };
