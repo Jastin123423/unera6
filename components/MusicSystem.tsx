@@ -1440,12 +1440,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             <div className="relative z-10 px-4 py-3 border-t border-white/10 bg-black/60 mt-auto">
               <div className="flex items-center justify-between max-w-md mx-auto">
                 {/* React Button with Spark Icon */}
-                <ReactionButton
-                  currentUserReactions={myReaction}
-                  reactionCount={reactionCount}
-                  onReact={handleReact}
-                  isGuest={!ownerUser && !uploaderProfile}
-                />
+                 <ReactionButton
+  currentUserReactions={myReaction}
+  reactionCount={reactionCount}
+  onReact={handleReact}
+  isGuest={!currentUser}  // Changed from !ownerUser && !uploaderProfile
+/>
 
                 {/* Discuss Button */}
                 <button
