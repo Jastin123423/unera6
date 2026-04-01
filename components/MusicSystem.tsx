@@ -1444,9 +1444,9 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   currentUserReactions={myReaction}
   reactionCount={reactionCount}
   onReact={handleReact}
-  isGuest={!currentUser}  // <-- USE currentUser
+  isGuest={!currentUser}  // Changed from !ownerUser && !uploaderProfile
 />
-                
+
                 {/* Discuss Button */}
                 <button
                   onClick={handleOpenComments}
@@ -1567,16 +1567,18 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           }
         `}</style>
       </div>
-{currentTrack && (
-  <CommentsSheet
-    isOpen={showComments}
-    onClose={() => setShowComments(false)}
-    track={currentTrack}
-    currentUser={currentUser}  // <-- USE currentUser
-    users={users}
-    onProfileClick={(id) => onArtistClick?.(id)}
-  />
-)}
+
+      {/* Comments Sheet Modal */}
+      {currentTrack && (
+        <CommentsSheet
+          isOpen={showComments}
+          onClose={() => setShowComments(false)}
+          track={currentTrack}
+          currentUser={ownerUser || uploaderProfile || null}
+          users={users}
+          onProfileClick={(id) => onArtistClick?.(id)}
+        />
+      )}
 
       {/* Share Bottom Sheet Modal */}
       {currentTrack && (
@@ -2169,14 +2171,8 @@ interface MusicSystemProps {
   isPlaying?: boolean;
   myTotalPlays?: number;
   playsLoading?: boolean;
-  // ADD THESE:
-  reactionCounts?: Record<string, { count: number; myReaction?: ReactionType }>;
-  commentCounts?: Record<string, number>;
-  shareCounts?: Record<string, number>;
-  onReact?: (track: AudioTrack, type: ReactionType) => void;
-  onOpenComments?: (track: AudioTrack) => void;
-  onShare?: (track: AudioTrack) => void;
 }
+
 const MusicSystem: React.FC<MusicSystemProps> = ({ 
   currentUser, 
   onPlayTrack, 
@@ -2187,19 +2183,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   onFollow,
   checkIsFollowing,
   users = [],
-  currentTrack: externalCurrentTrack,
-  isPlaying: externalIsPlaying,
+  currentTrack,
+  isPlaying,
   myTotalPlays = 0,
-  playsLoading = false,
-  // ADD THESE:
-  reactionCounts = {},
-  commentCounts = {},
-  shareCounts = {},
-  onReact,
-  onOpenComments,
-  onShare,
+  playsLoading = false
 }) => {
-
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
