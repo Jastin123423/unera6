@@ -7816,22 +7816,3 @@ return (
         }}
       />
     )}
-
-    {showAdAnalytics && adAnalyticsId && (
-      <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
-        <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-white">Ad Analytics</h2>
-            <button
-              onClick={() => setShowAdAnalytics(false)}
-              className="text-[#B0B3B8] hover:text-white"
-            >
-              <i className="fas fa-times" />
-            </button>
-          </div>
-          <p className="text-[#B0B3B8]">Analytics for ad #{adAnalyticsId}</p>
-        </div>
-      </div>
-    )}
-  </div>
-);
