@@ -1444,9 +1444,9 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   currentUserReactions={myReaction}
   reactionCount={reactionCount}
   onReact={handleReact}
-  isGuest={!currentUser}  // Changed from !ownerUser && !uploaderProfile
+  isGuest={!currentUser}  // <-- USE currentUser
 />
-
+                
                 {/* Discuss Button */}
                 <button
                   onClick={handleOpenComments}
