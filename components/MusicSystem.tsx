@@ -990,6 +990,7 @@ interface GlobalAudioPlayerProps {
   onReact?: (track: AudioTrack, type: ReactionType) => void;
   onOpenComments?: (track: AudioTrack) => void;
   onShare?: (track: AudioTrack) => void;
+  currentUser?: User | null;  // <-- ADDED
 }
 
 export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
@@ -1015,6 +1016,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   onReact,
   onOpenComments,
   onShare,
+  currentUser,
 }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
