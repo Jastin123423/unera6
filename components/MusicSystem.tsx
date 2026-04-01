@@ -3310,5 +3310,5 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     </div>
   );
 };
-
 export default MusicSystem;
+export { CommentsSheet as MusicCommentsSheet };
