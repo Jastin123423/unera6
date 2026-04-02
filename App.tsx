@@ -7632,20 +7632,26 @@ return (
     )}
 
     {/* MUSIC COMMENTS SHEET */}
-    {showMusicComments && selectedMusicTrack && currentUser && (
-      <MusicCommentsSheet
-        isOpen={showMusicComments}
-        onClose={() => {
-          setShowMusicComments(false);
-          setSelectedMusicTrack(null);
-        }}
-        track={selectedMusicTrack}
-        currentUser={currentUser}
-        users={users}
-        onProfileClick={openProfile}
-        onCommentAdded={() => handleMusicCommentAdded(selectedMusicTrack.id)}
-      />
-    )}
+{showMusicComments && selectedMusicTrack && currentUser && (
+  <MusicCommentsSheet
+    isOpen={showMusicComments}
+    onClose={() => {
+      setShowMusicComments(false);
+      setSelectedMusicTrack(null);
+    }}
+    track={selectedMusicTrack}
+    currentUser={currentUser}
+    users={users}
+    onProfileClick={openProfile}
+    onCommentAdded={() => {
+      const key = `${selectedMusicTrack.type}:${String(selectedMusicTrack.id)}`;
+      setTrackComments((prev) => ({
+        ...prev,
+        [key]: (prev[key] || 0) + 1,
+      }));
+    }}
+  />
+)}
 
     {activeSharePost && (
       <ShareBottomSheet
