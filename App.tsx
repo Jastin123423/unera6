@@ -7632,22 +7632,20 @@ return (
     )}
 
     {/* MUSIC COMMENTS SHEET */}
-{showMusicComments && selectedMusicTrack && currentUser && (
+    {showMusicComments && selectedMusicTrack && (
   <MusicCommentsSheet
     isOpen={showMusicComments}
     onClose={() => {
       setShowMusicComments(false);
-      setSelectedMusicTrack(null);
     }}
     track={selectedMusicTrack}
     currentUser={currentUser}
     users={users}
     onProfileClick={openProfile}
-    onCommentAdded={() => {
-      const key = `${selectedMusicTrack.type}:${String(selectedMusicTrack.id)}`;
+    onCommentAdded={(trackKey) => {
       setTrackComments((prev) => ({
         ...prev,
-        [key]: (prev[key] || 0) + 1,
+        [trackKey]: (prev[trackKey] || 0) + 1,
       }));
     }}
   />
