@@ -1932,70 +1932,67 @@ export default function App() {
 
   // Handle reaction for music tracks
   const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
-    if (!currentUser) {
-      setLoginError('Please login to react');
-      setView('login');
-      return;
+  if (!currentUser) {
+    setLoginError('Please login to react');
+    setView('login');
+    return;
+  }
+
+  const key = `${track.type}:${String(track.id)}`;
+  const userId = currentUser.id;
+
+  // Optimistic update
+  setTrackReactions(prev => {
+    const current = prev[key] || { count: 0, myReaction: undefined };
+    const isSameReaction = current.myReaction === reactionType;
+    const newCount = isSameReaction 
+      ? Math.max(0, current.count - 1)
+      : current.myReaction 
+        ? current.count
+        : current.count + 1;
+    const newMyReaction = isSameReaction ? undefined : reactionType;
+    
+    return {
+      ...prev,
+      [key]: { count: newCount, myReaction: newMyReaction }
+    };
+  });
+
+  try {
+    const endpoint = track.type === 'music'
+      ? `/api/songs/${track.id}/react`
+      : `/api/podcasts/${track.id}/react`;
+    
+    const result = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, type: reactionType }),
+    });
+    
+    if (result) {
+      setTrackReactions(prev => ({
+        ...prev,
+        [key]: {
+          count: result.reactions_count || 0,
+          myReaction: result.my_reaction || undefined
+        }
+      }));
     }
-
-    const trackId = track.id;
-    const itemType = track.type;
-    const userId = currentUser.id;
-    const key = `${itemType}:${trackId}`;
-
-    // Optimistic update
+  } catch (error) {
+    console.error('Failed to react:', error);
     setTrackReactions(prev => {
-      const current = prev[trackId] || { count: 0, myReaction: undefined };
-      const isSameReaction = current.myReaction === reactionType;
-      const newCount = isSameReaction 
-        ? Math.max(0, current.count - 1)
-        : current.myReaction 
-          ? current.count // If changing reaction, count stays same (remove old, add new)
-          : current.count + 1;
-      const newMyReaction = isSameReaction ? undefined : reactionType;
-      
+      const current = prev[key];
+      if (!current) return prev;
       return {
         ...prev,
-        [trackId]: { count: newCount, myReaction: newMyReaction }
+        [key]: {
+          count: current.count,
+          myReaction: current.myReaction === reactionType ? undefined : current.myReaction
+        }
       };
     });
-
-    try {
-      const endpoint = itemType === 'music'
-        ? `/api/songs/${trackId}/react`
-        : `/api/podcasts/${trackId}/react`;
-      
-      const result = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: userId, type: reactionType }),
-      });
-      
-      if (result) {
-        setTrackReactions(prev => ({
-          ...prev,
-          [trackId]: {
-            count: result.reactions_count || 0,
-            myReaction: result.my_reaction || undefined
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to react:', error);
-      // Revert optimistic update on error
-      setTrackReactions(prev => {
-        const current = prev[trackId];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [trackId]: {
-            count: current.count,
-            myReaction: current.myReaction === reactionType ? undefined : current.myReaction
-          }
-        };
-      });
-      setLoginError('Failed to react. Please try again.');
-    }
-  }, [currentUser]);
+    setLoginError('Failed to react. Please try again.');
+  }
+}, [currentUser]);
 
   // Handle open music comments
   const handleOpenMusicComments = useCallback((track: AudioTrack) => {
