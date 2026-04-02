@@ -963,6 +963,7 @@ function mapEpisodeFromApi(e: any): Episode {
   } as any;
 }
 
+
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
 ========================================================= */
@@ -990,7 +991,7 @@ interface GlobalAudioPlayerProps {
   onReact?: (track: AudioTrack, type: ReactionType) => void;
   onOpenComments?: (track: AudioTrack) => void;
   onShare?: (track: AudioTrack) => void;
-  currentUser?: User | null;  // <-- ADDED
+  currentUser?: User | null;
 }
 
 export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
@@ -1028,10 +1029,8 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const [volume, setVolume] = useState(1);
   const [isRepeating, setIsRepeating] = useState(false);
   const [isShuffling, setIsShuffling] = useState(false);
-  const [showComments, setShowComments] = useState(false);
-  const [showShare, setShowShare] = useState(false);
-  const [users] = useState<User[]>([]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -1042,10 +1041,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     };
   }, []);
 
+  // Reset started key when track changes
   useEffect(() => {
     startedKeyRef.current = "";
   }, [currentTrack?.id, currentTrack?.type]);
 
+  // Track play start for analytics
   useEffect(() => {
     const el = audioRef.current;
     if (!el || !currentTrack || !onStarted) return;
@@ -1061,6 +1062,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     return () => el.removeEventListener("playing", onPlaying);
   }, [currentTrack, onStarted]);
 
+  // Audio playback management
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
@@ -1143,6 +1145,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     };
   }, [currentTrack, isPlaying, onNext, isRepeating]);
 
+  // Volume control
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
@@ -1196,17 +1199,17 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     }
   };
 
+  // FIXED: Only call parent handler, no local state
   const handleOpenComments = () => {
     if (currentTrack && onOpenComments) {
       onOpenComments(currentTrack);
-      setShowComments(true);
     }
   };
 
+  // FIXED: Only call parent handler, no local state
   const handleShare = () => {
     if (currentTrack && onShare) {
       onShare(currentTrack);
-      setShowShare(true);
     }
   };
 
@@ -1440,12 +1443,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
             <div className="relative z-10 px-4 py-3 border-t border-white/10 bg-black/60 mt-auto">
               <div className="flex items-center justify-between max-w-md mx-auto">
                 {/* React Button with Spark Icon */}
-                 <ReactionButton
-  currentUserReactions={myReaction}
-  reactionCount={reactionCount}
-  onReact={handleReact}
-  isGuest={!currentUser}  // Changed from !ownerUser && !uploaderProfile
-/>
+                <ReactionButton
+                  currentUserReactions={myReaction}
+                  reactionCount={reactionCount}
+                  onReact={handleReact}
+                  isGuest={!currentUser}
+                />
 
                 {/* Discuss Button */}
                 <button
@@ -1567,30 +1570,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           }
         `}</style>
       </div>
-
-      {/* Comments Sheet Modal */}
-      {currentTrack && (
-        <CommentsSheet
-          isOpen={showComments}
-          onClose={() => setShowComments(false)}
-          track={currentTrack}
-          currentUser={ownerUser || uploaderProfile || null}
-          users={users}
-          onProfileClick={(id) => onArtistClick?.(id)}
-        />
-      )}
-
-      {/* Share Bottom Sheet Modal */}
-      {currentTrack && (
-        <ShareBottomSheet
-          isOpen={showShare}
-          onClose={() => setShowShare(false)}
-          track={currentTrack}
-          currentUser={ownerUser || uploaderProfile || null}
-          users={users}
-          groups={[]}
-        />
-      )}
     </>
   );
 };
@@ -1603,7 +1582,7 @@ interface AudioUploadModalProps {
   currentUser: User;
   onClose: () => void;
   onUploaded: () => void;
-}
+};
 
 const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
   const [mode, setMode] = useState<'single' | 'album' | 'podcast'>('single');
