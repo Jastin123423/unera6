@@ -75,7 +75,7 @@ const SectionTitle: React.FC<{ title: string; subtitle?: string; onMore?: () => 
       <h2 className="text-[28px] leading-none font-extrabold text-white">{title}</h2>
       {subtitle ? <p className="text-[#9CA3AF] text-sm mt-1">{subtitle}</p> : null}
     </div>
-    <button onClick={onMore} className="text-[#00E5FF] font-semibold text-sm hover:opacity-80" type="button">
+    <button onClick={onMore} className="text-[#1877F2] font-semibold text-sm hover:opacity-80" type="button">
       More <i className="fas fa-angle-double-right ml-1"></i>
     </button>
   </div>
@@ -83,7 +83,7 @@ const SectionTitle: React.FC<{ title: string; subtitle?: string; onMore?: () => 
 
 const QuickActionCircle: React.FC<{ icon: string; label: string; onClick?: () => void; }> = ({ icon, label, onClick }) => (
   <button type="button" onClick={onClick} className="flex flex-col items-center min-w-[74px] group">
-    <div className="w-16 h-16 rounded-full bg-[#07E8F8] text-black flex items-center justify-center shadow-[0_0_18px_rgba(7,232,248,0.25)] group-hover:scale-105 transition-transform">
+    <div className="w-16 h-16 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-[0_0_18px_rgba(24,119,242,0.25)] group-hover:scale-105 transition-transform">
       <i className={`${icon} text-[26px]`}></i>
     </div>
     <span className="text-white text-sm mt-2 font-medium">{label}</span>
@@ -97,7 +97,7 @@ const FeaturedBannerCard: React.FC<{ song: Song; artistName: string; onPlay: () 
     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
     <div className="relative z-10 h-full flex items-end justify-between p-4">
       <div className="max-w-[70%]">
-        <p className="text-[#07E8F8] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
+        <p className="text-[#1877F2] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
         <h3 className="text-white text-2xl font-extrabold leading-tight line-clamp-2">{song.title}</h3>
         <p className="text-white/80 mt-1 text-sm">{artistName}</p>
         <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3 py-1.5 text-xs text-white">
@@ -179,7 +179,7 @@ const MusicFeedCard: React.FC<{
           ) : null}
           <span className="text-[#B8BCC7] text-sm truncate inline-flex items-center gap-1">
             {artistName}
-            {verified ? <i className="fas fa-check-circle text-[#07E8F8] text-[10px]"></i> : null}
+            {verified ? <i className="fas fa-check-circle text-[#1877F2] text-[10px]"></i> : null}
           </span>
         </button>
       </div>
@@ -1199,14 +1199,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     }
   };
 
-  // FIXED: Only call parent handler, no local state
   const handleOpenComments = () => {
     if (currentTrack && onOpenComments) {
       onOpenComments(currentTrack);
     }
   };
 
-  // FIXED: Only call parent handler, no local state
   const handleShare = () => {
     if (currentTrack && onShare) {
       onShare(currentTrack);
@@ -1596,7 +1594,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const [audioFile, setAudioFile] = useState<File | null>(null);
 
   const [albumTitle, setAlbumTitle] = useState('');
-  const [albumTracks, setAlbumTracks] = useState<{ title: string; file: File; cover?: string; artist?: string }[]>([]);
+  const [albumTracks, setAlbumTracks] = useState<{ title: string; file: File; coverFile?: File | null; artist?: string }[]>([]);
   const [season, setSeason] = useState('');
   const [episodeNum, setEpisodeNum] = useState('');
   const [guests, setGuests] = useState('');
@@ -1604,7 +1602,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const [tempTrackTitle, setTempTrackTitle] = useState('');
   const [tempTrackArtist, setTempTrackArtist] = useState(artist);
   const [tempTrackFile, setTempTrackFile] = useState<File | null>(null);
-  const [tempTrackCover, setTempTrackCover] = useState('');
+  const [tempTrackCoverFile, setTempTrackCoverFile] = useState<File | null>(null);
+  const tempTrackCoverInputRef = useRef<HTMLInputElement>(null);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -1619,10 +1618,18 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
       alert('Track title and audio file are required.');
       return;
     }
-    setAlbumTracks((prev) => [...prev, { title: tempTrackTitle, artist: tempTrackArtist, file: tempTrackFile, cover: tempTrackCover }]);
+    setAlbumTracks((prev) => [
+      ...prev, 
+      { 
+        title: tempTrackTitle, 
+        artist: tempTrackArtist, 
+        file: tempTrackFile, 
+        coverFile: tempTrackCoverFile,
+      }
+    ]);
     setTempTrackTitle('');
     setTempTrackFile(null);
-    setTempTrackCover('');
+    setTempTrackCoverFile(null);
   };
 
   const uploadToR2 = async (file: File) => {
@@ -1718,7 +1725,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
       for (const t of albumTracks) {
         const audioUrl = await uploadToR2(t.file);
-        const coverUrl = t.cover?.trim() ? t.cover.trim() : (sharedCoverUrl || DEFAULT_MUSIC_COVER);
+        const trackCoverUrl = t.coverFile ? await uploadToR2(t.coverFile) : null;
+        const coverUrl = trackCoverUrl || sharedCoverUrl || DEFAULT_MUSIC_COVER;
 
         const payload = {
           uploader_id: Number((currentUser as any).id),
@@ -1929,17 +1937,17 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                   />
                 </div>
 
-                <div className="bg-[#111] p-4 rounded-xl border border-[#333]">
-                  <h4 className="text-white font-bold mb-3 flex items-center gap-2">
+                <div className="space-y-4">
+                  <h4 className="text-white font-bold flex items-center gap-2">
                     <i className="fas fa-list-ol text-[#1877F2]"></i> Add Tracks to Album
                   </h4>
 
                   <div className="space-y-2 mb-4">
                     {albumTracks.map((t, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded border border-[#333]">
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#151515] rounded-lg">
                         <div className="flex items-center gap-3">
                           <span className="text-[#666] font-mono">{idx + 1}</span>
-                          <img src={t.cover || coverPreview || DEFAULT_MUSIC_COVER} className="w-8 h-8 rounded object-cover" alt="" />
+                          <img src={t.coverFile ? URL.createObjectURL(t.coverFile) : (coverPreview || DEFAULT_MUSIC_COVER)} className="w-8 h-8 rounded object-cover" alt="" />
                           <div>
                             <span className="text-white font-semibold block">{t.title}</span>
                             <span className="text-[#666] text-xs">{t.artist}</span>
@@ -1951,13 +1959,34 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                     {albumTracks.length === 0 && <div className="text-[#666] text-sm text-center py-2">No tracks added yet.</div>}
                   </div>
 
-                  <div className="flex flex-col gap-2 p-3 bg-[#1A1A1A] rounded border border-[#333] border-dashed">
+                  <div className="flex flex-col gap-3">
                     <div className="grid grid-cols-2 gap-2">
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
                     </div>
 
-                    <input className="w-full bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Specific Artwork URL (Optional)" value={tempTrackCover} onChange={(e) => setTempTrackCover(e.target.value)} />
+                    <div
+                      onClick={() => tempTrackCoverInputRef.current?.click()}
+                      className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
+                    >
+                      {tempTrackCoverFile ? (
+                        <span className="text-[#1877F2] font-bold">
+                          <i className="fas fa-image"></i> {tempTrackCoverFile.name}
+                        </span>
+                      ) : (
+                        'Select Track Cover (Optional)'
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      ref={tempTrackCoverInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setTempTrackCoverFile(f);
+                      }}
+                    />
 
                     <div className="flex items-center gap-2 mt-2">
                       <div
@@ -2167,9 +2196,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   myTotalPlays = 0,
   playsLoading = false
 }) => {
-  const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist'>('music');
+  const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist' | 'albums' | 'album'>('music');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
+  const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
 
   const [songs, setSongs] = useState<Song[]>([]);
@@ -2189,6 +2219,39 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [trackShares, setTrackShares] = useState<Record<string, number>>({});
 
   const isAdmin = (currentUser as any)?.role === 'admin';
+
+  // Albums grouping from songs
+  const albums = useMemo(() => {
+    const grouped = new Map<string, Song[]>();
+    songs.forEach((song) => {
+      const rawAlbum = String(song.album || '').trim();
+      const albumName = rawAlbum || 'Single';
+      if (!grouped.has(albumName)) grouped.set(albumName, []);
+      grouped.get(albumName)!.push(song);
+    });
+    return Array.from(grouped.entries()).map(([name, albumSongs]) => {
+      const sortedSongs = [...albumSongs].sort((a, b) => {
+        const aDate = new Date(a.uploadDate || 0).getTime();
+        const bDate = new Date(b.uploadDate || 0).getTime();
+        return aDate - bDate;
+      });
+      const firstSong = sortedSongs[0];
+      return {
+        name,
+        songs: sortedSongs,
+        cover: firstSong?.cover || DEFAULT_MUSIC_COVER,
+        artist: users.find((u) => u.id === firstSong?.uploaderId)?.name || 
+                users.find((u) => u.id === firstSong?.uploaderId)?.username || 
+                firstSong?.artist || 'Unknown Artist',
+        totalTracks: sortedSongs.length,
+      };
+    });
+  }, [songs, users]);
+
+  const selectedAlbumData = useMemo(() => {
+    if (!selectedAlbum) return null;
+    return albums.find((a) => a.name === selectedAlbum) || null;
+  }, [albums, selectedAlbum]);
 
   useEffect(() => {
     setLikedTracks(initialLikedTracks || []);
@@ -2670,21 +2733,24 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
       {/* Navigation Tabs */}
       <div className="sticky top-14 bg-[#0A0A0A]/95 backdrop-blur-md z-30 px-4 py-4 border-b border-[#222] flex gap-6 overflow-x-auto scrollbar-hide">
-        <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
+        <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
           MUSIC
         </button>
-        <button onClick={() => setView('podcasts')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'podcasts' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
+        <button onClick={() => setView('podcasts')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'podcasts' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
           PODCASTS
+        </button>
+        <button onClick={() => setView('albums')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'albums' || view === 'album' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
+          ALBUMS
         </button>
 
         {currentUser && (
-          <button onClick={() => setView('dashboard')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'dashboard' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={() => setView('dashboard')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'dashboard' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
             DASHBOARD
           </button>
         )}
 
         {selectedArtistId && (
-          <button onClick={() => setView('artist')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'artist' ? 'text-[#07E8F8]' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={() => setView('artist')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'artist' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
             ARTIST
           </button>
         )}
@@ -2698,7 +2764,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <i className="fas fa-triangle-exclamation"></i>
                 <span className="text-sm font-semibold">{error}</span>
               </div>
-              <button onClick={() => { fetchSongs(); fetchPodcasts(); }} className="text-sm font-bold text-[#07E8F8] hover:underline">
+              <button onClick={() => { fetchSongs(); fetchPodcasts(); }} className="text-sm font-bold text-[#1877F2] hover:underline">
                 Retry
               </button>
             </div>
@@ -2707,7 +2773,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
         {showLoading && (
           <div className="flex justify-center py-16">
-            <div className="w-10 h-10 border-4 border-[#07E8F8] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
           </div>
         )}
 
@@ -2726,7 +2792,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   </p>
                 </div>
                 {currentUser && (
-                  <button onClick={() => setView('dashboard')} className="shrink-0 px-4 py-2 rounded-full bg-[#07E8F8] text-black font-bold text-sm hover:opacity-90">
+                  <button onClick={() => setView('dashboard')} className="shrink-0 px-4 py-2 rounded-full bg-[#1877F2] text-white font-bold text-sm hover:opacity-90">
                     Studio
                   </button>
                 )}
@@ -2737,7 +2803,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <input
                   type="text"
                   placeholder="Search songs, artists..."
-                  className="w-full bg-[#1A1D24] text-white px-4 py-3 pl-11 rounded-2xl border border-[#2B313D] focus:border-[#07E8F8] focus:outline-none"
+                  className="w-full bg-[#1A1D24] text-white px-4 py-3 pl-11 rounded-2xl border border-[#2B313D] focus:border-[#1877F2] focus:outline-none"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -2762,7 +2828,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
               {/* Quick Actions */}
               <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
                 <QuickActionCircle icon="fas fa-chart-bar" label="Charts" onClick={() => setSearchQuery('')} />
-                <QuickActionCircle icon="fas fa-user-music" label="Artists" onClick={() => setView('artist')} />
+                <QuickActionCircle icon="fas fa-compact-disc" label="Albums" onClick={() => setView('albums')} />
                 <QuickActionCircle icon="fas fa-list-music" label="Playlists" />
                 <QuickActionCircle icon="fas fa-podcast" label="Podcasts" onClick={() => setView('podcasts')} />
                 <QuickActionCircle icon="fas fa-compact-disc" label="Genres" />
@@ -2774,7 +2840,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   <button
                     key={genre}
                     onClick={() => setSearchQuery(genre)}
-                    className="px-4 py-1.5 rounded-full bg-[#1A1D24] text-[#B8BCC7] text-sm hover:bg-[#07E8F8] hover:text-black transition-colors whitespace-nowrap"
+                    className="px-4 py-1.5 rounded-full bg-[#1A1D24] text-[#B8BCC7] text-sm hover:bg-[#1877F2] hover:text-white transition-colors whitespace-nowrap"
                   >
                     {genre}
                   </button>
@@ -2796,7 +2862,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       <p className="text-[#B8BCC7] text-sm truncate">{currentTrack.artist}</p>
                     </div>
                   </div>
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center ${isPlaying ? 'bg-[#07E8F8] text-black' : 'bg-[#2A2F39] text-white'}`}>
+                  <div className={`w-11 h-11 rounded-full flex items-center justify-center ${isPlaying ? 'bg-[#1877F2] text-white' : 'bg-[#2A2F39] text-white'}`}>
                     <i className={`fas ${isPlaying ? 'fa-pause' : 'fa-play ml-0.5'}`}></i>
                   </div>
                 </div>
@@ -2845,7 +2911,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   onArtistClick={handleArtistClick}
                   badgeBuilder={() => ({
                     text: 'TOP',
-                    className: 'bg-[#07E8F8] text-black'
+                    className: 'bg-[#1877F2] text-white'
                   })}
                 />
                 <HorizontalMusicRow
@@ -2912,7 +2978,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         key={song.id}
                         onClick={() => handlePlayTrackFromSong(song)}
                         className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
-                          isCurrentTrack ? 'bg-[#07E8F8]/10 border border-[#07E8F8]/30' : 'hover:bg-white/5'
+                          isCurrentTrack ? 'bg-[#1877F2]/10 border border-[#1877F2]/30' : 'hover:bg-white/5'
                         }`}
                       >
                         <div className="w-6 text-center text-[#9CA3AF] font-bold text-sm">
@@ -2945,114 +3011,180 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
 
-        {/* PODCAST VIEW */}
+        {/* PODCAST VIEW - Redesigned with compact cards */}
         {view === 'podcasts' && !showLoading && (
           <div className="space-y-8">
-            <div className="bg-[#242526] rounded-2xl p-6">
+            <div className="rounded-2xl bg-[#242526] p-6">
               <h2 className="text-2xl font-bold text-white mb-6">Podcasts & Episodes ({filteredEpisodes.length})</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {filteredEpisodes.length > 0 ? (
                   filteredEpisodes.map((episode) => {
-                    const isCurrentTrack = currentTrack && 
-                      currentTrack.type === 'podcast' && 
-                      String(currentTrack.id) === String(episode.id);
                     const isLiked = isTrackLiked(String(episode.id), 'podcast');
                     const uploaderProfile = users.find((u) => u.id === episode.uploaderId);
-                    const profilePicture = uploaderProfile 
-                      ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url 
-                      : null;
-                    
                     const hostName = uploaderProfile?.name || uploaderProfile?.username || episode.host || 'Host';
+                    const profilePicture = uploaderProfile ? (uploaderProfile as any).profileImage || (uploaderProfile as any).profile_image_url : null;
                     
                     return (
                       <div
                         key={episode.id}
-                        className={`bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group ${
-                          isCurrentTrack ? 'border-2 border-[#07E8F8]' : ''
-                        }`}
                         onClick={() => handlePlayTrackFromEpisode(episode)}
+                        className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer"
                       >
-                        <div className="p-4">
-                          <div className="flex items-start gap-4">
-                            <div className="relative w-16 h-16 flex-shrink-0">
+                        <div className="relative aspect-square">
+                          <img 
+                            src={episode.thumbnail || DEFAULT_PODCAST_COVER} 
+                            alt={episode.title} 
+                            className="w-full h-full object-cover" 
+                          />
+                        </div>
+                        <div className="p-3">
+                          <h3 className="text-white text-[15px] font-semibold line-clamp-1">{episode.title}</h3>
+                          <div className="mt-1 flex items-center gap-2">
+                            {profilePicture ? (
                               <img 
-                                src={episode.thumbnail || DEFAULT_PODCAST_COVER} 
-                                alt={episode.title} 
-                                className="w-full h-full object-cover rounded-lg" 
+                                src={profilePicture} 
+                                className="w-4 h-4 rounded-full object-cover" 
+                                alt=""
                               />
-                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <i className="fas fa-play text-white"></i>
-                              </div>
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-white line-clamp-2">{episode.title}</h3>
-                              <div className="flex items-center gap-2 mt-1">
-                                {profilePicture ? (
-                                  <img 
-                                    src={profilePicture} 
-                                    className="w-4 h-4 rounded-full object-cover border border-white/20"
-                                    alt="Profile"
-                                  />
-                                ) : null}
-                                <p 
-                                  className="text-[#B0B3B8] text-sm flex items-center gap-1 cursor-pointer hover:underline"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (episode.uploaderId) handleArtistClick(episode.uploaderId);
-                                  }}
-                                >
-                                  {hostName}
-                                  {uploaderProfile?.isVerified && <i className="fas fa-check-circle text-[#07E8F8] text-xs"></i>}
-                                  <span className="text-xs text-gray-500 ml-1">(Host)</span>
-                                </p>
-                              </div>
-
-                              <div className="flex items-center justify-between mt-3">
-                                <span className="text-[#B0B3B8] text-xs">{(episode as any).duration || '45:00'}</span>
-
-                                <div className="flex items-center gap-3">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleLike(String(episode.id), 'podcast');
-                                    }}
-                                    className="text-lg hover:scale-110 transition-transform flex items-center gap-1"
-                                    title="Like"
-                                  >
-                                    <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
-                                    <span className="text-xs text-[#B0B3B8]">{(episode.stats as any)?.likes || 0}</span>
-                                  </button>
-
-                                  {isAdmin && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteEpisode(String(episode.id));
-                                      }}
-                                      className="text-red-500 hover:text-red-400"
-                                      title="Delete"
-                                    >
-                                      <i className="fas fa-trash"></i>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                            ) : null}
+                            <p className="text-[#B0B3B8] text-sm truncate">{hostName}</p>
                           </div>
-
-                          {(episode as any).description && <p className="text-[#B0B3B8] text-sm mt-3 line-clamp-2">{(episode as any).description}</p>}
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[#B0B3B8] text-xs">{(episode as any).duration || '45:00'}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleLike(String(episode.id), 'podcast');
+                              }}
+                              className="text-sm"
+                            >
+                              <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart`}></i>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
                   })
                 ) : (
-                  <div className="col-span-3 text-center py-12">
+                  <div className="col-span-full text-center py-12">
                     <i className="fas fa-podcast text-5xl text-[#B0B3B8] mb-4"></i>
                     <p className="text-[#B0B3B8] text-lg">No podcasts found</p>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ALBUMS LIST VIEW */}
+        {view === 'albums' && !showLoading && (
+          <div className="space-y-8">
+            <div className="rounded-2xl bg-[#242526] p-6">
+              <h2 className="text-2xl font-bold text-white mb-6">Albums ({albums.length})</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {albums.length > 0 ? (
+                  albums.map((album) => (
+                    <div
+                      key={album.name}
+                      onClick={() => {
+                        setSelectedAlbum(album.name);
+                        setView('album');
+                      }}
+                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
+                    >
+                      <div className="relative aspect-square">
+                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
+                      </div>
+                      <div className="p-4">
+                        <h3 className="font-bold text-white line-clamp-1">{album.name}</h3>
+                        <p className="text-[#B0B3B8] text-sm mt-1 line-clamp-1">{album.artist}</p>
+                        <p className="text-[#888] text-xs mt-2">
+                          {album.totalTracks} song{album.totalTracks !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full text-center py-12">
+                    <i className="fas fa-compact-disc text-5xl text-[#B0B3B8] mb-4"></i>
+                    <p className="text-[#B0B3B8] text-lg">No albums found</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ALBUM DETAIL VIEW */}
+        {view === 'album' && selectedAlbumData && !showLoading && (
+          <div className="space-y-8">
+            <div className="bg-[#242526] rounded-2xl overflow-hidden">
+              <div className="relative p-6 bg-gradient-to-br from-[#0A7A52] to-[#065F46]">
+                <button
+                  onClick={() => setView('albums')}
+                  className="mb-4 w-10 h-10 rounded-full bg-black/20 hover:bg-black/30 flex items-center justify-center text-white"
+                >
+                  <i className="fas fa-arrow-left"></i>
+                </button>
+                <div className="flex items-center gap-4">
+                  <img
+                    src={selectedAlbumData.cover}
+                    alt={selectedAlbumData.name}
+                    className="w-28 h-28 rounded-xl object-cover shadow-xl"
+                  />
+                  <div className="min-w-0">
+                    <h1 className="text-3xl font-bold text-white line-clamp-2">{selectedAlbumData.name}</h1>
+                    <p className="text-white/80 mt-2">{selectedAlbumData.artist}</p>
+                    <p className="text-white/70 text-sm mt-1">
+                      {selectedAlbumData.totalTracks} song{selectedAlbumData.totalTracks !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 border-b border-[#333]">
+                <button
+                  onClick={() => selectedAlbumData.songs[0] && handlePlayTrackFromSong(selectedAlbumData.songs[0])}
+                  className="bg-[#1877F2] text-white px-6 py-3 rounded-full font-bold flex items-center gap-2"
+                >
+                  <i className="fas fa-play"></i> Play All ({selectedAlbumData.totalTracks})
+                </button>
+              </div>
+              <div className="divide-y divide-[#333]">
+                {selectedAlbumData.songs.map((song, index) => {
+                  const uploaderProfile = users.find((u) => u.id === song.uploaderId);
+                  const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
+                  return (
+                    <div
+                      key={song.id}
+                      onClick={() => handlePlayTrackFromSong(song)}
+                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] cursor-pointer transition-colors"
+                    >
+                      <div className="w-6 text-center text-[#B0B3B8] font-bold">{index + 1}</div>
+                      <img
+                        src={song.cover || DEFAULT_MUSIC_COVER}
+                        alt={song.title}
+                        className="w-12 h-12 rounded-lg object-cover"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-white text-sm truncate">{song.title}</div>
+                        <div className="text-xs text-[#888] truncate">{artistName}</div>
+                      </div>
+                      <span className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLike(String(song.id), 'music');
+                        }}
+                        className="text-lg hover:scale-110 transition-transform"
+                        title="Like"
+                      >
+                        <i className={`${isTrackLiked(String(song.id), 'music') ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -3138,7 +3270,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                                 <div className="text-xs text-[#888]">{item.artist || item.host}</div>
                               </div>
                             </div>
-                           </td>
+                          </td>
 
                           <td className="p-4">
                             <span className={`px-2 py-1 rounded text-xs ${item.host ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
@@ -3170,7 +3302,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                             </div>
                             <p className="text-lg">No uploads yet.</p>
                             <p className="text-sm">Start by clicking "Upload New Content" above.</p>
-                           </td>
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -3218,7 +3350,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                   <div className="mb-2">
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                       {selectedArtistUser.name}
-                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#07E8F8] text-sm"></i>}
+                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>}
                     </h1>
                     <p className="text-[#CCC] text-sm">{((selectedArtistUser as any).followers?.length || 0)} Followers</p>
                   </div>
@@ -3277,7 +3409,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
       </div>
-       {/* Upload Modal */}
+      {/* Upload Modal */}
       {showUploadModal && currentUser && (
         <AudioUploadModal
           currentUser={currentUser}
