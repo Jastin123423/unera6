@@ -7708,7 +7708,7 @@ return (
         onCreate={createStory}
       />
     )}
-    
+
      {currentAudioTrack && (
   <GlobalAudioPlayer
     currentTrack={currentAudioTrack}
@@ -7729,13 +7729,14 @@ return (
     isLiked={isPlayerLiked}
     ownerUser={resolveTrackOwner(currentAudioTrack)}
     currentUser={currentUser}
+    users={users}
     totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
     totalPlaysLoading={playsLoading}
     onStarted={onStarted}
-    reactionCount={currentAudioTrack ? trackReactions[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`]?.count || 0 : 0}
-    commentCount={currentAudioTrack ? trackComments[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0 : 0}
-    shareCount={currentAudioTrack ? trackShares[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0 : 0}
-    myReaction={currentAudioTrack ? trackReactions[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`]?.myReaction : undefined}
+    reactionCount={trackReactions[currentAudioTrack.id]?.count || 0}
+    commentCount={trackComments[currentAudioTrack.id] || 0}
+    shareCount={trackShares[currentAudioTrack.id] || 0}
+    myReaction={trackReactions[currentAudioTrack.id]?.myReaction}
     onReact={(track, type) => handleMusicReact(track, type)}
     onOpenComments={(track) => handleOpenMusicComments(track)}
     onShare={(track) => handleMusicShare(track)}
