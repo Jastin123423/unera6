@@ -2042,16 +2042,16 @@ export default function App() {
       [trackId]: (prev[trackId] || 0) + 1
     }));
   }, []);
-
-  // Handle share complete for music track
-  const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
-    if (data?.success && track) {
-      setTrackShares(prev => ({
-        ...prev,
-        [track.id]: (prev[track.id] || 0) + 1
-      }));
-    }
-  }, []);
+    // Handle share complete for music track
+const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
+  if (data?.success && track) {
+    const key = `${track.type}:${String(track.id)}`;
+    setTrackShares(prev => ({
+      ...prev,
+      [key]: (prev[key] || 0) + 1
+    }));
+  }
+}, []);
 
   // Incoming call polling effect
   useEffect(() => {
