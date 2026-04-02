@@ -90,27 +90,30 @@ const QuickActionCircle: React.FC<{ icon: string; label: string; onClick?: () =>
   </button>
 );
 
-const FeaturedBannerCard: React.FC<{ song: Song; artistName: string; onPlay: () => void; }> = ({ song, artistName, onPlay }) => (
-  <div onClick={onPlay} className="relative h-[220px] rounded-2xl overflow-hidden cursor-pointer border border-white/10">
-    <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="absolute inset-0 w-full h-full object-cover" />
-    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
-    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-    <div className="relative z-10 h-full flex items-end justify-between p-4">
-      <div className="max-w-[70%]">
-        <p className="text-[#1877F2] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
-        <h3 className="text-white text-2xl font-extrabold leading-tight line-clamp-2">{song.title}</h3>
-        <p className="text-white/80 mt-1 text-sm">{artistName}</p>
-        <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3 py-1.5 text-xs text-white">
-          <i className="fas fa-headphones"></i>
-          <span>{formatCompactNumber((song.stats as any)?.plays)} plays</span>
+const FeaturedBannerCard: React.FC<{ song: Song; artistName: string; onPlay: () => void; trackPlays?: Record<string, number>; }> = ({ song, artistName, onPlay, trackPlays }) => {
+  const playCount = trackPlays?.[`music:${song.id}`] || (song.stats as any)?.plays || 0;
+  return (
+    <div onClick={onPlay} className="relative h-[220px] rounded-2xl overflow-hidden cursor-pointer border border-white/10">
+      <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="absolute inset-0 w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent"></div>
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+      <div className="relative z-10 h-full flex items-end justify-between p-4">
+        <div className="max-w-[70%]">
+          <p className="text-[#1877F2] text-xs font-bold uppercase tracking-wider mb-2">Featured</p>
+          <h3 className="text-white text-2xl font-extrabold leading-tight line-clamp-2">{song.title}</h3>
+          <p className="text-white/80 mt-1 text-sm">{artistName}</p>
+          <div className="mt-3 inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3 py-1.5 text-xs text-white">
+            <i className="fas fa-headphones"></i>
+            <span>{formatCompactNumber(playCount)} plays</span>
+          </div>
+        </div>
+        <div className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
+          <i className="fas fa-play text-lg ml-1"></i>
         </div>
       </div>
-      <div className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center shadow-xl">
-        <i className="fas fa-play text-lg ml-1"></i>
-      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const MusicFeedCard: React.FC<{
   song: Song;
@@ -123,6 +126,7 @@ const MusicFeedCard: React.FC<{
   onPlay: () => void;
   onLike: () => void;
   onArtistClick?: () => void;
+  trackPlays?: Record<string, number>;
 }> = ({
   song,
   isLiked,
@@ -134,58 +138,62 @@ const MusicFeedCard: React.FC<{
   onPlay,
   onLike,
   onArtistClick,
-}) => (
-  <div className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start">
-    <div onClick={onPlay} className="group cursor-pointer">
-      <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
-        <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-        {badge ? (
-          <div className={`absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full font-bold ${badgeColor}`}>
-            {badge}
-          </div>
-        ) : null}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onLike();
-          }}
-          className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center"
-        >
-          <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
-        </button>
-        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
-          <div className="flex items-center justify-between text-white text-xs">
-            <span className="inline-flex items-center gap-1">
-              <i className="fas fa-headphones text-[10px]"></i>
-              {formatCompactNumber((song.stats as any)?.plays)}
-            </span>
-            <span>{(song as any).duration || '3:00'}</span>
+  trackPlays,
+}) => {
+  const playCount = trackPlays?.[`music:${song.id}`] || (song.stats as any)?.plays || 0;
+  return (
+    <div className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start">
+      <div onClick={onPlay} className="group cursor-pointer">
+        <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
+          <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          {badge ? (
+            <div className={`absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full font-bold ${badgeColor}`}>
+              {badge}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onLike();
+            }}
+            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center"
+          >
+            <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
+          </button>
+          <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
+            <div className="flex items-center justify-between text-white text-xs">
+              <span className="inline-flex items-center gap-1">
+                <i className="fas fa-headphones text-[10px]"></i>
+                {formatCompactNumber(playCount)}
+              </span>
+              <span>{(song as any).duration || '3:00'}</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="mt-2">
-        <h3 className="text-white text-[15px] font-semibold leading-tight line-clamp-1">{song.title}</h3>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onArtistClick?.();
-          }}
-          className="mt-1 flex items-center gap-2 max-w-full text-left"
-        >
-          {artistAvatar ? (
-            <img src={artistAvatar} alt={artistName} className="w-4 h-4 rounded-full object-cover" />
-          ) : null}
-          <span className="text-[#B8BCC7] text-sm truncate inline-flex items-center gap-1">
-            {artistName}
-            {verified ? <i className="fas fa-check-circle text-[#1877F2] text-[10px]"></i> : null}
-          </span>
-        </button>
+        <div className="mt-2">
+          <h3 className="text-white text-[15px] font-semibold leading-tight line-clamp-1">{song.title}</h3>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onArtistClick?.();
+            }}
+            className="mt-1 flex items-center gap-2 max-w-full text-left"
+          >
+            {artistAvatar ? (
+              <img src={artistAvatar} alt={artistName} className="w-4 h-4 rounded-full object-cover" />
+            ) : null}
+            <span className="text-[#B8BCC7] text-sm truncate inline-flex items-center gap-1">
+              {artistName}
+              {verified ? <i className="fas fa-check-circle text-[#1877F2] text-[10px]"></i> : null}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const HorizontalMusicRow: React.FC<{
   title: string;
@@ -197,6 +205,7 @@ const HorizontalMusicRow: React.FC<{
   onLikeSong: (id: string) => void;
   onArtistClick: (id: number) => void;
   badgeBuilder?: (song: Song, index: number) => { text?: string; className?: string };
+  trackPlays?: Record<string, number>;
 }> = ({
   title,
   subtitle,
@@ -207,6 +216,7 @@ const HorizontalMusicRow: React.FC<{
   onLikeSong,
   onArtistClick,
   badgeBuilder,
+  trackPlays,
 }) => {
   if (!songs.length) return null;
   return (
@@ -231,6 +241,7 @@ const HorizontalMusicRow: React.FC<{
               onPlay={() => onPlaySong(song)}
               onLike={() => onLikeSong(String(song.id))}
               onArtistClick={() => song.uploaderId && onArtistClick(song.uploaderId)}
+              trackPlays={trackPlays}
             />
           );
         })}
@@ -242,22 +253,6 @@ const HorizontalMusicRow: React.FC<{
 /* =========================================================
    REACTION BUTTON COMPONENT (with Spark icon - same as Feed.tsx)
 ========================================================= */
-
-const reactionEmoji = (t: string) => {
-  switch (t) {
-    case 'like': return '👍';
-    case 'love': return '❤️';
-    case 'haha': return '😂';
-    case 'wow': return '😮';
-    case 'sad': return '😢';
-    case 'angry': return '😡';
-    case 'fire': return '🔥';
-    case 'party': return '🎉';
-    case 'clap': return '👏';
-    case 'star': return '⭐';
-    default: return '👍';
-  }
-};
 
 const ReactionButton: React.FC<{
   currentUserReactions: ReactionType | undefined;
@@ -417,7 +412,7 @@ const ReactionButton: React.FC<{
 };
 
 /* =========================================================
-   COMMENTS SHEET MODAL
+   COMMENTS SHEET MODAL (Half-screen bottom sheet)
 ========================================================= */
 
 export const CommentsSheet: React.FC<{
@@ -508,123 +503,133 @@ export const CommentsSheet: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
-      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
-        <div className="flex items-center gap-3">
+    <div className="fixed inset-0 z-[9999] bg-black/50 flex items-end" onClick={onClose}>
+      <div 
+        className="w-full h-[72vh] bg-[#18191A] rounded-t-3xl flex flex-col overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div className="pt-3 pb-1 flex justify-center bg-[#242526]">
+          <div className="w-12 h-1.5 rounded-full bg-[#4B4C4F]"></div>
+        </div>
+
+        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+              onClick={onClose}
+              aria-label="Back"
+            >
+              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+            </button>
+            <div className="text-[#E4E6EB] font-bold text-[22px]">Discussions</div>
+          </div>
           <button
             type="button"
-            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+            className="text-[#1877F2] font-bold text-[17px] hover:underline"
             onClick={onClose}
-            aria-label="Back"
           >
-            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+            Done
           </button>
-          <div className="text-[#E4E6EB] font-bold text-[22px]">Discussions</div>
-        </div>
-        <button
-          type="button"
-          className="text-[#1877F2] font-bold text-[17px] hover:underline"
-          onClick={onClose}
-        >
-          Done
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="flex items-center gap-3 mb-6 p-3 bg-[#3A3B3C] rounded-xl">
-          <div className="w-12 h-12 rounded-lg overflow-hidden">
-            <img src={track.cover || DEFAULT_MUSIC_COVER} className="w-full h-full object-cover" alt="" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[#E4E6EB] font-bold text-[17px] truncate">{track.title}</div>
-            <div className="text-[#B0B3B8] text-[15px] truncate">{track.artist}</div>
-          </div>
         </div>
 
-        {loading ? (
-          <div className="text-center py-10">
-            <i className="fas fa-spinner fa-spin text-[#1877F2] text-2xl"></i>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex items-center gap-3 mb-6 p-3 bg-[#3A3B3C] rounded-xl">
+            <div className="w-12 h-12 rounded-lg overflow-hidden">
+              <img src={track.cover || DEFAULT_MUSIC_COVER} className="w-full h-full object-cover" alt="" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[#E4E6EB] font-bold text-[17px] truncate">{track.title}</div>
+              <div className="text-[#B0B3B8] text-[15px] truncate">{track.artist}</div>
+            </div>
           </div>
-        ) : comments.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
-            <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {comments.map((comment: any) => {
-              const author = users.find((u) => u.id === comment.user_id) || comment.user;
-              const authorName = author?.name || author?.username || 'User';
-              const authorAvatar = author?.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=1877F2&color=fff`;
-              
-              return (
-                <div key={comment.id} className="flex gap-3">
-                  <img
-                    src={authorAvatar}
-                    className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-                    alt=""
-                    onClick={() => author?.id && onProfileClick(author.id)}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
-                        onClick={() => author?.id && onProfileClick(author.id)}
-                      >
-                        {authorName}
-                      </span>
-                      <span className="text-[#B0B3B8] text-[14px]">
-                        • {formatRelativeTime(comment.created_at)}
-                      </span>
-                    </div>
-                    <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
-                      {comment.text}
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <button className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]">
-                        Like
-                      </button>
-                      <button className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]">
-                        Reply
-                      </button>
-                      {comment.likes_count > 0 && (
-                        <span className="text-[15px] text-[#B0B3B8]">
-                          {formatCompactNumber(comment.likes_count)} like{comment.likes_count !== 1 ? 's' : ''}
+
+          {loading ? (
+            <div className="text-center py-10">
+              <i className="fas fa-spinner fa-spin text-[#1877F2] text-2xl"></i>
+            </div>
+          ) : comments.length === 0 ? (
+            <div className="text-center py-10">
+              <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {comments.map((comment: any) => {
+                const author = users.find((u) => u.id === comment.user_id) || comment.user;
+                const authorName = author?.name || author?.username || 'User';
+                const authorAvatar = author?.profile_image_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=1877F2&color=fff`;
+                
+                return (
+                  <div key={comment.id} className="flex gap-3">
+                    <img
+                      src={authorAvatar}
+                      className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
+                      alt=""
+                      onClick={() => author?.id && onProfileClick(author.id)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
+                          onClick={() => author?.id && onProfileClick(author.id)}
+                        >
+                          {authorName}
                         </span>
-                      )}
+                        <span className="text-[#B0B3B8] text-[14px]">
+                          • {formatRelativeTime(comment.created_at)}
+                        </span>
+                      </div>
+                      <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
+                        {comment.text}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <button className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]">
+                          Like
+                        </button>
+                        <button className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]">
+                          Reply
+                        </button>
+                        {comment.likes_count > 0 && (
+                          <span className="text-[15px] text-[#B0B3B8]">
+                            {formatCompactNumber(comment.likes_count)} like{comment.likes_count !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-      <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
-        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
-              placeholder="Write a comment..."
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              disabled={!currentUser}
-            />
-          </div>
-          <button
-            type="submit"
-            className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
-            disabled={!text.trim() || submitting || !currentUser}
-          >
-            {submitting ? <i className="fas fa-spinner fa-spin"></i> : 'Post'}
-          </button>
-        </form>
-        {!currentUser && (
-          <p className="text-[#B0B3B8] text-sm text-center mt-2">Please login to comment</p>
-        )}
+        <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
+          <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
+                placeholder="Write a comment..."
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                disabled={!currentUser}
+              />
+            </div>
+            <button
+              type="submit"
+              className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
+              disabled={!text.trim() || submitting || !currentUser}
+            >
+              {submitting ? <i className="fas fa-spinner fa-spin"></i> : 'Post'}
+            </button>
+          </form>
+          {!currentUser && (
+            <p className="text-[#B0B3B8] text-sm text-center mt-2">Please login to comment</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -992,6 +997,7 @@ interface GlobalAudioPlayerProps {
   onOpenComments?: (track: AudioTrack) => void;
   onShare?: (track: AudioTrack) => void;
   currentUser?: User | null;
+  users?: User[];
 }
 
 export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
@@ -1018,10 +1024,13 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   onOpenComments,
   onShare,
   currentUser,
+  users = [],
 }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastUrlRef = useRef<string | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
@@ -1200,14 +1209,24 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   };
 
   const handleOpenComments = () => {
-    if (currentTrack && onOpenComments) {
-      onOpenComments(currentTrack);
+    if (!currentUser) {
+      alert('Please login to comment.');
+      return;
+    }
+    if (currentTrack) {
+      onOpenComments?.(currentTrack);
+      setShowComments(true);
     }
   };
 
   const handleShare = () => {
-    if (currentTrack && onShare) {
-      onShare(currentTrack);
+    if (!currentUser) {
+      alert('Please login to share.');
+      return;
+    }
+    if (currentTrack) {
+      onShare?.(currentTrack);
+      setShowShare(true);
     }
   };
 
@@ -1568,6 +1587,33 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           }
         `}</style>
       </div>
+
+      {/* Comments Sheet - Half-screen bottom sheet */}
+      {currentTrack && (
+        <CommentsSheet
+          isOpen={showComments}
+          onClose={() => setShowComments(false)}
+          track={currentTrack}
+          currentUser={currentUser || null}
+          users={users}
+          onProfileClick={(id) => onArtistClick?.(id)}
+          onCommentAdded={() => {
+            // Count sync handled by parent callback if needed
+          }}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {currentTrack && (
+        <ShareBottomSheet
+          isOpen={showShare}
+          onClose={() => setShowShare(false)}
+          track={currentTrack}
+          currentUser={currentUser || null}
+          users={users}
+          groups={[]}
+        />
+      )}
     </>
   );
 };
@@ -2179,6 +2225,13 @@ interface MusicSystemProps {
   isPlaying?: boolean;
   myTotalPlays?: number;
   playsLoading?: boolean;
+  trackPlays?: Record<string, number>;
+  reactionCounts?: Record<string, { count: number; myReaction?: ReactionType }>;
+  commentCounts?: Record<string, number>;
+  shareCounts?: Record<string, number>;
+  onReact?: (track: AudioTrack, type: ReactionType) => void;
+  onOpenComments?: (track: AudioTrack) => void;
+  onShare?: (track: AudioTrack) => void;
 }
 
 const MusicSystem: React.FC<MusicSystemProps> = ({ 
@@ -2194,7 +2247,14 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   currentTrack,
   isPlaying,
   myTotalPlays = 0,
-  playsLoading = false
+  playsLoading = false,
+  trackPlays = {},
+  reactionCounts = {},
+  commentCounts = {},
+  shareCounts = {},
+  onReact,
+  onOpenComments,
+  onShare,
 }) => {
   const [view, setView] = useState<'music' | 'podcasts' | 'dashboard' | 'artist' | 'albums' | 'album'>('music');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2212,11 +2272,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [downloads, setDownloads] = useState<string[]>([]);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
-  
-  // State for track reactions/comments/shares
-  const [trackReactions, setTrackReactions] = useState<Record<string, { count: number; myReaction?: ReactionType }>>({});
-  const [trackComments, setTrackComments] = useState<Record<string, number>>({});
-  const [trackShares, setTrackShares] = useState<Record<string, number>>({});
 
   const isAdmin = (currentUser as any)?.role === 'admin';
 
@@ -2356,22 +2411,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     }
   }, [currentUser, likedTracks, onToggleLike]);
 
-  const structuredData = useMemo(
-    () => ({
-      '@context': 'https://schema.org',
-      '@type': 'WebSite',
-      name: 'UNERA Music',
-      url: 'https://unera.social/music',
-      description: 'Stream and upload music on UNERA Social Platform',
-      publisher: {
-        '@type': 'Organization',
-        name: 'UNERA',
-        logo: 'https://unera.social/logo.png',
-      },
-    }),
-    []
-  );
-
   const fetchSongs = useCallback(async () => {
     setLoadingSongs(true);
     setError(null);
@@ -2460,81 +2499,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
     onPlayTrack(audioTrack);
   }, [users, onPlayTrack]);
-
-  // Handle React (like with emojis) for tracks
-  const handleReactToTrack = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
-    if (!currentUser) {
-      alert('Please login to react');
-      return;
-    }
-
-    const trackId = track.id;
-    const itemType = track.type;
-    const userId = (currentUser as any).id;
-
-    // Optimistic update
-    setTrackReactions(prev => {
-      const current = prev[trackId] || { count: 0, myReaction: undefined };
-      const isSameReaction = current.myReaction === reactionType;
-      const newCount = isSameReaction 
-        ? Math.max(0, current.count - 1)
-        : current.myReaction 
-          ? current.count // If changing reaction, count stays same (remove old, add new)
-          : current.count + 1;
-      const newMyReaction = isSameReaction ? undefined : reactionType;
-      
-      return {
-        ...prev,
-        [trackId]: { count: newCount, myReaction: newMyReaction }
-      };
-    });
-
-    try {
-      const result = await reactToItem(trackId, itemType, userId, reactionType);
-      
-      if (result.success) {
-        setTrackReactions(prev => ({
-          ...prev,
-          [trackId]: {
-            count: result.reactions_count || 0,
-            myReaction: result.my_reaction || undefined
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to react:', error);
-      // Revert optimistic update on error
-      setTrackReactions(prev => {
-        const current = prev[trackId];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [trackId]: {
-            count: current.count,
-            myReaction: current.myReaction === reactionType ? undefined : current.myReaction
-          }
-        };
-      });
-      alert('Failed to react. Please try again.');
-    }
-  }, [currentUser]);
-
-  // Handle comment count update
-  const handleCommentAdded = useCallback((trackId: string) => {
-    setTrackComments(prev => ({
-      ...prev,
-      [trackId]: (prev[trackId] || 0) + 1
-    }));
-  }, []);
-
-  // Handle share count update
-  const handleShareComplete = useCallback((trackId: string, data?: any) => {
-    const newCount = data?.shares_count || (trackShares[trackId] || 0) + 1;
-    setTrackShares(prev => ({
-      ...prev,
-      [trackId]: newCount
-    }));
-  }, [trackShares]);
 
   const handleArtistClick = (uploaderId: number) => {
     if (onProfileClick) onProfileClick(uploaderId);
@@ -2695,42 +2659,10 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
     } as any;
   }, [selectedArtistId, users, songs]);
 
-  useEffect(() => {
-    const schema = {
-      '@context': 'https://schema.org',
-      '@type': 'MusicGroup',
-      name: 'UNERA Music',
-      description: 'Stream and upload music on UNERA Social Platform',
-      url: typeof window !== 'undefined' ? window.location.href : 'https://unera.social/music',
-      track: songs.slice(0, 10).map((song) => ({
-        '@type': 'MusicRecording',
-        name: song.title,
-        byArtist: { '@type': 'MusicGroup', name: song.artist },
-        duration: typeof song.duration === 'string' ? song.duration : 'PT3M',
-        url: song.audioUrl,
-      })),
-    };
-
-    const existing = document.querySelector('script[type="application/ld+json"][data-unera-music="1"]');
-    if (existing) existing.remove();
-
-    const script = document.createElement('script');
-    script.type = 'application/ld+json';
-    script.setAttribute('data-unera-music', '1');
-    script.textContent = JSON.stringify(schema);
-    document.head.appendChild(script);
-
-    return () => {
-      script.remove();
-    };
-  }, [songs]);
-
   const showLoading = (view === 'music' && loadingSongs) || (view === 'podcasts' && loadingEpisodes);
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white font-sans">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
-
       {/* Navigation Tabs */}
       <div className="sticky top-14 bg-[#0A0A0A]/95 backdrop-blur-md z-30 px-4 py-4 border-b border-[#222] flex gap-6 overflow-x-auto scrollbar-hide">
         <button onClick={() => setView('music')} className={`cursor-pointer font-bold text-sm whitespace-nowrap ${view === 'music' ? 'text-[#1877F2]' : 'text-gray-400 hover:text-white'}`}>
@@ -2821,6 +2753,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       heroSong.artist
                     }
                     onPlay={() => handlePlayTrackFromSong(heroSong)}
+                    trackPlays={trackPlays}
                   />
                 </div>
               )}
@@ -2885,6 +2818,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     text: index === 0 ? 'HOT' : `#${index + 1}`,
                     className: index === 0 ? 'bg-[#FF7A00] text-white' : 'bg-black/65 text-white'
                   })}
+                  trackPlays={trackPlays}
                 />
                 <HorizontalMusicRow
                   title="Handpicked User Gems"
@@ -2899,6 +2833,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     text: 'GEM',
                     className: 'bg-[#8B5CF6] text-white'
                   })}
+                  trackPlays={trackPlays}
                 />
                 <HorizontalMusicRow
                   title="Best Picks"
@@ -2913,6 +2848,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     text: 'TOP',
                     className: 'bg-[#1877F2] text-white'
                   })}
+                  trackPlays={trackPlays}
                 />
                 <HorizontalMusicRow
                   title="Fresh Vibes Only"
@@ -2927,6 +2863,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     text: 'NEW',
                     className: 'bg-[#1877F2] text-white'
                   })}
+                  trackPlays={trackPlays}
                 />
               </>
             ) : (
@@ -2951,6 +2888,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                           onPlay={() => handlePlayTrackFromSong(song)}
                           onLike={() => toggleLike(String(song.id), 'music')}
                           onArtistClick={() => song.uploaderId && handleArtistClick(song.uploaderId)}
+                          trackPlays={trackPlays}
                         />
                       );
                     })
@@ -2973,6 +2911,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     const uploaderProfile = users.find((u) => u.id === song.uploaderId);
                     const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
                     const isCurrentTrack = currentTrack && currentTrack.type === 'music' && String(currentTrack.id) === String(song.id);
+                    const playCount = trackPlays[`music:${song.id}`] || (song.stats as any)?.plays || 0;
                     return (
                       <div
                         key={song.id}
@@ -2990,7 +2929,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                           <p className="text-[#9CA3AF] text-sm truncate">{artistName}</p>
                         </div>
                         <div className="text-[#9CA3AF] text-xs hidden sm:block">
-                          {formatCompactNumber((song.stats as any)?.plays)} plays
+                          {formatCompactNumber(playCount)} plays
                         </div>
                         <button
                           type="button"
@@ -3082,7 +3021,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           <div className="space-y-8">
             <div className="rounded-2xl bg-[#242526] p-6">
               <h2 className="text-2xl font-bold text-white mb-6">Albums ({albums.length})</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
                 {albums.length > 0 ? (
                   albums.map((album) => (
                     <div
@@ -3091,16 +3030,20 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                         setSelectedAlbum(album.name);
                         setView('album');
                       }}
-                      className="bg-[#3A3B3C] rounded-xl overflow-hidden hover:bg-[#4E4F50] transition-colors cursor-pointer group"
+                      className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start cursor-pointer group"
                     >
-                      <div className="relative aspect-square">
-                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors"></div>
+                      <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
+                        <img 
+                          src={album.cover} 
+                          alt={album.name} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
                       </div>
-                      <div className="p-4">
-                        <h3 className="font-bold text-white line-clamp-1">{album.name}</h3>
-                        <p className="text-[#B0B3B8] text-sm mt-1 line-clamp-1">{album.artist}</p>
-                        <p className="text-[#888] text-xs mt-2">
+                      <div className="mt-2">
+                        <h3 className="font-bold text-white text-[15px] line-clamp-1">{album.name}</h3>
+                        <p className="text-[#B8BCC7] text-sm mt-1 line-clamp-1">{album.artist}</p>
+                        <p className="text-[#888] text-xs mt-1">
                           {album.totalTracks} song{album.totalTracks !== 1 ? 's' : ''}
                         </p>
                       </div>
@@ -3117,11 +3060,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
           </div>
         )}
 
-        {/* ALBUM DETAIL VIEW */}
+        {/* ALBUM DETAIL VIEW - Dark theme, no green gradient */}
         {view === 'album' && selectedAlbumData && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl overflow-hidden">
-              <div className="relative p-6 bg-gradient-to-br from-[#0A7A52] to-[#065F46]">
+              <div className="relative p-6 bg-gradient-to-br from-[#1a1a2e] to-[#0a0a0f]">
                 <button
                   onClick={() => setView('albums')}
                   className="mb-4 w-10 h-10 rounded-full bg-black/20 hover:bg-black/30 flex items-center justify-center text-white"
@@ -3260,39 +3203,42 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                     </thead>
 
                     <tbody className="divide-y divide-[#333]">
-                      {[...songs.filter((s) => s.uploaderId === (currentUser as any).id), ...episodes.filter((e) => e.uploaderId === (currentUser as any).id)].map((item: any) => (
-                        <tr key={item.id} className="hover:bg-[#2A2A2A]">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <img src={item.cover || item.thumbnail || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
-                              <div>
-                                <div className="font-bold text-white text-sm">{item.title}</div>
-                                <div className="text-xs text-[#888]">{item.artist || item.host}</div>
+                      {[...songs.filter((s) => s.uploaderId === (currentUser as any).id), ...episodes.filter((e) => e.uploaderId === (currentUser as any).id)].map((item: any) => {
+                        const playCount = trackPlays[`${item.host ? 'podcast' : 'music'}:${item.id}`] || (item.stats as any)?.plays || 0;
+                        return (
+                          <tr key={item.id} className="hover:bg-[#2A2A2A]">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <img src={item.cover || item.thumbnail || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
+                                <div>
+                                  <div className="font-bold text-white text-sm">{item.title}</div>
+                                  <div className="text-xs text-[#888]">{item.artist || item.host}</div>
+                                </div>
                               </div>
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="p-4">
-                            <span className={`px-2 py-1 rounded text-xs ${item.host ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                              {item.host ? 'Podcast' : 'Music'}
-                            </span>
-                          </td>
+                            <td className="p-4">
+                              <span className={`px-2 py-1 rounded text-xs ${item.host ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                {item.host ? 'Podcast' : 'Music'}
+                              </span>
+                            </td>
 
-                          <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.plays || 0}</td>
-                          
-                          <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.likes || 0}</td>
+                            <td className="p-4 text-right font-bold text-sm">{formatCompactNumber(playCount)}</td>
+                            
+                            <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.likes || 0}</td>
 
-                          <td className="p-4 text-right">
-                            <button
-                              onClick={() => (item.host ? deleteEpisode(String(item.id)) : deleteSong(String(item.id)))}
-                              className="text-red-500 hover:text-red-400 p-2"
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash-alt"></i>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            <td className="p-4 text-right">
+                              <button
+                                onClick={() => (item.host ? deleteEpisode(String(item.id)) : deleteSong(String(item.id)))}
+                                className="text-red-500 hover:text-red-400 p-2"
+                                title="Delete"
+                              >
+                                <i className="fas fa-trash-alt"></i>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
 
                       {songs.filter((s) => s.uploaderId === (currentUser as any).id).length === 0 && episodes.filter((e) => e.uploaderId === (currentUser as any).id).length === 0 && (
                         <tr>
@@ -3366,6 +3312,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                       .slice(0, 5)
                       .map((song, i) => {
                         const isLiked = isTrackLiked(String(song.id), 'music');
+                        const playCount = trackPlays[`music:${song.id}`] || (song.stats as any)?.plays || 0;
                         return (
                           <div
                             key={song.id}
@@ -3381,7 +3328,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
                             <div className="flex-1">
                               <div className="font-bold text-white text-sm">{song.title}</div>
-                              <div className="text-xs text-[#888]">{(song.stats as any)?.plays || 0} plays</div>
+                              <div className="text-xs text-[#888]">{formatCompactNumber(playCount)} plays</div>
                             </div>
 
                             <div className="flex items-center gap-3">
