@@ -7172,7 +7172,8 @@ return (
             followLoading={followLoading}
           />
         )}
-       {view === 'music' && (
+
+        {view === 'music' && (
   <MusicSystem
     currentUser={currentUser}
     onPlayTrack={onPlayTrack}
@@ -7187,6 +7188,7 @@ return (
     isPlaying={isAudioPlaying}
     myTotalPlays={currentUser?.id ? myTotalPlays : 0}
     playsLoading={playsLoading}
+    trackPlays={trackPlays}
     reactionCounts={trackReactions}
     commentCounts={trackComments}
     shareCounts={trackShares}
