@@ -1580,28 +1580,33 @@ export default function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [chats, setChats] = useState<any[]>([]);
 
-  const [songs, setSongs] = useState<Song[]>([]);
-  
-  const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
+ const [songs, setSongs] = useState<Song[]>([]);
 
-  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
-  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
-   const [showStoryFeeds, setShowStoryFeeds] = useState(false);
-   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
-        
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
-  const [view, setView] = useState<View>('home');
-  const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
-  // Navigation history state
-  const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
+const [showStoryFeeds, setShowStoryFeeds] = useState(false);
+const [selectedStory, setSelectedStory] = useState<Story | null>(null);
 
-  const openStoryFeeds = (story: Story) => {
+const [currentUser, setCurrentUser] = useState<User | null>(null);
+const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+const [view, setView] = useState<View>('home');
+const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+
+// Navigation history state
+const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
+
+const openStoryFeeds = (story: Story) => {
   setSelectedStory(story);
   setShowStoryFeeds(true);
 };
+
+const closeStoryFeeds = () => {
+  setShowStoryFeeds(false);
+  setSelectedStory(null);
+}; 
 
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
