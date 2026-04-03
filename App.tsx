@@ -6818,9 +6818,7 @@ return (
               </div>
             )}
 
-            <StoryReel
-              stories={orderedStories}
-            <StoryReel
+           <StoryReel
   stories={orderedStories}
   onProfileClick={(id) => openProfile(id)}
   onCreateStory={() => {
@@ -6839,7 +6837,8 @@ return (
   onToggleMute={() => setStoryMuted(!storyMuted)}
   muted={storyMuted}
 />
-
+              
+            
             {currentUser && (
               <CreatePost
                 currentUser={currentUser}
