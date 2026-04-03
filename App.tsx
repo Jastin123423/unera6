@@ -7817,13 +7817,12 @@ return (
         onSendMessage={handleSendMessage}
       />
     )}
-
-    {showStoryFeeds && selectedStory && (
+  {view === 'story-feed' && (
   <StoryFeeds
     stories={orderedStories}
-    initialStory={selectedStory}
+    initialStory={orderedStories?.[0] || null}
     currentUser={currentUser}
-    onClose={closeStoryFeeds}
+    onClose={() => navigateTo('home')}
     onProfileClick={(id) => openProfile(id)}
     onReply={replyToStory}
     onLike={likeStory}
@@ -7839,6 +7838,7 @@ return (
   />
 )}
 
+    
     {isChatsListOpen && currentUser && (
       <ChatsList
         currentUser={currentUser}
