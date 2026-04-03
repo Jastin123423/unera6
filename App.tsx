@@ -1568,19 +1568,19 @@ export default function App() {
   useLanguage();
 
   /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>([]);
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
-  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
+const [users, setUsers] = useState<User[]>([]);
+const [posts, setPosts] = useState<PostType[]>([]);
+const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
+const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+const [stories, setStories] = useState<Story[]>([]);
+const [reels, setReels] = useState<Reel[]>([]);
+const [products, setProducts] = useState<Product[]>([]);
+const [groups, setGroups] = useState<Group[]>([]);
+const [brands, setBrands] = useState<Brand[]>([]);
+const [events, setEvents] = useState<Event[]>([]);
+const [chats, setChats] = useState<any[]>([]);
 
- const [songs, setSongs] = useState<Song[]>([]);
+const [songs, setSongs] = useState<Song[]>([]);
 
 const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
@@ -1606,7 +1606,7 @@ const openStoryFeeds = (story: Story) => {
 const closeStoryFeeds = () => {
   setShowStoryFeeds(false);
   setSelectedStory(null);
-}; 
+};
 
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
