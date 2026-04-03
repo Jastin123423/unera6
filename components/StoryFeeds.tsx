@@ -1,13 +1,6 @@
-// StoryFeeds.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import {
-  StoryViewer,
-  StoryType,
-  User,
-  StoryViewer as StoryViewerType,
-} from './Story';
+import { StoryViewer, type StoryType, type User, type StoryViewer as StoryViewerType } from './Story';
 
-// -------------------- HELPERS --------------------
 const safeText = (v: any): string => String(v ?? '').trim();
 
 const parseServerTime = (value?: string): number => {
@@ -55,23 +48,23 @@ const getDefaultProfilePicture = (name: string, userId: number): string => {
 };
 
 const buildStoryUser = (story: StoryType): User => {
-  const uid = Number(story.user?.id ?? story.user_id ?? 0);
+  const uid = Number((story as any).user?.id ?? story.user_id ?? 0);
   const name = pickBestName(
-    story.user?.name,
+    (story as any).user?.name,
     (story as any).author_name,
-    (story as any).username,
+    (story as any).author_username,
     'User'
   );
 
   const username = pickBestName(
-    story.user?.username,
-    (story as any).author_name,
+    (story as any).user?.username,
+    (story as any).author_username,
     name.toLowerCase().replace(/\s+/g, '_')
   );
 
   const profile_image_url =
     pickBestImage(
-      story.user?.profile_image_url,
+      (story as any).user?.profile_image_url,
       (story as any).author_image
     ) || getDefaultProfilePicture(name, uid);
 
@@ -79,27 +72,26 @@ const buildStoryUser = (story: StoryType): User => {
     id: uid,
     username,
     name,
-    email: story.user?.email || '',
+    email: '',
     profile_image_url,
-    cover_image_url: story.user?.cover_image_url || '',
-    followers: Array.isArray(story.user?.followers) ? story.user!.followers : [],
-    following: Array.isArray(story.user?.following) ? story.user!.following : [],
-    is_verified: !!story.user?.is_verified,
-    role: story.user?.role || 'user',
-    is_online: !!story.user?.is_online,
-    location: story.user?.location || '',
-    bio: story.user?.bio || '',
-    created_at: story.user?.created_at || null,
+    cover_image_url: '',
+    followers: Array.isArray((story as any).user?.followers) ? (story as any).user.followers : [],
+    following: Array.isArray((story as any).user?.following) ? (story as any).user.following : [],
+    is_verified: !!(story as any).user?.is_verified,
+    role: (story as any).user?.role || 'user',
+    is_online: !!(story as any).user?.is_online,
+    location: (story as any).user?.location || '',
+    bio: (story as any).user?.bio || '',
+    created_at: (story as any).user?.created_at || null,
   };
 };
 
-// -------------------- TYPES --------------------
-export interface StoryGroup {
+type StoryGroup = {
   user_id: number;
   user: User;
   stories: StoryType[];
   latest_created_at: string;
-}
+};
 
 interface StoryFeedsProps {
   stories: StoryType[];
@@ -107,24 +99,19 @@ interface StoryFeedsProps {
   currentUser: User | null;
   onClose: () => void;
   onProfileClick: (id: number) => void;
-
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
-
   onFollow?: (userId: number) => void;
   checkIsFollowing?: (userId: number) => boolean;
   followLoading?: { [key: number]: boolean };
-
   onFetchViewers?: (storyId: number) => Promise<StoryViewerType[]>;
   muted?: boolean;
   onToggleMute?: () => void;
-
   onDeleteStory?: (storyId: number) => Promise<void> | void;
   deleteLoading?: boolean;
 }
 
-// -------------------- GROUPING --------------------
 const groupStoriesByUser = (stories: StoryType[]): StoryGroup[] => {
   const map = new Map<number, StoryGroup>();
 
@@ -163,7 +150,6 @@ const groupStoriesByUser = (stories: StoryType[]): StoryGroup[] => {
     );
 };
 
-// -------------------- COMPONENT --------------------
 const StoryFeeds: React.FC<StoryFeedsProps> = ({
   stories,
   initialStory,
@@ -183,34 +169,41 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
 }) => {
   const storyGroups = useMemo(() => groupStoriesByUser(stories), [stories]);
 
-  const [userIndex, setUserIndex] = useState(0);
-  const [storyIndex, setStoryIndex] = useState(0);
+  const initialUserIndex = useMemo(() => {
+    const idx = storyGroups.findIndex((g) => Number(g.user_id) === Number(initialStory.user_id));
+    return idx >= 0 ? idx : 0;
+  }, [storyGroups, initialStory.user_id]);
+
+  const initialStoryIndex = useMemo(() => {
+    const group = storyGroups[initialUserIndex];
+    if (!group) return 0;
+    const idx = group.stories.findIndex((s) => Number(s.id) === Number(initialStory.id));
+    return idx >= 0 ? idx : 0;
+  }, [storyGroups, initialUserIndex, initialStory.id]);
+
+  const [userIndex, setUserIndex] = useState(initialUserIndex);
+  const [storyIndex, setStoryIndex] = useState(initialStoryIndex);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const navLockRef = useRef(0);
 
-  const activeGroup = storyGroups[userIndex];
-  const activeStory = activeGroup?.stories?.[storyIndex] || null;
-
-  // -------------------- INITIAL POSITION --------------------
   useEffect(() => {
-    if (!storyGroups.length || !initialStory) return;
+    setUserIndex(initialUserIndex);
+    setStoryIndex(initialStoryIndex);
+  }, [initialUserIndex, initialStoryIndex]);
 
-    const foundUserIndex = storyGroups.findIndex(
-      (g) => Number(g.user_id) === Number(initialStory.user_id)
-    );
+  const activeGroup = storyGroups[userIndex] || null;
 
-    const uIndex = foundUserIndex >= 0 ? foundUserIndex : 0;
-    setUserIndex(uIndex);
-
-    const foundStoryIndex = storyGroups[uIndex]?.stories?.findIndex(
+  // ✅ IMPORTANT fallback prevents blank screen
+  const activeStory =
+    activeGroup?.stories?.[storyIndex] ||
+    storyGroups.find((g) => Number(g.user_id) === Number(initialStory.user_id))?.stories?.find(
       (s) => Number(s.id) === Number(initialStory.id)
-    );
+    ) ||
+    initialStory;
 
-    setStoryIndex(foundStoryIndex >= 0 ? foundStoryIndex : 0);
-  }, [storyGroups, initialStory]);
+  const activeUser = activeGroup?.user || buildStoryUser(activeStory);
 
-  // -------------------- NAV LOCK --------------------
   const canNavigate = () => {
     const now = Date.now();
     if (now - navLockRef.current < 450) return false;
@@ -218,11 +211,13 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
     return true;
   };
 
-  // -------------------- HORIZONTAL: SAME USER --------------------
   const goNextStory = useCallback(() => {
-    if (!activeGroup || !canNavigate()) return;
+    if (!canNavigate()) return;
 
-    if (storyIndex < activeGroup.stories.length - 1) {
+    const currentGroup = storyGroups[userIndex];
+    if (!currentGroup) return;
+
+    if (storyIndex < currentGroup.stories.length - 1) {
       setStoryIndex((prev) => prev + 1);
       return;
     }
@@ -234,10 +229,13 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
     }
 
     onClose();
-  }, [activeGroup, storyIndex, userIndex, storyGroups.length, onClose]);
+  }, [storyGroups, userIndex, storyIndex, onClose]);
 
   const goPrevStory = useCallback(() => {
-    if (!activeGroup || !canNavigate()) return;
+    if (!canNavigate()) return;
+
+    const currentGroup = storyGroups[userIndex];
+    if (!currentGroup) return;
 
     if (storyIndex > 0) {
       setStoryIndex((prev) => prev - 1);
@@ -248,14 +246,13 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
       const prevUserIndex = userIndex - 1;
       const prevGroup = storyGroups[prevUserIndex];
       setUserIndex(prevUserIndex);
-      setStoryIndex(Math.max(0, prevGroup.stories.length - 1));
+      setStoryIndex(Math.max(0, (prevGroup?.stories?.length || 1) - 1));
       return;
     }
 
     onClose();
-  }, [activeGroup, storyIndex, userIndex, storyGroups, onClose]);
+  }, [storyGroups, userIndex, storyIndex, onClose]);
 
-  // -------------------- VERTICAL: OTHER USER --------------------
   const goNextUser = useCallback(() => {
     if (!canNavigate()) return;
     if (userIndex < storyGroups.length - 1) {
@@ -272,7 +269,6 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
     }
   }, [userIndex]);
 
-  // -------------------- TOUCH --------------------
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY };
@@ -284,28 +280,24 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
     const t = e.changedTouches[0];
     const dx = t.clientX - touchStartRef.current.x;
     const dy = t.clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
 
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
     const THRESHOLD = 45;
 
-    touchStartRef.current = null;
-
     if (absX < THRESHOLD && absY < THRESHOLD) return;
 
-    // vertical swipe -> switch user
     if (absY > absX) {
       if (dy < 0) goNextUser();
       else goPrevUser();
       return;
     }
 
-    // horizontal swipe -> same user next/prev story
     if (dx < 0) goNextStory();
     else goPrevStory();
   };
 
-  // -------------------- KEYBOARD --------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       switch (e.key) {
@@ -337,12 +329,8 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [goPrevUser, goNextUser, goPrevStory, goNextStory, onClose]);
 
-  if (!activeStory || !activeGroup) return null;
-
   const isFollowing =
-    activeGroup.user.id && checkIsFollowing
-      ? checkIsFollowing(Number(activeGroup.user.id))
-      : false;
+    activeUser.id && checkIsFollowing ? checkIsFollowing(Number(activeUser.id)) : false;
 
   return (
     <div
@@ -350,26 +338,27 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      {/* vertical user indicator */}
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 z-[400] flex flex-col gap-2">
-        {storyGroups.map((group, idx) => (
-          <button
-            key={group.user_id}
-            onClick={() => {
-              setUserIndex(idx);
-              setStoryIndex(0);
-            }}
-            className={`w-2.5 rounded-full transition-all ${
-              idx === userIndex ? 'h-8 bg-white' : 'h-2.5 bg-white/35'
-            }`}
-            aria-label={`Open ${group.user.name} stories`}
-          />
-        ))}
-      </div>
+      {storyGroups.length > 1 && (
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-[400] flex flex-col gap-2">
+          {storyGroups.map((group, idx) => (
+            <button
+              key={group.user_id}
+              onClick={() => {
+                setUserIndex(idx);
+                setStoryIndex(0);
+              }}
+              className={`w-2.5 rounded-full transition-all ${
+                idx === userIndex ? 'h-8 bg-white' : 'h-2.5 bg-white/35'
+              }`}
+              aria-label={`Open ${group.user.name} stories`}
+            />
+          ))}
+        </div>
+      )}
 
       <StoryViewer
         story={activeStory}
-        user={activeGroup.user}
+        user={activeUser}
         currentUser={currentUser}
         onClose={onClose}
         onNext={goNextStory}
@@ -379,7 +368,7 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
         onReaction={onReaction}
         onFollow={onFollow}
         isFollowing={isFollowing}
-        allStories={activeGroup.stories}
+        allStories={activeGroup?.stories || [activeStory]}
         onFetchViewers={onFetchViewers}
         viewersCount={activeStory.views_count || 0}
         onProfileClick={onProfileClick}
@@ -388,11 +377,6 @@ const StoryFeeds: React.FC<StoryFeedsProps> = ({
         onDeleteStory={onDeleteStory}
         deleteLoading={deleteLoading}
       />
-
-      {/* small hint */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[400] px-3 py-1.5 rounded-full bg-black/35 text-white/70 text-[11px] font-bold backdrop-blur-md">
-        Swipe up/down for users • left/right for stories
-      </div>
     </div>
   );
 };
