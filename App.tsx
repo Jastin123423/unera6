@@ -6820,23 +6820,25 @@ return (
 
             <StoryReel
               stories={orderedStories}
-              onProfileClick={(id) => openProfile(id)}
-              onCreateStory={() => {
-                if (!requireAuth('Creating stories')) return;
-                setShowCreateStoryModal(true);
-              }}
-              onViewStory={openStoryViewer}
-              currentUser={currentUser}
-              onRequestLogin={() => setView('login')}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-              onFetchViewers={fetchStoryViewers}
-              onReaction={reactToStory}
-              onReply={replyToStory}
-              onToggleMute={() => setStoryMuted(!storyMuted)}
-              muted={storyMuted}
-            />
+            <StoryReel
+  stories={orderedStories}
+  onProfileClick={(id) => openProfile(id)}
+  onCreateStory={() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }}
+  onViewStory={openStoryFeeds}
+  currentUser={currentUser}
+  onRequestLogin={() => setView('login')}
+  onFollow={followUser}
+  checkIsFollowing={checkIsFollowing}
+  followLoading={followLoading}
+  onFetchViewers={fetchStoryViewers}
+  onReaction={reactToStory}
+  onReply={replyToStory}
+  onToggleMute={() => setStoryMuted(!storyMuted)}
+  muted={storyMuted}
+/>
 
             {currentUser && (
               <CreatePost
