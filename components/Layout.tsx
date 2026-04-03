@@ -46,6 +46,7 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
     { id: 'reels', title: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F' },
     { id: 'birthdays', title: 'Birthdays', icon: 'fas fa-birthday-cake', color: '#F7B928' },
     { id: 'memories', title: 'Memories', icon: 'fas fa-history', color: '#1877F2' },
+    { id: 'story-feed', title: 'Story Feed', icon: 'fas fa-layer-group', color: '#45BD62' },
     { id: 'notifications', title: 'Notifications', icon: 'fas fa-bell', color: '#E41E3F' },
     { id: 'ads', title: 'Ad Dashboard', icon: 'fas fa-chart-line', color: '#10B981' },
   ];
@@ -157,6 +158,7 @@ interface HeaderProps {
   onMarketplaceClick: () => void;
   onGroupsClick: () => void;
   onAdsClick: () => void;
+  onStoryFeedClick?: () => void;
   currentUser: User | null;
   notifications: Notification[];
   users: User[];
@@ -175,6 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
   onMarketplaceClick,
   onGroupsClick,
   onAdsClick,
+  onStoryFeedClick,
   currentUser,
   notifications,
   users,
@@ -304,23 +307,23 @@ export const Header: React.FC<HeaderProps> = ({
         @keyframes uneraEarthGlow {
           0%, 100% {
             box-shadow:
-              0 0 8px rgba(29, 138, 242, 0.35),
-              0 0 16px rgba(24, 119, 242, 0.24),
-              inset -6px -6px 10px rgba(0, 0, 0, 0.30),
-              inset 5px 5px 8px rgba(255, 255, 255, 0.08);
+              0 0 10px rgba(29, 138, 242, 0.4),
+              0 0 20px rgba(24, 119, 242, 0.28),
+              inset -8px -8px 12px rgba(0, 0, 0, 0.32),
+              inset 6px 6px 10px rgba(255, 255, 255, 0.08);
           }
           50% {
             box-shadow:
-              0 0 12px rgba(29, 138, 242, 0.5),
-              0 0 22px rgba(24, 119, 242, 0.30),
-              inset -7px -7px 12px rgba(0, 0, 0, 0.34),
-              inset 6px 6px 10px rgba(255, 255, 255, 0.10);
+              0 0 16px rgba(29, 138, 242, 0.55),
+              0 0 28px rgba(24, 119, 242, 0.35),
+              inset -9px -9px 14px rgba(0, 0, 0, 0.36),
+              inset 7px 7px 12px rgba(255, 255, 255, 0.10);
           }
         }
 
         .unera-earth-scene {
-          width: 30px;
-          height: 30px;
+          width: 38px;
+          height: 38px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -329,32 +332,32 @@ export const Header: React.FC<HeaderProps> = ({
         }
 
         .unera-earth-globe {
-          width: 30px;
-          height: 30px;
+          width: 38px;
+          height: 38px;
           position: relative;
           border-radius: 9999px;
           overflow: hidden;
           background:
-            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.8) 0%, rgba(61, 174, 255, 0.28) 16%, transparent 30%),
+            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.85) 0%, rgba(61, 174, 255, 0.32) 16%, transparent 30%),
             radial-gradient(circle at 48% 46%, #0d56c7 0%, #0a3ea4 44%, #062b7d 70%, #031d58 100%);
-          border: 1px solid rgba(163, 227, 255, 0.55);
+          border: 1.5px solid rgba(163, 227, 255, 0.6);
           animation: uneraEarthGlow 4s ease-in-out infinite;
         }
 
         .unera-earth-map {
           position: absolute;
-          inset: -6% -20%;
-          width: 248%;
-          height: 112%;
+          inset: -8% -28%;
+          width: 280%;
+          height: 116%;
           background-repeat: repeat-x;
           background-size: 50% 100%;
           background-position: 0 0;
-          animation: uneraEarthRotate 9s linear infinite;
-          opacity: 1;
-          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 400'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2377d7ff'/><stop offset='45%' stop-color='%231D8AF2'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2396e3ff'/><stop offset='100%' stop-color='%231D8AF2'/></linearGradient></defs><g fill='url(%23g1)'><path d='M48 150l28-34 40-15 29 7 20 23-4 27-24 20-37 7-27-9-10-26z'/><path d='M118 192l24-9 28 10 13 19-14 28-20 25-11 39-16 24-22-10-4-28 9-27 13-21-10-19z'/><path d='M204 84l26-18 37-3 31 8 22 17-8 28-23 10-24-3-28 8-28-8-16-18z'/><path d='M254 122l28-8 22 10 12 23 22 8 27 14 18 18-8 18-27 10-17 19-26 4-18-9 2-18-13-18 0-22z'/><path d='M340 196l18 8 21 18 5 21-12 20-18 7-18-4-10-18 3-20z'/><path d='M368 82l36-14 40 4 32 17 7 27-17 19-37 6-30 13-39-7-13-26 10-22z'/><path d='M434 134l24-8 25 8 17-4 27 15 14 24-5 28-15 21-24 6-12-12-11-18-26-10-9-20z'/><path d='M514 94l27-10 32 3 23 13 5 21-16 14-24 1-22 11-26-4-11-19 5-20z'/><path d='M572 127l18 7 23-4 27 8 11 16-6 13-28 3-24 10-17-10-6-19z'/><path d='M604 184l20 6 16 18-4 25-11 19-6 30-18 10-18-8-2-31 7-22 9-18z'/><path d='M693 257l18-5 12 12-2 17-13 11-14-5-4-15z'/></g><g fill='url(%23g2)' opacity='0.98'><path d='M204 84l26-18 37-3 31 8 22 17-8 28-23 10-24-3-28 8-28-8-16-18z'/><path d='M368 82l36-14 40 4 32 17 7 27-17 19-37 6-30 13-39-7-13-26 10-22z'/><path d='M514 94l27-10 32 3 23 13 5 21-16 14-24 1-22 11-26-4-11-19 5-20z'/></g></svg>");
+          animation: uneraEarthRotate 12s linear infinite;
+          opacity: 0.95;
+          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 500'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2388e0ff'/><stop offset='45%' stop-color='%232d9eff'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23a0e8ff'/><stop offset='100%' stop-color='%232d9eff'/></linearGradient></defs><g fill='url(%23g1)'><path d='M68 180l32-38 48-18 36 9 26 28-5 32-30 24-44 8-32-10-12-30-5-5z'/><path d='M158 240l28-10 32 12 16 22-16 34-24 30-13 48-18 28-26-12-5-34 10-32 16-26-12-24z'/><path d='M264 110l32-22 46-4 38 10 28 22-10 34-28 12-30-4-34 10-34-10-20-22-4-12z'/><path d='M328 158l34-10 28 12 16 28 28 10 34 18 22 22-10 22-34 12-22 24-32 5-22-12 2-22-16-22-2-28z'/><path d='M440 252l22 10 26 22 6 26-15 24-22 9-22-5-12-22 4-24z'/><path d='M476 108l44-16 50 5 40 20 10 34-22 24-46 8-36 16-48-8-16-34 12-28-8-8z'/><path d='M562 172l30-10 30 10 22-5 34 18 18 30-6 34-18 26-30 8-15-15-14-22-32-12-10-24-4-8z'/><path d='M664 122l34-12 40 4 28 16 6 26-20 18-30 2-28 14-32-5-14-24 6-26-4-8z'/><path d='M738 162l22 8 28-5 34 10 14 20-8 16-34 4-30 12-22-12-8-24-4-8z'/><path d='M778 236l24 8 20 22-5 30-14 24-8 36-22 12-22-10-4-38 8-28 12-22-4-8z'/><path d='M892 328l22-6 16 16-4 22-16 14-18-6-5-18-8-12z'/><path d='M68 280l18-12 32 8 24 18-8 28-22 18-28 6-24-12-6-24z'/><path d='M158 340l24-8 28 14 12 22-10 26-18 22-28 8-20-12-6-28 8-24z'/><path d='M264 280l22-16 36-6 28 16-6 24-18 14-28 4-22-12-6-18z'/><path d='M346 360l18-10 24 8 18 18-10 24-16 12-22-4-12-18-4-18z'/></g><g fill='url(%23g2)' opacity='0.96'><path d='M264 110l32-22 46-4 38 10 28 22-10 34-28 12-30-4-34 10-34-10-20-22-4-12z'/><path d='M476 108l44-16 50 5 40 20 10 34-22 24-46 8-36 16-48-8-16-34 12-28-8-8z'/><path d='M664 122l34-12 40 4 28 16 6 26-20 18-30 2-28 14-32-5-14-24 6-26-4-8z'/></g></svg>");
           filter:
-            drop-shadow(0 0 1px rgba(160, 235, 255, 0.5))
-            drop-shadow(0 0 2px rgba(24, 119, 242, 0.22));
+            drop-shadow(0 0 2px rgba(160, 235, 255, 0.6))
+            drop-shadow(0 0 3px rgba(24, 119, 242, 0.28));
         }
 
         .unera-earth-lines {
@@ -362,9 +365,9 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           border-radius: 9999px;
           background:
-            linear-gradient(transparent 20%, rgba(110, 210, 255, 0.14) 22%, transparent 24%, transparent 46%, rgba(110, 210, 255, 0.10) 48%, transparent 50%, transparent 72%, rgba(110, 210, 255, 0.12) 74%, transparent 76%),
-            linear-gradient(90deg, transparent 24%, rgba(110, 210, 255, 0.08) 26%, transparent 28%, transparent 48%, rgba(110, 210, 255, 0.06) 50%, transparent 52%, transparent 72%, rgba(110, 210, 255, 0.06) 74%, transparent 76%);
-          opacity: 0.42;
+            linear-gradient(transparent 20%, rgba(110, 210, 255, 0.18) 22%, transparent 24%, transparent 46%, rgba(110, 210, 255, 0.14) 48%, transparent 50%, transparent 72%, rgba(110, 210, 255, 0.16) 74%, transparent 76%),
+            linear-gradient(90deg, transparent 24%, rgba(110, 210, 255, 0.12) 26%, transparent 28%, transparent 48%, rgba(110, 210, 255, 0.10) 50%, transparent 52%, transparent 72%, rgba(110, 210, 255, 0.12) 74%, transparent 76%);
+          opacity: 0.48;
           mix-blend-mode: screen;
           pointer-events: none;
         }
@@ -374,9 +377,9 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           border-radius: 9999px;
           background:
-            radial-gradient(circle at 30% 26%, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.10) 18%, transparent 32%),
-            radial-gradient(circle at 78% 58%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.24) 26%, transparent 54%),
-            linear-gradient(90deg, rgba(255,255,255,0.06) 0%, transparent 28%, transparent 65%, rgba(0,0,0,0.24) 100%);
+            radial-gradient(circle at 28% 24%, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.12) 18%, transparent 32%),
+            radial-gradient(circle at 76% 56%, rgba(0,0,0,0.48) 0%, rgba(0,0,0,0.28) 26%, transparent 54%),
+            linear-gradient(90deg, rgba(255,255,255,0.08) 0%, transparent 28%, transparent 65%, rgba(0,0,0,0.28) 100%);
           pointer-events: none;
         }
 
@@ -385,44 +388,44 @@ export const Header: React.FC<HeaderProps> = ({
           inset: 0;
           border-radius: 9999px;
           box-shadow:
-            inset 0 0 0 1px rgba(220, 248, 255, 0.24),
-            0 0 8px rgba(77, 190, 255, 0.24);
+            inset 0 0 0 1.5px rgba(220, 248, 255, 0.28),
+            0 0 10px rgba(77, 190, 255, 0.28);
           pointer-events: none;
         }
 
         @media (max-width: 639px) {
           .unera-earth-scene {
-            width: 34px;
-            height: 34px;
+            width: 42px;
+            height: 42px;
           }
 
           .unera-earth-globe {
-            width: 34px;
-            height: 34px;
+            width: 42px;
+            height: 42px;
           }
 
           .unera-earth-map {
-            inset: -7% -24%;
-            width: 258%;
-            height: 114%;
+            inset: -10% -32%;
+            width: 300%;
+            height: 120%;
           }
         }
 
         @media (min-width: 640px) {
           .unera-earth-scene {
-            width: 34px;
-            height: 34px;
+            width: 42px;
+            height: 42px;
           }
 
           .unera-earth-globe {
-            width: 34px;
-            height: 34px;
+            width: 42px;
+            height: 42px;
           }
 
           .unera-earth-map {
-            inset: -5% -18%;
-            width: 240%;
-            height: 110%;
+            inset: -8% -26%;
+            width: 260%;
+            height: 116%;
           }
         }
       `}</style>
@@ -488,6 +491,17 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <i className="fas fa-users text-[24px]"></i>
+          </div>
+
+          <div
+            onClick={onStoryFeedClick || (() => onNavigate('story-feed'))}
+            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
+              activeTab === 'story-feed'
+                ? 'border-[#45BD62] text-[#45BD62]'
+                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
+            }`}
+          >
+            <i className="fas fa-layer-group text-[24px]"></i>
           </div>
 
           <div
@@ -658,6 +672,7 @@ interface SidebarProps {
   onGroupsClick: () => void;
   onEventsClick: () => void;
   onAdsClick: () => void;
+  onStoryFeedClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -668,11 +683,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onGroupsClick,
   onEventsClick,
   onAdsClick,
+  onStoryFeedClick,
 }) => {
   const items = [
     { id: 'friends', label: 'Friends', icon: 'fas fa-user-friends', color: '#1877F2' },
     { id: 'memories', label: 'Memories', icon: 'fas fa-history', color: '#1877F2' },
     { id: 'saved', label: 'Saved', icon: 'fas fa-bookmark', color: '#B250B3' },
+    { id: 'story-feed', label: 'Story Feed', icon: 'fas fa-layer-group', color: '#45BD62', onClick: onStoryFeedClick },
     { id: 'groups', label: 'Groups', icon: 'fas fa-users', color: '#1877F2', onClick: onGroupsClick },
     { id: 'marketplace', label: 'Marketplace', icon: 'fas fa-store', color: '#1877F2', onClick: onMarketplaceClick },
     { id: 'reels', label: 'Reels', icon: 'fas fa-clapperboard', color: '#E41E3F', onClick: onReelsClick },
