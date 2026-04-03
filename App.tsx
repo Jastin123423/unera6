@@ -1598,6 +1598,11 @@ export default function App() {
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
+  const openStoryFeeds = (story: Story) => {
+  setSelectedStory(story);
+  setShowStoryFeeds(true);
+};
+
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
