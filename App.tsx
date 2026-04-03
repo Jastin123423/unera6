@@ -2554,16 +2554,6 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
     }
   }, [currentUser, requireAuth]);
 
-  const openStoryFeeds = (story: StoryType) => {
-  setSelectedStory(story);
-  setShowStoryFeeds(true);
-};
-
-const closeStoryFeeds = () => {
-  setShowStoryFeeds(false);
-  setSelectedStory(null);
-}; 
-
   const openStoryViewer = useCallback((story: Story) => {
     const id = Number(story?.id);
     if (!id) return;
