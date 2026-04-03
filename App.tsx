@@ -27,6 +27,7 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
+import type { StoryType } from './components/Story';
 import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
@@ -1566,31 +1567,40 @@ const shuffleArray = <T,>(arr: T[]): T[] => {
 export default function App() {
   useLanguage();
 
-  /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>([]);
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
-  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
+/** ---------- State ---------- */
+const [users, setUsers] = useState<User[]>([]);
+const [posts, setPosts] = useState<PostType[]>([]);
+const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
+const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
 
-  const [songs, setSongs] = useState<Song[]>([]);
-  
-  const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
+// ✅ FIXED: use StoryType (not Story)
+const [stories, setStories] = useState<StoryType[]>([]);
 
-  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
-  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+const [reels, setReels] = useState<Reel[]>([]);
+const [products, setProducts] = useState<Product[]>([]);
+const [groups, setGroups] = useState<Group[]>([]);
+const [brands, setBrands] = useState<Brand[]>([]);
+const [events, setEvents] = useState<Event[]>([]);
+const [chats, setChats] = useState<any[]>([]);
 
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
-  const [view, setView] = useState<View>('home');
-  const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+const [songs, setSongs] = useState<Song[]>([]);
 
+const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
+
+// ⚠️ OPTIONAL: can remove later if not used
+const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+
+const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+
+// ✅ StoryFeeds (NEW SYSTEM)
+const [showStoryFeeds, setShowStoryFeeds] = useState(false);
+const [selectedStory, setSelectedStory] = useState<StoryType | null>(null);
+
+const [currentUser, setCurrentUser] = useState<User | null>(null);
+const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+const [view, setView] = useState<View>('home');
+const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+        
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
