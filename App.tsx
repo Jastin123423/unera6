@@ -1588,6 +1588,9 @@ export default function App() {
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
+   const [showStoryFeeds, setShowStoryFeeds] = useState(false);
+   const [selectedStory, setSelectedStory] = useState<StoryType | null>(null);
+        
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
