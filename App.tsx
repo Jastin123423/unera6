@@ -2938,7 +2938,7 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
       const previousView = newHistory.pop() as View;
       
       setView(previousView);
-      if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(previousView)) {
+      if (['home', 'reels', 'marketplace', 'groups', 'brands', 'story-feed', 'music', 'events'].includes(previousView)) {
         setActiveTab(previousView as any);
       }
       
