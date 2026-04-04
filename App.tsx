@@ -6796,14 +6796,18 @@ return (
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+         
           <Sidebar
-            currentUser={currentUser}
-            onProfileClick={(id) => openProfile(id)}
-            onReelsClick={() => navigateTo('reels')}
-            onMarketplaceClick={() => navigateTo('marketplace')}
-            onGroupsClick={() => navigateTo('groups')}
-          />
-        </div>
+  currentUser={currentUser}
+  onProfileClick={(id) => openProfile(id)}
+  onReelsClick={() => navigateTo('reels')}
+  onMarketplaceClick={() => navigateTo('marketplace')}
+  onGroupsClick={() => navigateTo('groups')}
+  onEventsClick={() => navigateTo('events')}
+  onAdsClick={() => navigateTo('ads')}
+  onStoryFeedClick={() => handleNavigate('story-feed')}
+/>
+</div>
       )}
 
       <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
