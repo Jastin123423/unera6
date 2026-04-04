@@ -1425,6 +1425,7 @@ export type View =
   | 'login'
   | 'register'
   | 'recorder'
+  | 'story-feed'
   | 'notifications'
   | 'ads';
 
