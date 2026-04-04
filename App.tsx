@@ -6759,12 +6759,13 @@ const editPost = useCallback(
 // ============================================================================
 return (
   <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
-    <Header
+  <Header
       onHomeClick={() => handleNavigate('home')}
       onProfileClick={(id: number) => openProfile(id)}
       onReelsClick={() => navigateTo('reels')}
       onMarketplaceClick={() => navigateTo('marketplace')}
       onGroupsClick={() => navigateTo('groups')}
+      onStoryFeedClick={() => handleNavigate('story-feed')}
       onAdsClick={() => {
         if (!currentUser) {
           setLoginError('Please login to access ads dashboard.');
@@ -6791,7 +6792,7 @@ return (
       onBack={goBack}
       currentView={view}
     />
-
+    
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
