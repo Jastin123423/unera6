@@ -7823,12 +7823,12 @@ return (
         onSendMessage={handleSendMessage}
       />
     )}
-  {view === 'story-feed' && (
+{showStoryFeeds && selectedStory && (
   <StoryFeeds
     stories={orderedStories}
-    initialStory={orderedStories?.[0] || null}
+    initialStory={selectedStory}
     currentUser={currentUser}
-    onClose={() => navigateTo('home')}
+    onClose={closeStoryFeeds}
     onProfileClick={(id) => openProfile(id)}
     onReply={replyToStory}
     onLike={likeStory}
