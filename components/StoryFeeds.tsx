@@ -157,6 +157,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
   const [showMenu, setShowMenu] = useState(false);
   const [liked, setLiked] = useState(false);
   const [userReaction, setUserReaction] = useState<string | null>(null);
+  const [mediaFailed, setMediaFailed] = useState(false);
 
   const progressIntervalRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
@@ -169,6 +170,31 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
   const currentStoryIndex = useMemo(() => {
     return allStories.findIndex((s: any) => Number(s.id) === Number((story as any).id));
   }, [allStories, story]);
+
+  // ✅ FIXED: Media URL detection - matches backend thumb/feed/full structure
+  const mediaUrl = (story as any).full ||      // ✅ FULL IMAGE (your API)
+                   (story as any).feed ||      // fallback
+                   (story as any).thumb ||     // fallback
+                   (story as any).media_url || 
+                   (story as any).mediaUrl || 
+                   (story as any).image_url || 
+                   (story as any).video_url || 
+                   '';
+  
+  // ✅ FIXED: Type detection based on backend structure
+  const storyType = (story as any).type || 
+                    ((story as any).full?.includes('.mp4') ? 'video' : 
+                     (story as any).feed?.includes('.mp4') ? 'video' : 'image');
+  
+  const storyCaption = (story as any).caption || '';
+  const storyText = (story as any).text_content || (story as any).textContent || (story as any).caption || '';
+  const storyBg = (story as any).background_style || (story as any).backgroundStyle || 'linear-gradient(45deg, #1877F2, #0055FF)';
+  const storyCreatedAt = (story as any).created_at || (story as any).createdAt;
+
+  // Reset media failed when story changes
+  useEffect(() => {
+    setMediaFailed(false);
+  }, [story.id]);
 
   const canNavigate = () => {
     const now = Date.now();
@@ -187,7 +213,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
   const startProgress = useCallback(() => {
     stopProgress();
 
-    const isVideo = (story as any).type === 'video';
+    const isVideo = storyType === 'video';
     if (isVideo && videoRef.current) {
       const video = videoRef.current;
       const tick = () => {
@@ -214,7 +240,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         return prev + 1;
       });
     }, 50);
-  }, [story, paused, onNext]);
+  }, [storyType, paused, onNext]);
 
   useEffect(() => {
     setProgress(0);
@@ -291,14 +317,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
       onClose();
     }
   };
-
-  // Safe field access with fallbacks
-  const mediaUrl = (story as any).media_url || (story as any).mediaUrl || (story as any).image_url || (story as any).video_url || '';
-  const storyType = (story as any).type || (story as any).media_type || ((story as any).video_url ? 'video' : (story as any).text_content ? 'text' : 'image');
-  const storyCaption = (story as any).caption || '';
-  const storyText = (story as any).text_content || (story as any).textContent || (story as any).caption || '';
-  const storyBg = (story as any).background_style || (story as any).backgroundStyle || 'linear-gradient(45deg, #1877F2, #0055FF)';
-  const storyCreatedAt = (story as any).created_at || (story as any).createdAt;
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -423,6 +441,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             }}
             onError={() => {
               console.log('Story video failed to load:', mediaUrl);
+              setMediaFailed(true);
             }}
           />
         ) : storyType === 'text' ? (
@@ -437,27 +456,30 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
               <p className="text-white/50 text-xs mt-4">text story</p>
             </div>
           </div>
-        ) : mediaUrl ? (
+        ) : mediaUrl && !mediaFailed ? (
           <img
             src={mediaUrl}
             className="max-w-full max-h-full object-contain"
             alt=""
             onError={() => {
               console.log('Story image failed to load:', mediaUrl);
+              setMediaFailed(true);
             }}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#111] px-6">
             <div className="text-center max-w-[320px]">
               <p className="text-white text-lg font-bold">Story opened</p>
-              <p className="text-white/70 text-sm mt-2">No media found for this story</p>
+              <p className="text-white/70 text-sm mt-2">
+                {mediaFailed ? 'Story media failed to load' : 'No media found for this story'}
+              </p>
               <div className="mt-4 text-left bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white/70 space-y-1">
                 <div><span className="text-white">id:</span> {String((story as any)?.id || 'none')}</div>
                 <div><span className="text-white">type:</span> {String(storyType || 'none')}</div>
+                <div><span className="text-white">full:</span> {String((story as any)?.full || 'none')}</div>
+                <div><span className="text-white">feed:</span> {String((story as any)?.feed || 'none')}</div>
+                <div><span className="text-white">thumb:</span> {String((story as any)?.thumb || 'none')}</div>
                 <div><span className="text-white">media_url:</span> {String((story as any)?.media_url || 'none')}</div>
-                <div><span className="text-white">mediaUrl:</span> {String((story as any)?.mediaUrl || 'none')}</div>
-                <div><span className="text-white">image_url:</span> {String((story as any)?.image_url || 'none')}</div>
-                <div><span className="text-white">video_url:</span> {String((story as any)?.video_url || 'none')}</div>
                 <div><span className="text-white">text_content:</span> {String((story as any)?.text_content || 'none')}</div>
               </div>
             </div>
@@ -887,13 +909,10 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
         <div>activeGroup user_id: {String(activeGroup?.user_id || 'none')}</div>
         <div>activeStory id: {String((activeStory as any)?.id || 'none')}</div>
         <div>activeStory type: {String((activeStory as any)?.type || (activeStory as any)?.media_type || 'none')}</div>
-        <div>activeStory media: {String(
-          (activeStory as any)?.media_url || 
-          (activeStory as any)?.mediaUrl || 
-          (activeStory as any)?.image_url || 
-          (activeStory as any)?.video_url || 
-          'none'
-        )}</div>
+        <div>activeStory full: {String((activeStory as any)?.full || 'none')}</div>
+        <div>activeStory feed: {String((activeStory as any)?.feed || 'none')}</div>
+        <div>activeStory thumb: {String((activeStory as any)?.thumb || 'none')}</div>
+        <div>activeStory media_url: {String((activeStory as any)?.media_url || 'none')}</div>
       </div>
 
       {/* User indicators */}
