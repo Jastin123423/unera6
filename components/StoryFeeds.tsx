@@ -1,6 +1,8 @@
 import React from 'react';
 
 export default function StoryFeeds(props: any) {
+  console.log('STORYFEEDS COMPONENT RENDERED', props);
+
   return (
     <div
       style={{
