@@ -1,26 +1,20 @@
 import React from 'react';
 
-export default function StoryFeeds(props: any) {
-  console.log('STORYFEEDS COMPONENT RENDERED', props);
-
+export default function StoryFeeds() {
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 1000000,
-        background: 'black',
+        background: 'red',
         color: 'white',
         padding: '24px',
+        fontSize: '32px',
+        fontWeight: 'bold',
       }}
     >
-      <button onClick={props.onClose}>Back</button>
-      <div style={{ marginTop: '16px', fontSize: '28px', fontWeight: 'bold' }}>
-        STORYFEEDS IMPORT WORKING
-      </div>
-      <div style={{ marginTop: '12px' }}>
-        initialStory id: {String(props?.initialStory?.id || 'none')}
-      </div>
+      HELLO FROM STORYFEEDS FILE
     </div>
   );
 }
