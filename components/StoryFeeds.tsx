@@ -20,44 +20,52 @@ interface StoryFeedsProps {
   onToggleMute?: () => void;
 }
 
-const StoryFeeds: React.FC<StoryFeedsProps> = ({ initialStory, stories, onClose }) => {
+const StoryFeeds: React.FC<StoryFeedsProps> = ({
+  initialStory,
+  stories,
+  currentUser,
+  onClose,
+}) => {
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 999999,
-        background: 'white',
-        color: 'black',
-        padding: '24px',
+        background: 'black',
+        color: 'white',
         overflow: 'auto',
       }}
     >
-      <button
-        onClick={onClose}
-        style={{
-          padding: '10px 16px',
-          background: 'black',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          marginBottom: '16px',
-        }}
-      >
-        Back
-      </button>
+      <div style={{ padding: '16px' }}>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '10px 16px',
+            background: 'white',
+            color: 'black',
+            border: 'none',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            fontWeight: 'bold',
+          }}
+        >
+          Back
+        </button>
 
-      <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '16px' }}>
-        STORYFEEDS FILE IS LOADED
-      </h1>
+        <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '12px' }}>
+          StoryFeeds Working
+        </h1>
 
-      <div>stories length: {stories.length}</div>
-      <div>initialStory id: {String((initialStory as any)?.id || 'none')}</div>
-      <div>initialStory user_id: {String((initialStory as any)?.user_id || 'none')}</div>
+        <div>initialStory id: {String((initialStory as any)?.id || 'none')}</div>
+        <div>initialStory type: {String((initialStory as any)?.type || 'none')}</div>
+        <div>stories length: {String(stories.length)}</div>
+        <div>currentUser: {currentUser ? currentUser.name : 'null'}</div>
 
-      <pre style={{ whiteSpace: 'pre-wrap', marginTop: '16px', fontSize: '12px' }}>
-        {JSON.stringify(initialStory, null, 2)}
-      </pre>
+        <pre style={{ whiteSpace: 'pre-wrap', marginTop: '16px', fontSize: '12px' }}>
+          {JSON.stringify(initialStory, null, 2)}
+        </pre>
+      </div>
     </div>
   );
 };
