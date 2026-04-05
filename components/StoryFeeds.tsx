@@ -1,6 +1,8 @@
 import React from 'react';
 
 const StoryFeeds = (props: any) => {
+  alert('StoryFeeds imported component rendered');
+
   return (
     <div
       style={{
@@ -12,31 +14,9 @@ const StoryFeeds = (props: any) => {
         padding: '24px',
       }}
     >
-      <button
-        onClick={props.onClose}
-        style={{
-          padding: '10px 16px',
-          background: 'white',
-          color: 'black',
-          border: 'none',
-          borderRadius: '8px',
-          marginBottom: '16px',
-          fontWeight: 'bold',
-        }}
-      >
-        Back
-      </button>
-
-      <h1 style={{ fontSize: '30px', fontWeight: 'bold' }}>
-        STORYFEEDS IMPORT WORKING
-      </h1>
-
-      <div style={{ marginTop: '12px' }}>
-        initialStory id: {String(props?.initialStory?.id || 'none')}
-      </div>
-      <div>
-        stories length: {String(props?.stories?.length || 0)}
-      </div>
+      <button onClick={props.onClose}>Back</button>
+      <h1>STORYFEEDS IMPORT WORKING</h1>
+      <div>initialStory id: {String(props?.initialStory?.id || 'none')}</div>
     </div>
   );
 };
