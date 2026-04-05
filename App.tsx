@@ -7817,26 +7817,23 @@ return (
         onSendMessage={handleSendMessage}
       />
     )}
-  {showStoryFeeds && selectedStory && (
-  <StoryFeedsTest
-    stories={orderedStories}
-    initialStory={selectedStory}
-    currentUser={currentUser}
-    onClose={closeStoryFeeds}
-    onProfileClick={(id) => openProfile(id)}
-    onReply={replyToStory}
-    onLike={likeStory}
-    onReaction={reactToStory}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-    followLoading={followLoading}
-    onFetchViewers={fetchStoryViewers}
-    muted={storyMuted}
-    onToggleMute={() => setStoryMuted(!storyMuted)}
-    onDeleteStory={deleteStory}
-    deleteLoading={deleteStoryLoading}
-  />
+{showStoryFeeds && selectedStory && (
+  <div
+    style={{
+      position: 'fixed',
+      top: 120,
+      left: 20,
+      zIndex: 999999,
+      background: 'lime',
+      color: 'black',
+      padding: '8px',
+      fontWeight: 'bold',
+    }}
+  >
+    BEFORE COMPONENT
+  </div>
 )}
+    
     {isChatsListOpen && currentUser && (
       <ChatsList
         currentUser={currentUser}
