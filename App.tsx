@@ -7842,26 +7842,6 @@ return (
       />
     )}
 
-{showStoryFeeds && selectedStory && (
-  <StoryFeedsTest
-    stories={orderedStories}
-    initialStory={selectedStory}
-    currentUser={currentUser}
-    onClose={closeStoryFeeds}
-    onProfileClick={(id) => openProfile(id)}
-    onReply={replyToStory}
-    onLike={likeStory}
-    onReaction={reactToStory}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-    followLoading={followLoading}
-    onFetchViewers={fetchStoryViewers}
-    muted={storyMuted}
-    onToggleMute={() => setStoryMuted(!storyMuted)}
-    onDeleteStory={deleteStory}
-    deleteLoading={deleteStoryLoading}
-  />
-)}
     
     
     {isChatsListOpen && currentUser && (
