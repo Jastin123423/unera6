@@ -422,7 +422,7 @@ const readViewersCache = (storyId: number) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.ts && Date.now() - parsed.ts > VIEWERS_TTL) {
-      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
+      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);o
       return null;
     }
     return parsed.viewers as any[];
@@ -7819,24 +7819,39 @@ return (
       />
     )}
 {showStoryFeeds && selectedStory && (
-  <StoryFeeds
-    stories={orderedStories}
-    initialStory={selectedStory}
-    currentUser={currentUser}
-    onClose={closeStoryFeeds}
-    onProfileClick={(id) => openProfile(id)}
-    onReply={replyToStory}
-    onLike={likeStory}
-    onReaction={reactToStory}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-    followLoading={followLoading}
-    onFetchViewers={fetchStoryViewers}
-    muted={storyMuted}
-    onToggleMute={() => setStoryMuted(!storyMuted)}
-    onDeleteStory={deleteStory}
-    deleteLoading={deleteStoryLoading}
-  />
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 999999,
+      background: 'white',
+      color: 'black',
+      padding: '24px',
+      overflow: 'auto',
+    }}
+  >
+    <button
+      onClick={closeStoryFeeds}
+      style={{
+        padding: '10px 16px',
+        background: 'black',
+        color: 'white',
+        border: 'none',
+        borderRadius: '8px',
+        marginBottom: '16px',
+      }}
+    >
+      Back
+    </button>
+
+    <h1 style={{ fontSize: '28px', fontWeight: 'bold' }}>
+      APP INLINE STORY TEST
+    </h1>
+
+    <div>selectedStory id: {String((selectedStory as any)?.id || 'none')}</div>
+    <div>showStoryFeeds: {String(showStoryFeeds)}</div>
+    <div>stories length: {String(orderedStories.length)}</div>
+  </div>
 )}
 
     
