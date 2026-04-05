@@ -1614,11 +1614,10 @@ const openStoryViewer = useCallback((story: Story) => {
   preloadStoryMedia(story);
 }, [currentUser, viewStory, markStorySeen, preloadStoryMedia]);
   
-const closeStoryFeeds = () => {
-  setShowStoryFeeds(false);
-  setSelectedStory(null);
-};
-
+const closeStoryViewer = useCallback(() => {
+  setActiveStoryId(null);
+}, []);
+  
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
