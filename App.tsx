@@ -30,7 +30,7 @@ import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
-import StoryFeedsTest from './components/StoryFeedsAAA';
+import StoryFeedsTest from './components/StoryFeeds'; 
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
