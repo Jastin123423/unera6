@@ -7712,32 +7712,31 @@ return (
         checkIsFollowing={checkIsFollowing}
       />
     )}
-
     {activeStoryId && activeStory && (
-      <StoryViewerModal
-        story={activeStory}
-        onClose={closeStoryViewer}
-        onProfileClick={(id) => {
-          closeStoryViewer();
-          openProfile(id);
-        }}
-        currentUser={currentUser}
-        onFollow={followUser}
-        checkIsFollowing={checkIsFollowing}
-        followLoading={followLoading}
-        allStories={orderedStories}
-        onFetchViewers={fetchStoryViewers}
-        onFetchAnalytics={fetchStoryAnalytics}
-        onReply={replyToStory}
-        onLike={likeStory}
-        onReaction={reactToStory}
-        onNext={handleStoryNext}
-        onPrev={handleStoryPrev}
-        muted={storyMuted}
-        onToggleMute={() => setStoryMuted(!storyMuted)}
-      />
-    )}
-
+  <StoryViewerModal
+    story={activeStory}
+    onClose={closeStoryViewer}
+    onProfileClick={(id) => {
+      closeStoryViewer();
+      openProfile(id);
+    }}
+    currentUser={currentUser}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    allStories={orderedStories}
+    onFetchViewers={fetchStoryViewers}
+    onFetchAnalytics={fetchStoryAnalytics}
+    onReply={replyToStory}
+    onLike={likeStory}
+    onReaction={reactToStory}
+    onNext={handleStoryNext}
+    onPrev={handleStoryPrev}
+    muted={storyMuted}
+    onToggleMute={() => setStoryMuted(!storyMuted)}
+  />
+)}
+    
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
         currentUser={currentUser}
