@@ -6759,6 +6759,23 @@ const editPost = useCallback(
 // ============================================================================
 return (
   <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+    {/* TEST BANNER - ADDED HERE */}
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 999999,
+        background: 'yellow',
+        color: 'black',
+        padding: '12px',
+        fontWeight: 'bold',
+        textAlign: 'center',
+      }}
+    >
+      🚀 NEW BUILD TEST - {new Date().toLocaleTimeString()}
+    </div>
   <Header
       onHomeClick={() => handleNavigate('home')}
       onProfileClick={(id: number) => openProfile(id)}
