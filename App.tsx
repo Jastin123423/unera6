@@ -1599,11 +1599,21 @@ const [selectedReelId, setSelectedReelId] = useState<number | string | null>(nul
 // Navigation history state
 const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
-const openStoryFeeds = useCallback((userId?: number) => {
-  setStoryFeedUserId(userId ?? null);
-  setView('story-feed');
-}, []);
 
+const openStoryViewer = useCallback((story: Story) => {
+  const id = Number(story?.id);
+  if (!id) return;
+
+  setActiveStoryId(id);
+
+  if (currentUser) {
+    viewStory(id);
+  }
+
+  markStorySeen(id);
+  preloadStoryMedia(story);
+}, [currentUser, viewStory, markStorySeen, preloadStoryMedia]);
+  
 const closeStoryFeeds = () => {
   setShowStoryFeeds(false);
   setSelectedStory(null);
@@ -7715,7 +7725,7 @@ return (
       />
     )}
 
-  {activeStoryId && activeStory && (
+{activeStoryId && activeStory && (
   <StoryViewerModal
     story={activeStory}
     onClose={closeStoryViewer}
@@ -7737,8 +7747,7 @@ return (
     onDeleteStory={deleteStory}
     deleteLoading={deleteStoryLoading}
   />
-)}  
-    
+)}
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
         currentUser={currentUser}
