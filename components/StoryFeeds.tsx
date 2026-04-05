@@ -1,24 +1,24 @@
 import React from 'react';
 
-const StoryFeeds = (props: any) => {
-  alert('StoryFeeds imported component rendered');
-
+export default function StoryFeeds(props: any) {
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 999999,
+        zIndex: 1000000,
         background: 'black',
         color: 'white',
         padding: '24px',
       }}
     >
       <button onClick={props.onClose}>Back</button>
-      <h1>STORYFEEDS IMPORT WORKING</h1>
-      <div>initialStory id: {String(props?.initialStory?.id || 'none')}</div>
+      <div style={{ marginTop: '16px', fontSize: '28px', fontWeight: 'bold' }}>
+        STORYFEEDS IMPORT WORKING
+      </div>
+      <div style={{ marginTop: '12px' }}>
+        initialStory id: {String(props?.initialStory?.id || 'none')}
+      </div>
     </div>
   );
-};
-
-export default StoryFeeds;
+}
