@@ -7817,8 +7817,8 @@ return (
         onSendMessage={handleSendMessage}
       />
     )}
-{showStoryFeeds && selectedStory && (
-  <StoryFeeds
+ {showStoryFeeds && selectedStory && (
+  <StoryFeedsTest
     stories={orderedStories}
     initialStory={selectedStory}
     currentUser={currentUser}
@@ -7837,7 +7837,7 @@ return (
     deleteLoading={deleteStoryLoading}
   />
 )}
-    
+ 
     {isChatsListOpen && currentUser && (
       <ChatsList
         currentUser={currentUser}
