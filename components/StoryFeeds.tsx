@@ -66,11 +66,11 @@ const buildStoryUser = (story: any): User => {
 
 const groupStoriesByUser = (stories: Story[]) => {
   const map = new Map<number, { user_id: number; user: User; stories: Story[]; latest_created_at: string }>();
-
+  
   for (const story of stories || []) {
     const uid = Number((story as any).user_id || (story as any).userId || 0);
     if (!uid) continue;
-
+    
     if (!map.has(uid)) {
       map.set(uid, {
         user_id: uid,
@@ -79,23 +79,16 @@ const groupStoriesByUser = (stories: Story[]) => {
         latest_created_at: (story as any).created_at || (story as any).createdAt || '',
       });
     }
-
+    
     const group = map.get(uid)!;
     group.stories.push(story);
-
-    const currentTime = parseServerTime((story as any).created_at || (story as any).createdAt);
-    const latestTime = parseServerTime(group.latest_created_at);
-    if (currentTime > latestTime) {
-      group.latest_created_at = (story as any).created_at || (story as any).createdAt || '';
-      group.user = buildStoryUser(story);
-    }
   }
-
+  
   return Array.from(map.values())
     .map((group) => ({
       ...group,
       stories: [...group.stories].sort(
-        (a: any, b: any) =>
+        (a: any, b: any) => 
           parseServerTime(b.created_at || b.createdAt) - parseServerTime(a.created_at || a.createdAt)
       ),
     }))
@@ -291,10 +284,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   };
 
-  const mediaUrl = (story as any).media_url || (story as any).mediaUrl || '';
-  const storyType = (story as any).type;
+  // Safe field access with fallbacks
+  const mediaUrl = (story as any).media_url || (story as any).mediaUrl || (story as any).image_url || (story as any).video_url || '';
+  const storyType = (story as any).type || (story as any).media_type || ((story as any).video_url ? 'video' : (story as any).text_content ? 'text' : 'image');
   const storyCaption = (story as any).caption || '';
-  const storyText = (story as any).text_content || (story as any).textContent || '';
+  const storyText = (story as any).text_content || (story as any).textContent || (story as any).caption || '';
   const storyBg = (story as any).background_style || (story as any).backgroundStyle || 'linear-gradient(45deg, #1877F2, #0055FF)';
   const storyCreatedAt = (story as any).created_at || (story as any).createdAt;
 
@@ -407,7 +401,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         className="flex-1 flex items-center justify-center relative"
         onClick={handlePause}
       >
-        {storyType === 'video' ? (
+        {storyType === 'video' && mediaUrl ? (
           <video
             ref={videoRef}
             src={mediaUrl}
@@ -419,22 +413,47 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             onEnded={() => {
               if (canNavigate()) onNext();
             }}
+            onError={() => {
+              console.log('Story video failed to load:', mediaUrl);
+            }}
           />
         ) : storyType === 'text' ? (
           <div
             className="w-full h-full flex items-center justify-center p-8 text-center"
             style={{ background: storyBg }}
           >
-            <p className="text-white text-3xl font-bold whitespace-pre-wrap">
-              {storyText || 'Story'}
-            </p>
+            <div>
+              <p className="text-white text-3xl font-bold whitespace-pre-wrap">
+                {storyText || 'Story'}
+              </p>
+              <p className="text-white/50 text-xs mt-4">text story</p>
+            </div>
           </div>
-        ) : (
+        ) : mediaUrl ? (
           <img
             src={mediaUrl}
             className="max-w-full max-h-full object-contain"
             alt=""
+            onError={() => {
+              console.log('Story image failed to load:', mediaUrl);
+            }}
           />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-[#111] px-6">
+            <div className="text-center max-w-[320px]">
+              <p className="text-white text-lg font-bold">Story opened</p>
+              <p className="text-white/70 text-sm mt-2">No media found for this story</p>
+              <div className="mt-4 text-left bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white/70 space-y-1">
+                <div><span className="text-white">id:</span> {String((story as any)?.id || 'none')}</div>
+                <div><span className="text-white">type:</span> {String(storyType || 'none')}</div>
+                <div><span className="text-white">media_url:</span> {String((story as any)?.media_url || 'none')}</div>
+                <div><span className="text-white">mediaUrl:</span> {String((story as any)?.mediaUrl || 'none')}</div>
+                <div><span className="text-white">image_url:</span> {String((story as any)?.image_url || 'none')}</div>
+                <div><span className="text-white">video_url:</span> {String((story as any)?.video_url || 'none')}</div>
+                <div><span className="text-white">text_content:</span> {String((story as any)?.text_content || 'none')}</div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Pause overlay */}
@@ -732,14 +751,12 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
   }, [storyGroups, initialStory]);
 
   const activeGroup = storyGroups[userIndex] || null;
-  const activeStory =
-    activeGroup?.stories?.[storyIndex] ||
+  const activeStory = activeGroup?.stories?.[storyIndex] ||
     storyGroups.find((g) => Number(g.user_id) === Number((initialStory as any).user_id || (initialStory as any).userId))
       ?.stories?.find((s: any) => Number(s.id) === Number((initialStory as any).id)) ||
     initialStory;
 
   const activeUser = activeGroup?.user || buildStoryUser(activeStory);
-
   const safeAllStories = activeGroup?.stories?.length ? activeGroup.stories : [activeStory];
 
   const canVerticalNavigate = () => {
@@ -820,14 +837,14 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
 
   const handleVerticalTouchEnd = (e: React.TouchEvent) => {
     if (!verticalTouchRef.current) return;
-
+    
     const t = e.changedTouches[0];
     const dx = t.clientX - verticalTouchRef.current.x;
     const dy = t.clientY - verticalTouchRef.current.y;
     verticalTouchRef.current = null;
-
+    
     if (Math.abs(dy) < 50 || Math.abs(dy) <= Math.abs(dx)) return;
-
+    
     if (dy < 0) goToNextUser();
     else goToPrevUser();
   };
@@ -851,7 +868,27 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
 
   return (
     <div onTouchStart={handleVerticalTouchStart} onTouchEnd={handleVerticalTouchEnd}>
-      {/* user indicators */}
+      {/* Debug Panel - Temporary */}
+      <div className="fixed top-20 left-2 right-2 z-[10002] bg-black/80 text-white text-[11px] p-3 rounded-xl border border-white/10">
+        <div>initialStory id: {String((initialStory as any)?.id || 'none')}</div>
+        <div>initialStory user_id: {String((initialStory as any)?.user_id || (initialStory as any)?.userId || 'none')}</div>
+        <div>stories length: {String(stories?.length || 0)}</div>
+        <div>groups length: {String(storyGroups?.length || 0)}</div>
+        <div>userIndex: {String(userIndex)}</div>
+        <div>storyIndex: {String(storyIndex)}</div>
+        <div>activeGroup user_id: {String(activeGroup?.user_id || 'none')}</div>
+        <div>activeStory id: {String((activeStory as any)?.id || 'none')}</div>
+        <div>activeStory type: {String((activeStory as any)?.type || (activeStory as any)?.media_type || 'none')}</div>
+        <div>activeStory media: {String(
+          (activeStory as any)?.media_url || 
+          (activeStory as any)?.mediaUrl || 
+          (activeStory as any)?.image_url || 
+          (activeStory as any)?.video_url || 
+          'none'
+        )}</div>
+      </div>
+
+      {/* User indicators */}
       {storyGroups.length > 1 && (
         <div className="fixed right-3 top-1/2 -translate-y-1/2 z-[10001] flex flex-col gap-2">
           {storyGroups.map((group, idx) => (
