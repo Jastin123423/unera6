@@ -1599,9 +1599,9 @@ const [selectedReelId, setSelectedReelId] = useState<number | string | null>(nul
 // Navigation history state
 const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
-const openStoryFeeds = useCallback((story: Story) => {
-  setSelectedStory(story);
-  setShowStoryFeeds(true);
+const openStoryFeeds = useCallback((userId?: number) => {
+  setStoryFeedUserId(userId ?? null);
+  setView('story-feed');
 }, []);
 
 const closeStoryFeeds = () => {
