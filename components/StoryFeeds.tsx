@@ -66,11 +66,11 @@ const buildStoryUser = (story: any): User => {
 
 const groupStoriesByUser = (stories: Story[]) => {
   const map = new Map<number, { user_id: number; user: User; stories: Story[]; latest_created_at: string }>();
-  
+
   for (const story of stories || []) {
     const uid = Number((story as any).user_id || (story as any).userId || 0);
     if (!uid) continue;
-    
+
     if (!map.has(uid)) {
       map.set(uid, {
         user_id: uid,
@@ -79,16 +79,24 @@ const groupStoriesByUser = (stories: Story[]) => {
         latest_created_at: (story as any).created_at || (story as any).createdAt || '',
       });
     }
-    
+
     const group = map.get(uid)!;
     group.stories.push(story);
+
+    const storyTime = parseServerTime((story as any).created_at || (story as any).createdAt);
+    const latestTime = parseServerTime(group.latest_created_at);
+
+    if (storyTime > latestTime) {
+      group.latest_created_at = (story as any).created_at || (story as any).createdAt || '';
+      group.user = buildStoryUser(story);
+    }
   }
-  
+
   return Array.from(map.values())
     .map((group) => ({
       ...group,
       stories: [...group.stories].sort(
-        (a: any, b: any) => 
+        (a: any, b: any) =>
           parseServerTime(b.created_at || b.createdAt) - parseServerTime(a.created_at || a.createdAt)
       ),
     }))
@@ -868,7 +876,7 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
 
   return (
     <div onTouchStart={handleVerticalTouchStart} onTouchEnd={handleVerticalTouchEnd}>
-      {/* Debug Panel - Temporary */}
+      {/* Debug Panel - Remove after testing */}
       <div className="fixed top-20 left-2 right-2 z-[10002] bg-black/80 text-white text-[11px] p-3 rounded-xl border border-white/10">
         <div>initialStory id: {String((initialStory as any)?.id || 'none')}</div>
         <div>initialStory user_id: {String((initialStory as any)?.user_id || (initialStory as any)?.userId || 'none')}</div>
