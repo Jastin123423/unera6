@@ -422,11 +422,20 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         </div>
       </div>
 
-      {/* Content */}
-      <div
-        className="flex-1 flex items-center justify-center relative"
-        onClick={handlePause}
-      >
+      {/* Content with debug panel inside */}
+      <div className="flex-1 flex items-center justify-center relative" onClick={handlePause}>
+        {/* Always-visible debug box */}
+        <div className="absolute top-24 left-3 right-3 z-[10050] bg-red-600/90 text-white text-[11px] p-3 rounded-xl border border-white/20">
+          <div>story id: {String((story as any)?.id || 'none')}</div>
+          <div>story type: {String(storyType || 'none')}</div>
+          <div>full: {String((story as any)?.full || 'none')}</div>
+          <div>feed: {String((story as any)?.feed || 'none')}</div>
+          <div>thumb: {String((story as any)?.thumb || 'none')}</div>
+          <div>media_url: {String((story as any)?.media_url || 'none')}</div>
+          <div>mediaUrl used: {String(mediaUrl || 'none')}</div>
+          <div>mediaFailed: {String(mediaFailed)}</div>
+        </div>
+
         {storyType === 'video' && mediaUrl ? (
           <video
             ref={videoRef}
@@ -473,15 +482,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
               <p className="text-white/70 text-sm mt-2">
                 {mediaFailed ? 'Story media failed to load' : 'No media found for this story'}
               </p>
-              <div className="mt-4 text-left bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white/70 space-y-1">
-                <div><span className="text-white">id:</span> {String((story as any)?.id || 'none')}</div>
-                <div><span className="text-white">type:</span> {String(storyType || 'none')}</div>
-                <div><span className="text-white">full:</span> {String((story as any)?.full || 'none')}</div>
-                <div><span className="text-white">feed:</span> {String((story as any)?.feed || 'none')}</div>
-                <div><span className="text-white">thumb:</span> {String((story as any)?.thumb || 'none')}</div>
-                <div><span className="text-white">media_url:</span> {String((story as any)?.media_url || 'none')}</div>
-                <div><span className="text-white">text_content:</span> {String((story as any)?.text_content || 'none')}</div>
-              </div>
             </div>
           </div>
         )}
@@ -898,23 +898,6 @@ export const StoryFeeds: React.FC<StoryFeedsProps> = ({
 
   return (
     <div onTouchStart={handleVerticalTouchStart} onTouchEnd={handleVerticalTouchEnd}>
-      {/* Debug Panel - Remove after testing */}
-      <div className="fixed top-20 left-2 right-2 z-[10002] bg-black/80 text-white text-[11px] p-3 rounded-xl border border-white/10">
-        <div>initialStory id: {String((initialStory as any)?.id || 'none')}</div>
-        <div>initialStory user_id: {String((initialStory as any)?.user_id || (initialStory as any)?.userId || 'none')}</div>
-        <div>stories length: {String(stories?.length || 0)}</div>
-        <div>groups length: {String(storyGroups?.length || 0)}</div>
-        <div>userIndex: {String(userIndex)}</div>
-        <div>storyIndex: {String(storyIndex)}</div>
-        <div>activeGroup user_id: {String(activeGroup?.user_id || 'none')}</div>
-        <div>activeStory id: {String((activeStory as any)?.id || 'none')}</div>
-        <div>activeStory type: {String((activeStory as any)?.type || (activeStory as any)?.media_type || 'none')}</div>
-        <div>activeStory full: {String((activeStory as any)?.full || 'none')}</div>
-        <div>activeStory feed: {String((activeStory as any)?.feed || 'none')}</div>
-        <div>activeStory thumb: {String((activeStory as any)?.thumb || 'none')}</div>
-        <div>activeStory media_url: {String((activeStory as any)?.media_url || 'none')}</div>
-      </div>
-
       {/* User indicators */}
       {storyGroups.length > 1 && (
         <div className="fixed right-3 top-1/2 -translate-y-1/2 z-[10001] flex flex-col gap-2">
