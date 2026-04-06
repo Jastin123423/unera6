@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useContext,
   memo,
+  Story,
 } from 'react';
 import {
   User,
@@ -243,6 +244,16 @@ const formatViewCount = (n?: number): string => {
     return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
   return String(v);
+};
+const isStoryVideo = (story: any) => {
+  const url = String(story?.media_url || '').toLowerCase();
+  return (
+    story?.type === 'video' ||
+    url.endsWith('.mp4') ||
+    url.endsWith('.webm') ||
+    url.endsWith('.mov') ||
+    url.endsWith('.m4v')
+  );
 };
 
 type RSVPStatus = 'going' | 'interested' | 'not_going';
