@@ -7397,6 +7397,10 @@ interface FeedProps {
  * =========================
  */
 export const Feed = memo(({
+  items,
+  feedItems: feedItemsProp,
+  onOpenStory,
+    
   feedItems,
   currentUser,
   users,
