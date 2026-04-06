@@ -15,7 +15,11 @@ export const onRequestOptions: PagesFunction = async () =>
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -41,8 +45,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const music_url = body.music_url ? toStr(body.music_url).trim() : null;
     const music_title = body.music_title ? toStr(body.music_title).trim() : null;
 
-    const expires_at_raw = typeof body.expires_at === "string" ? body.expires_at.trim() : "";
-
     if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
 
     if (type !== "text" && type !== "image" && type !== "video") {
@@ -57,17 +59,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: "media_url is required" }, 400);
     }
 
-    const expiresExpr = expires_at_raw ? "?" : "datetime('now','+24 hours')";
-
+    // Permanent stories: expires_at is always NULL
     const stmt = `
       INSERT INTO stories
       (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ${expiresExpr})
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
     `;
 
-    const bindArgs = expires_at_raw
-      ? [user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at_raw]
-      : [user_id, type, media_url, text_content, background_style, music_url, music_title];
+    const bindArgs = [
+      user_id,
+      type,
+      media_url,
+      text_content,
+      background_style,
+      music_url,
+      music_title,
+    ];
 
     const result = await env.DB.prepare(stmt).bind(...bindArgs).run();
     const story_id = Number(result.meta?.last_row_id);
@@ -88,7 +95,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
-        -- viewed_by_me for the creator themselves (true right away if they "view" is not recorded)
         EXISTS(
           SELECT 1 FROM story_views sv2
           WHERE sv2.story_id = s.id
@@ -114,7 +120,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     return json({ success: true, story }, 201);
   } catch (err: any) {
-    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json(
+      {
+        success: false,
+        error: "Backend crash",
+        message: String(err?.message ?? err),
+      },
+      500
+    );
   }
 };
 
@@ -131,11 +144,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
-        -- counts
         (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
 
-        -- viewer-specific fields
         (SELECT sr.reaction
            FROM story_reactions sr
           WHERE sr.story_id = s.id
@@ -149,7 +160,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             AND sv2.user_id = ?
         ) AS viewed_by_me,
 
-        -- OLD (backward compat)
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
@@ -160,12 +170,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       FROM stories s
       LEFT JOIN users u ON u.id = s.user_id
-      WHERE s.expires_at > datetime('now')
       ORDER BY s.created_at DESC
       LIMIT 500
     `;
 
-    // viewerId used 3 times (my_reaction, viewed_by_me, liked_by_me)
     const { results } = await env.DB
       .prepare(q)
       .bind(viewerId || 0, viewerId || 0, viewerId || 0)
@@ -173,6 +181,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     return json(Array.isArray(results) ? results : []);
   } catch (err: any) {
-    return json({ success: false, error: "Backend crash", message: String(err?.message ?? err) }, 500);
+    return json(
+      {
+        success: false,
+        error: "Backend crash",
+        message: String(err?.message ?? err),
+      },
+      500
+    );
   }
 };
