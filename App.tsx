@@ -873,21 +873,29 @@ const normalizeEvent = (e: any): Event => {
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
 };
-
 /** Normalize story data */
 const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
-  
+
   let storyUser = s?.user;
   if (existingUser && storyUser) {
     storyUser = mergeUserSafe(existingUser, storyUser);
   }
-  
+
+  const normalizedType =
+    s?.type === 'text' || s?.type === 'video' || s?.type === 'image'
+      ? s.type
+      : (s?.media_url ?? s?.mediaUrl ?? '').toString().toLowerCase().match(/\.(mp4|webm|mov|m4v)/)
+      ? 'video'
+      : (s?.text_content ?? s?.text ?? '')
+      ? 'text'
+      : 'image';
+
   return {
     id: resolvedId,
     user_id: userId,
-    type: (s?.type ?? 'image') as 'text' | 'image' | 'video',
+    type: normalizedType as 'text' | 'image' | 'video',
     text_content: s?.text_content ?? s?.text ?? '',
     media_url: s?.media_url ?? s?.mediaUrl ?? '',
     background_style: s?.background_style ?? s?.backgroundStyle ?? '',
@@ -901,11 +909,15 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
     user: storyUser,
     views: safeArray(s?.views),
-    
+
     views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
     reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
     my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
     reaction_breakdown: s?.reaction_breakdown ?? {},
+
+    // keep stories permanent in frontend
+    expires_at: null,
+    is_active: true,
   } as any;
 };
 
