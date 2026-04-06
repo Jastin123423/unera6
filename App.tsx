@@ -1599,9 +1599,9 @@ const [selectedReelId, setSelectedReelId] = useState<number | string | null>(nul
 // Navigation history state
 const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
-
-const openStoryViewer = useCallback((story: Story) => {
+ const openStoryViewer = useCallback((story: Story) => {
   const id = Number(story?.id);
+  alert(`openStoryViewer id=${id}`);
   if (!id) return;
 
   setActiveStoryId(id);
@@ -1613,10 +1613,6 @@ const openStoryViewer = useCallback((story: Story) => {
   markStorySeen(id);
   preloadStoryMedia(story);
 }, [currentUser, viewStory, markStorySeen, preloadStoryMedia]);
-  
-const closeStoryViewer = useCallback(() => {
-  setActiveStoryId(null);
-}, []);
   
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
