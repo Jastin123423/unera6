@@ -6818,26 +6818,27 @@ return (
               </div>
             )}
 
-            <StoryReel
-              stories={orderedStories}
-              onProfileClick={(id) => openProfile(id)}
-              onCreateStory={() => {
-                if (!requireAuth('Creating stories')) return;
-                setShowCreateStoryModal(true);
-              }}
-              onViewStory={openStoryViewer}
-              currentUser={currentUser}
-              onRequestLogin={() => setView('login')}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-              onFetchViewers={fetchStoryViewers}
-              onReaction={reactToStory}
-              onReply={replyToStory}
-              onToggleMute={() => setStoryMuted(!storyMuted)}
-              muted={storyMuted}
-            />
-
+           <StoryReel
+  stories={orderedStories}
+  onProfileClick={(id) => openProfile(id)}
+  onCreateStory={() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }}
+  onViewStory={openStoryFeeds}
+  currentUser={currentUser}
+  onRequestLogin={() => setView('login')}
+  onFollow={followUser}
+  checkIsFollowing={checkIsFollowing}
+  followLoading={followLoading}
+  onFetchViewers={fetchStoryViewers}
+  onReaction={reactToStory}
+  onReply={replyToStory}
+  onToggleMute={() => setStoryMuted(!storyMuted)}
+  muted={storyMuted}
+/>
+              
+            
             {currentUser && (
               <CreatePost
                 currentUser={currentUser}
@@ -7742,6 +7743,26 @@ return (
     onReact={(track, type) => handleMusicReact(track, type)}
     onOpenComments={(track) => handleOpenMusicComments(track)}
     onShare={(track) => handleMusicShare(track)}
+  />
+)}
+    {showStoryFeeds && selectedStory && (
+  <StoryFeeds
+    stories={orderedStories}
+    initialStory={selectedStory}
+    currentUser={currentUser}
+    onClose={closeStoryFeeds}
+    onProfileClick={(id) => openProfile(id)}
+    onReply={replyToStory}
+    onLike={likeStory}
+    onReaction={reactToStory}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    onFetchViewers={fetchStoryViewers}
+    muted={storyMuted}
+    onToggleMute={() => setStoryMuted(!storyMuted)}
+    onDeleteStory={deleteStory}
+    deleteLoading={deleteStoryLoading}
   />
 )}
 
