@@ -260,6 +260,18 @@ const isStoryVideo = (story: any) => {
   );
 };
 
+const getStoryAuthorName = (story: any) =>
+  story?.user?.name || story?.author_name || story?.username || 'User';
+
+const getStoryAuthorImage = (story: any) => {
+  const name = getStoryAuthorName(story);
+  return (
+    story?.user?.profile_image_url ||
+    story?.author_image ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1877F2&color=fff&size=128`
+  );
+};
+
 type RSVPStatus = 'going' | 'interested' | 'not_going';
 
 const rsvpEventDirect = async (args: {
