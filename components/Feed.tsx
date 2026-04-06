@@ -7450,8 +7450,9 @@ export const Feed = memo(({
 })}
 
 {/* With this: */}
+
+// Inside the Feed component's return statement, replace your existing mapping with:
 {safeFeedItems.map((item, index) => {
-  // Handle story items
   if (item.kind === 'story') {
     return (
       <FeedStoryCard
@@ -7462,7 +7463,6 @@ export const Feed = memo(({
     );
   }
 
-  // Handle post items
   const post = item.data;
   const postAuthorId = Number(post.user_id);
   const isFollowing = checkIsFollowing?.(postAuthorId) || false;
@@ -7471,7 +7471,6 @@ export const Feed = memo(({
   const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
   const isPushed = pushedPosts?.[post.id] || false;
 
-  // Track PYMK and Groups inserts (you may want to move these to a separate logic)
   const showFirstPymk = peopleYouMayKnow && 
     peopleYouMayKnow.length > 0 &&
     peopleYouMayKnowInsertIndex1 >= 0 &&
@@ -7514,18 +7513,13 @@ export const Feed = memo(({
           <button
             onClick={() => onPushMore?.(post.id)}
             disabled={isPushed}
-            className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-              isPushed
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-            }`}
+            className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
           >
             {isPushed ? 'Pushed' : 'Push More'}
           </button>
         ) : undefined}
       />
 
-      {/* People You May Know Grid - FIRST APPEARANCE */}
       {showFirstPymk && (
         <PeopleYouMayKnowGrid
           users={peopleYouMayKnow}
@@ -7539,7 +7533,6 @@ export const Feed = memo(({
         />
       )}
 
-      {/* People You May Know Grid - SECOND APPEARANCE */}
       {showSecondPymk && (
         <PeopleYouMayKnowGrid
           users={peopleYouMayKnow}
@@ -7553,7 +7546,6 @@ export const Feed = memo(({
         />
       )}
 
-      {/* Groups You May Join Card */}
       {showGroupsYouMayJoin && (
         <GroupsYouMayJoinCard
           groups={groupsYouMayJoin}
