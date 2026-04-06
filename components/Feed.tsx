@@ -27,6 +27,10 @@ import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
 import { buildImageUploadBundle } from '../utils/imageCompression';
+//====================TYPE DEFINITION =============
+type FeedItem =
+  | { kind: 'post'; data: any; created_at?: string }
+  | { kind: 'story'; data: Story; created_at?: string };
 
 // ==================== ICON COMPONENTS ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({
