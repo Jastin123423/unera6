@@ -30,7 +30,6 @@ import { BrandsPage } from './components/Brands';
 import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
-import StoryFeedsTest from './components/StoryFeeds'; 
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
@@ -422,7 +421,7 @@ const readViewersCache = (storyId: number) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.ts && Date.now() - parsed.ts > VIEWERS_TTL) {
-      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);o
+      localStorage.removeItem(`${STORY_VIEWERS_CACHE_KEY}${storyId}`);
       return null;
     }
     return parsed.viewers as any[];
@@ -1425,7 +1424,6 @@ export type View =
   | 'login'
   | 'register'
   | 'recorder'
-  | 'story-feed'
   | 'notifications'
   | 'ads';
 
@@ -1569,37 +1567,33 @@ export default function App() {
   useLanguage();
 
   /** ---------- State ---------- */
-const [users, setUsers] = useState<User[]>([]);
-const [posts, setPosts] = useState<PostType[]>([]);
-const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
-const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
-const [stories, setStories] = useState<Story[]>([]);
-const [reels, setReels] = useState<Reel[]>([]);
-const [products, setProducts] = useState<Product[]>([]);
-const [groups, setGroups] = useState<Group[]>([]);
-const [brands, setBrands] = useState<Brand[]>([]);
-const [events, setEvents] = useState<Event[]>([]);
-const [chats, setChats] = useState<any[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
+  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
 
-const [songs, setSongs] = useState<Song[]>([]);
+  const [songs, setSongs] = useState<Song[]>([]);
+  
+  const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
 
-const [selectedReelSound, setSelectedReelSound] = useState<ReelSound | null>(null);
+  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+  const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
-const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
-const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
+  const [view, setView] = useState<View>('home');
+  const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
 
-const [showStoryFeeds, setShowStoryFeeds] = useState(false);
-const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+  // Navigation history state
+  const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
-const [currentUser, setCurrentUser] = useState<User | null>(null);
-const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
-const [view, setView] = useState<View>('home');
-const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
-
-// Navigation history state
-const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
-
- 
   const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatsListOpen, setIsChatsListOpen] = useState(false);
@@ -2547,45 +2541,45 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
   }, [currentUser, requireAuth]);
 
   const openStoryViewer = useCallback((story: Story) => {
-  const id = Number(story?.id);
-  if (!id) return;
+    const id = Number(story?.id);
+    if (!id) return;
 
-  setActiveStoryId(id);
-  markStorySeen(id);
-  preloadStoryMedia(story);
+    setActiveStoryId(id);
 
-  if (currentUser) {
-    void viewStory(id);
-  }
+    if (currentUser) {
+      viewStory(id);
+    }
 
-  const next = (() => {
-    const idx = orderedStories.findIndex(x => Number(x.id) === id);
-    return idx >= 0 ? orderedStories[idx + 1] : null;
-  })();
+    markStorySeen(id);
 
-  if (next) preloadStoryMedia(next);
-}, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
+    preloadStoryMedia(story);
+    const next = (() => {
+      const idx = orderedStories.findIndex(x => Number(x.id) === id);
+      return idx >= 0 ? orderedStories[idx + 1] : null;
+    })();
+    if (next) preloadStoryMedia(next);
+  }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
 
-const likeStory = useCallback(async (storyId: number) => {
-  if (!requireAuth('Liking stories')) return;
-  if (!currentUser) return;
+  const likeStory = useCallback(async (storyId: number) => {
+    if (!requireAuth('Liking stories')) return;
+    if (!currentUser) return;
 
-  setStories(prev =>
-    prev.map(story => {
-      if (Number(story.id) !== Number(storyId)) return story;
-
-      const currentlyLiked = story.liked_by_me;
-
-      return {
-        ...story,
-        liked_by_me: !currentlyLiked,
-        my_reaction: !currentlyLiked ? 'like' : null,
-        reactions_count: currentlyLiked
-          ? Math.max(0, (story.reactions_count || 0) - 1)
-          : (story.reactions_count || 0) + 1,
-      };
-    })
-  );
+    setStories(prev =>
+      prev.map(story => {
+        if (Number(story.id) !== Number(storyId)) return story;
+        
+        const currentlyLiked = story.liked_by_me;
+        
+        return {
+          ...story,
+          liked_by_me: !currentlyLiked,
+          my_reaction: !currentlyLiked ? 'like' : null,
+          reactions_count: currentlyLiked 
+            ? Math.max(0, (story.reactions_count || 0) - 1)
+            : (story.reactions_count || 0) + 1,
+        };
+      })
+    );
 
     try {
       const response = await apiFetch(`/api/stories/${storyId}/react`, {
@@ -2929,7 +2923,7 @@ const likeStory = useCallback(async (storyId: number) => {
       const previousView = newHistory.pop() as View;
       
       setView(previousView);
-      if (['home', 'reels', 'marketplace', 'groups', 'brands', 'story-feed', 'music', 'events'].includes(previousView)) {
+      if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(previousView)) {
         setActiveTab(previousView as any);
       }
       
@@ -6750,32 +6744,12 @@ const editPost = useCallback(
 // ============================================================================
 return (
   <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
-    <div
-  style={{
-    position: 'fixed',
-    top: '48px',
-    left: 0,
-    right: 0,
-    zIndex: 999998,
-    background: 'red',
-    color: 'white',
-    padding: '10px',
-    fontWeight: 'bold',
-    fontSize: '12px',
-    pointerEvents: 'none',
-  }}
->
-  view: {String(view)} | showStoryFeeds: {String(showStoryFeeds)} | selectedStory:
-  {selectedStory ? String((selectedStory as any).id) : 'null'} | activeStoryId:
-  {String(activeStoryId)} | stories: {String(stories.length)}
-</div>
-      <Header
+    <Header
       onHomeClick={() => handleNavigate('home')}
       onProfileClick={(id: number) => openProfile(id)}
       onReelsClick={() => navigateTo('reels')}
       onMarketplaceClick={() => navigateTo('marketplace')}
       onGroupsClick={() => navigateTo('groups')}
-      onStoryFeedClick={() => handleNavigate('story-feed')}
       onAdsClick={() => {
         if (!currentUser) {
           setLoginError('Please login to access ads dashboard.');
@@ -6802,22 +6776,18 @@ return (
       onBack={goBack}
       currentView={view}
     />
-    
+
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
-         
           <Sidebar
-  currentUser={currentUser}
-  onProfileClick={(id) => openProfile(id)}
-  onReelsClick={() => navigateTo('reels')}
-  onMarketplaceClick={() => navigateTo('marketplace')}
-  onGroupsClick={() => navigateTo('groups')}
-  onEventsClick={() => navigateTo('events')}
-  onAdsClick={() => navigateTo('ads')}
-  onStoryFeedClick={() => handleNavigate('story-feed')}
-/>
-</div>
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReelsClick={() => navigateTo('reels')}
+            onMarketplaceClick={() => navigateTo('marketplace')}
+            onGroupsClick={() => navigateTo('groups')}
+          />
+        </div>
       )}
 
       <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
@@ -6848,25 +6818,26 @@ return (
               </div>
             )}
 
-           <StoryReel
-  stories={orderedStories}
-  onProfileClick={(id) => openProfile(id)}
-  onCreateStory={() => {
-    if (!requireAuth('Creating stories')) return;
-    setShowCreateStoryModal(true);
-  }}
-  onViewStory={openStoryFeeds}   // ✅ FIXED
-  currentUser={currentUser}
-  onRequestLogin={() => setView('login')}
-  onFollow={followUser}
-  checkIsFollowing={checkIsFollowing}
-  followLoading={followLoading}
-  onFetchViewers={fetchStoryViewers}
-  onReaction={reactToStory}
-  onReply={replyToStory}
-  onToggleMute={() => setStoryMuted(!storyMuted)}
-  muted={storyMuted}
-/>
+            <StoryReel
+              stories={orderedStories}
+              onProfileClick={(id) => openProfile(id)}
+              onCreateStory={() => {
+                if (!requireAuth('Creating stories')) return;
+                setShowCreateStoryModal(true);
+              }}
+              onViewStory={openStoryViewer}
+              currentUser={currentUser}
+              onRequestLogin={() => setView('login')}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              followLoading={followLoading}
+              onFetchViewers={fetchStoryViewers}
+              onReaction={reactToStory}
+              onReply={replyToStory}
+              onToggleMute={() => setStoryMuted(!storyMuted)}
+              muted={storyMuted}
+            />
+
             {currentUser && (
               <CreatePost
                 currentUser={currentUser}
@@ -7706,29 +7677,31 @@ return (
       />
     )}
 
-{activeStoryId && activeStory && (
-  <StoryViewerModal
-    story={activeStory}
-    onClose={closeStoryViewer}
-    onProfileClick={(id) => {
-      closeStoryViewer();
-      openProfile(id);
-    }}
-    currentUser={currentUser}
-    onFollow={followUser}
-    checkIsFollowing={checkIsFollowing}
-    followLoading={followLoading}
-    allStories={orderedStories}
-    onFetchViewers={fetchStoryViewers}
-    onReply={replyToStory}
-    onLike={likeStory}
-    onReaction={reactToStory}
-    muted={storyMuted}
-    onToggleMute={() => setStoryMuted(!storyMuted)}
-    onDeleteStory={deleteStory}
-    deleteLoading={deleteStoryLoading}
-  />
-)}
+    {activeStoryId && activeStory && (
+      <StoryViewerModal
+        story={activeStory}
+        onClose={closeStoryViewer}
+        onProfileClick={(id) => {
+          closeStoryViewer();
+          openProfile(id);
+        }}
+        currentUser={currentUser}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+        followLoading={followLoading}
+        allStories={orderedStories}
+        onFetchViewers={fetchStoryViewers}
+        onFetchAnalytics={fetchStoryAnalytics}
+        onReply={replyToStory}
+        onLike={likeStory}
+        onReaction={reactToStory}
+        onNext={handleStoryNext}
+        onPrev={handleStoryPrev}
+        muted={storyMuted}
+        onToggleMute={() => setStoryMuted(!storyMuted)}
+      />
+    )}
+
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
         currentUser={currentUser}
@@ -7832,8 +7805,6 @@ return (
       />
     )}
 
-    
-    
     {isChatsListOpen && currentUser && (
       <ChatsList
         currentUser={currentUser}
