@@ -7,7 +7,6 @@ import React, {
   useCallback,
   useContext,
   memo,
-  Story,
 } from 'react';
 import {
   User,
@@ -18,6 +17,7 @@ import {
   AudioTrack,
   Group,
   Brand,
+  Story,
   Event,
 } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -2536,6 +2536,121 @@ export const ReelFeedCard = memo(
   },
   reelCardPropsEqual
 );
+      //============ STORY CARD COMPONENTS =======
+      interface FeedStoryCardProps {
+  story: any;
+  onOpen?: (story: any) => void;
+}
+
+const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
+  const authorName =
+    story?.user?.name ||
+    story?.author_name ||
+    story?.username ||
+    'User';
+
+  const authorImage =
+    story?.user?.profile_image_url ||
+    story?.author_image ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=1877F2&color=fff&size=128`;
+
+  const storyLabel =
+    story?.type === 'text'
+      ? 'Text story'
+      : isStoryVideo(story)
+      ? 'Video story'
+      : 'Photo story';
+
+  return (
+    <div className="bg-[#242526] rounded-2xl border border-[#3A3B3C] shadow-sm overflow-hidden mb-4">
+      <div className="px-4 pt-3 pb-2 flex items-center gap-3">
+        <img
+          src={authorImage}
+          alt={authorName}
+          className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-[#E4E6EB] font-bold text-[15px] truncate">{authorName}</p>
+            <span className="text-[#1877F2] text-[12px] font-bold">Story</span>
+          </div>
+          <p className="text-[#B0B3B8] text-[12px]">
+            {storyLabel}
+            {typeof story?.views_count === 'number' ? ` · ${story.views_count} views` : ''}
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onOpen?.(story)}
+        className="block w-full text-left"
+      >
+        {story?.type === 'text' ? (
+          <div
+            className="h-[420px] flex items-center justify-center text-center px-6"
+            style={{
+              background:
+                story?.background_style || 'linear-gradient(45deg, #1877F2, #0055FF)',
+            }}
+          >
+            <div className="max-w-[85%]">
+              <p className="text-white font-bold text-2xl whitespace-pre-wrap break-words">
+                {story?.text_content || 'Story'}
+              </p>
+            </div>
+          </div>
+        ) : isStoryVideo(story) ? (
+          <div className="relative h-[420px] bg-black">
+            <video
+              src={story?.media_url || ''}
+              className="w-full h-full object-cover"
+              muted
+              playsInline
+              preload="metadata"
+            />
+            <div className="absolute inset-0 bg-black/10" />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-16 h-16 rounded-full bg-black/45 border border-white/30 flex items-center justify-center">
+                <i className="fas fa-play text-white text-2xl ml-1"></i>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="relative h-[420px] bg-black">
+            <img
+              src={story?.media_url || ''}
+              alt="Story"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        )}
+      </button>
+
+      <div className="px-4 py-3 border-t border-[#3A3B3C] flex items-center justify-between">
+        <div className="flex items-center gap-4 text-[#B0B3B8] text-sm">
+          <span className="flex items-center gap-1">
+            <i className="fas fa-eye text-[13px]"></i>
+            {Number(story?.views_count || 0)}
+          </span>
+          <span className="flex items-center gap-1">
+            <i className="fas fa-heart text-[13px]"></i>
+            {Number(story?.reactions_count || 0)}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpen?.(story)}
+          className="px-4 py-1.5 rounded-full bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-bold"
+        >
+          View story
+        </button>
+      </div>
+    </div>
+  );
+};
+   
 
 /**
  * =========================
