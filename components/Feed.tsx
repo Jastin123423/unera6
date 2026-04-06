@@ -7327,6 +7327,11 @@ export {
  * =========================
  */
 interface FeedProps {
+  // ========== NEW PROPS ==========
+  items?: FeedItem[];
+  onOpenStory?: (story: Story) => void;
+  // ========== END NEW PROPS ==========
+  
   feedItems: any[];
   currentUser: User | null;
   users: User[];
