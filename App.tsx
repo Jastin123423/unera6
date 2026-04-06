@@ -1876,7 +1876,27 @@ const deleteStory = useCallback(async (storyId: number) => {
     setDeleteStoryLoading(false);
   }
 }, [currentUser, requireAuth]);
-                      
+      
+const mixedFeedItems = useMemo(() => {
+  const postItems = safeArray(posts).map((post) => ({
+    kind: 'post' as const,
+    data: post,
+    created_at: post?.created_at || '',
+  }));
+
+  const storyItems = safeArray(orderedStories).map((story) => ({
+    kind: 'story' as const,
+    data: story,
+    created_at: story?.created_at || '',
+  }));
+
+  return [...postItems, ...storyItems].sort(
+    (a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+}, [posts, orderedStories]);
+
+                  
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
