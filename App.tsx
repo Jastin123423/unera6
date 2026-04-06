@@ -1840,6 +1840,43 @@ export default function App() {
     }
   }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
 
+const [deleteStoryLoading, setDeleteStoryLoading] = useState(false);
+
+const deleteStory = useCallback(async (storyId: number) => {
+  if (!requireAuth('Deleting stories')) return;
+  if (!currentUser) return;
+
+  setDeleteStoryLoading(true);
+  try {
+    await apiFetch(`/api/stories/${storyId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+
+    setStories(prev => prev.filter(story => Number(story.id) !== Number(storyId)));
+
+    setActiveStoryId(prev => (Number(prev) === Number(storyId) ? null : prev));
+
+    try {
+      const cached = readStoriesCache();
+      const nextCached = safeArray(cached?.stories).filter((s: any) => Number(s?.id) !== Number(storyId));
+      writeStoriesCache(nextCached);
+    } catch {}
+
+    const toast = document.createElement('div');
+    toast.className =
+      'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story deleted!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  } catch (error) {
+    console.error('Failed to delete story:', error);
+    setLoginError('Failed to delete story');
+  } finally {
+    setDeleteStoryLoading(false);
+  }
+}, [currentUser, requireAuth]);
+                      
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
