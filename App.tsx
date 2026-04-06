@@ -2547,45 +2547,45 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
   }, [currentUser, requireAuth]);
 
   const openStoryViewer = useCallback((story: Story) => {
-    const id = Number(story?.id);
-    if (!id) return;
+  const id = Number(story?.id);
+  if (!id) return;
 
-    setActiveStoryId(id);
+  setActiveStoryId(id);
+  markStorySeen(id);
+  preloadStoryMedia(story);
 
-    if (currentUser) {
-      viewStory(id);
-    }
+  if (currentUser) {
+    void viewStory(id);
+  }
 
-    markStorySeen(id);
+  const next = (() => {
+    const idx = orderedStories.findIndex(x => Number(x.id) === id);
+    return idx >= 0 ? orderedStories[idx + 1] : null;
+  })();
 
-    preloadStoryMedia(story);
-    const next = (() => {
-      const idx = orderedStories.findIndex(x => Number(x.id) === id);
-      return idx >= 0 ? orderedStories[idx + 1] : null;
-    })();
-    if (next) preloadStoryMedia(next);
-  }, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
+  if (next) preloadStoryMedia(next);
+}, [currentUser, viewStory, markStorySeen, preloadStoryMedia, orderedStories]);
 
-  const likeStory = useCallback(async (storyId: number) => {
-    if (!requireAuth('Liking stories')) return;
-    if (!currentUser) return;
+const likeStory = useCallback(async (storyId: number) => {
+  if (!requireAuth('Liking stories')) return;
+  if (!currentUser) return;
 
-    setStories(prev =>
-      prev.map(story => {
-        if (Number(story.id) !== Number(storyId)) return story;
-        
-        const currentlyLiked = story.liked_by_me;
-        
-        return {
-          ...story,
-          liked_by_me: !currentlyLiked,
-          my_reaction: !currentlyLiked ? 'like' : null,
-          reactions_count: currentlyLiked 
-            ? Math.max(0, (story.reactions_count || 0) - 1)
-            : (story.reactions_count || 0) + 1,
-        };
-      })
-    );
+  setStories(prev =>
+    prev.map(story => {
+      if (Number(story.id) !== Number(storyId)) return story;
+
+      const currentlyLiked = story.liked_by_me;
+
+      return {
+        ...story,
+        liked_by_me: !currentlyLiked,
+        my_reaction: !currentlyLiked ? 'like' : null,
+        reactions_count: currentlyLiked
+          ? Math.max(0, (story.reactions_count || 0) - 1)
+          : (story.reactions_count || 0) + 1,
+      };
+    })
+  );
 
     try {
       const response = await apiFetch(`/api/stories/${storyId}/react`, {
