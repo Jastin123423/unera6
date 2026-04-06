@@ -58,8 +58,8 @@ export interface StoryType {
   music_url: string | null;
   music_title: string | null;
   created_at: string;
-  expires_at: string | null;
-  is_active: boolean;
+  expires_at?: string | null;  // ✅ Made optional - stories don't expire
+  is_active?: boolean;          // ✅ Made optional - stories are permanent
   user?: User;
   views?: StoryViewer[];
   analytics?: StoryAnalytics;
@@ -1299,14 +1299,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
               )
             ) : (
+              // ✅ IMPROVED: Fallback block showing actual story text or default message
               <div 
-                className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
+                className="w-full h-full flex items-center justify-center p-10 text-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsPaused(p => !p);
                 }}
               >
-                <span className="text-white font-bold text-2xl">Story Content</span>
+                <span className="text-white font-bold text-3xl whitespace-pre-wrap">
+                  {(story as any).text_content || 'Story'}
+                </span>
               </div>
             )}
           </div>
