@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 // -------------------- ADDED: Import ranking utility --------------------
@@ -401,11 +400,12 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     }
   }, [isOpen, storyId, fetchComments]);
 
+  // Updated resolveAuthor to match backend fields
   const resolveAuthor = (comment: any) => {
     const uid = Number(comment?.user_id ?? comment?.userId ?? 0);
     const user = users.find(u => Number(u.id) === uid);
-    const name = comment?.author_name || user?.name || user?.username || 'User';
-    const image = comment?.author_image || user?.profile_image_url || avatarFrom(user || { name });
+    const name = comment?.name || comment?.author_name || user?.name || user?.username || 'User';
+    const image = comment?.profile_image_url || comment?.author_image || user?.profile_image_url || avatarFrom(user || { name });
     return { uid, name, image };
   };
 
@@ -417,16 +417,21 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     const parentId = replyTo?.id || null;
     const finalText = text.trim();
 
+    // Updated optimistic comment to match backend structure
     const optimisticComment = {
       id: `tmp-${Date.now()}`,
       story_id: storyId,
       user_id: currentUser.id,
-      text: finalText,
-      parent_comment_id: parentId,
+      parent_id: parentId,
+      content: finalText,
       created_at: new Date().toISOString(),
+      updated_at: null,
       likes_count: 0,
       liked_by_me: false,
       replies_count: 0,
+      name: currentUser.name,
+      username: currentUser.username,
+      profile_image_url: currentUser.profile_image_url,
     };
 
     setComments(prev => [optimisticComment, ...prev]);
@@ -434,12 +439,13 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setReplyTo(null);
 
     try {
+      // Updated request body to match backend expectations
       const data = await apiFetch(`/api/stories/${storyId}/comments`, {
         method: 'POST',
         body: JSON.stringify({
-          text: finalText,
           user_id: currentUser.id,
-          parent_comment_id: parentId,
+          content: finalText,
+          parent_id: parentId,
         }),
       });
       
@@ -487,12 +493,17 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   const handleDeleteComment = async (commentId: number) => {
     if (!currentUser) return;
 
-    setComments(prev => prev.filter(c => c.id !== commentId && c.parent_comment_id !== commentId));
+    // Updated filter to use parent_id instead of parent_comment_id
+    setComments(prev => prev.filter(c => c.id !== commentId && c.parent_id !== commentId));
 
     try {
-      await apiFetch(`/api/stories/comments/${commentId}`, {
+      // Updated delete endpoint to match backend
+      await apiFetch(`/api/stories/${storyId}/comments`, {
         method: 'DELETE',
-        body: JSON.stringify({ user_id: currentUser.id }),
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          comment_id: commentId,
+        }),
       });
     } catch (error) {
       console.error('Failed to delete comment:', error);
@@ -500,14 +511,15 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     }
   };
 
+  // Updated buildThreads to use parent_id
   const buildThreads = (list: any[]) => {
-    const roots = list.filter(c => !c.parent_comment_id);
+    const roots = list.filter(c => !c.parent_id);
     const repliesByParent = new Map<number, any[]>();
     
     list.forEach(c => {
-      if (c.parent_comment_id) {
-        if (!repliesByParent.has(c.parent_comment_id)) repliesByParent.set(c.parent_comment_id, []);
-        repliesByParent.get(c.parent_comment_id)!.push(c);
+      if (c.parent_id) {
+        if (!repliesByParent.has(c.parent_id)) repliesByParent.set(c.parent_id, []);
+        repliesByParent.get(c.parent_id)!.push(c);
       }
     });
     
@@ -564,8 +576,9 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
               </span>
             </div>
             <div className="text-[#E4E6EB] text-[15px] mt-1 break-words">
+              {/* Updated to use content field */}
               <RichText
-                text={String(comment.text || '')}
+                text={String(comment.content || comment.text || '')}
                 users={users}
                 onProfileClick={onProfileClick}
                 onHashtagClick={onHashtagClick}
@@ -736,6 +749,8 @@ interface StoryViewerProps {
   onClose: () => void;
   onNext?: () => void;
   onPrev?: () => void;
+  onNextUser?: () => void;
+  onPrevUser?: () => void;
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
@@ -767,6 +782,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onClose,
   onNext,
   onPrev,
+  onNextUser,
+  onPrevUser,
   onReply,
   onLike,
   onReaction,
@@ -962,9 +979,19 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
+    // Updated swipe detection with vertical swipe for user navigation
     const SWIPE_X = 40;
-    const SWIPE_Y = 30;
-    if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < SWIPE_Y) {
+    const SWIPE_Y = 50;
+    
+    // Vertical swipe - switch between different users
+    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx)) {
+      if (dy < 0) onNextUser?.();
+      else onPrevUser?.();
+      return;
+    }
+    
+    // Horizontal swipe - switch between same user's stories
+    if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 30) {
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
       return;
@@ -1089,6 +1116,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           e.preventDefault();
           safeNavigate('prev');
           break;
+        case 'ArrowUp':
+          e.preventDefault();
+          onPrevUser?.();
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          onNextUser?.();
+          break;
         case 'Escape':
           e.preventDefault();
           onClose();
@@ -1120,7 +1155,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onNext, onPrev, onClose, onToggleMute, isAuthor, onDeleteStory]);
+  }, [onNext, onPrev, onNextUser, onPrevUser, onClose, onToggleMute, isAuthor, onDeleteStory]);
 
   useEffect(() => {
     const r = story.my_reaction ?? story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction ?? null;
@@ -1477,7 +1512,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       >
         <button
           type="button"
-          aria-label="Previous story"
+          aria-label="Previous story (same user)"
           className="absolute left-2 top-1/2 -translate-y-1/2 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
           onClick={(e) => {
             e.stopPropagation();
@@ -1491,7 +1526,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
         <button
           type="button"
-          aria-label="Next story"
+          aria-label="Next story (same user)"
           className="absolute right-2 top-1/2 -translate-y-1/2 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
           onClick={(e) => {
             e.stopPropagation();
@@ -2756,14 +2791,43 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     created_at: null,
   });
 
-  const userStories = useMemo(() => {
-    const list = (allStories?.length ? allStories : [story])
-      .filter(s => Number(s.user_id) === Number(story.user_id))
-      .slice()
-      .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at));
+  // Group stories by user for vertical navigation
+  const storyGroups = useMemo(() => {
+    const source = allStories?.length ? allStories : [story];
+    const map = new Map<number, StoryType[]>();
+    
+    source.forEach((s) => {
+      const uid = Number(s.user_id || 0);
+      if (!uid) return;
+      if (!map.has(uid)) map.set(uid, []);
+      map.get(uid)!.push(s);
+    });
+    
+    return Array.from(map.entries())
+      .map(([userId, stories]) => ({
+        userId,
+        stories: stories
+          .slice()
+          .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at)),
+      }))
+      .sort((a, b) => {
+        const aTime = parseServerTime(a.stories[0]?.created_at);
+        const bTime = parseServerTime(b.stories[0]?.created_at);
+        return bTime - aTime;
+      });
+  }, [allStories, story]);
 
-    return list.length ? list : [story];
-  }, [allStories, story.id, story.user_id]);
+  const [groupIndex, setGroupIndex] = useState(() => {
+    const idx = storyGroups.findIndex((g) =>
+      g.stories.some((s) => Number(s.id) === Number(story.id))
+    );
+    return idx >= 0 ? idx : 0;
+  });
+
+  const userStories = useMemo(() => {
+    const activeGroup = storyGroups[groupIndex];
+    return activeGroup?.stories?.length ? activeGroup.stories : [story];
+  }, [storyGroups, groupIndex, story]);
 
   const [activeIndex, setActiveIndex] = useState(() => {
     const idx = userStories.findIndex(s => Number(s.id) === Number(story.id));
@@ -2789,7 +2853,13 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       setActiveIndex(next);
       return;
     }
-    onClose();
+    // End of current user's stories, try next user
+    if (groupIndex + 1 < storyGroups.length) {
+      setGroupIndex(groupIndex + 1);
+      setActiveIndex(0);
+    } else {
+      onClose();
+    }
   };
 
   const handlePrev = () => {
@@ -2798,7 +2868,29 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       setActiveIndex(prev);
       return;
     }
-    onClose();
+    // Beginning of current user's stories, try previous user
+    if (groupIndex - 1 >= 0) {
+      setGroupIndex(groupIndex - 1);
+      const newStories = storyGroups[groupIndex - 1]?.stories || [];
+      setActiveIndex(newStories.length - 1);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleNextUser = () => {
+    const next = groupIndex + 1;
+    if (next >= storyGroups.length) return;
+    setGroupIndex(next);
+    setActiveIndex(0);
+  };
+
+  const handlePrevUser = () => {
+    const prev = groupIndex - 1;
+    if (prev < 0) return;
+    setGroupIndex(prev);
+    const newStories = storyGroups[prev]?.stories || [];
+    setActiveIndex(newStories.length - 1);
   };
 
   const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
@@ -2817,6 +2909,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onClose={onClose}
       onNext={handleNext}
       onPrev={handlePrev}
+      onNextUser={handleNextUser}
+      onPrevUser={handlePrevUser}
       onReply={handleReply}
       onLike={handleLike}
       onReaction={handleReaction}
