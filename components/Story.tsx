@@ -326,6 +326,26 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   </svg>
 );
 
+// ==================== REACTION EMOJI HELPER ====================
+const reactionEmoji = (t: string) => {
+  switch (t) {
+    case 'like': return '👍';
+    case 'love': return '❤️';
+    case 'haha': return '😂';
+    case 'wow': return '😮';
+    case 'sad': return '😢';
+    case 'angry': return '😡';
+    default: return '👍';
+  }
+};
+
+const fmtCount = (n: number) => {
+  const num = Number(n || 0);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + 'M';
+  if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + 'K';
+  return String(num);
+};
+
 // -------------------- STORY VIEWER COMPONENT --------------------
 interface StoryViewerProps {
   story: StoryType;
@@ -339,6 +359,7 @@ interface StoryViewerProps {
   onReaction?: (storyId: number, reaction: string) => void;
   onShare?: (storyId: number) => void;
   onComment?: (storyId: number) => void;
+  onFetchReactions?: (storyId: number) => Promise<{ reactions: any[]; counts: Record<string, number> }>;
   
   onFollow?: (userId: number) => void;
   isFollowing?: boolean;
@@ -369,6 +390,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onReaction,
   onShare,
   onComment,
+  onFetchReactions,
   onFollow,
   isFollowing,
   allStories = [],
@@ -400,6 +422,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const [userReaction, setUserReaction] = useState<string | null>(
     story.my_reaction ?? story.views?.find(v => v.user_id === currentUser?.id)?.reaction ?? null
   );
+  
+  // Reaction state for horizontal buttons
+  const [reactionCount, setReactionCount] = useState<number>(story.reactions_count || 0);
+  const [commentCount, setCommentCount] = useState<number>(0);
+  const [shareCount, setShareCount] = useState<number>(0);
+  const [reactionList, setReactionList] = useState<any[]>([]);
+  const [loadingReactions, setLoadingReactions] = useState(false);
 
   const lastMediaUrlRef = useRef<string | null>(null);
   const cachedViewsCountRef = useRef<number>(0);
@@ -435,6 +464,62 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     image: '',
     id: Number(story.user_id) || 0,
   });
+
+  // Fetch reactions for the story
+  const fetchReactions = useCallback(async () => {
+    if (!onFetchReactions) return;
+    
+    setLoadingReactions(true);
+    try {
+      const data = await onFetchReactions(story.id);
+      setReactionList(data.reactions || []);
+      setReactionCount(data.counts?.total || Object.values(data.counts || {}).reduce((a: number, b: number) => a + b, 0) || story.reactions_count || 0);
+    } catch (error) {
+      console.error('Failed to fetch reactions:', error);
+    } finally {
+      setLoadingReactions(false);
+    }
+  }, [story.id, onFetchReactions, story.reactions_count]);
+
+  // Load reactions when story changes
+  useEffect(() => {
+    fetchReactions();
+  }, [story.id, fetchReactions]);
+
+  // Get top reactions for display
+  const topReactionEmojis = useMemo(() => {
+    if (!reactionList.length) return [];
+    
+    const counts = new Map<string, number>();
+    for (const r of reactionList) {
+      const type = String(r?.type || '').trim();
+      if (!type) continue;
+      counts.set(type, (counts.get(type) || 0) + 1);
+    }
+    
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([type]) => reactionEmoji(type));
+  }, [reactionList]);
+
+  // Get reactor name for display
+  const getReactorName = useMemo(() => {
+    if (!reactionList.length) return '';
+    const firstReaction = reactionList[0];
+    const name = firstReaction?.user?.name || firstReaction?.name || '';
+    return name;
+  }, [reactionList]);
+
+  // Format reaction text like Feed.tsx
+  const reactionText = useMemo(() => {
+    if (reactionCount === 0) return '';
+    if (reactionCount === 1) {
+      return `${fmtCount(reactionCount)} · ${getReactorName}`;
+    }
+    const othersCount = reactionCount - 1;
+    return `${fmtCount(reactionCount)} · ${getReactorName} and ${fmtCount(othersCount)} other${othersCount !== 1 ? 's' : ''}`;
+  }, [reactionCount, getReactorName]);
 
   const lockNav = () => {
     const now = Date.now();
@@ -804,15 +889,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
 
-  const currentStoryState = allStories.find((s) => Number(s.id) === Number(story.id)) || story;
-  const hasLiked = Boolean(currentUser && (currentStoryState as any)?.liked_by_me);
-
   const storyIsText = story.type === 'text';
   const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(story.media_url));
   const storyIsImage = !storyIsText && !storyIsVideo;
 
   const totalViews = story.views_count || viewersCount || story.analytics?.total_views || cachedViewsCountRef.current;
-  const reactionsCount = story.reactions_count || story.analytics?.views_with_reactions || 0;
 
   useEffect(() => {
     if (storyIsVideo) {
@@ -897,34 +978,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [isPaused, storyIsVideo, muted, story.music_url]);
 
-  const handleSendReply = () => {
-    if (replyText.trim() && onReply && !isAuthor) {
-      onReply(story.id, replyText.trim());
-      setReplyText('');
-      setIsPaused(false);
-
-      const toast = document.createElement('div');
-      toast.className =
-        'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-      toast.innerText = 'Reply sent!';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 2000);
-    }
-  };
-
-  const handleLike = () => {
-    if (onLike && !isAuthor) {
-      onLike(story.id);
-      if (!hasLiked) {
-        setShowHeartAnim(true);
-        setTimeout(() => setShowHeartAnim(false), 800);
-      }
-    }
-  };
-
   const handleShare = () => {
-    if (onShare && !isAuthor) {
+    if (onShare) {
       onShare(story.id);
+      setShareCount(prev => prev + 1);
       setIsPaused(false);
       
       const toast = document.createElement('div');
@@ -937,9 +994,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   };
 
   const handleComment = () => {
-    if (onComment && !isAuthor) {
+    if (onComment) {
       onComment(story.id);
       setIsPaused(false);
+    }
+  };
+
+  const handleReactionClick = () => {
+    if (!isAuthor) {
+      setShowReactions(!showReactions);
     }
   };
 
@@ -949,7 +1012,20 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const wasPaused = isPaused;
     setIsPaused(true);
 
-    setUserReaction(reaction);
+    const previousReaction = userReaction;
+    const previousCount = reactionCount;
+    
+    // Optimistic update
+    if (previousReaction === reaction) {
+      setUserReaction(null);
+      setReactionCount(prev => Math.max(0, prev - 1));
+    } else {
+      setUserReaction(reaction);
+      if (!previousReaction) {
+        setReactionCount(prev => prev + 1);
+      }
+    }
+    
     setShowReactions(false);
 
     try {
@@ -959,6 +1035,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       } else {
         await new Promise(r => setTimeout(r, 250));
       }
+      await fetchReactions();
+    } catch (error) {
+      // Rollback on error
+      setUserReaction(previousReaction);
+      setReactionCount(previousCount);
+      console.error('Failed to react:', error);
     } finally {
       if (!wasPaused) setIsPaused(false);
     }
@@ -987,6 +1069,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
   const frozenAuthor = frozenAuthorRef.current;
   const uniqueViewers = story.analytics?.unique_viewers || viewers.length || 0;
+
+  // Get active reaction emoji and color for the button
+  const activeReaction = userReaction ? {
+    emoji: reactionEmoji(userReaction),
+    color: userReaction === 'like' ? '#1877F2' : userReaction === 'love' ? '#F3425F' : '#F7B928'
+  } : null;
 
   return (
     <div className="fixed inset-0 z-[250] bg-black flex items-center justify-center animate-fade-in">
@@ -1168,7 +1256,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         <div className="flex-1 bg-[#111] relative">
           <div
             className="absolute inset-0 z-[5]"
-            onDoubleClick={isAuthor ? undefined : handleLike}
+            onDoubleClick={isAuthor ? undefined : () => handleReaction('like')}
           />
 
           <div className="absolute inset-0 z-[10] flex items-center justify-center">
@@ -1277,79 +1365,104 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   aria-label={`React with ${reaction}`}
                   data-no-nav="true"
                 >
-                  {getReactionEmoji(reaction)}
+                  {reactionEmoji(reaction)}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* ==================== NEW BOTTOM ACTIONS - REACT, DISCUSS, SHARE ==================== */}
-        {!isAuthor ? (
-          <div 
-            className="absolute bottom-0 left-0 right-0 p-4 z-20 bg-gradient-to-t from-black/80 to-transparent pt-12"
-            data-no-nav="true"
-          >
-            {/* React Button - Spark Icon */}
-            <button
-              onClick={() => setShowReactions(!showReactions)}
-              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95 mb-2"
+        {/* ==================== HORIZONTAL BOTTOM ACTIONS - REACT, DISCUSS, SHARE ==================== */}
+        <div 
+          className="absolute bottom-0 left-0 right-0 p-3 z-20 bg-gradient-to-t from-black/80 to-transparent pt-10"
+          data-no-nav="true"
+        >
+          {/* Reaction row with counts - exactly like Feed.tsx */}
+          {reactionCount > 0 && (
+            <div 
+              className="flex items-center justify-between px-2 mb-2 cursor-pointer"
+              onClick={() => {
+                // Open reactions sheet - you can implement this
+                console.log('Open reactions sheet');
+              }}
             >
-              <SparkReactIcon size={28} />
-              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
-                React
-              </span>
+              <div className="flex items-center gap-2">
+                <div className="flex -space-x-2">
+                  {topReactionEmojis.slice(0, 2).map((emoji, i) => (
+                    <span
+                      key={i}
+                      className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
+                      style={{ zIndex: 10 - i }}
+                    >
+                      {emoji}
+                    </span>
+                  ))}
+                </div>
+                {reactionText && (
+                  <span className="text-[15px] text-white font-bold">
+                    {reactionText}
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-3 text-white/60 text-[13px]">
+                <span className="hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); handleComment(); }}>
+                  {fmtCount(commentCount)} Discussions
+                </span>
+                {shareCount > 0 && (
+                  <span className="hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); handleShare(); }}>
+                    {fmtCount(shareCount)} Shares
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Three horizontal buttons - exactly like Feed.tsx */}
+          <div className="flex items-center justify-between gap-2">
+            {/* React Button */}
+            <button
+              onClick={handleReactionClick}
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
+            >
+              {activeReaction ? (
+                <>
+                  <span className="text-[22px] transition-transform duration-300">
+                    {activeReaction.emoji}
+                  </span>
+                  <span
+                    className="text-[17px] font-bold transition-colors duration-300"
+                    style={{ color: activeReaction.color }}
+                  >
+                    React
+                  </span>
+                </>
+              ) : (
+                <>
+                  <SparkReactIcon size={26} />
+                  <span className="text-[17px] font-bold text-white/80">React</span>
+                </>
+              )}
             </button>
 
             {/* Discuss Button */}
             <button
               onClick={handleComment}
-              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95 mb-2"
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
             >
-              <DiscussSignalIcon size={28} color="#1877F2" />
-              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
-                Discuss
-              </span>
+              <DiscussSignalIcon size={26} color="#1877F2" />
+              <span className="text-[17px] font-bold text-white/80">Discuss</span>
             </button>
 
             {/* Share Button */}
             <button
               onClick={handleShare}
-              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95"
+              className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
             >
-              <i className="fas fa-share text-[22px] text-white/80"></i>
-              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
-                Share
-              </span>
+              <i className="fas fa-share text-[20px] text-white/80"></i>
+              <span className="text-[17px] font-bold text-white/80">Share</span>
             </button>
           </div>
-        ) : (
-          <div 
-            className="absolute bottom-0 left-0 right-0 p-4 z-20 bg-gradient-to-t from-black/80 to-transparent pt-12"
-            data-no-nav="true"
-          >
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                <div className="text-white font-black text-lg">
-                  {totalViews > 0 ? totalViews : cachedViewsCountRef.current || 0}
-                </div>
-                <div className="text-white/60 text-xs">Total Views</div>
-              </div>
-              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                <div className="text-white font-black text-lg">
-                  {uniqueViewers > 0 ? uniqueViewers : totalViews || 0}
-                </div>
-                <div className="text-white/60 text-xs">Unique Viewers</div>
-              </div>
-              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                <div className="text-white font-black text-lg">
-                  {reactionsCount}
-                </div>
-                <div className="text-white/60 text-xs">Reactions</div>
-              </div>
-            </div>
-          </div>
-        )}
+        </div>
 
         {/* Viewers Modal */}
         {showViewers && (
@@ -1572,7 +1685,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
 
   return (
     <div className="w-full flex gap-2.5 mb-6 overflow-x-auto pb-2 scrollbar-hide">
-      {/* Create Story */}
       <div
         className="min-w-[110px] sm:min-w-[140px] h-[210px] sm:h-[250px] bg-[#242526] rounded-2xl shadow-md overflow-hidden cursor-pointer relative group flex-shrink-0 border border-[#3E4042]"
         onClick={() => (currentUser ? onCreateStory?.() : onRequestLogin())}
@@ -2215,6 +2327,7 @@ interface StoryViewerModalProps {
   followLoading?: { [key: number]: boolean };
   allStories?: StoryType[];
   onFetchViewers?: (storyId: number) => Promise<StoryViewer[]>;
+  onFetchReactions?: (storyId: number) => Promise<{ reactions: any[]; counts: Record<string, number> }>;
   viewersCount?: number;
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
@@ -2238,6 +2351,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     followLoading,
     allStories = [],
     onFetchViewers,
+    onFetchReactions,
     viewersCount,
     onReply,
     onLike,
@@ -2340,6 +2454,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onReaction={handleReaction}
       onShare={handleShare}
       onComment={handleComment}
+      onFetchReactions={onFetchReactions}
       onFollow={onFollow}
       isFollowing={isFollowing}
       allStories={userStories}
