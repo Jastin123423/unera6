@@ -1926,7 +1926,7 @@ const handleStoryShare = useCallback(async (storyId: number) => {
   }
 }, [currentUser, requireAuth]);
 
-// ✅ UPDATED: Opens the story comments modal instead of showing a toast
+// Updated: Opens the story comments modal
 const handleStoryComment = useCallback((storyId: number) => {
   if (!requireAuth('Commenting on stories')) return;
   if (!currentUser) return;
@@ -1936,7 +1936,6 @@ const handleStoryComment = useCallback((storyId: number) => {
 }, [currentUser, requireAuth]);
 
 // ✅ END OF STORY HANDLERS ✅
-
       
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
