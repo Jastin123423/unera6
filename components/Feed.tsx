@@ -7396,12 +7396,10 @@ interface FeedProps {
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
-export const Feed = memo(({
+  export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
   onOpenStory,
-    
-  feedItems,
   currentUser,
   users,
   onProfileClick,
@@ -7438,141 +7436,135 @@ export const Feed = memo(({
   onLoginClick,
 }: FeedProps) => {
   
+  const safeFeedItems = React.useMemo(() => {
+    if (items && items.length > 0) {
+      return items;
+    }
+    if (feedItemsProp && feedItemsProp.length > 0) {
+      return feedItemsProp.map((item: any) => ({
+        kind: 'post' as const,
+        data: item,
+        created_at: item.created_at
+      }));
+    }
+    return [];
+  }, [items, feedItemsProp]);
+
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
   }, []);
 
   return (
     <div className="space-y-2">
-      {feedItems.map((item, idx) => {
-        // Handle reel cards
-        // Inside the Feed component's return statement, replace your existing mapping:
+      {safeFeedItems.map((item, index) => {
+        if (item.kind === 'story') {
+          return (
+            <FeedStoryCard
+              key={`story-${item.data.id}-${index}`}
+              story={item.data}
+              onOpen={onOpenStory}
+            />
+          );
+        }
 
-{/* Replace this: */}
-{feedItems.map((item, idx) => {
-  // ... existing complex logic with PYMK inserts, etc.
-})}
+        const post = item.data;
+        const postAuthorId = Number(post.user_id);
+        const isFollowing = checkIsFollowing?.(postAuthorId) || false;
+        const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+        const isAdminUser = currentUser && currentUser.role === 'admin';
+        const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
+        const isPushed = pushedPosts?.[post.id] || false;
 
-{/* With this: */}
+        const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
 
-// Inside the Feed component's return statement, replace your existing mapping with:
-{safeFeedItems.map((item, index) => {
-  if (item.kind === 'story') {
-    return (
-      <FeedStoryCard
-        key={`story:${item.data.id}:${index}`}
-        story={item.data}
-        onOpen={onOpenStory}
-      />
-    );
-  }
+        const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
 
-  const post = item.data;
-  const postAuthorId = Number(post.user_id);
-  const isFollowing = checkIsFollowing?.(postAuthorId) || false;
-  const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-  const isAdminUser = currentUser && currentUser.role === 'admin';
-  const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
-  const isPushed = pushedPosts?.[post.id] || false;
+        const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
 
-  const showFirstPymk = peopleYouMayKnow && 
-    peopleYouMayKnow.length > 0 &&
-    peopleYouMayKnowInsertIndex1 >= 0 &&
-    index === peopleYouMayKnowInsertIndex1;
+        return (
+          <React.Fragment key={`post-${post.id}-${index}`}>
+            <Post
+              post={post as PostType}
+              author={getPostAuthor?.(post as PostType) || post.author || post}
+              currentUser={currentUser}
+              users={users}
+              onProfileClick={onProfileClick}
+              onReact={onReact}
+              onShare={onShare}
+              onViewImage={onViewImage}
+              onOpenComments={onOpenComments}
+              onVideoClick={onVideoClick}
+              onPlayAudioTrack={onPlayAudioTrack}
+              groups={groups}
+              brands={brands}
+              chats={chats}
+              onHashtagClick={onHashtagClick}
+              isFollowing={isFollowing}
+              onFollow={() => onFollow?.(postAuthorId)}
+              followLoading={followLoading?.[postAuthorId] || false}
+              onViewProductFromPost={onViewProductFromPost}
+              onRSVP={onRSVPEvent}
+              pushButton={showPushButton ? (
+                <button
+                  onClick={() => onPushMore?.(post.id)}
+                  disabled={isPushed}
+                  className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+                >
+                  {isPushed ? 'Pushed' : 'Push More'}
+                </button>
+              ) : undefined}
+            />
 
-  const showSecondPymk = peopleYouMayKnow && 
-    peopleYouMayKnow.length > 0 &&
-    peopleYouMayKnowInsertIndex2 >= 0 &&
-    index === peopleYouMayKnowInsertIndex2;
+            {showFirstPymk && (
+              <PeopleYouMayKnowGrid
+                users={peopleYouMayKnow}
+                onFollow={(id: number) => onFollowFromPymk?.(id)}
+                currentUser={currentUser}
+                isLoading={pymkLoading}
+                onLoginClick={onLoginClick}
+                onProfileClick={onProfileClick}
+                title="People You May Know"
+                maxDisplay={8}
+              />
+            )}
 
-  const showGroupsYouMayJoin = groupsYouMayJoin && 
-    groupsYouMayJoin.length > 0 &&
-    groupsYouMayJoinInsertIndex >= 0 &&
-    index === groupsYouMayJoinInsertIndex;
+            {showSecondPymk && (
+              <PeopleYouMayKnowGrid
+                users={peopleYouMayKnow}
+                onFollow={(id: number) => onFollowFromPymk?.(id)}
+                currentUser={currentUser}
+                isLoading={pymkLoading}
+                onLoginClick={onLoginClick}
+                onProfileClick={onProfileClick}
+                title="More People You May Know"
+                maxDisplay={8}
+              />
+            )}
 
-  return (
-    <React.Fragment key={`post:${post.id}:${index}`}>
-      <Post
-        post={post as PostType}
-        author={getPostAuthor?.(post as PostType) || post.author || post}
-        currentUser={currentUser}
-        users={users}
-        onProfileClick={onProfileClick}
-        onReact={onReact}
-        onShare={onShare}
-        onViewImage={onViewImage}
-        onOpenComments={onOpenComments}
-        onVideoClick={onVideoClick}
-        onPlayAudioTrack={onPlayAudioTrack}
-        groups={groups}
-        brands={brands}
-        chats={chats}
-        onHashtagClick={onHashtagClick}
-        isFollowing={isFollowing}
-        onFollow={() => onFollow?.(postAuthorId)}
-        followLoading={followLoading?.[postAuthorId] || false}
-        onViewProductFromPost={onViewProductFromPost}
-        onRSVP={onRSVPEvent}
-        pushButton={showPushButton ? (
-          <button
-            onClick={() => onPushMore?.(post.id)}
-            disabled={isPushed}
-            className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-          >
-            {isPushed ? 'Pushed' : 'Push More'}
-          </button>
-        ) : undefined}
-      />
-
-      {showFirstPymk && (
-        <PeopleYouMayKnowGrid
-          users={peopleYouMayKnow}
-          onFollow={(id: number) => onFollowFromPymk?.(id)}
-          currentUser={currentUser}
-          isLoading={pymkLoading}
-          onLoginClick={onLoginClick}
-          onProfileClick={onProfileClick}
-          title="People You May Know"
-          maxDisplay={8}
-        />
-      )}
-
-      {showSecondPymk && (
-        <PeopleYouMayKnowGrid
-          users={peopleYouMayKnow}
-          onFollow={(id: number) => onFollowFromPymk?.(id)}
-          currentUser={currentUser}
-          isLoading={pymkLoading}
-          onLoginClick={onLoginClick}
-          onProfileClick={onProfileClick}
-          title="More People You May Know"
-          maxDisplay={8}
-        />
-      )}
-
-      {showGroupsYouMayJoin && (
-        <GroupsYouMayJoinCard
-          groups={groupsYouMayJoin}
-          currentUser={currentUser}
-          isLoading={gymjLoading}
-          onJoin={(groupId: number) => onJoinGroupSuggestion?.(groupId)}
-          onLoginClick={onLoginClick}
-          onOpenGroup={(groupId: number) => onOpenGroup?.(groupId)}
-          onProfileClick={onProfileClick}
-          title="Groups You May Join"
-          maxDisplay={8}
-        />
-      )}
-    </React.Fragment>
-  );
-})}
+            {showGroupsYouMayJoin && (
+              <GroupsYouMayJoinCard
+                groups={groupsYouMayJoin}
+                currentUser={currentUser}
+                isLoading={gymjLoading}
+                onJoin={(groupId: number) => onJoinGroupSuggestion?.(groupId)}
+                onLoginClick={onLoginClick}
+                onOpenGroup={(groupId: number) => onOpenGroup?.(groupId)}
+                onProfileClick={onProfileClick}
+                title="Groups You May Join"
+                maxDisplay={8}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }, (prev, next) => {
-  // Custom comparison for memo using hybrid identity
-  if (prev.feedItems.length !== next.feedItems.length) return false;
-  for (let i = 0; i < prev.feedItems.length; i++) {
-    if (!isSameFeedItem(prev.feedItems[i], next.feedItems[i])) return false;
+  if (prev.items !== next.items) return false;
+  if (prev.feedItems !== next.feedItems) return false;
+  if (prev.feedItems?.length !== next.feedItems?.length) return false;
+  for (let i = 0; i < (prev.feedItems?.length || 0); i++) {
+    if (!isSameFeedItem(prev.feedItems?.[i], next.feedItems?.[i])) return false;
   }
   return prev.currentUser?.id === next.currentUser?.id;
 });
