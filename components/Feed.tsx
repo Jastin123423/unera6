@@ -7436,6 +7436,7 @@ interface FeedProps {
   onLoginClick,
 }: FeedProps) => {
   
+  // ✅ ADD THIS - safeFeedItems is MISSING
   const safeFeedItems = React.useMemo(() => {
     if (items && items.length > 0) {
       return items;
@@ -7456,7 +7457,9 @@ interface FeedProps {
 
   return (
     <div className="space-y-2">
+      {/* ✅ CHANGE THIS - use safeFeedItems, not feedItems */}
       {safeFeedItems.map((item, index) => {
+        // ✅ ADD THIS - check for story kind
         if (item.kind === 'story') {
           return (
             <FeedStoryCard
