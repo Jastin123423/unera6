@@ -58,14 +58,13 @@ export interface StoryType {
   music_url: string | null;
   music_title: string | null;
   created_at: string;
-  expires_at?: string | null;  // ✅ Made optional - stories don't expire
-  is_active?: boolean;          // ✅ Made optional - stories are permanent
+  expires_at?: string | null;
+  is_active?: boolean;
   user?: User;
   views?: StoryViewer[];
   analytics?: StoryAnalytics;
   liked_by_me?: boolean;
   
-  // Backend-compatible reaction fields
   views_count?: number;
   reactions_count?: number;
   my_reaction?: string | null;
@@ -85,30 +84,25 @@ export interface CreateStoryData {
 }
 
 // -------------------- HELPER FUNCTIONS --------------------
-// ✅ FIXED: Timezone-safe parser for server timestamps
 const parseServerTime = (value?: string): number => {
   const s = String(value ?? '').trim();
   if (!s) return Date.now();
 
-  // ISO with timezone -> safe
   if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
     const t = Date.parse(s);
     return Number.isFinite(t) ? t : Date.now();
   }
 
-  // "YYYY-MM-DD HH:mm:ss" -> treat as UTC (common server format)
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
     const iso = s.replace(' ', 'T') + 'Z';
     const t = Date.parse(iso);
     return Number.isFinite(t) ? t : Date.now();
   }
 
-  // Fallback
   const t = Date.parse(s);
   return Number.isFinite(t) ? t : Date.now();
 };
 
-// ✅ FIXED: Use timezone-safe parser
 const formatStoryTime = (created_at?: string): string => {
   const t = parseServerTime(created_at);
   const diff = Date.now() - t;
@@ -253,7 +247,6 @@ const getReactionName = (reaction?: string | null): string => {
   }
 };
 
-// ✅ FIXED: Use timezone-safe parser for viewer sorting
 const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
   const map = new Map<number, StoryViewer>();
 
@@ -267,7 +260,6 @@ const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
       continue;
     }
 
-    // Keep whichever has a reaction, or the most recent viewed_at
     const prevHasReaction = !!prev.reaction;
     const nextHasReaction = !!v.reaction;
 
@@ -285,6 +277,55 @@ const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
   );
 };
 
+// ==================== SPARK REACT ICON ====================
+const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="storySparkGrad" x1="12" y1="52" x2="52" y2="12">
+        <stop offset="0%" stopColor="#FF7A45" />
+        <stop offset="55%" stopColor="#FF5A6A" />
+        <stop offset="100%" stopColor="#FF8A3D" />
+      </linearGradient>
+      <filter id="storySparkGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+    <circle cx="32" cy="32" r="18" fill="url(#storySparkGrad)" opacity="0.14" />
+    <g stroke="url(#storySparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#storySparkGlow)">
+      <line x1="32" y1="10" x2="32" y2="18" />
+      <line x1="32" y1="46" x2="32" y2="54" />
+      <line x1="10" y1="32" x2="18" y2="32" />
+      <line x1="46" y1="32" x2="54" y2="32" />
+      <line x1="17" y1="17" x2="22.8" y2="22.8" />
+      <line x1="41.2" y1="41.2" x2="47" y2="47" />
+      <line x1="47" y1="17" x2="41.2" y2="22.8" />
+      <line x1="22.8" y1="41.2" x2="17" y2="47" />
+    </g>
+    <circle cx="32" cy="32" r="6.2" fill="url(#storySparkGrad)" />
+  </svg>
+);
+
+// ==================== DISCUSS SIGNAL ICON ====================
+const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
+  size = 28,
+  color = '#1877F2',
+}) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
+      <circle cx="27" cy="30" r="2.2" />
+      <circle cx="33" cy="30" r="2.2" />
+      <circle cx="39" cy="30" r="2.2" />
+      <path d="M48 18c3 2 5 5 6 9" />
+      <path d="M44 22c2 1 3 3 4 6" />
+    </g>
+  </svg>
+);
+
 // -------------------- STORY VIEWER COMPONENT --------------------
 interface StoryViewerProps {
   story: StoryType;
@@ -296,26 +337,22 @@ interface StoryViewerProps {
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
+  onShare?: (storyId: number) => void;
+  onComment?: (storyId: number) => void;
   
-  // Follow system
   onFollow?: (userId: number) => void;
   isFollowing?: boolean;
   
-  // Multi-story support
   allStories?: StoryType[];
   
-  // Viewers system
   onFetchViewers?: (storyId: number) => Promise<StoryViewer[]>;
   viewersCount?: number;
   
-  // Profile navigation
   onProfileClick?: (id: number) => void;
   
-  // Mute controls
   muted?: boolean;
   onToggleMute?: () => void;
   
-  // ✅ ADDED: Delete story functionality
   onDeleteStory?: (storyId: number) => Promise<void> | void;
   deleteLoading?: boolean;
 }
@@ -330,6 +367,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onReply,
   onLike,
   onReaction,
+  onShare,
+  onComment,
   onFollow,
   isFollowing,
   allStories = [],
@@ -347,62 +386,48 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [storyDurationMs, setStoryDurationMs] = useState<number>(5000);
   
-  // Media ready state to prevent skipping
   const [mediaReady, setMediaReady] = useState(false);
   
-  // Viewers system
   const [showViewers, setShowViewers] = useState(false);
   const [loadingViewers, setLoadingViewers] = useState(false);
   const [viewers, setViewers] = useState<StoryViewer[]>([]);
   const [viewersError, setViewersError] = useState('');
   
-  // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
   
-  // Reactions
   const [showReactions, setShowReactions] = useState(false);
   const [userReaction, setUserReaction] = useState<string | null>(
     story.my_reaction ?? story.views?.find(v => v.user_id === currentUser?.id)?.reaction ?? null
   );
 
-  // Cache for last media URL to prevent blink
   const lastMediaUrlRef = useRef<string | null>(null);
   const cachedViewsCountRef = useRef<number>(0);
   
-  // Prevent rapid navigation
   const isNavigatingRef = useRef(false);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ ADDED: Navigation lock and pointer handlers
   const navLockRef = useRef(0);
   const pointerDownRef = useRef<{ x: number; y: number; t: number } | null>(null);
   
-  // ✅ ADDED: Navigation timestamp ref for single-shot navigation
   const lastNavAtRef = useRef(0);
   
-  // ✅ ADDED: Hold finger to pause refs
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pausedByHoldRef = useRef(false);
   const pauseWasAlreadyOnRef = useRef(false);
   
-  // ✅ ADDED: Viewers resume state ref
   const viewersResumeRef = useRef<'resume' | 'keepPaused'>('resume');
 
-  // ✅ ADDED: Progress interval ref to stop auto-advance when user navigates
   const progressIntervalRef = useRef<number | null>(null);
 
-  // ✅ ADDED: Preload cache for instant loading
   const preloadReadyRef = useRef<Map<string, boolean>>(new Map());
 
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Determine if current user is the author
   const isAuthor = currentUser && currentUser.id === user.id;
 
-  // Freeze list & author for no flicker
   const frozenUserStoriesRef = useRef<StoryType[]>([]);
   const didAdvanceRef = useRef(false);
   const frozenAuthorRef = useRef<{ name: string; image: string; id: number }>({
@@ -411,30 +436,24 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // ✅ ADDED: Navigation lock function
   const lockNav = () => {
     const now = Date.now();
-    if (now - navLockRef.current < 450) return false; // block double-fire
+    if (now - navLockRef.current < 450) return false;
     navLockRef.current = now;
     return true;
   };
 
-  // ✅ ADDED: Interactive target check
   const isInteractiveTarget = (el: EventTarget | null) => {
     const node = el as HTMLElement | null;
     if (!node) return false;
-    return !!node.closest(
-      'button,a,input,textarea,select,[role="button"],[data-no-nav="true"]'
-    );
+    return !!node.closest('button,a,input,textarea,select,[role="button"],[data-no-nav="true"]');
   };
 
-  // ✅ UPDATED: Pointer down handler with long-press timer
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isInteractiveTarget(e.target)) return;
 
     pointerDownRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
 
-    // Long-press pause (FB behavior)
     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
 
     pauseWasAlreadyOnRef.current = isPaused;
@@ -442,10 +461,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     holdTimerRef.current = setTimeout(() => {
       pausedByHoldRef.current = true;
       setIsPaused(true);
-    }, 220); // 180–260 feels FB-like
+    }, 220);
   };
 
-  // ✅ ADDED: Pointer move handler to cancel long-press on drag
   const handlePointerMove = (e: React.PointerEvent) => {
     const start = pointerDownRef.current;
     if (!start) return;
@@ -453,7 +471,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
 
-    // if user starts dragging, cancel the long-press timer
     const DRAG_CANCEL = 12;
     if (Math.abs(dx) > DRAG_CANCEL || Math.abs(dy) > DRAG_CANCEL) {
       if (holdTimerRef.current) {
@@ -463,18 +480,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   };
 
-  // ✅ UPDATED: Pointer up handler without double lock
   const handlePointerUp = (e: React.PointerEvent) => {
     const start = pointerDownRef.current;
     pointerDownRef.current = null;
 
-    // stop hold timer
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
     }
 
-    // If we paused via long-press, resume on release (unless user was already paused)
     if (pausedByHoldRef.current) {
       pausedByHoldRef.current = false;
       if (!pauseWasAlreadyOnRef.current) setIsPaused(false);
@@ -487,7 +501,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
-    // swipe
     const SWIPE_X = 40;
     const SWIPE_Y = 30;
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < SWIPE_Y) {
@@ -496,7 +509,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       return;
     }
 
-    // tap
     const TAP_MOVE = 12;
     const TAP_TIME = 350;
     if (Math.abs(dx) <= TAP_MOVE && Math.abs(dy) <= TAP_MOVE && dt <= TAP_TIME) {
@@ -504,14 +516,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       const x = e.clientX - box.left;
       const ratio = x / box.width;
 
-      // left -> prev, right -> next, middle -> pause/play
       if (ratio < 0.35) safeNavigate('prev');
       else if (ratio > 0.65) safeNavigate('next');
       else setIsPaused(p => !p);
     }
   };
 
-  // ✅ ADDED: Pointer cancel handler
   const handlePointerCancel = () => {
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
@@ -524,18 +534,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     pointerDownRef.current = null;
   };
 
-  // ✅ UPDATED: Close viewers with resume logic
   const closeViewers = () => {
     setShowViewers(false);
-    // resume only if user wasn't already paused before opening viewers
     if (viewersResumeRef.current === 'resume') setIsPaused(false);
   };
 
-  // ✅ UPDATED: Open viewers with pause logic
   const openViewers = async () => {
     if (!onFetchViewers) return;
 
-    // pause while viewers is open/loading
     const wasPaused = isPaused;
     setIsPaused(true);
 
@@ -552,14 +558,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       setViewers([]);
     } finally {
       setLoadingViewers(false);
-
-      // IMPORTANT: don't resume yet — keep paused while modal is visible
-      // we resume when user closes the viewers modal
       viewersResumeRef.current = wasPaused ? 'keepPaused' : 'resume';
     }
   };
 
-  // Cache views count to prevent blinking
   useEffect(() => {
     const totalViews = story.views_count || viewersCount || story.analytics?.total_views || 0;
     if (totalViews > 0) {
@@ -567,42 +569,35 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
-  // Cache last media URL
   useEffect(() => {
     if (story.media_url && !isBlob(story.media_url)) {
       lastMediaUrlRef.current = story.media_url;
     }
   }, [story.id, story.media_url]);
 
-  // Cleanup navigation timeout and intervals
   useEffect(() => {
     return () => {
       if (navigationTimeoutRef.current) {
         clearTimeout(navigationTimeoutRef.current);
       }
-      // Cleanup hold timer
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
       }
-      // Cleanup progress interval
       if (progressIntervalRef.current) {
         window.clearInterval(progressIntervalRef.current);
       }
     };
   }, []);
 
-  // ✅ UPDATED: Safe navigation function with progress interval cleanup and single-shot protection
   const safeNavigate = (direction: 'next' | 'prev') => {
     const now = Date.now();
 
-    // ✅ Hard block: never allow 2 navigations within 650ms
     if (now - lastNavAtRef.current < 650) return;
     lastNavAtRef.current = now;
 
     if (isNavigatingRef.current) return;
-    if (!lockNav()) return; // ✅ Added navigation lock
+    if (!lockNav()) return;
     
-    // ✅ stop auto progress so it can't fire during manual nav
     didAdvanceRef.current = true;
     if (progressIntervalRef.current) {
       window.clearInterval(progressIntervalRef.current);
@@ -619,7 +614,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }, 300);
   };
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target === inputRef.current) return;
@@ -667,13 +661,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onNext, onPrev, onClose, onToggleMute, isAuthor, onDeleteStory]);
 
-  // Update userReaction when story changes
   useEffect(() => {
     const r = story.my_reaction ?? story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction ?? null;
     setUserReaction(r);
   }, [story.id, currentUser?.id, story.views, story.my_reaction]);
 
-  // ✅ FIXED: Better media ready detection with cached media check
   useEffect(() => {
     if (story.type === 'text') {
       setMediaReady(true);
@@ -686,13 +678,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       return;
     }
 
-    // Check if already preloaded
     if (preloadReadyRef.current.get(url)) {
       setMediaReady(true);
       return;
     }
 
-    // If image is cached, onLoad may not fire -> check manually
     if (!isVideoUrl(url)) {
       const img = new Image();
       img.src = url;
@@ -711,23 +701,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       img.onerror = done;
       return;
     }
-
-    // Video: wait for canplay event
-    // The video element will handle this
   }, [story.id, story.type, story.media_url]);
 
-  // ✅ ADDED: Video ready state detection
   useEffect(() => {
     if (story.type === 'video' || isVideoUrl(story.media_url)) {
       const v = videoRef.current;
       if (v && v.readyState >= 2) {
-        // HAVE_CURRENT_DATA or greater
         setMediaReady(true);
       }
     }
   }, [story.type, story.media_url]);
 
-  // ✅ UPDATED: Preload next story media with cache marking
   useEffect(() => {
     const userStories = frozenUserStoriesRef.current;
     const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -748,17 +732,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       } else {
         const img = new Image();
         img.src = url;
-
-        // best effort decode (faster instant render)
         try {
-          // @ts-ignore
           if (img.decode) await img.decode();
         } catch {}
         preloadReadyRef.current.set(url, true);
       }
     };
 
-    // preload next 2 items (FB-like)
     if (currentIndex >= 0) {
       const next1 = userStories[currentIndex + 1]?.media_url;
       const next2 = userStories[currentIndex + 2]?.media_url;
@@ -790,7 +770,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, user]);
 
-  // ✅ ADDED: Helper function for stable list comparison
   const sameIdList = (a: StoryType[], b: StoryType[]) => {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -799,12 +778,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return true;
   };
 
-  // ✅ UPDATED: Stable list effect with NEWEST FIRST order and proper cleanup
   useEffect(() => {
     const nextList = (allStories || [])
       .filter((s) => Number(s.user_id) === Number(story.user_id))
       .slice()
-      // ✅ NEWEST FIRST (New -> Old -> Older -> Oldest)
       .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at));
 
     const prevList = frozenUserStoriesRef.current;
@@ -813,18 +790,16 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       frozenUserStoriesRef.current = nextList.length ? nextList : [story];
     }
 
-    // reset only because story changed, not because stories updated
     didAdvanceRef.current = false;
     setProgress(0);
     
-    // ✅ Clear progress interval on story change
     if (progressIntervalRef.current) {
       window.clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
 
     setMediaReady(story.type === 'text');
-  }, [story.id, story.user_id, allStories]); // ✅ Added allStories dependency
+  }, [story.id, story.user_id, allStories]);
 
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
@@ -836,7 +811,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(story.media_url));
   const storyIsImage = !storyIsText && !storyIsVideo;
 
-  // Use cached views count to prevent blinking
   const totalViews = story.views_count || viewersCount || story.analytics?.total_views || cachedViewsCountRef.current;
   const reactionsCount = story.reactions_count || story.analytics?.views_with_reactions || 0;
 
@@ -848,7 +822,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, storyIsVideo]);
 
-  // ✅ UPDATED: Progress timer with proper interval cleanup
   useEffect(() => {
     if (!mediaReady) return;
 
@@ -858,7 +831,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const tickMs = 50;
     const duration = clamp(storyDurationMs || 5000, 1000, 30_000);
 
-    // clear previous interval if any
     if (progressIntervalRef.current) {
       window.clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
@@ -876,7 +848,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         if (next >= 100 && !didAdvanceRef.current) {
           didAdvanceRef.current = true;
 
-          // stop interval before navigating
           if (progressIntervalRef.current) {
             window.clearInterval(progressIntervalRef.current);
             progressIntervalRef.current = null;
@@ -898,7 +869,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, isPaused, storyDurationMs, mediaReady]);
 
-  // Music
   useEffect(() => {
     if (story.music_url && !isBlob(story.music_url)) {
       audioRef.current = new Audio(story.music_url);
@@ -913,7 +883,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, story.music_url, muted]);
 
-  // Pause/play video
   useEffect(() => {
     if (!storyIsVideo) return;
     const v = videoRef.current;
@@ -922,7 +891,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     if (isPaused) {
       v.pause();
     } else {
-      // ✅ UPDATED: Always mute video when music exists
       const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
       v.muted = forceMuteVideo ? true : muted;
       v.play().catch(() => {});
@@ -935,7 +903,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       setReplyText('');
       setIsPaused(false);
 
-      // Show success toast
       const toast = document.createElement('div');
       toast.className =
         'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
@@ -955,35 +922,48 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   };
 
-  // ✅ UPDATED: Reaction handler with pause/resume
+  const handleShare = () => {
+    if (onShare && !isAuthor) {
+      onShare(story.id);
+      setIsPaused(false);
+      
+      const toast = document.createElement('div');
+      toast.className =
+        'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Story shared!';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    }
+  };
+
+  const handleComment = () => {
+    if (onComment && !isAuthor) {
+      onComment(story.id);
+      setIsPaused(false);
+    }
+  };
+
   const handleReaction = async (reaction: string) => {
     if (!onReaction || isAuthor) return;
 
-    // pause right away
     const wasPaused = isPaused;
     setIsPaused(true);
 
-    // optimistically update UI
     setUserReaction(reaction);
     setShowReactions(false);
 
     try {
       const maybePromise = onReaction(story.id, reaction);
-
-      // if parent returns a promise, wait for it
       if (maybePromise && typeof (maybePromise as any).then === 'function') {
         await (maybePromise as any);
       } else {
-        // otherwise, give a tiny delay so it feels stable (no blink)
         await new Promise(r => setTimeout(r, 250));
       }
     } finally {
-      // resume only if user wasn't already paused manually
       if (!wasPaused) setIsPaused(false);
     }
   };
 
-  // ✅ ADDED: Handle story deletion
   const handleDeleteStory = async () => {
     if (!onDeleteStory || !isAuthor) return;
     
@@ -991,11 +971,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     try {
       await onDeleteStory(story.id);
       setShowDeleteConfirm(false);
-      // Close the viewer after successful deletion
       setTimeout(() => onClose(), 300);
     } catch (error) {
       console.error('Failed to delete story:', error);
-      // Show error toast
       const toast = document.createElement('div');
       toast.className =
         'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
@@ -1020,7 +998,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         }}
       />
 
-      {/* Close button */}
       <button
         className="absolute top-4 right-4 z-[300] cursor-pointer w-10 h-10 flex items-center justify-center hover:bg-white/10 rounded-full transition-colors"
         onClick={(e) => {
@@ -1032,18 +1009,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         <i className="fas fa-times text-[#E4E6EB] text-2xl"></i>
       </button>
 
-      {/* Keyboard shortcut hints (only show briefly on first load) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="absolute top-20 left-4 z-30 bg-black/50 text-white/60 text-xs p-2 rounded-lg backdrop-blur-sm">
-          <div>← → Navigate</div>
-          <div>Space Next</div>
-          <div>ESC Close</div>
-          <div>M Mute</div>
-          {isAuthor && <div>Del Delete</div>}
-        </div>
-      )}
-
-      {/* ✅ UPDATED: Container with all pointer handlers */}
       <div
         className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl"
         onPointerDown={handlePointerDown}
@@ -1051,7 +1016,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
-        {/* ✅ ADDED: Facebook-like transparent nav buttons with pointer event blocking */}
         <button
           type="button"
           aria-label="Previous story"
@@ -1080,7 +1044,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           <i className="fas fa-chevron-right text-white/90"></i>
         </button>
 
-        {/* Progress bars with loading animation */}
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
           {userStories.map((_, i) => (
             <div key={i} className="h-1 bg-white/20 flex-1 rounded-full overflow-hidden">
@@ -1096,7 +1059,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           ))}
         </div>
 
-        {/* ✅ FIXED: Header with data-no-nav to prevent navigation interference */}
         <div 
           className="absolute top-4 left-0 right-0 p-4 z-30 flex items-center justify-between mt-2" 
           data-no-nav="true"
@@ -1118,7 +1080,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <span className="text-white font-bold text-[17px] drop-shadow-md">
                   {frozenAuthor.name}
                 </span>
-                {/* ✅ FIXED: Uses timezone-safe formatStoryTime */}
                 <span className="text-white/70 text-[12px] drop-shadow-md">
                   {formatStoryTime((story as any).created_at)}
                 </span>
@@ -1143,10 +1104,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               )}
           </div>
 
-          {/* Author-only buttons */}
           {isAuthor ? (
             <div className="flex gap-2">
-              {/* Viewers button - Using cached count */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1161,7 +1120,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 </span>
               </button>
               
-              {/* Delete button */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1175,7 +1133,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               </button>
             </div>
           ) : (
-            // Non-author view
             <div className="flex gap-2">
               {onToggleMute && (
                 <button
@@ -1204,30 +1161,16 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   </span>
                 </button>
               )}
-              {userReaction && (
-                <button
-                  onClick={() => setShowReactions(!showReactions)}
-                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full text-xl"
-                  aria-label="Change reaction"
-                >
-                  {getReactionEmoji(userReaction)}
-                </button>
-              )}
             </div>
           )}
         </div>
 
-        {/* ✅ REMOVED: Music title display block (Facebook-style) */}
-
-        {/* ✅ FIXED: Content area with proper tap zones */}
         <div className="flex-1 bg-[#111] relative">
-          {/* Tap-capture layer (only this should catch navigation taps) */}
           <div
             className="absolute inset-0 z-[5]"
             onDoubleClick={isAuthor ? undefined : handleLike}
           />
 
-          {/* Actual media sits above capture layer */}
           <div className="absolute inset-0 z-[10] flex items-center justify-center">
             {storyIsText ? (
               <div
@@ -1247,7 +1190,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   playsInline
                   autoPlay
                   preload="auto"
-                  // ✅ UPDATED: Always mute video when music exists
                   muted={!!(story.music_url && !isBlob(story.music_url)) ? true : muted}
                   controls={false}
                   onCanPlay={() => setMediaReady(true)}
@@ -1256,7 +1198,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                     const ms = Number.isFinite(v.duration) ? v.duration * 1000 : 7000;
                     setStoryDurationMs(clamp(ms, 5000, 15000));
                     setMediaReady(true);
-                    // ✅ UPDATED: Force mute when music exists
                     const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
                     v.muted = forceMuteVideo ? true : muted;
                     v.play().catch(() => {});
@@ -1274,9 +1215,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   }}
                 />
               ) : (
-                // UPDATED: Facebook-style image display
                 <div className="absolute inset-0 z-10">
-                  {/* Soft blurred background */}
                   <div
                     className="absolute inset-0 blur-3xl scale-110 opacity-40"
                     style={{
@@ -1285,8 +1224,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                       backgroundPosition: 'center',
                     }}
                   />
-
-                  {/* Main image - no zoom/crop */}
                   <img
                     src={story.media_url}
                     alt="Story"
@@ -1299,7 +1236,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
               )
             ) : (
-              // ✅ IMPROVED: Fallback block showing actual story text or default message
               <div 
                 className="w-full h-full flex items-center justify-center p-10 text-center bg-gradient-to-br from-purple-600 to-blue-500 z-10"
                 onClick={(e) => {
@@ -1320,9 +1256,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* ✅ REMOVED: Middle spinner preloader */}
-
-          {/* Play/pause indicator for videos */}
           {storyIsVideo && isPaused && (
             <div className="absolute inset-0 flex items-center justify-center z-[30] pointer-events-none">
               <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
@@ -1331,7 +1264,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* Reaction selector */}
           {showReactions && !isAuthor && (
             <div
               className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-lg rounded-full p-2 flex gap-2 z-[200] border border-white/10 pointer-events-auto"
@@ -1352,92 +1284,74 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           )}
         </div>
 
-        {/* Bottom actions - DIFFERENT FOR AUTHOR VS VIEWER */}
+        {/* ==================== NEW BOTTOM ACTIONS - REACT, DISCUSS, SHARE ==================== */}
         {!isAuthor ? (
-          // ✅ FIXED: VIEWER VIEW with data-no-nav to prevent navigation interference
           <div 
-            className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center gap-3 bg-gradient-to-t from-black/80 to-transparent pt-12"
+            className="absolute bottom-0 left-0 right-0 p-4 z-20 bg-gradient-to-t from-black/80 to-transparent pt-12"
             data-no-nav="true"
           >
-            <div className="flex-1 flex items-center gap-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-full px-5 py-3.5 focus-within:bg-white/20 transition-all shadow-xl">
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Send a message..."
-                className="bg-transparent text-white placeholder-white/60 outline-none w-full text-[16px]"
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onFocus={() => setIsPaused(true)}
-                onBlur={() => {
-                  if (!replyText) setIsPaused(false);
-                }}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
-                aria-label="Reply to story"
-              />
-              {replyText.trim() && (
-                <button
-                  onClick={handleSendReply}
-                  className="w-8 h-8 rounded-full bg-[#1877F2] flex items-center justify-center shadow-lg transition-transform active:scale-90"
-                  aria-label="Send reply"
-                >
-                  <i className="fas fa-location-arrow text-white text-sm -rotate-45 ml-[-2px] mt-[-1px]"></i>
-                </button>
-              )}
-            </div>
+            {/* React Button - Spark Icon */}
+            <button
+              onClick={() => setShowReactions(!showReactions)}
+              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95 mb-2"
+            >
+              <SparkReactIcon size={28} />
+              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
+                React
+              </span>
+            </button>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowReactions(!showReactions)}
-                className="w-12 h-12 flex items-center justify-center cursor-pointer active:scale-125 transition-transform"
-                aria-label="Show reactions"
-              >
-                <i className="fas fa-smile text-white/80 text-2xl"></i>
-              </button>
-              <button
-                onClick={handleLike}
-                className="w-12 h-12 flex items-center justify-center cursor-pointer active:scale-125 transition-transform"
-                aria-label={hasLiked ? "Unlike story" : "Like story"}
-              >
-                <i
-                  className={`fas fa-heart ${
-                    hasLiked ? 'text-[#F3425F]' : 'text-white/80'
-                  } text-3xl drop-shadow-lg`}
-                ></i>
-              </button>
-            </div>
+            {/* Discuss Button */}
+            <button
+              onClick={handleComment}
+              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95 mb-2"
+            >
+              <DiscussSignalIcon size={28} color="#1877F2" />
+              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
+                Discuss
+              </span>
+            </button>
+
+            {/* Share Button */}
+            <button
+              onClick={handleShare}
+              className="w-full flex items-center justify-center gap-2 h-12 rounded-xl hover:bg-white/10 transition-all duration-200 active:scale-95"
+            >
+              <i className="fas fa-share text-[22px] text-white/80"></i>
+              <span className="text-[19px] font-bold text-white/80 group-hover:text-white">
+                Share
+              </span>
+            </button>
           </div>
         ) : (
-          // ✅ FIXED: AUTHOR VIEW with data-no-nav to prevent navigation interference
           <div 
-            className="absolute bottom-0 left-0 right-0 p-4 z-20 flex items-center justify-between bg-gradient-to-t from-black/80 to-transparent pt-12"
+            className="absolute bottom-0 left-0 right-0 p-4 z-20 bg-gradient-to-t from-black/80 to-transparent pt-12"
             data-no-nav="true"
           >
-            <div className="flex-1">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                  <div className="text-white font-black text-lg">
-                    {totalViews > 0 ? totalViews : cachedViewsCountRef.current || 0}
-                  </div>
-                  <div className="text-white/60 text-xs">Total Views</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
+                <div className="text-white font-black text-lg">
+                  {totalViews > 0 ? totalViews : cachedViewsCountRef.current || 0}
                 </div>
-                <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                  <div className="text-white font-black text-lg">
-                    {uniqueViewers > 0 ? uniqueViewers : totalViews || 0}
-                  </div>
-                  <div className="text-white/60 text-xs">Unique Viewers</div>
+                <div className="text-white/60 text-xs">Total Views</div>
+              </div>
+              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
+                <div className="text-white font-black text-lg">
+                  {uniqueViewers > 0 ? uniqueViewers : totalViews || 0}
                 </div>
-                <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
-                  <div className="text-white font-black text-lg">
-                    {reactionsCount}
-                  </div>
-                  <div className="text-white/60 text-xs">Reactions</div>
+                <div className="text-white/60 text-xs">Unique Viewers</div>
+              </div>
+              <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 text-center border border-white/10">
+                <div className="text-white font-black text-lg">
+                  {reactionsCount}
                 </div>
+                <div className="text-white/60 text-xs">Reactions</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* PROFESSIONAL FULL-SCREEN VIEWERS MODAL (for authors) */}
+        {/* Viewers Modal */}
         {showViewers && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={closeViewers} />
@@ -1475,7 +1389,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                       const name = pickBestName(v?.user?.name, v?.user?.username, `User ${id || ''}`);
                       const img = v?.user?.profile_image_url || getDefaultProfilePicture(name, id);
                       
-                      // UPDATED: Read reaction from multiple possible fields
                       const reaction =
                         (v as any)?.reaction ??
                         (v as any)?.reaction_type ??
@@ -1492,7 +1405,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                           <img src={img} className="w-12 h-12 rounded-full object-cover border border-white/10" alt="" />
                           <div className="flex-1 min-w-0">
                             <p className="text-white font-black truncate">{name}</p>
-                            {/* ✅ FIXED: Uses timezone-safe formatStoryTime */}
                             <p className="text-white/60 text-xs font-bold">{formatStoryTime(v.viewed_at)}</p>
                           </div>
 
@@ -1525,7 +1437,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* ✅ ADDED: Delete Confirmation Modal */}
+        {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={() => setShowDeleteConfirm(false)} />
@@ -1609,7 +1521,6 @@ interface StoryReelProps {
   currentUser: User | null;
   onRequestLogin: () => void;
   
-  // Follow system props
   onFollow?: (userId: number) => void;
   checkIsFollowing?: (userId: number) => boolean;
   followLoading?: { [key: number]: boolean };
@@ -1633,11 +1544,8 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
-  // ✅ UPDATED: Use rankStoriesForReel with NEWEST FIRST order
   const uniqueUserStories: StoryType[] = useMemo(() => {
     const ranked = rankStoriesForReel(stories, currentUser) || [];
-
-    // ✅ ensure NEWEST is left-most
     return ranked.slice().sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
   }, [stories, currentUser?.id, (currentUser as any)?.following]);
 
@@ -1790,7 +1698,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
               <img src={author.profile_image_url} alt="" className="w-full h-full object-cover" />
             </button>
 
-            {/* Follow button */}
             {currentUser && !isMe && author.id > 0 && onFollow && (
               <div
                 className="absolute top-3 right-3 z-20"
@@ -1818,7 +1725,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
               </div>
             )}
 
-            {/* Story count dots */}
             <div className="absolute bottom-10 left-3 z-20">{renderCountDots(count)}</div>
 
             <p className="absolute bottom-3 left-3 text-white font-bold text-xs drop-shadow-md truncate w-[85%]">
@@ -1902,7 +1808,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       return;
     }
 
-    // Create one story per pick
     picks.forEach((p, idx) => {
       onCreate({
         user_id: currentUser.id,
@@ -1941,7 +1846,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       const removed = next.splice(index, 1);
       cleanupPickUrls(removed);
       
-      // Update activePick based on new array length
       const newLength = next.length;
       setActivePick(current => {
         if (newLength === 0) return 0;
@@ -1973,21 +1877,15 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
   };
 
-  // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
       cleanupPickUrls(picks);
       if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
         URL.revokeObjectURL(selectedMusic.url);
       }
-      if (audioFile && audioFile.type.startsWith('audio/')) {
-        // Note: File objects don't create blob URLs unless we explicitly create them
-        // But if you create a blob URL from audioFile, clean it up here
-      }
     };
   }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
 
-  // Keyboard shortcuts for modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -2002,7 +1900,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
-      {/* Header */}
       <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
         <button
           onClick={onClose}
@@ -2022,7 +1919,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </button>
       </div>
 
-      {/* Main content area */}
       <div
         className="flex-1 flex items-center justify-center relative overflow-hidden mt-16 mb-24"
         style={{ background: mode === 'text' ? background : '#000' }}
@@ -2170,7 +2066,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         )}
       </div>
 
-      {/* Bottom toolbar */}
       <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap-4">
         {mode === 'text' && (
           <div className="flex gap-3 overflow-x-auto scrollbar-hide px-2 py-1">
@@ -2237,7 +2132,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
-      {/* Music picker modal */}
       {showMusicPicker && (
         <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
           <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
@@ -2325,10 +2219,10 @@ interface StoryViewerModalProps {
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
+  onShare?: (storyId: number) => void;
+  onComment?: (storyId: number) => void;
   muted?: boolean;
   onToggleMute?: () => void;
-  
-  // ✅ ADDED: Delete story props
   onDeleteStory?: (storyId: number) => Promise<void> | void;
   deleteLoading?: boolean;
 }
@@ -2348,6 +2242,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     onReply,
     onLike,
     onReaction,
+    onShare,
+    onComment,
     muted = true,
     onToggleMute,
     onDeleteStory,
@@ -2378,12 +2274,10 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     created_at: null,
   });
 
-  // ✅ UPDATED: Build list of this author's stories with NEWEST FIRST
   const userStories = useMemo(() => {
     const list = (allStories?.length ? allStories : [story])
       .filter(s => Number(s.user_id) === Number(story.user_id))
       .slice()
-      // ✅ NEWEST FIRST (opens newest first, next goes older)
       .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at));
 
     return list.length ? list : [story];
@@ -2394,7 +2288,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     return idx >= 0 ? idx : 0;
   });
 
-  // ✅ FIXED: Only resync when the opened story ID changes, not when the list changes
   const lastOpenedIdRef = useRef<number>(Number(story.id));
 
   useEffect(() => {
@@ -2404,7 +2297,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     lastOpenedIdRef.current = openedId;
     const idx = userStories.findIndex(s => Number(s.id) === openedId);
     setActiveIndex(idx >= 0 ? idx : 0);
-  }, [story.id]); // Removed userStories dependency
+  }, [story.id]);
 
   const activeStory = userStories[activeIndex] || story;
 
@@ -2429,6 +2322,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
   const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
   const handleLike = (storyId: number) => onLike?.(storyId);
   const handleReaction = (storyId: number, reaction: string) => onReaction?.(storyId, reaction);
+  const handleShare = (storyId: number) => onShare?.(storyId);
+  const handleComment = (storyId: number) => onComment?.(storyId);
 
   const isFollowing = user.id && checkIsFollowing ? checkIsFollowing(Number(user.id)) : false;
 
@@ -2443,6 +2338,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onReply={handleReply}
       onLike={handleLike}
       onReaction={handleReaction}
+      onShare={handleShare}
+      onComment={handleComment}
       onFollow={onFollow}
       isFollowing={isFollowing}
       allStories={userStories}
