@@ -6512,7 +6512,8 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
  * ✅ COMMENTS SHEET - FIXED VERSION (PRESERVES FULL POST CARD SHAPE)
  * =========================
  */
-export const CommentsSheet = memo(
+ 
+  export const CommentsSheet = memo(
   ({
     post,
     currentUser,
@@ -7396,7 +7397,7 @@ interface FeedProps {
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
-  export const Feed = memo(({
+export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
   onOpenStory,
@@ -7436,7 +7437,6 @@ interface FeedProps {
   onLoginClick,
 }: FeedProps) => {
   
-  // ✅ ADD THIS - safeFeedItems is MISSING
   const safeFeedItems = React.useMemo(() => {
     if (items && items.length > 0) {
       return items;
@@ -7457,9 +7457,7 @@ interface FeedProps {
 
   return (
     <div className="space-y-2">
-      {/* ✅ CHANGE THIS - use safeFeedItems, not feedItems */}
       {safeFeedItems.map((item, index) => {
-        // ✅ ADD THIS - check for story kind
         if (item.kind === 'story') {
           return (
             <FeedStoryCard
@@ -7562,7 +7560,8 @@ interface FeedProps {
       })}
     </div>
   );
-    }, (prev, next) => {
+}, (prev, next) => {
+  // This comparison function is CORRECT - it's the SECOND argument to memo
   if (prev.items !== next.items) return false;
   if (prev.feedItemsProp !== next.feedItemsProp) return false;
   if (prev.feedItemsProp?.length !== next.feedItemsProp?.length) return false;
