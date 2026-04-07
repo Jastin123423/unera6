@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 // -------------------- ADDED: Import ranking utility --------------------
 import { rankStoriesForReel } from '../utils/ranking';
+import { apiFetch, avatarFrom, formatRelativeTime, RichText } from './Feed';
 
 // -------------------- TYPES --------------------
 export interface User {
@@ -277,7 +278,7 @@ const dedupeViewers = (arr: StoryViewer[]): StoryViewer[] => {
   );
 };
 
-// ==================== SPARK REACT ICON ====================
+// ==================== ICONS ====================
 const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <defs>
@@ -309,7 +310,6 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
   </svg>
 );
 
-// ==================== DISCUSS SIGNAL ICON ====================
 const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   size = 28,
   color = '#1877F2',
@@ -326,7 +326,6 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   </svg>
 );
 
-// ==================== REACTION EMOJI HELPER ====================
 const reactionEmoji = (t: string) => {
   switch (t) {
     case 'like': return '👍';
@@ -346,7 +345,389 @@ const fmtCount = (n: number) => {
   return String(num);
 };
 
-// -------------------- STORY VIEWER COMPONENT --------------------
+// ==================== STORY COMMENTS SHEET ====================
+interface StoryCommentsSheetProps {
+  isOpen: boolean;
+  onClose: () => void;
+  storyId: number;
+  currentUser: User | null;
+  users: User[];
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow?: (id: number) => void;
+  checkIsFollowing?: (id: number) => boolean;
+  followLoading?: { [key: number]: boolean };
+}
+
+export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
+  isOpen,
+  onClose,
+  storyId,
+  currentUser,
+  users,
+  onProfileClick,
+  onHashtagClick,
+  onFollow,
+  checkIsFollowing,
+  followLoading = {},
+}) => {
+  const [comments, setComments] = useState<any[]>([]);
+  const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const fetchComments = useCallback(async () => {
+    if (!storyId) return;
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/comments?limit=100`);
+      const commentsList = Array.isArray(data?.comments) ? data.comments : [];
+      setComments(commentsList);
+    } catch (error) {
+      console.error('Failed to fetch story comments:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [storyId]);
+
+  useEffect(() => {
+    if (isOpen && storyId) {
+      fetchComments();
+    }
+  }, [isOpen, storyId, fetchComments]);
+
+  const resolveAuthor = (comment: any) => {
+    const uid = Number(comment?.user_id ?? comment?.userId ?? 0);
+    const user = users.find(u => Number(u.id) === uid);
+    const name = comment?.author_name || user?.name || user?.username || 'User';
+    const image = comment?.author_image || user?.profile_image_url || avatarFrom(user || { name });
+    return { uid, name, image };
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || !currentUser || !storyId) return;
+
+    setSubmitting(true);
+    const parentId = replyTo?.id || null;
+    const finalText = text.trim();
+
+    const optimisticComment = {
+      id: `tmp-${Date.now()}`,
+      story_id: storyId,
+      user_id: currentUser.id,
+      text: finalText,
+      parent_comment_id: parentId,
+      created_at: new Date().toISOString(),
+      likes_count: 0,
+      liked_by_me: false,
+      replies_count: 0,
+    };
+
+    setComments(prev => [optimisticComment, ...prev]);
+    setText('');
+    setReplyTo(null);
+
+    try {
+      const data = await apiFetch(`/api/stories/${storyId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          text: finalText,
+          user_id: currentUser.id,
+          parent_comment_id: parentId,
+        }),
+      });
+      
+      const newComment = data?.comment || optimisticComment;
+      setComments(prev => prev.map(c => c.id === optimisticComment.id ? newComment : c));
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      setComments(prev => prev.filter(c => c.id !== optimisticComment.id));
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = 'Failed to post comment';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2000);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleLikeComment = async (commentId: number) => {
+    if (!currentUser) return;
+
+    setComments(prev => prev.map(c => {
+      if (c.id === commentId) {
+        const liked = !c.liked_by_me;
+        return {
+          ...c,
+          liked_by_me: liked,
+          likes_count: liked ? (c.likes_count || 0) + 1 : Math.max(0, (c.likes_count || 0) - 1),
+        };
+      }
+      return c;
+    }));
+
+    try {
+      await apiFetch(`/api/stories/comments/${commentId}/like`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+    } catch (error) {
+      console.error('Failed to like comment:', error);
+      fetchComments();
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!currentUser) return;
+
+    setComments(prev => prev.filter(c => c.id !== commentId && c.parent_comment_id !== commentId));
+
+    try {
+      await apiFetch(`/api/stories/comments/${commentId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ user_id: currentUser.id }),
+      });
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+      fetchComments();
+    }
+  };
+
+  const buildThreads = (list: any[]) => {
+    const roots = list.filter(c => !c.parent_comment_id);
+    const repliesByParent = new Map<number, any[]>();
+    
+    list.forEach(c => {
+      if (c.parent_comment_id) {
+        if (!repliesByParent.has(c.parent_comment_id)) repliesByParent.set(c.parent_comment_id, []);
+        repliesByParent.get(c.parent_comment_id)!.push(c);
+      }
+    });
+    
+    repliesByParent.forEach(arr => {
+      arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    });
+    
+    roots.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    return roots.map(root => ({
+      root,
+      replies: repliesByParent.get(root.id) || [],
+    }));
+  };
+
+  const threads = useMemo(() => buildThreads(comments), [comments]);
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  };
+
+  const toggleThread = (rootId: number, open: boolean) => {
+    setExpandedThreads(prev => ({ ...prev, [String(rootId)]: open }));
+  };
+
+  const renderComment = (comment: any, isReply: boolean = false, depth: number = 0) => {
+    const author = resolveAuthor(comment);
+    const isAuthor = currentUser && Number(author.uid) === Number(currentUser.id);
+    const isFollowing = author.uid && checkIsFollowing ? checkIsFollowing(author.uid) : false;
+    const MAX_DEPTH = 3;
+    const actualDepth = Math.min(depth, MAX_DEPTH);
+    
+    return (
+      <div key={comment.id} className={`flex gap-3 ${isReply ? 'mt-3' : ''}`} style={{ marginLeft: isReply ? `${actualDepth * 24}px` : 0 }}>
+        <img
+          src={author.image}
+          className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
+          alt=""
+          onClick={() => author.uid && onProfileClick(author.uid)}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="bg-[#3A3B3C] rounded-2xl px-3 py-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className="text-[#E4E6EB] font-bold text-[14px] cursor-pointer hover:underline"
+                onClick={() => author.uid && onProfileClick(author.uid)}
+              >
+                {author.name}
+              </span>
+              <span className="text-[#B0B3B8] text-[11px]">
+                {formatRelativeTime(comment.created_at)}
+              </span>
+            </div>
+            <div className="text-[#E4E6EB] text-[15px] mt-1 break-words">
+              <RichText
+                text={String(comment.text || '')}
+                users={users}
+                onProfileClick={onProfileClick}
+                onHashtagClick={onHashtagClick}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-4 mt-1 ml-2">
+            <button
+              onClick={() => handleLikeComment(comment.id)}
+              className={`text-[12px] ${comment.liked_by_me ? 'text-[#1877F2] font-bold' : 'text-[#B0B3B8] hover:text-[#E4E6EB]'}`}
+            >
+              {comment.liked_by_me ? 'Liked' : 'Like'}
+            </button>
+            <button
+              onClick={() => {
+                setReplyTo(comment);
+                inputRef.current?.focus();
+              }}
+              className="text-[12px] text-[#B0B3B8] hover:text-[#E4E6EB]"
+            >
+              Reply
+            </button>
+            {isAuthor && (
+              <button
+                onClick={() => handleDeleteComment(comment.id)}
+                className="text-[12px] text-[#B0B3B8] hover:text-[#F3425F]"
+              >
+                Delete
+              </button>
+            )}
+            {comment.likes_count > 0 && (
+              <span className="text-[12px] text-[#B0B3B8]">
+                {formatCount(comment.likes_count)} {comment.likes_count === 1 ? 'like' : 'likes'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+            onClick={onClose}
+            aria-label="Back"
+          >
+            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+          </button>
+          <div className="text-[#E4E6EB] font-bold text-[20px]">Story Comments</div>
+        </div>
+        <div className="text-[#B0B3B8] text-[14px]">
+          {formatCount(comments.length)} comments
+        </div>
+      </div>
+
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
+        {loading ? (
+          <div className="text-center py-10 text-[#B0B3B8]">
+            <i className="fas fa-spinner fa-spin text-2xl"></i>
+            <p className="mt-2">Loading comments...</p>
+          </div>
+        ) : threads.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="text-[#B0B3B8] text-[17px] mb-2">No comments yet</div>
+            <p className="text-[#B0B3B8] text-[14px]">Be the first to comment on this story!</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {threads.map(({ root, replies }) => {
+              const rootId = root.id;
+              const isExpanded = !!expandedThreads[String(rootId)];
+              const MAX_PREVIEW = 2;
+              const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
+              const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
+              
+              return (
+                <div key={rootId} className="space-y-2">
+                  {renderComment(root, false, 0)}
+                  
+                  {!isExpanded && hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      className="ml-12 text-[#1877F2] font-bold text-[13px] hover:underline"
+                      onClick={() => toggleThread(rootId, true)}
+                    >
+                      View {hiddenCount} more repl{hiddenCount === 1 ? 'y' : 'ies'}
+                    </button>
+                  )}
+                  
+                  {visibleReplies.map((reply, idx) => (
+                    <div key={reply.id}>
+                      {renderComment(reply, true, 1)}
+                    </div>
+                  ))}
+                  
+                  {isExpanded && replies.length > MAX_PREVIEW && (
+                    <button
+                      type="button"
+                      className="ml-12 text-[#B0B3B8] text-[12px] hover:text-[#E4E6EB]"
+                      onClick={() => toggleThread(rootId, false)}
+                    >
+                      Hide replies
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {replyTo && (
+        <div className="mx-4 mb-2 p-2 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[#B0B3B8] text-[13px]">Replying to</span>
+            <span className="text-[#1877F2] font-bold text-[13px]">
+              {resolveAuthor(replyTo).name}
+            </span>
+          </div>
+          <button onClick={() => setReplyTo(null)} className="text-[#B0B3B8] hover:text-[#E4E6EB]">
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+      )}
+
+      <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
+        <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
+          <img
+            src={avatarFrom(currentUser)}
+            className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+            alt=""
+          />
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              className="w-full bg-[#3A3B3C] text-white rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
+              placeholder={replyTo ? `Reply to ${resolveAuthor(replyTo).name}...` : "Write a comment..."}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </div>
+          <button
+            type="submit"
+            className="text-[#1877F2] font-bold text-[15px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-3 py-2"
+            disabled={!text.trim() || submitting}
+          >
+            {submitting ? <i className="fas fa-spinner fa-spin"></i> : 'Post'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ==================== STORY VIEWER COMPONENT ====================
 interface StoryViewerProps {
   story: StoryType;
   user: User;
@@ -423,7 +804,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     story.my_reaction ?? story.views?.find(v => v.user_id === currentUser?.id)?.reaction ?? null
   );
   
-  // Reaction state for horizontal buttons
   const [reactionCount, setReactionCount] = useState<number>(story.reactions_count || 0);
   const [commentCount, setCommentCount] = useState<number>(0);
   const [shareCount, setShareCount] = useState<number>(0);
@@ -465,7 +845,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // Fetch reactions for the story
   const fetchReactions = useCallback(async () => {
     if (!onFetchReactions) return;
     
@@ -481,12 +860,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, onFetchReactions, story.reactions_count]);
 
-  // Load reactions when story changes
   useEffect(() => {
     fetchReactions();
   }, [story.id, fetchReactions]);
 
-  // Get top reactions for display
   const topReactionEmojis = useMemo(() => {
     if (!reactionList.length) return [];
     
@@ -503,7 +880,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       .map(([type]) => reactionEmoji(type));
   }, [reactionList]);
 
-  // Get reactor name for display
   const getReactorName = useMemo(() => {
     if (!reactionList.length) return '';
     const firstReaction = reactionList[0];
@@ -511,7 +887,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return name;
   }, [reactionList]);
 
-  // Format reaction text like Feed.tsx
   const reactionText = useMemo(() => {
     if (reactionCount === 0) return '';
     if (reactionCount === 1) {
@@ -985,8 +1360,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       setIsPaused(false);
       
       const toast = document.createElement('div');
-      toast.className =
-        'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Story shared!';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
@@ -1015,7 +1389,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const previousReaction = userReaction;
     const previousCount = reactionCount;
     
-    // Optimistic update
     if (previousReaction === reaction) {
       setUserReaction(null);
       setReactionCount(prev => Math.max(0, prev - 1));
@@ -1037,7 +1410,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       }
       await fetchReactions();
     } catch (error) {
-      // Rollback on error
       setUserReaction(previousReaction);
       setReactionCount(previousCount);
       console.error('Failed to react:', error);
@@ -1057,8 +1429,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     } catch (error) {
       console.error('Failed to delete story:', error);
       const toast = document.createElement('div');
-      toast.className =
-        'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Failed to delete story';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
@@ -1070,7 +1441,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const frozenAuthor = frozenAuthorRef.current;
   const uniqueViewers = story.analytics?.unique_viewers || viewers.length || 0;
 
-  // Get active reaction emoji and color for the button
   const activeReaction = userReaction ? {
     emoji: reactionEmoji(userReaction),
     color: userReaction === 'like' ? '#1877F2' : userReaction === 'love' ? '#F3425F' : '#F7B928'
@@ -1372,17 +1742,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           )}
         </div>
 
-        {/* ==================== HORIZONTAL BOTTOM ACTIONS - REACT, DISCUSS, SHARE ==================== */}
+        {/* Horizontal Bottom Actions - React, Discuss, Share */}
         <div 
           className="absolute bottom-0 left-0 right-0 p-3 z-20 bg-gradient-to-t from-black/80 to-transparent pt-10"
           data-no-nav="true"
         >
-          {/* Reaction row with counts - exactly like Feed.tsx */}
+          {/* Reaction row with counts */}
           {reactionCount > 0 && (
             <div 
               className="flex items-center justify-between px-2 mb-2 cursor-pointer"
               onClick={() => {
-                // Open reactions sheet - you can implement this
+                // Open reactions sheet
                 console.log('Open reactions sheet');
               }}
             >
@@ -1417,9 +1787,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* Three horizontal buttons - exactly like Feed.tsx */}
+          {/* Three horizontal buttons */}
           <div className="flex items-center justify-between gap-2">
-            {/* React Button */}
             <button
               onClick={handleReactionClick}
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
@@ -1444,7 +1813,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               )}
             </button>
 
-            {/* Discuss Button */}
             <button
               onClick={handleComment}
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
@@ -1453,7 +1821,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               <span className="text-[17px] font-bold text-white/80">Discuss</span>
             </button>
 
-            {/* Share Button */}
             <button
               onClick={handleShare}
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
@@ -1625,7 +1992,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   );
 };
 
-// -------------------- STORY REEL COMPONENT --------------------
+// ==================== STORY REEL COMPONENT ====================
 interface StoryReelProps {
   stories: StoryType[];
   onProfileClick: (id: number) => void;
@@ -1849,7 +2216,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
   );
 };
 
-// -------------------- CREATE STORY MODAL --------------------
+// ==================== CREATE STORY MODAL ====================
 const STORY_COLORS = [
   'linear-gradient(45deg, #1877F2, #0055FF)',
   'linear-gradient(45deg, #F3425F, #E41E3F)',
@@ -2316,7 +2683,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   );
 };
 
-// -------------------- ADVANCED STORY VIEWER MODAL WITH MULTI-STORY NAVIGATION --------------------
+// ==================== STORY VIEWER MODAL ====================
 interface StoryViewerModalProps {
   story: StoryType;
   onClose: () => void;
