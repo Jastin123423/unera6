@@ -400,7 +400,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     }
   }, [isOpen, storyId, fetchComments]);
 
-  // Updated resolveAuthor to match backend fields
   const resolveAuthor = (comment: any) => {
     const uid = Number(comment?.user_id ?? comment?.userId ?? 0);
     const user = users.find(u => Number(u.id) === uid);
@@ -417,7 +416,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     const parentId = replyTo?.id || null;
     const finalText = text.trim();
 
-    // Updated optimistic comment to match backend structure
     const optimisticComment = {
       id: `tmp-${Date.now()}`,
       story_id: storyId,
@@ -439,7 +437,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setReplyTo(null);
 
     try {
-      // Updated request body to match backend expectations
       const data = await apiFetch(`/api/stories/${storyId}/comments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -493,11 +490,9 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   const handleDeleteComment = async (commentId: number) => {
     if (!currentUser) return;
 
-    // Updated filter to use parent_id instead of parent_comment_id
     setComments(prev => prev.filter(c => c.id !== commentId && c.parent_id !== commentId));
 
     try {
-      // Updated delete endpoint to match backend
       await apiFetch(`/api/stories/${storyId}/comments`, {
         method: 'DELETE',
         body: JSON.stringify({
@@ -511,7 +506,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     }
   };
 
-  // Updated buildThreads to use parent_id
   const buildThreads = (list: any[]) => {
     const roots = list.filter(c => !c.parent_id);
     const repliesByParent = new Map<number, any[]>();
@@ -550,7 +544,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   const renderComment = (comment: any, isReply: boolean = false, depth: number = 0) => {
     const author = resolveAuthor(comment);
     const isAuthor = currentUser && Number(author.uid) === Number(currentUser.id);
-    const isFollowing = author.uid && checkIsFollowing ? checkIsFollowing(author.uid) : false;
     const MAX_DEPTH = 3;
     const actualDepth = Math.min(depth, MAX_DEPTH);
     
@@ -576,7 +569,6 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
               </span>
             </div>
             <div className="text-[#E4E6EB] text-[15px] mt-1 break-words">
-              {/* Updated to use content field */}
               <RichText
                 text={String(comment.content || comment.text || '')}
                 users={users}
@@ -979,14 +971,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
-    // Updated swipe detection with vertical swipe for user navigation
+    // Updated swipe detection with better vertical detection
     const SWIPE_X = 40;
-    const SWIPE_Y = 50;
+    const SWIPE_Y = 28; // Softer threshold for vertical swipes
     
     // Vertical swipe - switch between different users
-    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx)) {
-      if (dy < 0) onNextUser?.();
-      else onPrevUser?.();
+    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx) * 1.15) {
+      if (dy < 0) {
+        onNextUser?.();
+      } else {
+        onPrevUser?.();
+      }
       return;
     }
     
@@ -1510,6 +1505,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        {/* Horizontal Navigation Buttons - Same User */}
         <button
           type="button"
           aria-label="Previous story (same user)"
@@ -1536,6 +1532,35 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           onPointerUp={(e) => e.stopPropagation()}
         >
           <i className="fas fa-chevron-right text-white/90"></i>
+        </button>
+
+        {/* Vertical Navigation Buttons - Different Users */}
+        <button
+          type="button"
+          aria-label="Previous user stories"
+          className="absolute left-1/2 -translate-x-1/2 top-16 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrevUser?.();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        >
+          <i className="fas fa-chevron-up text-white/90"></i>
+        </button>
+
+        <button
+          type="button"
+          aria-label="Next user stories"
+          className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            onNextUser?.();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        >
+          <i className="fas fa-chevron-down text-white/90"></i>
         </button>
 
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
@@ -1788,7 +1813,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             <div 
               className="flex items-center justify-between px-2 mb-2 cursor-pointer"
               onClick={() => {
-                // Open reactions sheet
                 console.log('Open reactions sheet');
               }}
             >
@@ -2767,30 +2791,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     deleteLoading = false,
   } = props;
 
-  const user: User = mergeUserSafe(story.user, {
-    id: story.user_id,
-    name: pickBestName(
-      (story as any)?.user?.name,
-      (story as any)?.author_name,
-      (story as any)?.author_username,
-      'User'
-    ),
-    username: pickBestName((story as any)?.user?.username, (story as any)?.author_username, 'user'),
-    email: '',
-    profile_image_url:
-      pickBestImage((story as any)?.user?.profile_image_url, (story as any)?.author_image) ||
-      getDefaultProfilePicture('User', story.user_id),
-    cover_image_url: '',
-    followers: Array.isArray(story.user?.followers) ? story.user!.followers : [],
-    following: Array.isArray(story.user?.following) ? story.user!.following : [],
-    is_verified: false,
-    role: 'user',
-    is_online: false,
-    location: '',
-    bio: '',
-    created_at: null,
-  });
-
   // Group stories by user for vertical navigation
   const storyGroups = useMemo(() => {
     const source = allStories?.length ? allStories : [story];
@@ -2824,28 +2824,63 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     return idx >= 0 ? idx : 0;
   });
 
+  // Sync groupIndex when opened story changes
+  useEffect(() => {
+    const idx = storyGroups.findIndex((g) =>
+      g.stories.some((s) => Number(s.id) === Number(story.id))
+    );
+    if (idx >= 0) setGroupIndex(idx);
+  }, [story.id, storyGroups]);
+
   const userStories = useMemo(() => {
     const activeGroup = storyGroups[groupIndex];
     return activeGroup?.stories?.length ? activeGroup.stories : [story];
   }, [storyGroups, groupIndex, story]);
 
   const [activeIndex, setActiveIndex] = useState(() => {
-    const idx = userStories.findIndex(s => Number(s.id) === Number(story.id));
+    const idx = userStories.findIndex((s) => Number(s.id) === Number(story.id));
     return idx >= 0 ? idx : 0;
   });
 
-  const lastOpenedIdRef = useRef<number>(Number(story.id));
-
+  // Reset activeIndex whenever groupIndex changes (new user)
   useEffect(() => {
-    const openedId = Number(story.id);
-    if (openedId === lastOpenedIdRef.current) return;
-
-    lastOpenedIdRef.current = openedId;
-    const idx = userStories.findIndex(s => Number(s.id) === openedId);
-    setActiveIndex(idx >= 0 ? idx : 0);
-  }, [story.id]);
+    setActiveIndex(0);
+  }, [groupIndex]);
 
   const activeStory = userStories[activeIndex] || story;
+
+  // Build user from activeStory, not from original story prop
+  const modalUser: User = useMemo(() => {
+    return mergeUserSafe(activeStory.user, {
+      id: activeStory.user_id,
+      name: pickBestName(
+        (activeStory as any)?.user?.name,
+        (activeStory as any)?.author_name,
+        (activeStory as any)?.author_username,
+        'User'
+      ),
+      username: pickBestName(
+        (activeStory as any)?.user?.username,
+        (activeStory as any)?.author_username,
+        'user'
+      ),
+      email: '',
+      profile_image_url:
+        pickBestImage(
+          (activeStory as any)?.user?.profile_image_url,
+          (activeStory as any)?.author_image
+        ) || getDefaultProfilePicture('User', activeStory.user_id),
+      cover_image_url: '',
+      followers: Array.isArray(activeStory.user?.followers) ? activeStory.user!.followers : [],
+      following: Array.isArray(activeStory.user?.following) ? activeStory.user!.following : [],
+      is_verified: false,
+      role: 'user',
+      is_online: false,
+      location: '',
+      bio: '',
+      created_at: null,
+    });
+  }, [activeStory]);
 
   const handleNext = () => {
     const next = activeIndex + 1;
@@ -2853,10 +2888,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       setActiveIndex(next);
       return;
     }
-    // End of current user's stories, try next user
     if (groupIndex + 1 < storyGroups.length) {
       setGroupIndex(groupIndex + 1);
-      setActiveIndex(0);
     } else {
       onClose();
     }
@@ -2868,11 +2901,8 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       setActiveIndex(prev);
       return;
     }
-    // Beginning of current user's stories, try previous user
     if (groupIndex - 1 >= 0) {
       setGroupIndex(groupIndex - 1);
-      const newStories = storyGroups[groupIndex - 1]?.stories || [];
-      setActiveIndex(newStories.length - 1);
     } else {
       onClose();
     }
@@ -2882,15 +2912,12 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     const next = groupIndex + 1;
     if (next >= storyGroups.length) return;
     setGroupIndex(next);
-    setActiveIndex(0);
   };
 
   const handlePrevUser = () => {
     const prev = groupIndex - 1;
     if (prev < 0) return;
     setGroupIndex(prev);
-    const newStories = storyGroups[prev]?.stories || [];
-    setActiveIndex(newStories.length - 1);
   };
 
   const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
@@ -2899,12 +2926,12 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
   const handleShare = (storyId: number) => onShare?.(storyId);
   const handleComment = (storyId: number) => onComment?.(storyId);
 
-  const isFollowing = user.id && checkIsFollowing ? checkIsFollowing(Number(user.id)) : false;
+  const isFollowing = modalUser.id && checkIsFollowing ? checkIsFollowing(Number(modalUser.id)) : false;
 
   return (
     <StoryViewer
       story={activeStory}
-      user={user}
+      user={modalUser}
       currentUser={currentUser || null}
       onClose={onClose}
       onNext={handleNext}
