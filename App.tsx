@@ -1878,8 +1878,8 @@ const deleteStory = useCallback(async (storyId: number) => {
   }
 }, [currentUser, requireAuth]);
 
+// ==================== STORY REACTIONS, SHARE & COMMENT HANDLERS ====================
 
-// ✅ ADDED STORY SHARE AND COMM FUNCTIONS HERE ✅
 const fetchStoryReactions = useCallback(async (storyId: number) => {
   try {
     const data = await apiFetch(`/api/stories/${storyId}/reactions?limit=50`);
@@ -1922,19 +1922,17 @@ const handleStoryShare = useCallback(async (storyId: number) => {
   }
 }, [currentUser, requireAuth]);
 
+// ✅ UPDATED: Opens the story comments modal instead of showing a toast
 const handleStoryComment = useCallback((storyId: number) => {
   if (!requireAuth('Commenting on stories')) return;
   if (!currentUser) return;
   
-  console.log('Open comments for story:', storyId);
-  
-  const toast = document.createElement('div');
-  toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-  toast.innerText = 'Comments coming soon!';
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 2000);
+  setActiveStoryCommentId(storyId);
+  setShowStoryComments(true);
 }, [currentUser, requireAuth]);
-// ✅ END OF ADDED FUNCTIONS ✅
+
+// ✅ END OF STORY HANDLERS ✅
+
       
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
