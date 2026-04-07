@@ -6922,8 +6922,6 @@ return (
                   if (!requireAuth('Creating events')) return;
                   setShowCreateEventModal(true);
                 }}
-              />
-
       
 <div className="space-y-2">
   <MarketplaceContext.Provider value={{
