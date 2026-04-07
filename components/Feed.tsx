@@ -26,7 +26,6 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
-import { rankStoriesForMixedFeed } from '../utils/ranking';
 import { buildImageUploadBundle } from '../utils/imageCompression';
 //====================TYPE DEFINITION =============
 type FeedItem =
@@ -7389,9 +7388,7 @@ interface FeedProps {
  * =========================
  */
 
-  import { rankStoriesForMixedFeed } from '../utils/ranking';
-
-export const Feed = memo(({
+  export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
   onOpenStory,
@@ -7431,47 +7428,10 @@ export const Feed = memo(({
   onLoginClick,
 }: FeedProps) => {
   
-  // Seed for story ranking that persists during session
-  const storyFeedSeedRef = useRef<number>(Date.now());
-  
   const safeFeedItems = React.useMemo(() => {
     if (items && items.length > 0) {
-      // Separate stories and posts
-      const storyItems = items.filter(item => item.kind === 'story');
-      const postItems = items.filter(item => item.kind === 'post');
-      
-      // Extract story data for ranking
-      const storyData = storyItems.map(item => item.data);
-      
-      // ✅ ONLY rank stories using the mixed feed algorithm
-      // Posts keep their original order (already ranked by feed API)
-      const rankedStoryData = rankStoriesForMixedFeed(
-        storyData,
-        currentUser,
-        storyFeedSeedRef.current
-      );
-      
-      // Create ranked story feed items
-      const rankedStoryItems = rankedStoryData.map(story => ({
-        kind: 'story' as const,
-        data: story,
-        created_at: story.created_at,
-      }));
-      
-      // ✅ Combine ranked stories with posts (preserving post order)
-      // Posts are already in the correct order from the feed API
-      let allItems: (typeof rankedStoryItems)[0 | 1][] = [...rankedStoryItems, ...postItems];
-      
-      // ✅ Sort by created_at to mix stories and posts chronologically
-      allItems.sort((a, b) => {
-        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return dateB - dateA;
-      });
-      
-      return allItems;
+      return items;
     }
-    
     if (feedItemsProp && feedItemsProp.length > 0) {
       return feedItemsProp.map((item: any) => ({
         kind: 'post' as const,
@@ -7479,9 +7439,8 @@ export const Feed = memo(({
         created_at: item.created_at
       }));
     }
-    
     return [];
-  }, [items, feedItemsProp, currentUser]);
+  }, [items, feedItemsProp]);
 
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
