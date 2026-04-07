@@ -7448,13 +7448,6 @@ export const Feed = memo(({
         // Handle reel cards
         // Inside the Feed component's return statement, replace your existing mapping:
 
-{/* Replace this: */}
-{feedItems.map((item, idx) => {
-  // ... existing complex logic with PYMK inserts, etc.
-})}
-
-{/* With this: */}
-
 // Inside the Feed component's return statement, replace your existing mapping with:
 {safeFeedItems.map((item, index) => {
   if (item.kind === 'story') {
