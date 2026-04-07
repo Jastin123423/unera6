@@ -2552,24 +2552,15 @@ export const ReelFeedCard = memo(
   },
   reelCardPropsEqual
 );
-      //============ STORY CARD COMPONENTS =======
-      interface FeedStoryCardProps {
+//============ STORY CARD COMPONENTS =======
+interface FeedStoryCardProps {
   story: any;
   onOpen?: (story: any) => void;
 }
 
 const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
-  const authorName =
-    story?.user?.name ||
-    story?.author_name ||
-    story?.username ||
-    'User';
-
-  const authorImage =
-    story?.user?.profile_image_url ||
-    story?.author_image ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=1877F2&color=fff&size=128`;
-
+  const authorName = getStoryAuthorName(story);
+  const authorImage = getStoryAuthorImage(story);
   const storyLabel =
     story?.type === 'text'
       ? 'Text story'
@@ -2666,7 +2657,6 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
     </div>
   );
 };
-   
 
 /**
  * =========================
