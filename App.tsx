@@ -6923,9 +6923,6 @@ return (
                 }}
               />
 
-
-
-
       
 <div className="space-y-2">
   <MarketplaceContext.Provider value={{
@@ -6982,31 +6979,6 @@ return (
   </MarketplaceContext.Provider>
 </div>
    
-                    );
-                  })
-                ) : !feedHydrated ? (
-                  <div className="text-center py-20 text-[#B0B3B8]"></div>
-                ) : activeHashtag ? (
-                  <div className="text-center py-20 text-[#B0B3B8]">
-                    <p>No posts found with {activeHashtag}.</p>
-                    <button 
-                      onClick={clearHashtag}
-                      className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                    >
-                      Clear filter
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-center py-20 text-[#B0B3B8]">
-                    <p>No posts available.</p>
-                    {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                  </div>
-                )}
-              </MarketplaceContext.Provider>
-            </div>
-          </div>
-        )}
-
         {view === 'reels' && (
           <ReelsFeed
             reels={safeArray(reels)}
