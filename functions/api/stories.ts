@@ -59,7 +59,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return json({ success: false, error: "media_url is required" }, 400);
     }
 
-    // Permanent stories: expires_at is always NULL
+    // Permanent stories: expires_at stays NULL
     const stmt = `
       INSERT INTO stories
       (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
@@ -86,8 +86,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
+        -- counts
         (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+        (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
+        (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
+
+        -- viewer-specific reaction
         (SELECT sr.reaction
            FROM story_reactions sr
           WHERE sr.story_id = s.id
@@ -95,12 +100,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           LIMIT 1
         ) AS my_reaction,
 
+        -- viewer-specific viewed state
         EXISTS(
-          SELECT 1 FROM story_views sv2
+          SELECT 1
+          FROM story_views sv2
           WHERE sv2.story_id = s.id
             AND sv2.user_id = ?
         ) AS viewed_by_me,
 
+        -- backward compatibility
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
@@ -113,7 +121,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       LEFT JOIN users u ON u.id = s.user_id
       WHERE s.id = ?
       LIMIT 1
-    `
+      `
     )
       .bind(user_id, user_id, user_id, story_id)
       .first();
@@ -144,9 +152,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         u.username as author_name,
         u.profile_image_url as author_image,
 
+        -- counts
         (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+        (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
+        (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
 
+        -- viewer-specific fields
         (SELECT sr.reaction
            FROM story_reactions sr
           WHERE sr.story_id = s.id
@@ -155,11 +167,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         ) AS my_reaction,
 
         EXISTS(
-          SELECT 1 FROM story_views sv2
+          SELECT 1
+          FROM story_views sv2
           WHERE sv2.story_id = s.id
             AND sv2.user_id = ?
         ) AS viewed_by_me,
 
+        -- backward compatibility
         (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
         (SELECT 1
            FROM story_reactions sr
