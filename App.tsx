@@ -6922,187 +6922,66 @@ return (
                   setShowCreateEventModal(true);
                 }}
               />
-            )}
 
-            <div className="space-y-2">
-              <MarketplaceContext.Provider value={{
-                onViewProduct: (productId) => {
-                  const product = products.find(p => Number(p.id) === Number(productId));
-                  if (product) {
-                    navigateTo('marketplace');
-                    setActiveProduct(product);
-                  }
-                },
-                getProductData
-              }}>
-                {feedItems.length > 0 ? (
-                  feedItems.map((item, idx) => {
-                    if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-                      const isActive = item.campaign_status === 'active' || 
-                                       (item.end_date && new Date(item.end_date) > new Date());
-                      
-                      return (
-                        <SponsoredPostCard
-                          key={item.id}
-                          ad={item}
-                          currentUser={currentUser}
-                          onProfileClick={openProfile}
-                          onReact={(ad, type) => reactToFeedItem(ad, type)}
-                          onShare={(postId, newShareCount) => {
-                            console.log('Share:', postId, newShareCount);
-                          }}
-                          onOpenComments={(ad) => handleOpenComments(ad)}
-                          isActive={isActive}
-                        />
-                      );
-                    }
 
-                    if (item.type === 'reel') {
-                      return (
-                        <ReelFeedCard
-                          key={item.id}
-                          reel={item.reel}
-                          onOpen={(reelId) => {
-                            setSelectedReelId(reelId);
-                            navigateTo('reels');
-                          }}
-                          onOpenMenu={(reel) => {
-                            // Handle menu options
-                          }}
-                          onProfileClick={(userId) => {
-                            openProfile(Number(userId));
-                          }}
-                        />
-                      );
-                    }
 
-                    const postAuthorId = Number((item as any).user_id);
-                    const isFollowing = checkIsFollowing(postAuthorId);
-                    const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-                    const isAdminUser = currentUser && currentUser.role === 'admin';
-                    const showPushButton = isPostOwner || isAdminUser;
 
-                    const showFirstPymk = currentUser &&
-                      peopleYouMayKnow.length > 0 &&
-                      peopleYouMayKnowInsertIndex1 >= 0 &&
-                      idx === peopleYouMayKnowInsertIndex1;
-
-                    const showSecondPymk = currentUser &&
-                      peopleYouMayKnow.length > 0 &&
-                      peopleYouMayKnowInsertIndex2 >= 0 &&
-                      idx === peopleYouMayKnowInsertIndex2;
-
-                    const showGroupsYouMayJoin = currentUser &&
-                      groupsYouMayJoin.length > 0 &&
-                      groupsYouMayJoinInsertIndex >= 0 &&
-                      idx === groupsYouMayJoinInsertIndex;
-
-                    return (
-                      <React.Fragment key={getStableItemKey(item, 'post')}>
-                        <Post
-                          post={item as PostType}
-                          author={getPostAuthor(item as PostType)}
-                          currentUser={currentUser}
-                          users={users}
-                          onProfileClick={openProfile}
-                          onReact={(post, type) => reactToFeedItem(post, type)}
-                          onShare={(postId, newShareCount) => {
-                            console.log('Share:', postId, newShareCount);
-                          }}
-                          onViewImage={setFullScreenImage}
-                          onOpenComments={(post) => handleOpenComments(post)}
-                          onVideoClick={handleVideoClick}
-                          onPlayAudioTrack={onPlayTrack}
-                          groups={groups}
-                          brands={brands}
-                          chats={chats}
-                          onHashtagClick={handleHashtagClick}
-                          isFollowing={isFollowing}
-                          onFollow={() => followUser(postAuthorId)}
-                          followLoading={followLoading[postAuthorId] || false}
-                          onViewProductFromPost={openProductFromPost}
-                          onRSVPEvent={onRSVPEvent}
-                          pushButton={showPushButton ? (
-                            <button
-                              onClick={() => pushMore(item.id)}
-                              disabled={pushedPosts[item.id]}
-                              className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-                                pushedPosts[item.id]
-                                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                  : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                              }`}
-                            >
-                              {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
-                            </button>
-                          ) : undefined}
-                        />
-
-                        {showFirstPymk && (
-                          <div className="relative">
-                            <PeopleYouMayKnowGrid
-                              users={peopleYouMayKnow}
-                              onFollow={(id: number) => followFromPymk(id)}
-                              currentUser={currentUser}
-                              isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                              onLoginClick={() => setView('login')}
-                              onProfileClick={openProfile}
-                              title="People You May Know"
-                              maxDisplay={8}
-                            />
-                            
-                            {peopleYouMayKnow[0] && (
-                              <button
-                                onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                aria-label="Hide suggestions"
-                              >
-                                <i className="fas fa-times text-sm" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {showSecondPymk && (
-                          <div className="relative">
-                            <PeopleYouMayKnowGrid
-                              users={peopleYouMayKnow}
-                              onFollow={(id: number) => followFromPymk(id)}
-                              currentUser={currentUser}
-                              isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                              onLoginClick={() => setView('login')}
-                              onProfileClick={openProfile}
-                              title="More People You May Know"
-                              maxDisplay={8}
-                            />
-                            
-                            {peopleYouMayKnow[0] && (
-                              <button
-                                onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                aria-label="Hide suggestions"
-                              >
-                                <i className="fas fa-times text-sm" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {showGroupsYouMayJoin && (
-                          <GroupsYouMayJoinCard
-                            groups={groupsYouMayJoin}
-                            currentUser={currentUser}
-                            isLoading={gymjLoading && groupsYouMayJoin.length === 0}
-                            onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                            onLoginClick={() => setView('login')}
-                            onOpenGroup={(groupId: number) => {
-                              navigateTo('groups');
-                            }}
-                            onProfileClick={openProfile}
-                            title="Groups You May Join"
-                            maxDisplay={8}
-                          />
-                        )}
-                      </React.Fragment>
+      
+<div className="space-y-2">
+  <MarketplaceContext.Provider value={{
+    onViewProduct: (productId) => {
+      const product = products.find(p => Number(p.id) === Number(productId));
+      if (product) {
+        navigateTo('marketplace');
+        setActiveProduct(product);
+      }
+    },
+    getProductData
+  }}>
+    <Feed
+      items={mixedFeedItems}
+      onOpenStory={openStoryViewer}
+      feedItems={[]}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={openProfile}
+      onReact={(post, type) => reactToFeedItem(post, type)}
+      onShare={(id, newShareCount) => console.log('Share:', id, newShareCount)}
+      onOpenComments={handleOpenComments}
+      onViewImage={setFullScreenImage}
+      onVideoClick={handleVideoClick}
+      onPlayAudioTrack={onPlayTrack}
+      onHashtagClick={handleHashtagClick}
+      onFollow={followUser}
+      followLoading={followLoading}
+      checkIsFollowing={checkIsFollowing}
+      groups={groups}
+      brands={brands}
+      chats={chats}
+      onViewProductFromPost={openProductFromPost}
+      onRSVPEvent={onRSVPEvent}
+      getPostAuthor={getPostAuthor}
+      onPushMore={pushMore}
+      pushedPosts={pushedPosts}
+      onOpenReel={(reelId) => {
+        setSelectedReelId(reelId);
+        navigateTo('reels');
+      }}
+      peopleYouMayKnow={peopleYouMayKnow}
+      peopleYouMayKnowInsertIndex1={peopleYouMayKnowInsertIndex1}
+      peopleYouMayKnowInsertIndex2={peopleYouMayKnowInsertIndex2}
+      onFollowFromPymk={followFromPymk}
+      pymkLoading={pymkLoading}
+      groupsYouMayJoin={groupsYouMayJoin}
+      groupsYouMayJoinInsertIndex={groupsYouMayJoinInsertIndex}
+      onJoinGroupSuggestion={joinFromSuggestion}
+      gymjLoading={gymjLoading}
+      onOpenGroup={(groupId) => navigateTo('groups')}
+      onLoginClick={() => setView('login')}
+    />
+  </MarketplaceContext.Provider>
+</div>
+   
                     );
                   })
                 ) : !feedHydrated ? (
