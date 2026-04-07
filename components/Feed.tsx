@@ -26,6 +26,7 @@ import { MarketplaceContext } from '../App';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
+import { rankStoriesForMixedFeed } from '../utils/ranking';
 import { buildImageUploadBundle } from '../utils/imageCompression';
 //====================TYPE DEFINITION =============
 type FeedItem =
