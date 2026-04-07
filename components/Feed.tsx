@@ -7389,6 +7389,8 @@ interface FeedProps {
  * =========================
  */
 
+  import { rankStoriesForMixedFeed } from '../utils/ranking';
+
 export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
@@ -7441,7 +7443,8 @@ export const Feed = memo(({
       // Extract story data for ranking
       const storyData = storyItems.map(item => item.data);
       
-      // Rank stories separately using the mixed feed algorithm
+      // ✅ ONLY rank stories using the mixed feed algorithm
+      // Posts keep their original order (already ranked by feed API)
       const rankedStoryData = rankStoriesForMixedFeed(
         storyData,
         currentUser,
@@ -7455,10 +7458,11 @@ export const Feed = memo(({
         created_at: story.created_at,
       }));
       
-      // Combine ranked stories with posts
+      // ✅ Combine ranked stories with posts (preserving post order)
+      // Posts are already in the correct order from the feed API
       let allItems: (typeof rankedStoryItems)[0 | 1][] = [...rankedStoryItems, ...postItems];
       
-      // Sort by created_at (newest first) for chronological feed
+      // ✅ Sort by created_at to mix stories and posts chronologically
       allItems.sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
         const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -7597,7 +7601,7 @@ export const Feed = memo(({
   }
   return prev.currentUser?.id === next.currentUser?.id;
 });
-
+       
 // ==================== ADDITIONAL EXPORTS ====================
 export default Feed;
 
