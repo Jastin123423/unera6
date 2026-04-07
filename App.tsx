@@ -7645,7 +7645,8 @@ return (
         checkIsFollowing={checkIsFollowing}
       />
     )}
-     {activeStoryId && activeStory && (
+ {/* Story Viewer Modal */}
+{activeStoryId && activeStory && (
   <StoryViewerModal
     story={activeStory}
     onClose={closeStoryViewer}
@@ -7673,8 +7674,26 @@ return (
     deleteLoading={deleteStoryLoading}
   />
 )}
-  
 
+{/* Story Comments Sheet */}
+{showStoryComments && activeStoryCommentId && (
+  <StoryCommentsSheet
+    isOpen={showStoryComments}
+    onClose={() => {
+      setShowStoryComments(false);
+      setActiveStoryCommentId(null);
+    }}
+    storyId={activeStoryCommentId}
+    currentUser={currentUser}
+    users={users}
+    onProfileClick={openProfile}
+    onHashtagClick={handleHashtagClick}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+  />
+)}
+  
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
         currentUser={currentUser}
