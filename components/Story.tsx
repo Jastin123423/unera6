@@ -741,8 +741,6 @@ interface StoryViewerProps {
   onClose: () => void;
   onNext?: () => void;
   onPrev?: () => void;
-  onNextUser?: () => void;
-  onPrevUser?: () => void;
   onReply?: (storyId: number, text: string) => void;
   onLike?: (storyId: number) => void;
   onReaction?: (storyId: number, reaction: string) => void;
@@ -774,8 +772,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   onClose,
   onNext,
   onPrev,
-  onNextUser,
-  onPrevUser,
   onReply,
   onLike,
   onReaction,
@@ -1002,16 +998,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
-    // Updated swipe detection with better vertical detection
+    // SIMPLIFIED: Only horizontal swipe for same user navigation
     const SWIPE_X = 40;
-    const SWIPE_Y = 60;
-    
-    // vertical swipe = other user
-    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx) * 1.3) {
-      if (dy < 0) onNextUser?.();
-      else onPrevUser?.();
-      return;
-    }
     
     // horizontal swipe = same user stories
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 28) {
@@ -1139,14 +1127,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           e.preventDefault();
           safeNavigate('prev');
           break;
-        case 'ArrowUp':
-          e.preventDefault();
-          onPrevUser?.();
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          onNextUser?.();
-          break;
         case 'Escape':
           e.preventDefault();
           onClose();
@@ -1178,7 +1158,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onNext, onPrev, onNextUser, onPrevUser, onClose, onToggleMute, isAuthor, onDeleteStory]);
+  }, [onNext, onPrev, onClose, onToggleMute, isAuthor, onDeleteStory]);
 
   useEffect(() => {
     const r = story.my_reaction ?? story.views?.find(v => Number(v.user_id) === Number(currentUser?.id))?.reaction ?? null;
@@ -1506,7 +1486,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   } : null;
 
   return (
-    <div className="fixed inset-0 z-[250] bg-black flex items-center justify-center animate-fade-in">
+    // CHANGED: Full page wrapper without centering
+    <div className="fixed inset-0 z-[250] bg-black animate-fade-in">
       <div
         className="absolute inset-0 opacity-30 bg-cover bg-center blur-3xl"
         style={{
@@ -1526,8 +1507,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         <i className="fas fa-times text-[#E4E6EB] text-2xl"></i>
       </button>
 
+      {/* CHANGED: Full page inner wrapper without max-width and rounded corners */}
       <div
-        className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl touch-none"
+        className="relative w-full h-full bg-black overflow-hidden flex flex-col touch-none"
         style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -1561,35 +1543,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           onPointerUp={(e) => e.stopPropagation()}
         >
           <i className="fas fa-chevron-right text-white/90"></i>
-        </button>
-
-        {/* Vertical Navigation Buttons - Different Users */}
-        <button
-          type="button"
-          aria-label="Previous user stories"
-          className="absolute left-1/2 -translate-x-1/2 top-16 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPrevUser?.();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-        >
-          <i className="fas fa-chevron-up text-white/90"></i>
-        </button>
-
-        <button
-          type="button"
-          aria-label="Next user stories"
-          className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[120] w-10 h-10 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md flex items-center justify-center"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNextUser?.();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-        >
-          <i className="fas fa-chevron-down text-white/90"></i>
         </button>
 
         <div className="absolute top-0 left-0 right-0 p-3 z-30 flex gap-1.5">
@@ -2820,7 +2773,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     deleteLoading = false,
   } = props;
 
-  // Group stories by user for vertical navigation
+  // Group stories by user
   const storyGroups = useMemo(() => {
     const source = allStories?.length ? allStories : [story];
     const map = new Map<number, StoryType[]>();
@@ -2846,6 +2799,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       });
   }, [allStories, story]);
 
+  // Set initial group and story only once
   const [groupIndex, setGroupIndex] = useState(() => {
     const idx = storyGroups.findIndex((g) =>
       g.stories.some((s) => Number(s.id) === Number(story.id))
@@ -2853,44 +2807,26 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     return idx >= 0 ? idx : 0;
   });
 
-  // Sync groupIndex when opened story changes
-  useEffect(() => {
-    const idx = storyGroups.findIndex((g) =>
-      g.stories.some((s) => Number(s.id) === Number(story.id))
-    );
-    if (idx >= 0) setGroupIndex(idx);
-  }, [story.id, storyGroups]);
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const initialGroup = storyGroups[
+      (() => {
+        const idx = storyGroups.findIndex((g) =>
+          g.stories.some((s) => Number(s.id) === Number(story.id))
+        );
+        return idx >= 0 ? idx : 0;
+      })()
+    ];
+    const idx = initialGroup?.stories?.findIndex((s) => Number(s.id) === Number(story.id)) ?? 0;
+    return idx >= 0 ? idx : 0;
+  });
 
   const userStories = useMemo(() => {
-    const activeGroup = storyGroups[groupIndex];
-    return activeGroup?.stories?.length ? activeGroup.stories : [story];
-  }, [storyGroups, groupIndex, story]);
+    return storyGroups[groupIndex]?.stories || [];
+  }, [storyGroups, groupIndex]);
 
-  const [activeIndex, setActiveIndex] = useState(0);
+  const activeStory = userStories[activeIndex] || story;
 
-  // Reset active index when group changes or story changes
-  useEffect(() => {
-    const activeGroup = storyGroups[groupIndex];
-    if (!activeGroup?.stories?.length) {
-      setActiveIndex(0);
-      return;
-    }
-    const openedExistsInGroup = activeGroup.stories.some(
-      (s) => Number(s.id) === Number(story.id)
-    );
-    if (openedExistsInGroup) {
-      const idx = activeGroup.stories.findIndex(
-        (s) => Number(s.id) === Number(story.id)
-      );
-      setActiveIndex(idx >= 0 ? idx : 0);
-    } else {
-      setActiveIndex(0);
-    }
-  }, [groupIndex, storyGroups, story.id]);
-
-  const activeStory = userStories[activeIndex] || userStories[0] || story;
-
-  // Build user from activeStory, not from original story prop
+  // Build user from activeStory
   const modalUser: User = useMemo(() => {
     return mergeUserSafe(activeStory.user, {
       id: activeStory.user_id,
@@ -2923,45 +2859,41 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     });
   }, [activeStory]);
 
+  // Auto-advance to next user when same-user stories end
   const handleNext = () => {
-    setActiveIndex((prev) => {
-      const next = prev + 1;
-      if (next < userStories.length) return next;
-      if (groupIndex + 1 < storyGroups.length) {
-        setGroupIndex(groupIndex + 1);
-        return 0;
-      }
-      onClose();
-      return prev;
-    });
+    const nextStoryIndex = activeIndex + 1;
+    if (nextStoryIndex < userStories.length) {
+      setActiveIndex(nextStoryIndex);
+      return;
+    }
+    
+    const nextGroupIndex = groupIndex + 1;
+    if (nextGroupIndex < storyGroups.length) {
+      setGroupIndex(nextGroupIndex);
+      setActiveIndex(0);
+      return;
+    }
+    
+    onClose();
   };
 
+  // Auto-advance to previous user when going back from first story
   const handlePrev = () => {
-    setActiveIndex((prev) => {
-      const next = prev - 1;
-      if (next >= 0) return next;
-      if (groupIndex - 1 >= 0) {
-        const prevGroupStories = storyGroups[groupIndex - 1]?.stories || [];
-        setGroupIndex(groupIndex - 1);
-        return Math.max(0, prevGroupStories.length - 1);
-      }
-      onClose();
-      return prev;
-    });
-  };
-
-  const handleNextUser = () => {
-    setGroupIndex((prev) => {
-      const next = prev + 1;
-      return next >= storyGroups.length ? prev : next;
-    });
-  };
-
-  const handlePrevUser = () => {
-    setGroupIndex((prev) => {
-      const next = prev - 1;
-      return next < 0 ? prev : next;
-    });
+    const prevStoryIndex = activeIndex - 1;
+    if (prevStoryIndex >= 0) {
+      setActiveIndex(prevStoryIndex);
+      return;
+    }
+    
+    const prevGroupIndex = groupIndex - 1;
+    if (prevGroupIndex >= 0) {
+      const prevGroupStories = storyGroups[prevGroupIndex]?.stories || [];
+      setGroupIndex(prevGroupIndex);
+      setActiveIndex(Math.max(0, prevGroupStories.length - 1));
+      return;
+    }
+    
+    onClose();
   };
 
   const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
@@ -2980,8 +2912,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       onClose={onClose}
       onNext={handleNext}
       onPrev={handlePrev}
-      onNextUser={handleNextUser}
-      onPrevUser={handlePrevUser}
       onReply={handleReply}
       onLike={handleLike}
       onReaction={handleReaction}
