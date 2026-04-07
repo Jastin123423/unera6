@@ -1198,6 +1198,95 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
     reactions_count: newReactions.length,
   };
 };
+ // Add this helper function near your other utility functions (around line 200-300)
+
+// Rotate stories - returns 8-10 different stories, different order on each refresh
+const getRotatedStories = (stories: Story[], currentUser: User | null): Story[] => {
+  if (!stories || stories.length === 0) return [];
+  
+  const meId = currentUser?.id || 0;
+  const following = new Set(currentUser?.following || []);
+  
+  // Get unseen stories first
+  const unseenStories = stories.filter(s => !s.viewed_by_me);
+  const seenStories = stories.filter(s => s.viewed_by_me);
+  const myStories = stories.filter(s => s.user_id === meId);
+  
+  // Score each story for priority
+  const scoredStories = stories.map(story => {
+    let score = 0;
+    const uid = story.user_id;
+    const isMine = uid === meId;
+    const isFollowing = following.has(uid);
+    const isUnseen = !story.viewed_by_me;
+    
+    if (isUnseen) score += 100;
+    if (isFollowing) score += 50;
+    if (isMine) score += 30;
+    
+    // Fresher stories get higher score
+    const ageHours = (Date.now() - new Date(story.created_at).getTime()) / (1000 * 60 * 60);
+    score += Math.max(0, 48 - ageHours) * 1.5;
+    
+    return { story, score };
+  });
+  
+  // Sort by score
+  scoredStories.sort((a, b) => b.score - a.score);
+  
+  // Select 8-10 random stories from the top 20
+  const topStories = scoredStories.slice(0, 20).map(s => s.story);
+  const storyCount = Math.min(topStories.length, Math.floor(Math.random() * 3) + 8); // 8, 9, or 10
+  
+  // Shuffle the selected stories for random order
+  const shuffled = [...topStories];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  
+  return shuffled.slice(0, storyCount);
+};
+
+// Interleave stories and posts - never put stories consecutively
+const interleaveItems = (posts: any[], stories: any[]) => {
+  if (stories.length === 0) return posts;
+  if (posts.length === 0) return stories;
+  
+  const result: any[] = [];
+  const postsCopy = [...posts];
+  const storiesCopy = [...stories];
+  
+  // Calculate spacing - insert story every 3-5 posts
+  const storyInterval = Math.max(3, Math.floor(posts.length / (stories.length + 1)));
+  
+  let storyIndex = 0;
+  let postIndex = 0;
+  let postsSinceLastStory = 0;
+  
+  while (postIndex < postsCopy.length || storyIndex < storiesCopy.length) {
+    const shouldInsertStory = storyIndex < storiesCopy.length && 
+      (postsSinceLastStory >= storyInterval || 
+       (postIndex >= postsCopy.length && storyIndex < storiesCopy.length));
+    
+    if (shouldInsertStory) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+      postsSinceLastStory = 0;
+    } else if (postIndex < postsCopy.length) {
+      result.push(postsCopy[postIndex]);
+      postIndex++;
+      postsSinceLastStory++;
+    } else if (storyIndex < storiesCopy.length) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+    } else {
+      break;
+    }
+  }
+  
+  return result;
+}; 
 
 const isHttpUrl2 = (u: string) => u.startsWith('http://') || u.startsWith('https://');
 const isBlobUrl = (u: string) => u.startsWith('blob:');
