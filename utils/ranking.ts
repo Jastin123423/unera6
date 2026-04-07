@@ -1,4 +1,4 @@
-// utils/ranking.ts - Modified with seed parameter and fairness improvements
+// utils/ranking.ts
 
 import { Post, User } from '../types';
 
@@ -9,6 +9,7 @@ interface ScoredPost {
 }
 
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -55,13 +56,18 @@ const CONSTANTS = {
 
   EXPLORE_RATIO: 0.2,
 
-  // ✅ New constants for fairness improvements
+  // fairness improvements
   DISCOVERY_BOOST_MULTIPLIER: 1.25,
   UNSEEN_AUTHOR_DAYS_THRESHOLD: 7,
   MIN_FOLLOWER_COUNT_FOR_DISCOVERY: 200,
 };
 
-const calculatePostScore = (post: Post, viewer: User | null, author: User, seed = 1) => {
+const calculatePostScore = (
+  post: Post,
+  viewer: User | null,
+  author: User,
+  seed = 1
+) => {
   const now = Date.now();
   const postTime = post.created_at ? new Date(post.created_at as any).getTime() : now;
   const hoursSinceCreation = Math.max(0, (now - postTime) / (1000 * 60 * 60));
@@ -105,8 +111,13 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User, seed 
   }
 
   let interestScore = 0;
-  const viewerInterests = safeArray<string>((viewer as any)?.interests).map((x) => String(x).toLowerCase());
-  const postTags = safeArray<string>((post as any)?.tags).map((x) => String(x).toLowerCase());
+  const viewerInterests = safeArray<string>((viewer as any)?.interests).map((x) =>
+    String(x).toLowerCase()
+  );
+  const postTags = safeArray<string>((post as any)?.tags).map((x) =>
+    String(x).toLowerCase()
+  );
+
   if (viewerInterests.length && postTags.length) {
     const matches = postTags.filter((tag) => viewerInterests.includes(tag)).length;
     interestScore = matches * 0.5;
@@ -118,11 +129,17 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User, seed 
     affinityScore * CONSTANTS.WEIGHT_AFFINITY +
     interestScore * CONSTANTS.WEIGHT_INTEREST;
 
-  const authorCreatedAt = (author as any).created_at ? new Date((author as any).created_at).getTime() : 0;
-  const daysOnPlatform = authorCreatedAt ? (now - authorCreatedAt) / (1000 * 60 * 60 * 24) : 999;
+  const authorCreatedAt = (author as any).created_at
+    ? new Date((author as any).created_at).getTime()
+    : 0;
+  const daysOnPlatform = authorCreatedAt
+    ? (now - authorCreatedAt) / (1000 * 60 * 60 * 24)
+    : 999;
 
   const newUserBoost =
-    daysOnPlatform <= CONSTANTS.NEW_USER_DAYS_THRESHOLD ? CONSTANTS.NEW_USER_BOOST_MULTIPLIER : 1.0;
+    daysOnPlatform <= CONSTANTS.NEW_USER_DAYS_THRESHOLD
+      ? CONSTANTS.NEW_USER_BOOST_MULTIPLIER
+      : 1.0;
 
   const followerCount = safeArray<number>((author as any).followers).length;
 
@@ -133,20 +150,19 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User, seed 
       ? CONSTANTS.SMALL_CREATOR_BOOST_TIER2
       : 1.0;
 
-  // ✅ EXTRA EARLY-STAGE BOOST: Help non-followed small creators get seen
+  // Extra early-stage boost for non-followed small creators
   let discoveryBoost = 1.0;
   if (viewer && safeNumber(viewer.id) && safeNumber(author.id)) {
     const following = new Set<number>(safeArray<number>((viewer as any).following));
     const authorId = safeNumber((author as any).id);
     const viewerId = safeNumber((viewer as any).id);
-    
+
     const notFollowing = authorId && !following.has(authorId) && authorId !== viewerId;
     const isSmall = followerCount < CONSTANTS.MIN_FOLLOWER_COUNT_FOR_DISCOVERY;
 
     if (notFollowing && isSmall) {
-      discoveryBoost = CONSTANTS.DISCOVERY_BOOST_MULTIPLIER; // gentle, not spammy
-      
-      // Extra boost for very new authors (first week on platform)
+      discoveryBoost = CONSTANTS.DISCOVERY_BOOST_MULTIPLIER;
+
       if (daysOnPlatform <= CONSTANTS.UNSEEN_AUTHOR_DAYS_THRESHOLD) {
         discoveryBoost *= 1.1;
       }
@@ -155,14 +171,12 @@ const calculatePostScore = (post: Post, viewer: User | null, author: User, seed 
 
   const finalBoost = newUserBoost * smallCreatorBoost * discoveryBoost;
 
-  // ✅ Use session seed in jitter calculation for stable ordering
   const jitterSeed =
     seed +
     safeNumber((post as any).id) * 997 +
     safeNumber((author as any).id) * 131;
 
   const jitter = seededRand01(jitterSeed) * 0.05;
-
   const finalScore = baseScore * finalBoost + jitter;
 
   return { score: finalScore };
@@ -199,7 +213,11 @@ const applyDiversityConstraints = (
   return result;
 };
 
-const mixExploreSlots = (scored: { post: Post; score: number }[], viewer: User | null, exploreRatio: number) => {
+const mixExploreSlots = (
+  scored: { post: Post; score: number }[],
+  viewer: User | null,
+  exploreRatio: number
+) => {
   if (!viewer) return scored;
 
   const following = new Set<number>(safeArray<number>((viewer as any).following));
@@ -235,17 +253,18 @@ const mixExploreSlots = (scored: { post: Post; score: number }[], viewer: User |
 };
 
 /**
- * ✅ Enhanced rankFeed function with seed parameter for stable ordering
- * @param posts - Array of posts to rank
- * @param viewer - Current user viewing the feed
- * @param users - Array of all users (for author info)
- * @param seed - Session seed for stable jitter calculation (default: 1)
- * @returns Ranked array of posts
+ * rankFeed
+ * Stable during one session when same seed is used.
+ * Different session/refresh can rotate slightly with a new seed.
  */
-export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed = 1): Post[] => {
+export const rankFeed = (
+  posts: Post[],
+  viewer: User | null,
+  users: User[],
+  seed = 1
+): Post[] => {
   if (!Array.isArray(posts) || posts.length === 0) return [];
 
-  // ✅ CAP work for phones
   const input = posts.slice(0, 200);
 
   const userMap = new Map<number, User>();
@@ -257,7 +276,6 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed
   const scored: ScoredPost[] = input.map((post) => {
     const authorId = safeNumber((post as any).user_id);
 
-    // ✅ DO NOT DROP POSTS if author missing
     const author =
       userMap.get(authorId) ||
       ({
@@ -275,7 +293,11 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed
 
   scored.sort((a, b) => b.score - a.score);
 
-  const mixed = mixExploreSlots(scored.map((x) => ({ post: x.post, score: x.score })), viewer, CONSTANTS.EXPLORE_RATIO);
+  const mixed = mixExploreSlots(
+    scored.map((x) => ({ post: x.post, score: x.score })),
+    viewer,
+    CONSTANTS.EXPLORE_RATIO
+  );
 
   const constrained = applyDiversityConstraints(
     mixed,
@@ -286,7 +308,8 @@ export const rankFeed = (posts: Post[], viewer: User | null, users: User[], seed
 
   return constrained.map((x) => x.post);
 };
-// ✅ Story reel ranking (newest story per user) — matches your system fields
+
+// Story reel ranking (newest story per user)
 // Priority: Me first -> Unviewed first -> Following -> Most recent
 export const rankStoriesForReel = <T extends { user_id: any; created_at: any }>(
   stories: T[],
@@ -298,19 +321,19 @@ export const rankStoriesForReel = <T extends { user_id: any; created_at: any }>(
   const following = new Set<number>(safeArray<number>((viewer as any)?.following));
 
   const toTime = (d: any) => {
-    const t = new Date(String(d ?? "")).getTime();
+    const t = new Date(String(d ?? '')).getTime();
     return Number.isFinite(t) ? t : 0;
   };
 
   const isViewedByMe = (s: any) => {
     const v = s?.viewed_by_me;
-    return v === true || v === 1 || v === "1";
+    return v === true || v === 1 || v === '1';
   };
 
-  // 1) sort all stories newest -> oldest
+  // sort all stories newest -> oldest
   const sorted = [...stories].sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
 
-  // 2) pick newest story per user (reel cards)
+  // pick newest story per user
   const latestByUser = new Map<number, T>();
   for (const s of sorted) {
     const uid = safeNumber((s as any)?.user_id, 0);
@@ -329,13 +352,9 @@ export const rankStoriesForReel = <T extends { user_id: any; created_at: any }>(
       return { latest, isMe, unviewed, isFollowing, newestTime };
     })
     .sort((a, b) => {
-      // Me first
       if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
-      // Unviewed first
       if (a.unviewed !== b.unviewed) return a.unviewed ? -1 : 1;
-      // Following next
       if (a.isFollowing !== b.isFollowing) return a.isFollowing ? -1 : 1;
-      // Most recent newest story
       return b.newestTime - a.newestTime;
     })
     .map((x) => x.latest);
@@ -343,5 +362,159 @@ export const rankStoriesForReel = <T extends { user_id: any; created_at: any }>(
   return ranked;
 };
 
+// Feed story-card ranking for mixed feed only
+// Goal:
+// - avoid same user repeating
+// - avoid owner story always on top
+// - rotate a bit on refresh using seed
+// - keep logic suitable for feed cards, not story viewer/reel strip
+export const rankStoriesForMixedFeed = <
+  T extends {
+    id?: any;
+    user_id: any;
+    created_at: any;
+    viewed_by_me?: any;
+    views_count?: any;
+    reactions_count?: any;
+    comments_count?: any;
+    shares_count?: any;
+  }
+>(
+  stories: T[],
+  viewer: User | null,
+  seed = 1
+): T[] => {
+  if (!Array.isArray(stories) || stories.length === 0) return [];
 
+  const meId = safeNumber((viewer as any)?.id, 0);
+  const following = new Set<number>(safeArray<number>((viewer as any)?.following));
 
+  const toTime = (d: any) => {
+    const t = new Date(String(d ?? '')).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const isViewedByMe = (s: any) => {
+    const v = s?.viewed_by_me;
+    return v === true || v === 1 || v === '1';
+  };
+
+  const now = Date.now();
+
+  const scored = [...stories].map((story, index) => {
+    const uid = safeNumber((story as any)?.user_id, 0);
+    const sid = safeNumber((story as any)?.id, index + 1);
+
+    const createdAt = toTime((story as any)?.created_at);
+    const ageHours = Math.max(0, (now - createdAt) / (1000 * 60 * 60));
+
+    // fresher stories still matter
+    const freshnessScore = Math.exp(-0.08 * ageHours);
+
+    // light engagement signal
+    const engagementRaw =
+      safeNumber((story as any)?.views_count, 0) * 0.03 +
+      safeNumber((story as any)?.reactions_count, 0) * 0.7 +
+      safeNumber((story as any)?.comments_count, 0) * 1.2 +
+      safeNumber((story as any)?.shares_count, 0) * 1.6;
+
+    const engagementScore = Math.log1p(Math.max(0, engagementRaw));
+
+    const mine = !!meId && uid === meId;
+    const viewed = !!meId && !mine && isViewedByMe(story);
+    const unviewed = !!meId && !mine && !viewed;
+    const isFollowing = !!meId && !!uid && following.has(uid);
+
+    let score = 0;
+
+    // In feed cards, do NOT pin my own stories at top
+    if (mine) score += 0.12;
+
+    // Unviewed should appear more often in feed
+    if (unviewed) score += 2.4;
+
+    // Following helps relevance
+    if (isFollowing) score += 1.1;
+
+    // freshness + engagement
+    score += freshnessScore * 1.7;
+    score += engagementScore * 0.9;
+
+    // slight penalty for already-viewed stories
+    if (viewed) score -= 0.75;
+
+    // small randomness so refresh rotates order a bit
+    const jitterSeed = seed + sid * 977 + uid * 131;
+    const jitter = seededRand01(jitterSeed) * 0.35;
+    score += jitter;
+
+    return {
+      story,
+      score,
+      userId: uid,
+      mine,
+      viewed,
+      unviewed,
+      isFollowing,
+      createdAt,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.createdAt - a.createdAt;
+  });
+
+  // diversity pass:
+  // - no back-to-back same user
+  // - max 1 story per user in first window
+  const result: typeof scored = [];
+  const deferred: typeof scored = [];
+  const firstWindowPerUser = new Map<number, number>();
+  const FIRST_WINDOW = 12;
+  const MAX_PER_USER_FIRST_WINDOW = 1;
+
+  for (const item of scored) {
+    const last = result[result.length - 1];
+    const sameAsLast = !!last && last.userId === item.userId;
+
+    if (sameAsLast) {
+      deferred.push(item);
+      continue;
+    }
+
+    if (result.length < FIRST_WINDOW) {
+      const seen = firstWindowPerUser.get(item.userId) || 0;
+      if (seen >= MAX_PER_USER_FIRST_WINDOW) {
+        deferred.push(item);
+        continue;
+      }
+      firstWindowPerUser.set(item.userId, seen + 1);
+    }
+
+    result.push(item);
+  }
+
+  // append deferred items while still trying to avoid back-to-back
+  for (const item of deferred) {
+    const last = result[result.length - 1];
+
+    if (last && last.userId === item.userId) {
+      const swapIndex = result.findIndex(
+        (x, i) => i > 0 && x.userId !== item.userId && result[i - 1]?.userId !== item.userId
+      );
+
+      if (swapIndex >= 0) {
+        const temp = result[swapIndex];
+        result[swapIndex] = item;
+        result.push(temp);
+      } else {
+        result.push(item);
+      }
+    } else {
+      result.push(item);
+    }
+  }
+
+  return result.map((x) => x.story);
+};
