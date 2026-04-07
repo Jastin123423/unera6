@@ -7562,12 +7562,12 @@ interface FeedProps {
       })}
     </div>
   );
-}, (prev, next) => {
+    }, (prev, next) => {
   if (prev.items !== next.items) return false;
-  if (prev.feedItems !== next.feedItems) return false;
-  if (prev.feedItems?.length !== next.feedItems?.length) return false;
-  for (let i = 0; i < (prev.feedItems?.length || 0); i++) {
-    if (!isSameFeedItem(prev.feedItems?.[i], next.feedItems?.[i])) return false;
+  if (prev.feedItemsProp !== next.feedItemsProp) return false;
+  if (prev.feedItemsProp?.length !== next.feedItemsProp?.length) return false;
+  for (let i = 0; i < (prev.feedItemsProp?.length || 0); i++) {
+    if (!isSameFeedItem(prev.feedItemsProp?.[i], next.feedItemsProp?.[i])) return false;
   }
   return prev.currentUser?.id === next.currentUser?.id;
 });
