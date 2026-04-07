@@ -855,6 +855,37 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
+  // Lock page scroll when story viewer is open
+  useEffect(() => {
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyTouchAction = document.body.style.touchAction;
+    const prevHtmlTouchAction = document.documentElement.style.touchAction;
+    
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+    document.documentElement.style.touchAction = 'none';
+    
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.touchAction = prevBodyTouchAction;
+      document.documentElement.style.touchAction = prevHtmlTouchAction;
+    };
+  }, []);
+
+  // Block wheel scrolling for desktop and some Android webviews
+  useEffect(() => {
+    const preventWheel = (e: WheelEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('wheel', preventWheel, { passive: false });
+    return () => {
+      window.removeEventListener('wheel', preventWheel);
+    };
+  }, []);
+
   const fetchReactions = useCallback(async () => {
     if (!onFetchReactions) return;
     
@@ -973,20 +1004,17 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
 
     // Updated swipe detection with better vertical detection
     const SWIPE_X = 40;
-    const SWIPE_Y = 28; // Softer threshold for vertical swipes
+    const SWIPE_Y = 60;
     
-    // Vertical swipe - switch between different users
-    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx) * 1.15) {
-      if (dy < 0) {
-        onNextUser?.();
-      } else {
-        onPrevUser?.();
-      }
+    // vertical swipe = other user
+    if (Math.abs(dy) > SWIPE_Y && Math.abs(dy) > Math.abs(dx) * 1.3) {
+      if (dy < 0) onNextUser?.();
+      else onPrevUser?.();
       return;
     }
     
-    // Horizontal swipe - switch between same user's stories
-    if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 30) {
+    // horizontal swipe = same user stories
+    if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 28) {
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
       return;
@@ -1499,7 +1527,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       </button>
 
       <div
-        className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl"
+        className="relative w-full max-w-[420px] h-full sm:h-[92vh] bg-black sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl touch-none"
+        style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -2837,17 +2866,29 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     return activeGroup?.stories?.length ? activeGroup.stories : [story];
   }, [storyGroups, groupIndex, story]);
 
-  const [activeIndex, setActiveIndex] = useState(() => {
-    const idx = userStories.findIndex((s) => Number(s.id) === Number(story.id));
-    return idx >= 0 ? idx : 0;
-  });
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  // Reset activeIndex whenever groupIndex changes (new user)
+  // Reset active index when group changes or story changes
   useEffect(() => {
-    setActiveIndex(0);
-  }, [groupIndex]);
+    const activeGroup = storyGroups[groupIndex];
+    if (!activeGroup?.stories?.length) {
+      setActiveIndex(0);
+      return;
+    }
+    const openedExistsInGroup = activeGroup.stories.some(
+      (s) => Number(s.id) === Number(story.id)
+    );
+    if (openedExistsInGroup) {
+      const idx = activeGroup.stories.findIndex(
+        (s) => Number(s.id) === Number(story.id)
+      );
+      setActiveIndex(idx >= 0 ? idx : 0);
+    } else {
+      setActiveIndex(0);
+    }
+  }, [groupIndex, storyGroups, story.id]);
 
-  const activeStory = userStories[activeIndex] || story;
+  const activeStory = userStories[activeIndex] || userStories[0] || story;
 
   // Build user from activeStory, not from original story prop
   const modalUser: User = useMemo(() => {
@@ -2883,41 +2924,44 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
   }, [activeStory]);
 
   const handleNext = () => {
-    const next = activeIndex + 1;
-    if (next < userStories.length) {
-      setActiveIndex(next);
-      return;
-    }
-    if (groupIndex + 1 < storyGroups.length) {
-      setGroupIndex(groupIndex + 1);
-    } else {
+    setActiveIndex((prev) => {
+      const next = prev + 1;
+      if (next < userStories.length) return next;
+      if (groupIndex + 1 < storyGroups.length) {
+        setGroupIndex(groupIndex + 1);
+        return 0;
+      }
       onClose();
-    }
+      return prev;
+    });
   };
 
   const handlePrev = () => {
-    const prev = activeIndex - 1;
-    if (prev >= 0) {
-      setActiveIndex(prev);
-      return;
-    }
-    if (groupIndex - 1 >= 0) {
-      setGroupIndex(groupIndex - 1);
-    } else {
+    setActiveIndex((prev) => {
+      const next = prev - 1;
+      if (next >= 0) return next;
+      if (groupIndex - 1 >= 0) {
+        const prevGroupStories = storyGroups[groupIndex - 1]?.stories || [];
+        setGroupIndex(groupIndex - 1);
+        return Math.max(0, prevGroupStories.length - 1);
+      }
       onClose();
-    }
+      return prev;
+    });
   };
 
   const handleNextUser = () => {
-    const next = groupIndex + 1;
-    if (next >= storyGroups.length) return;
-    setGroupIndex(next);
+    setGroupIndex((prev) => {
+      const next = prev + 1;
+      return next >= storyGroups.length ? prev : next;
+    });
   };
 
   const handlePrevUser = () => {
-    const prev = groupIndex - 1;
-    if (prev < 0) return;
-    setGroupIndex(prev);
+    setGroupIndex((prev) => {
+      const next = prev - 1;
+      return next < 0 ? prev : next;
+    });
   };
 
   const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
