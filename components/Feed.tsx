@@ -7388,6 +7388,7 @@ interface FeedProps {
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
+
 export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
@@ -7428,10 +7429,45 @@ export const Feed = memo(({
   onLoginClick,
 }: FeedProps) => {
   
+  // Seed for story ranking that persists during session
+  const storyFeedSeedRef = useRef<number>(Date.now());
+  
   const safeFeedItems = React.useMemo(() => {
     if (items && items.length > 0) {
-      return items;
+      // Separate stories and posts
+      const storyItems = items.filter(item => item.kind === 'story');
+      const postItems = items.filter(item => item.kind === 'post');
+      
+      // Extract story data for ranking
+      const storyData = storyItems.map(item => item.data);
+      
+      // Rank stories separately using the mixed feed algorithm
+      const rankedStoryData = rankStoriesForMixedFeed(
+        storyData,
+        currentUser,
+        storyFeedSeedRef.current
+      );
+      
+      // Create ranked story feed items
+      const rankedStoryItems = rankedStoryData.map(story => ({
+        kind: 'story' as const,
+        data: story,
+        created_at: story.created_at,
+      }));
+      
+      // Combine ranked stories with posts
+      let allItems: (typeof rankedStoryItems)[0 | 1][] = [...rankedStoryItems, ...postItems];
+      
+      // Sort by created_at (newest first) for chronological feed
+      allItems.sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      return allItems;
     }
+    
     if (feedItemsProp && feedItemsProp.length > 0) {
       return feedItemsProp.map((item: any) => ({
         kind: 'post' as const,
@@ -7439,8 +7475,9 @@ export const Feed = memo(({
         created_at: item.created_at
       }));
     }
+    
     return [];
-  }, [items, feedItemsProp]);
+  }, [items, feedItemsProp, currentUser]);
 
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
@@ -7552,7 +7589,6 @@ export const Feed = memo(({
     </div>
   );
 }, (prev, next) => {
-  // This comparison function is CORRECT - it's the SECOND argument to memo
   if (prev.items !== next.items) return false;
   if (prev.feedItemsProp !== next.feedItemsProp) return false;
   if (prev.feedItemsProp?.length !== next.feedItemsProp?.length) return false;
