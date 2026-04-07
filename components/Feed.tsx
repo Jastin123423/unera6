@@ -7424,7 +7424,6 @@ export const Feed = memo(({
   onJoinGroupSuggestion,
   gymjLoading = false,
   onOpenGroup,
-   apiFetch, 
   onLoginClick,
 }: FeedProps) => {
   
@@ -7578,6 +7577,7 @@ export {
   getMarketplaceProductId,
   getPostMediaList,
   getOrientation,
+  apiFetch,
   classifyOrientations,
 };
 
