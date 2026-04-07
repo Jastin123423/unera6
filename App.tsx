@@ -1877,7 +1877,64 @@ const deleteStory = useCallback(async (storyId: number) => {
     setDeleteStoryLoading(false);
   }
 }, [currentUser, requireAuth]);
-      
+
+// ✅ ADDED STORY COMMENT FUNCTIONS HERE ✅
+const fetchStoryReactions = useCallback(async (storyId: number) => {
+  try {
+    const data = await apiFetch(`/api/stories/${storyId}/reactions?limit=50`);
+    const reactions = Array.isArray(data?.reactions) ? data.reactions : [];
+    const counts = data?.counts || {};
+    
+    const totalCount = Object.values(counts).reduce((a: number, b: number) => a + b, 0) || reactions.length;
+    
+    return {
+      reactions,
+      counts: {
+        ...counts,
+        total: totalCount
+      }
+    };
+  } catch (error) {
+    console.error('Failed to fetch story reactions:', error);
+    return { reactions: [], counts: {} };
+  }
+}, []);
+
+const handleStoryShare = useCallback(async (storyId: number) => {
+  if (!requireAuth('Sharing stories')) return;
+  if (!currentUser) return;
+
+  try {
+    await apiFetch(`/api/stories/${storyId}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story shared!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  } catch (error) {
+    console.error('Failed to share story:', error);
+    setLoginError('Failed to share story');
+  }
+}, [currentUser, requireAuth]);
+
+const handleStoryComment = useCallback((storyId: number) => {
+  if (!requireAuth('Commenting on stories')) return;
+  if (!currentUser) return;
+  
+  console.log('Open comments for story:', storyId);
+  
+  const toast = document.createElement('div');
+  toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+  toast.innerText = 'Comments coming soon!';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2000);
+}, [currentUser, requireAuth]);
+// ✅ END OF ADDED FUNCTIONS ✅
+         
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
