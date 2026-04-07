@@ -7601,9 +7601,12 @@ return (
     followLoading={followLoading}
     allStories={orderedStories}
     onFetchViewers={fetchStoryViewers}
+    onFetchReactions={fetchStoryReactions}
     onReply={replyToStory}
     onLike={likeStory}
     onReaction={reactToStory}
+    onShare={handleStoryShare}
+    onComment={handleStoryComment}
     onNext={handleStoryNext}
     onPrev={handleStoryPrev}
     muted={storyMuted}
@@ -7612,6 +7615,7 @@ return (
     deleteLoading={deleteStoryLoading}
   />
 )}
+  
 
     {showCreateStoryModal && currentUser && (
       <CreateStoryModal
