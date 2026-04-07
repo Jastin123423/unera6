@@ -1580,17 +1580,21 @@ export default function App() {
   useLanguage();
 
   /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>([]);
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
-  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
+const [users, setUsers] = useState<User[]>([]);
+const [posts, setPosts] = useState<PostType[]>([]);
+const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
+const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+const [stories, setStories] = useState<Story[]>([]);
+const [reels, setReels] = useState<Reel[]>([]);
+const [products, setProducts] = useState<Product[]>([]);
+const [groups, setGroups] = useState<Group[]>([]);
+const [brands, setBrands] = useState<Brand[]>([]);
+const [events, setEvents] = useState<Event[]>([]);
+const [chats, setChats] = useState<any[]>([]);
+
+// Story comments states
+const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
+const [showStoryComments, setShowStoryComments] = useState(false);
 
   const [songs, setSongs] = useState<Song[]>([]);
   
