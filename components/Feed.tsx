@@ -3186,7 +3186,7 @@ const normalizeEventFromFeed = (item: any) => {
 
 // ==================== MEDIA HELPERS ====================
 
-const getPostMediaList = (p: any) => {
+export const getPostMediaList = (p: any) => {
   const out: Array<{
     url: string;
     thumb?: string;
