@@ -7666,7 +7666,7 @@ interface FeedProps {
             )}
           </React.Fragment>
         );
-      })}
+      })
   </div>
   );
 }, (prev, next) => {
