@@ -30,7 +30,8 @@ import { buildImageUploadBundle } from '../utils/imageCompression';
 //====================TYPE DEFINITION =============
 type FeedItem =
   | { kind: 'post'; data: any; created_at?: string }
-  | { kind: 'story'; data: Story; created_at?: string };
+  | { kind: 'story'; data: Story; created_at?: string }
+  | { kind: 'reel'; data: ReelFeedData; created_at?: string };  // ✅ ADD THIS
 
 // ==================== ICON COMPONENTS ====================
 const Film: React.FC<{ size?: number; color?: string }> = ({
