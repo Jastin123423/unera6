@@ -7750,6 +7750,7 @@ export {
   getMarketplaceProductId,
   getOrientation,
   apiFetch,
+  getMediaTypeInfo,
   classifyOrientations,
 };
 
