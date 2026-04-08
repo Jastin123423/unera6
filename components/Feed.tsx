@@ -7486,8 +7486,60 @@ interface FeedProps {
 
         const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
 
+       return (
+  <div className="space-y-2">
+    {safeFeedItems
+      .filter((item) => {
+        // Keep stories
+        if (item.kind === 'story') return true;
+        // Keep reels
+        if (item.kind === 'reel') return true;
+        // For posts, filter out video posts
+        if (item.kind === 'post') {
+          const post = item.data;
+          const mediaInfo = getMediaTypeInfo(post);
+          return !mediaInfo.isVideo; // Only keep non-video posts (images, text, audio)
+        }
+        return true;
+      })
+      .map((item, index) => {
+        if (item.kind === 'story') {
+          return (
+            <FeedStoryCard
+              key={`story-${item.data.id}`}
+              story={item.data}
+              onOpen={onOpenStory}
+            />
+          );
+        }
+
+        if (item.kind === 'reel') {
+          return (
+            <ReelFeedCard
+              key={`reel-${item.data.id}`}
+              reel={item.data}
+              onOpen={(reelId) => onOpenReel?.(reelId)}
+              onProfileClick={(userId) => onProfileClick?.(Number(userId))}
+            />
+          );
+        }
+
+        const post = item.data;
+        const postAuthorId = Number(post.user_id);
+        const isFollowing = checkIsFollowing?.(postAuthorId) || false;
+        const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+        const isAdminUser = currentUser && currentUser.role === 'admin';
+        const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
+        const isPushed = pushedPosts?.[post.id] || false;
+
+        const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
+
+        const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
+
+        const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
+
         return (
-          <React.Fragment key={`post-${post.id}-${index}`}>
+          <React.Fragment key={`post-${post.id}`}>
             <Post
               post={post as PostType}
               author={getPostAuthor?.(post as PostType) || post.author || post}
@@ -7562,7 +7614,7 @@ interface FeedProps {
           </React.Fragment>
         );
       })}
-    </div>
+  </div>       
   );
 }, (prev, next) => {
   if (prev.items !== next.items) return false;
