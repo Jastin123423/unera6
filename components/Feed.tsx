@@ -188,41 +188,29 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
 );
 
 // ==================== PROGRESSIVE IMAGE COMPONENT ====================
+
 const ProgressiveFeedImage = memo(
-  ({
-    thumb,
-    feed,
-    full,
-    alt = '',
-    className = '',
-    onClick,
-  }: {
-    thumb?: string;
-    feed?: string;
-    full?: string;
-    alt?: string;
-    className?: string;
-    onClick?: () => void;
-  }) => {
+  ({ thumb, feed, full, alt, className, onClick }) => {
     const initialSrc = thumb || feed || full || '';
     const [src, setSrc] = useState(initialSrc);
     const [loadedFeed, setLoadedFeed] = useState(false);
 
     useEffect(() => {
-      setSrc(initialSrc);
-      setLoadedFeed(false);
-    }, [initialSrc]);
-
-    useEffect(() => {
-      const next = feed || full;
+      const next = feed || '';
       if (!next || next === src) return;
+
       const img = new Image();
       img.src = next;
       img.onload = () => {
         setSrc(next);
         setLoadedFeed(true);
       };
-    }, [feed, full, src]);
+
+      return () => {
+        img.onload = null;
+        img.onerror = null;
+      };
+    }, [feed, src]);
 
     return (
       <img
@@ -231,7 +219,7 @@ const ProgressiveFeedImage = memo(
         onClick={onClick}
         className={className}
         style={{
-          transition: 'filter 180ms ease, opacity 180ms ease',
+          transition: 'filter 180ms ease',
           filter: loadedFeed ? 'none' : 'blur(0px)',
         }}
         loading="lazy"
