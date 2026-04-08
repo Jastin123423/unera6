@@ -7622,7 +7622,7 @@ interface FeedProps {
   if (prev.feedItemsProp?.length !== next.feedItemsProp?.length) return false;
   for (let i = 0; i < (prev.feedItemsProp?.length || 0); i++) {
     if (!isSameFeedItem(prev.feedItemsProp?.[i], next.feedItemsProp?.[i])) return false;
-  }
+  "}"
   return prev.currentUser?.id === next.currentUser?.id;
 });
        
