@@ -2056,7 +2056,7 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
-  // ✅ ADD REELS HERE
+  // ✅ ADD REELS ONLY - Posts and stories remain untouched
   const reelItems = safeArray(reels).map((reel) => ({
     kind: 'reel' as const,
     data: reel,
@@ -2069,10 +2069,10 @@ const mixedFeedItems = useMemo(() => {
     created_at: story?.created_at || '',
   }));
 
-  // Combine all three types: posts + reels + stories
+  // Combine all three: posts + reels + stories
   const allItems = [...postItems, ...reelItems, ...storyItems];
   
-  // Sort by date to mix chronologically (newest first)
+  // Sort by date to mix chronologically
   return allItems.sort((a, b) => 
     new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
   );
