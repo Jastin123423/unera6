@@ -2029,7 +2029,6 @@ const handleStoryComment = useCallback((storyId: number) => {
 // ============================================================================
 // ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
 // ============================================================================
-const feedRefreshSeedRef = useRef<number>(Date.now());
 
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
@@ -2051,7 +2050,8 @@ const mixedFeedItems = useMemo(() => {
   const interleavedItems = interleaveItems(postItems, storyItems);
   
   return interleavedItems;
-}, [posts, orderedStories, currentUser?.id, currentUser?.following, feedRefreshSeedRef.current]);
+}, [posts, orderedStories, currentUser?.id, currentUser?.following]);
+
 // ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
 // ============================================================================
