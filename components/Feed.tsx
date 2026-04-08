@@ -341,11 +341,182 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
+
+// ====== FEEDS ARRANGEMENTS HELPERS =====
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
+
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const seededRand01 = (seed: number) => {
+  let x = seed | 0;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  return ((x >>> 0) % 1000000) / 1000000;
+};
+
+const toTime = (d: any) => {
+  const t = new Date(String(d ?? '')).getTime();
+  return Number.isFinite(t) ? t : 0;
+};
+
+const getRotatedReels = (reelsList: any[], currentUser: any, seed: number) => {
+  const arr = safeArray(reelsList).slice();
+
+  if (!arr.length) return [];
+
+  const meId = safeNumber(currentUser?.id, 0);
+  const following = new Set<number>(safeArray<number>(currentUser?.following));
+
+  const scored = arr.map((reel, idx) => {
+    const uid = safeNumber(reel?.user_id ?? reel?.user?.id, 0);
+    const isMine = !!meId && uid === meId;
+    const isFollowingAuthor = !!uid && following.has(uid);
+    const created = toTime(reel?.created_at);
+
+    let score = 0;
+
+    // do not force my reels to top
+    if (!isMine) score += 4;
+    if (isFollowingAuthor) score += 2;
+
+    // freshness
+    score += created / 1_000_000_000_000;
+
+    // small stable jitter per refresh
+    score += seededRand01(seed + safeNumber(reel?.id, idx + 1) * 137) * 0.8;
+
+    return { reel, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // avoid same author repeating
+  const out: any[] = [];
+  const authorCounts = new Map<number, number>();
+
+  for (const item of scored) {
+    const uid = safeNumber(item.reel?.user_id ?? item.reel?.user?.id, 0);
+    const lastUid = out.length
+      ? safeNumber(out[out.length - 1]?.user_id ?? out[out.length - 1]?.user?.id, 0)
+      : 0;
+
+    if (uid && uid === lastUid) continue;
+    if ((authorCounts.get(uid) || 0) >= 1) continue;
+
+    out.push(item.reel);
+    authorCounts.set(uid, (authorCounts.get(uid) || 0) + 1);
+  }
+
+  // add leftovers if needed
+  for (const item of scored) {
+    if (!out.includes(item.reel)) out.push(item.reel);
+  }
+
+  // keep only a reasonable amount for mixed feed
+  return out.slice(0, 8);
+};
+
+const interleaveFeedItems = (
+  postItems: Array<{ kind: 'post'; data: any; created_at: string }>,
+  storyItems: Array<{ kind: 'story'; data: any; created_at: string }>,
+  reelItems: Array<{ kind: 'reel'; data: any; created_at: string }>
+) => {
+  const result: Array<{ kind: 'post' | 'story' | 'reel'; data: any; created_at: string }> = [];
+
+  let postIndex = 0;
+  let storyIndex = 0;
+  let reelIndex = 0;
+
+  const totalPosts = postItems.length;
+  const totalStories = storyItems.length;
+  const totalReels = reelItems.length;
+
+  // spread stories and reels instead of pushing them down
+  const storyStep = totalStories > 0 ? Math.max(4, Math.floor(totalPosts / (totalStories + 1))) : 999999;
+  const reelStep = totalReels > 0 ? Math.max(5, Math.floor(totalPosts / (totalReels + 1))) : 999999;
+
+  let insertedSinceLastSpecial = 0;
+  let lastSpecialKind: 'story' | 'reel' | null = null;
+
+  while (
+    postIndex < totalPosts ||
+    storyIndex < totalStories ||
+    reelIndex < totalReels
+  ) {
+    const canInsertStory =
+      storyIndex < totalStories &&
+      insertedSinceLastSpecial >= storyStep &&
+      lastSpecialKind !== 'story';
+
+    const canInsertReel =
+      reelIndex < totalReels &&
+      insertedSinceLastSpecial >= reelStep &&
+      lastSpecialKind !== 'reel';
+
+    if (canInsertStory) {
+      result.push(storyItems[storyIndex++]);
+      insertedSinceLastSpecial = 0;
+      lastSpecialKind = 'story';
+      continue;
+    }
+
+    if (canInsertReel) {
+      result.push(reelItems[reelIndex++]);
+      insertedSinceLastSpecial = 0;
+      lastSpecialKind = 'reel';
+      continue;
+    }
+
+    if (postIndex < totalPosts) {
+      result.push(postItems[postIndex++]);
+      insertedSinceLastSpecial += 1;
+      continue;
+    }
+
+    // fallback when posts finish
+    if (storyIndex < totalStories && lastSpecialKind !== 'story') {
+      result.push(storyItems[storyIndex++]);
+      lastSpecialKind = 'story';
+      insertedSinceLastSpecial = 0;
+      continue;
+    }
+
+    if (reelIndex < totalReels && lastSpecialKind !== 'reel') {
+      result.push(reelItems[reelIndex++]);
+      lastSpecialKind = 'reel';
+      insertedSinceLastSpecial = 0;
+      continue;
+    }
+
+    // if only same type remains, allow it to finish
+    if (storyIndex < totalStories) {
+      result.push(storyItems[storyIndex++]);
+      lastSpecialKind = 'story';
+      insertedSinceLastSpecial = 0;
+      continue;
+    }
+
+    if (reelIndex < totalReels) {
+      result.push(reelItems[reelIndex++]);
+      lastSpecialKind = 'reel';
+      insertedSinceLastSpecial = 0;
+      continue;
+    }
+  }
+
+  return result;
+};
+  
   const isFormData =
     typeof FormData !== 'undefined' && options.body instanceof FormData;
   if (!isFormData)
     headers['Content-Type'] =
       (headers['Content-Type'] as string) || 'application/json';
+  
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
