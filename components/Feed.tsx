@@ -7748,7 +7748,6 @@ export {
   toDateSafe,
   safeJsonArray,
   getMarketplaceProductId,
-  getPostMediaList,
   getOrientation,
   apiFetch,
   classifyOrientations,
