@@ -23,6 +23,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { LOCATIONS_DATA, MARKETPLACE_COUNTRIES } from '../constants';
 import { MarketplaceContext } from '../App';
+import { getMediaTypeInfo } from './Feed';
 import { CreateEventModal, EventCard } from './Events';
 import { performPostAction } from '../postActionRegistry';
 import { PostMenu } from './Post/PostMenu';
