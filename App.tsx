@@ -2025,8 +2025,9 @@ const handleStoryComment = useCallback((storyId: number) => {
 }, [currentUser, requireAuth]);
 
 // ✅ END OF STORY HANDLERS ✅
-
+// ============================================================================
 // ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS + REELS) ✅ ====================
+// ============================================================================
 
 // Stable page-session seed: changes only on full browser/app refresh
 const feedRefreshSeedRef = useRef<number>(Date.now());
@@ -2034,38 +2035,18 @@ const feedRefreshSeedRef = useRef<number>(Date.now());
 // Freeze stories for this page session
 const frozenStoriesRef = useRef<any[] | null>(null);
 
-// Freeze reels for this page session
-const frozenReelsRef = useRef<any[] | null>(null);
-
-// Freeze stories once when data arrives
-useEffect(() => {
-  if (
-    frozenStoriesRef.current === null &&
-    Array.isArray(orderedStories) &&
-    orderedStories.length > 0
-  ) {
-    frozenStoriesRef.current = getRotatedStories(
-      orderedStories,
-      currentUser,
-      feedRefreshSeedRef.current
-    );
-  }
-}, [orderedStories, currentUser?.id]);
-
-// Freeze reels once when data arrives
-useEffect(() => {
-  if (
-    frozenReelsRef.current === null &&
-    Array.isArray(reels) &&
-    reels.length > 0
-  ) {
-    frozenReelsRef.current = getRotatedReels(
-      reels,
-      currentUser,
-      feedRefreshSeedRef.current
-    );
-  }
-}, [reels, currentUser?.id]);
+// Build frozen stories only once per page session
+if (
+  frozenStoriesRef.current === null &&
+  Array.isArray(orderedStories) &&
+  orderedStories.length > 0
+) {
+  frozenStoriesRef.current = getRotatedStories(
+    orderedStories,
+    currentUser,
+    feedRefreshSeedRef.current
+  );
+}
 
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
@@ -2074,22 +2055,50 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
+  // detect reels already present inside posts/feed
+  const existingFeedKeys = new Set(
+    postItems.map((item) => {
+      const p: any = item.data || {};
+      return String(
+        p.feed_key ||
+          p.feedKey ||
+          (p.type === 'reel' || p.post_type === 'reel' || p.kind === 'reel'
+            ? `reel:${p.id}`
+            : `post:${p.id}`)
+      );
+    })
+  );
+
+  const reelItems = safeArray(reels)
+    .filter((reel: any) => {
+      const reelKey = String(
+        reel?.feed_key ||
+          reel?.feedKey ||
+          `reel:${reel?.id}`
+      );
+      return !existingFeedKeys.has(reelKey);
+    })
+    .map((reel) => ({
+      kind: 'reel' as const,
+      data: reel,
+      created_at: reel?.created_at || '',
+    }));
+
+  // append missing reels only, without re-sorting posts
+  const feedItems = [...postItems, ...reelItems];
+
   const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  const reelItems = safeArray(frozenReelsRef.current || []).map((reel) => ({
-    kind: 'reel' as const,
-    data: reel,
-    created_at: reel?.created_at || '',
-  }));
+  return interleaveItems(feedItems, storyItems);
+}, [posts, reels]);
 
-  return interleaveFeedItems(postItems, storyItems, reelItems);
-}, [posts, orderedStories, reels]);
-
+// ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
+// ============================================================================
                
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
