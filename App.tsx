@@ -2027,7 +2027,8 @@ const handleStoryComment = useCallback((storyId: number) => {
 // ✅ END OF STORY HANDLERS ✅
 
 
-// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
+// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS + REELS) ✅ ====================
+
 
 // Stable page-session seed: changes only on full browser/app refresh
 const feedRefreshSeedRef = useRef<number>(Date.now());
@@ -2055,18 +2056,32 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
+  // ✅ ADD REELS HERE
+  const reelItems = safeArray(reels).map((reel) => ({
+    kind: 'reel' as const,
+    data: reel,
+    created_at: reel?.created_at || '',
+  }));
+
   const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  return interleaveItems(postItems, storyItems);
-}, [posts]);
+  // Combine all three types: posts + reels + stories
+  const allItems = [...postItems, ...reelItems, ...storyItems];
+  
+  // Sort by date to mix chronologically (newest first)
+  return allItems.sort((a, b) => 
+    new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+}, [posts, reels]);
 
 // ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
 // ============================================================================
+
                   
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
