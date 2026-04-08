@@ -2025,7 +2025,40 @@ const handleStoryComment = useCallback((storyId: number) => {
 }, [currentUser, requireAuth]);
 
 // ✅ END OF STORY HANDLERS ✅
-      
+
+// Helper function to interleave stories and posts
+const interleaveItems = (posts: any[], stories: any[]) => {
+  if (stories.length === 0) return posts;
+  if (posts.length === 0) return stories;
+  
+  const result: any[] = [];
+  const postsCopy = [...posts];
+  const storiesCopy = [...stories];
+  
+  // Insert first story after 2-3 posts, then every 4-5 posts after that
+  let storyIndex = 0;
+  let postIndex = 0;
+  let nextStoryPosition = Math.min(3, postsCopy.length);
+  
+  while (postIndex < postsCopy.length || storyIndex < storiesCopy.length) {
+    if (storyIndex < storiesCopy.length && result.length >= nextStoryPosition) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+      nextStoryPosition += Math.floor(Math.random() * 3) + 4; // Next story after 4-6 items
+    } else if (postIndex < postsCopy.length) {
+      result.push(postsCopy[postIndex]);
+      postIndex++;
+    } else if (storyIndex < storiesCopy.length) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+    } else {
+      break;
+    }
+  }
+  
+  return result;
+};
+
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
@@ -2039,12 +2072,11 @@ const mixedFeedItems = useMemo(() => {
     created_at: story?.created_at || '',
   }));
 
-  return [...postItems, ...storyItems].sort(
-    (a, b) =>
-      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-  );
+  // Interleave instead of sort by date
+  return interleaveItems(postItems, storyItems);
 }, [posts, orderedStories]);
-                  
+
+      
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
