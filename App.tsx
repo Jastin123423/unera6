@@ -2025,14 +2025,10 @@ const handleStoryComment = useCallback((storyId: number) => {
 }, [currentUser, requireAuth]);
 
 // ✅ END OF STORY HANDLERS ✅
-// ============================================================================
+
+  // ============================================================================
 // ==================== ✅ HELPERS FOR MIXED FEED ✅ ===========================
 // ============================================================================
-
-const toFeedTime = (v: any) => {
-  const t = new Date(String(v || '')).getTime();
-  return Number.isFinite(t) ? t : 0;
-};
 
 const seededRand01Feed = (seed: number) => {
   let x = seed | 0;
@@ -2042,25 +2038,38 @@ const seededRand01Feed = (seed: number) => {
   return ((x >>> 0) % 1_000_000) / 1_000_000;
 };
 
+const safeNum = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 const getRotatedReels = (input: any[], currentUser: any, seed: number) => {
   const arr = Array.isArray(input) ? input.slice() : [];
   if (!arr.length) return [];
 
-  const meId = Number(currentUser?.id || 0);
+  const meId = safeNum(currentUser?.id, 0);
   const following = new Set(
-    (Array.isArray(currentUser?.following) ? currentUser.following : []).map((x: any) => Number(x))
+    (Array.isArray(currentUser?.following) ? currentUser.following : []).map((x: any) => safeNum(x))
   );
 
   const scored = arr.map((reel, index) => {
-    const authorId = Number(reel?.user_id || reel?.user?.id || 0);
+    const authorId = safeNum(reel?.user_id ?? reel?.user?.id, 0);
     const isMine = !!meId && authorId === meId;
     const isFollowing = !!authorId && following.has(authorId);
 
     let score = 0;
-    score += isMine ? -30 : 0;
-    score += isFollowing ? 18 : 0;
-    score += Math.max(0, 14 - index);
-    score += seededRand01Feed(seed + Number(reel?.id || index) * 137) * 8;
+
+    // don't force my reels at top
+    if (isMine) score -= 40;
+
+    // followed creators get gentle boost
+    if (isFollowing) score += 15;
+
+    // keep fresh-ish order but allow rotation
+    score += Math.max(0, 12 - index);
+
+    // refresh rotation
+    score += seededRand01Feed(seed + safeNum(reel?.id, index) * 181) * 10;
 
     return { reel, score };
   });
@@ -2071,7 +2080,7 @@ const getRotatedReels = (input: any[], currentUser: any, seed: number) => {
   const usedAuthors = new Set<number>();
 
   for (const item of scored) {
-    const authorId = Number(item.reel?.user_id || item.reel?.user?.id || 0);
+    const authorId = safeNum(item.reel?.user_id ?? item.reel?.user?.id, 0);
     if (authorId && usedAuthors.has(authorId)) continue;
     out.push(item.reel);
     if (authorId) usedAuthors.add(authorId);
@@ -2080,7 +2089,7 @@ const getRotatedReels = (input: any[], currentUser: any, seed: number) => {
 
   for (const item of scored) {
     if (out.length >= 10) break;
-    if (!out.some((x) => Number(x?.id) === Number(item.reel?.id))) {
+    if (!out.some((x) => safeNum(x?.id) === safeNum(item.reel?.id))) {
       out.push(item.reel);
     }
   }
@@ -2093,59 +2102,60 @@ const interleaveFeedItems = (
   storyItems: Array<{ kind: 'story'; data: any; created_at: string }>,
   reelItems: Array<{ kind: 'reel'; data: any; created_at: string }>
 ) => {
-  const feed = [...postItems].sort((a, b) => toFeedTime(b.created_at) - toFeedTime(a.created_at));
+  // IMPORTANT: keep posts exactly as feeds.ts gave them
+  const feed = [...postItems];
   const stories = [...storyItems];
-  const reelsList = [...reelItems];
+  const reels = [...reelItems];
 
   const out: Array<{ kind: 'post' | 'story' | 'reel'; data: any; created_at: string }> = [];
 
-  let feedIndex = 0;
+  let postIndex = 0;
   let storyIndex = 0;
   let reelIndex = 0;
 
-  let nextStoryAt = 2;
-  let nextReelAt = 4;
+  // spaced slots so stories/reels don't congest top
+  let nextStorySlot = 2; // first story after ~2 feed items
+  let nextReelSlot = 5;  // first reel after ~5 feed items
 
-  while (feedIndex < feed.length || storyIndex < stories.length || reelIndex < reelsList.length) {
-    const outLen = out.length;
-    const lastKind = out.length ? out[out.length - 1].kind : '';
+  while (postIndex < feed.length || storyIndex < stories.length || reelIndex < reels.length) {
+    const len = out.length;
+    const lastKind = len ? out[len - 1].kind : '';
 
     const canPlaceStory =
       storyIndex < stories.length &&
-      outLen >= nextStoryAt &&
-      lastKind !== 'story' &&
-      lastKind !== 'reel';
-
-    if (canPlaceStory) {
-      out.push(stories[storyIndex++]);
-      nextStoryAt += 7;
-      continue;
-    }
-
-    const canPlaceReel =
-      reelIndex < reelsList.length &&
-      outLen >= nextReelAt &&
-      lastKind !== 'reel' &&
+      len >= nextStorySlot &&
       lastKind !== 'story';
 
-    if (canPlaceReel) {
-      out.push(reelsList[reelIndex++]);
-      nextReelAt += 8;
+    const canPlaceReel =
+      reelIndex < reels.length &&
+      len >= nextReelSlot &&
+      lastKind !== 'reel';
+
+    // prefer story first, then reel, but never bunch them too tightly
+    if (canPlaceStory && lastKind !== 'reel') {
+      out.push(stories[storyIndex++]);
+      nextStorySlot += 7;
       continue;
     }
 
-    if (feedIndex < feed.length) {
-      out.push(feed[feedIndex++]);
+    if (canPlaceReel && lastKind !== 'story') {
+      out.push(reels[reelIndex++]);
+      nextReelSlot += 8;
       continue;
     }
 
-    if (storyIndex < stories.length && lastKind !== 'story' && lastKind !== 'reel') {
+    if (postIndex < feed.length) {
+      out.push(feed[postIndex++]);
+      continue;
+    }
+
+    if (storyIndex < stories.length && lastKind !== 'story') {
       out.push(stories[storyIndex++]);
       continue;
     }
 
-    if (reelIndex < reelsList.length && lastKind !== 'reel' && lastKind !== 'story') {
-      out.push(reelsList[reelIndex++]);
+    if (reelIndex < reels.length && lastKind !== 'reel') {
+      out.push(reels[reelIndex++]);
       continue;
     }
 
@@ -2154,8 +2164,8 @@ const interleaveFeedItems = (
       continue;
     }
 
-    if (reelIndex < reelsList.length) {
-      out.push(reelsList[reelIndex++]);
+    if (reelIndex < reels.length) {
+      out.push(reels[reelIndex++]);
       continue;
     }
 
@@ -2169,13 +2179,14 @@ const interleaveFeedItems = (
 // ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS + REELS) ✅ ======
 // ============================================================================
 
-// Stable page-session seed: changes only on full browser/app refresh
+// changes only on full manual page/app refresh
 const feedRefreshSeedRef = useRef<number>(Date.now());
 
-// Freeze stories and reels for this page session
+// freeze only stories + reels for current page session
 const frozenStoriesRef = useRef<any[] | null>(null);
 const frozenReelsRef = useRef<any[] | null>(null);
 
+// build frozen stories once per page session
 useEffect(() => {
   if (
     frozenStoriesRef.current === null &&
@@ -2190,6 +2201,7 @@ useEffect(() => {
   }
 }, [orderedStories, currentUser]);
 
+// build frozen reels once per page session
 useEffect(() => {
   if (
     frozenReelsRef.current === null &&
@@ -2199,36 +2211,38 @@ useEffect(() => {
     frozenReelsRef.current = getRotatedReels(
       reels,
       currentUser,
-      feedRefreshSeedRef.current
+      feedRefreshSeedRef.current + 999
     );
   }
 }, [reels, currentUser]);
 
 const mixedFeedItems = useMemo(() => {
-  const postItems = (Array.isArray(posts) ? posts : []).map((post) => ({
+  // IMPORTANT: posts stay exactly as feeds.ts returned them
+  const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
     data: post,
     created_at: post?.created_at || '',
   }));
 
-  const storyItems = (Array.isArray(frozenStoriesRef.current) ? frozenStoriesRef.current : []).map((story) => ({
+  const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  const reelItems = (Array.isArray(frozenReelsRef.current) ? frozenReelsRef.current : []).map((reel) => ({
+  const reelItems = safeArray(frozenReelsRef.current || []).map((reel) => ({
     kind: 'reel' as const,
     data: reel,
     created_at: reel?.created_at || '',
   }));
 
   return interleaveFeedItems(postItems, storyItems, reelItems);
-}, [posts, orderedStories, reels]);
+}, [posts]);
 
 // ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ =============================
 // ============================================================================
+
                
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
