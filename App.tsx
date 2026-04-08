@@ -2026,9 +2026,27 @@ const handleStoryComment = useCallback((storyId: number) => {
 
 // ✅ END OF STORY HANDLERS ✅
 
+
 // ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
 
+// Stable page-session seed: changes only on full browser/app refresh
 const feedRefreshSeedRef = useRef<number>(Date.now());
+
+// Freeze stories for this page session
+const frozenStoriesRef = useRef<any[] | null>(null);
+
+// Build frozen stories only once
+if (
+  frozenStoriesRef.current === null &&
+  Array.isArray(orderedStories) &&
+  orderedStories.length > 0
+) {
+  frozenStoriesRef.current = getRotatedStories(
+    orderedStories,
+    currentUser,
+    feedRefreshSeedRef.current
+  );
+}
 
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
@@ -2037,24 +2055,18 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
-  // Get rotated stories - 8-10 different stories on each refresh
-  const rotatedStories = getRotatedStories(orderedStories, currentUser);
-  
-  const storyItems = rotatedStories.map((story) => ({
+  const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  // Interleave stories and posts - never put stories consecutively
-  const interleavedItems = interleaveItems(postItems, storyItems);
-  
-  return interleavedItems; 
-}, [posts, orderedStories, currentUser?.id, currentUser?.following]);
+  return interleaveItems(postItems, storyItems);
+}, [posts]);
 
 // ============================================================================
-// ==================== ✅ END MIXED FEED ITEMS ✅ =============
-
+// ==================== ✅ END MIXED FEED ITEMS ✅ ====================
+// ============================================================================
                   
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
