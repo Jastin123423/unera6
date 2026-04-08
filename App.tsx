@@ -2026,6 +2026,35 @@ const handleStoryComment = useCallback((storyId: number) => {
 
 // ✅ END OF STORY HANDLERS ✅
       
+============================================================================
+// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
+// ============================================================================
+
+const mixedFeedItems = useMemo(() => {
+  const postItems = safeArray(posts).map((post) => ({
+    kind: 'post' as const,
+    data: post,
+    created_at: post?.created_at || '',
+  }));
+
+  // Get rotated stories - 8-10 different stories on each refresh
+  const rotatedStories = getRotatedStories(orderedStories, currentUser);
+  
+  const storyItems = rotatedStories.map((story) => ({
+    kind: 'story' as const,
+    data: story,
+    created_at: story?.created_at || '',
+  }));
+
+  // Interleave stories and posts - never put stories consecutively
+  const interleavedItems = interleaveItems(postItems, storyItems);
+  
+  return interleavedItems;
+}, [posts, orderedStories, currentUser?.id, currentUser?.following]);
+
+// ============================================================================
+// ==================== ✅ END MIXED FEED ITEMS ✅ ====================
+// ============================================================================
 
                   
   const handleStoryPrev = useCallback(() => {
