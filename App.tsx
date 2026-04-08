@@ -2026,10 +2026,6 @@ const handleStoryComment = useCallback((storyId: number) => {
 
 // ✅ END OF STORY HANDLERS ✅
       
-============================================================================
-// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
-// ============================================================================
-
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
@@ -2037,25 +2033,17 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
-  // Get rotated stories - 8-10 different stories on each refresh
-  const rotatedStories = getRotatedStories(orderedStories, currentUser);
-  
-  const storyItems = rotatedStories.map((story) => ({
+  const storyItems = safeArray(orderedStories).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  // Interleave stories and posts - never put stories consecutively
-  const interleavedItems = interleaveItems(postItems, storyItems);
-  
-  return interleavedItems;
-}, [posts, orderedStories, currentUser?.id, currentUser?.following]);
-
-// ============================================================================
-// ==================== ✅ END MIXED FEED ITEMS ✅ ====================
-// ============================================================================
-
+  return [...postItems, ...storyItems].sort(
+    (a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+}, [posts, orderedStories]);
                   
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
