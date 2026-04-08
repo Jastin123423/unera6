@@ -2050,9 +2050,8 @@ const mixedFeedItems = useMemo(() => {
   // Interleave stories and posts - never put stories consecutively
   const interleavedItems = interleaveItems(postItems, storyItems);
   
-  return interleavedItems;
-}, [posts, orderedStories, currentUser?.id, currentUser?.following, feedRefreshSeedRef.current]);
-
+  return interleavedItems; 
+}, [posts, orderedStories, currentUser?.id, currentUser?.following]);
 
 // ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
