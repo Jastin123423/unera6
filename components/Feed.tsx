@@ -7459,6 +7459,18 @@ interface FeedProps {
           );
         }
 
+  // ✅ ADD THIS
+  if (item.kind === 'reel') {
+    return (
+      <ReelFeedCard
+        key={`reel-${item.data.id}`}
+        reel={item.data}
+        onOpen={(reelId) => onOpenReel?.(reelId)}
+        onProfileClick={(userId) => onProfileClick?.(Number(userId))}
+      />
+    );
+  }
+  
         const post = item.data;
         const postAuthorId = Number(post.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
