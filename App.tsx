@@ -2026,85 +2026,29 @@ const handleStoryComment = useCallback((storyId: number) => {
 
 // ✅ END OF STORY HANDLERS ✅
 
-// ==================== ✅ MIXED FEED ITEMS (POSTS + REELS + STORIES) ✅ =======
 
-// stable per manual page refresh only
+// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS + REELS) ✅ ====================
+
+// Stable page-session seed: changes only on full browser/app refresh
 const feedRefreshSeedRef = useRef<number>(Date.now());
 
-// freeze rotated stories so they do NOT keep shifting during normal rerenders
-const frozenStoryItemsRef = useRef<
-  Array<{
-    kind: 'story';
-    data: any;
-    created_at: string;
-  }>
->([]);
+// Freeze stories for this page session
+const frozenStoriesRef = useRef<any[] | null>(null);
 
-// optional: avoid rebuilding frozen stories more than once per page load
-const frozenStoriesReadyRef = useRef(false);
-
-const toTime = (v: any) => {
-  const t = new Date(String(v ?? '')).getTime();
-  return Number.isFinite(t) ? t : 0;
-};
-
-// put stories between normal items so they do not become congested
-const interleaveFeedItems = <
-  T extends { kind: 'post' | 'reel' | 'story'; created_at: string }
->(
-  normalItems: T[],
-  storyItems: T[]
-): T[] => {
-  if (!storyItems.length) return normalItems;
-  if (!normalItems.length) return storyItems;
-
-  const out: T[] = [];
-  let normalIndex = 0;
-  let storyIndex = 0;
-
-  // spread stories apart
-  const gap = Math.max(3, Math.floor(normalItems.length / Math.max(1, storyItems.length)));
-
-  while (normalIndex < normalItems.length || storyIndex < storyItems.length) {
-    // push normal items first
-    let pushedNormals = 0;
-    while (normalIndex < normalItems.length && pushedNormals < gap) {
-      out.push(normalItems[normalIndex++]);
-      pushedNormals++;
-    }
-
-    // push only one story at a time
-    if (storyIndex < storyItems.length) {
-      const prev = out[out.length - 1];
-      if (!prev || prev.kind !== 'story') {
-        out.push(storyItems[storyIndex++]);
-      }
-    }
-
-    // if normals finished, append remaining stories but still avoid double-story when possible
-    if (normalIndex >= normalItems.length && storyIndex < storyItems.length) {
-      const prev = out[out.length - 1];
-      if (prev?.kind === 'story') break;
-    }
-  }
-
-  // append remaining normals
-  while (normalIndex < normalItems.length) {
-    out.push(normalItems[normalIndex++]);
-  }
-
-  // append remaining stories only if they won’t create too much congestion
-  while (storyIndex < storyItems.length) {
-    const prev = out[out.length - 1];
-    if (prev?.kind === 'story') break;
-    out.push(storyItems[storyIndex++]);
-  }
-
-  return out;
-};
+// Build frozen stories only once
+if (
+  frozenStoriesRef.current === null &&
+  Array.isArray(orderedStories) &&
+  orderedStories.length > 0
+) {
+  frozenStoriesRef.current = getRotatedStories(
+    orderedStories,
+    currentUser,
+    feedRefreshSeedRef.current
+  );
+}
 
 const mixedFeedItems = useMemo(() => {
-  // 1) normal feed items = posts + reels
   const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
     data: post,
@@ -2117,34 +2061,21 @@ const mixedFeedItems = useMemo(() => {
     created_at: reel?.created_at || '',
   }));
 
-  const normalItems = [...postItems, ...reelItems].sort(
-    (a, b) => toTime(b.created_at) - toTime(a.created_at)
+  const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
+    kind: 'story' as const,
+    data: story,
+    created_at: story?.created_at || '',
+  }));
+
+  const feedItems = [...postItems, ...reelItems].sort(
+    (a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
   );
 
-  // 2) freeze story rotation once per manual refresh only
-  if (!frozenStoriesReadyRef.current) {
-    const rotatedStories = getRotatedStories(
-      safeArray(orderedStories),
-      currentUser,
-      feedRefreshSeedRef.current
-    );
+  return interleaveItems(feedItems, storyItems);
+}, [posts, reels]);
 
-    frozenStoryItemsRef.current = rotatedStories.map((story) => ({
-      kind: 'story' as const,
-      data: story,
-      created_at: story?.created_at || '',
-    }));
-
-    frozenStoriesReadyRef.current = true;
-  }
-
-  const frozenStoryItems = frozenStoryItemsRef.current;
-
-  // 3) mix normal items with frozen stories
-  return interleaveFeedItems(normalItems, frozenStoryItems);
-}, [posts, reels, orderedStories, currentUser?.id, currentUser?.following]);
-
-// ==================== ✅ END MIXED FEED ITEMS ✅ =============================
+// ==================== ✅ END MIXED FEED ITEMS ✅ ====================
 
                   
   const handleStoryPrev = useCallback(() => {
