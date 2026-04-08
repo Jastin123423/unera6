@@ -2037,31 +2037,35 @@ const frozenStoriesRef = useRef<any[] | null>(null);
 // Freeze reels for this page session
 const frozenReelsRef = useRef<any[] | null>(null);
 
-// Build frozen stories only once per page session
-if (
-  frozenStoriesRef.current === null &&
-  Array.isArray(orderedStories) &&
-  orderedStories.length > 0
-) {
-  frozenStoriesRef.current = getRotatedStories(
-    orderedStories,
-    currentUser,
-    feedRefreshSeedRef.current
-  );
-}
+// Freeze stories once when data arrives
+useEffect(() => {
+  if (
+    frozenStoriesRef.current === null &&
+    Array.isArray(orderedStories) &&
+    orderedStories.length > 0
+  ) {
+    frozenStoriesRef.current = getRotatedStories(
+      orderedStories,
+      currentUser,
+      feedRefreshSeedRef.current
+    );
+  }
+}, [orderedStories, currentUser?.id]);
 
-// Build frozen reels only once per page session
-if (
-  frozenReelsRef.current === null &&
-  Array.isArray(reels) &&
-  reels.length > 0
-) {
-  frozenReelsRef.current = getRotatedReels(
-    reels,
-    currentUser,
-    feedRefreshSeedRef.current
-  );
-}
+// Freeze reels once when data arrives
+useEffect(() => {
+  if (
+    frozenReelsRef.current === null &&
+    Array.isArray(reels) &&
+    reels.length > 0
+  ) {
+    frozenReelsRef.current = getRotatedReels(
+      reels,
+      currentUser,
+      feedRefreshSeedRef.current
+    );
+  }
+}, [reels, currentUser?.id]);
 
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
@@ -2083,11 +2087,10 @@ const mixedFeedItems = useMemo(() => {
   }));
 
   return interleaveFeedItems(postItems, storyItems, reelItems);
-}, [posts]);
+}, [posts, orderedStories, reels]);
 
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
-      
-                  
+               
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
