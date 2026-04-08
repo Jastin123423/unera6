@@ -2052,6 +2052,8 @@ const mixedFeedItems = useMemo(() => {
   
   return interleavedItems;
 }, [posts, orderedStories, currentUser?.id, currentUser?.following, feedRefreshSeedRef.current]);
+
+
 // ============================================================================
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
 // ============================================================================
@@ -6967,27 +6969,6 @@ const editPost = useCallback(
   },
   [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
 );
-// ============================================================================
-// ==================== ✅ STORY FEED REFRESH ON PAGE FOCUS ✅ ====================
-// ============================================================================
-// Refresh feed order when page gets focus
-useEffect(() => {
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      // Generate new seed to get different stories
-      feedRefreshSeedRef.current = Date.now();
-    }
-  };
-  
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  
-  return () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-  };
-}, []);
-// ============================================================================
-// ==================== ✅ END STORY FEED REFRESH ✅ ====================
-// ============================================================================
 
 // ============================================================================
 // ✅ RENDER
