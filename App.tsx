@@ -2034,6 +2034,9 @@ const feedRefreshSeedRef = useRef<number>(Date.now());
 // Freeze stories for this page session
 const frozenStoriesRef = useRef<any[] | null>(null);
 
+// Freeze reels for this page session
+const frozenReelsRef = useRef<any[] | null>(null);
+
 // Build frozen stories only once per page session
 if (
   frozenStoriesRef.current === null &&
@@ -2047,6 +2050,19 @@ if (
   );
 }
 
+// Build frozen reels only once per page session
+if (
+  frozenReelsRef.current === null &&
+  Array.isArray(reels) &&
+  reels.length > 0
+) {
+  frozenReelsRef.current = getRotatedReels(
+    reels,
+    currentUser,
+    feedRefreshSeedRef.current
+  );
+}
+
 const mixedFeedItems = useMemo(() => {
   const postItems = safeArray(posts).map((post) => ({
     kind: 'post' as const,
@@ -2054,46 +2070,20 @@ const mixedFeedItems = useMemo(() => {
     created_at: post?.created_at || '',
   }));
 
-  // detect reels already present inside posts/feed
-  const existingFeedKeys = new Set(
-    postItems.map((item) => {
-      const p: any = item.data || {};
-      return String(
-        p.feed_key ||
-          p.feedKey ||
-          (p.type === 'reel' || p.post_type === 'reel' || p.kind === 'reel'
-            ? `reel:${p.id}`
-            : `post:${p.id}`)
-      );
-    })
-  );
-
-  const reelItems = safeArray(reels)
-    .filter((reel: any) => {
-      const reelKey = String(
-        reel?.feed_key ||
-          reel?.feedKey ||
-          `reel:${reel?.id}`
-      );
-      return !existingFeedKeys.has(reelKey);
-    })
-    .map((reel) => ({
-      kind: 'reel' as const,
-      data: reel,
-      created_at: reel?.created_at || '',
-    }));
-
-  // append missing reels only, without re-sorting posts
-  const feedItems = [...postItems, ...reelItems];
-
   const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
     kind: 'story' as const,
     data: story,
     created_at: story?.created_at || '',
   }));
 
-  return interleaveItems(feedItems, storyItems);
-}, [posts, reels]);
+  const reelItems = safeArray(frozenReelsRef.current || []).map((reel) => ({
+    kind: 'reel' as const,
+    data: reel,
+    created_at: reel?.created_at || '',
+  }));
+
+  return interleaveFeedItems(postItems, storyItems, reelItems);
+}, [posts]);
 
 // ==================== ✅ END MIXED FEED ITEMS ✅ ====================
                   
