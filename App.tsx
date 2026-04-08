@@ -2025,8 +2025,7 @@ const handleStoryComment = useCallback((storyId: number) => {
 }, [currentUser, requireAuth]);
 
 // ✅ END OF STORY HANDLERS ✅
-      
-// ============================================================================
+============================================================================
 // ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS) ✅ ====================
 // ============================================================================
 const feedRefreshSeedRef = useRef<number>(Date.now());
@@ -2054,8 +2053,7 @@ const mixedFeedItems = useMemo(() => {
 }, [posts, orderedStories, currentUser?.id, currentUser?.following]);
 
 // ============================================================================
-// ==================== ✅ END MIXED FEED ITEMS ✅ ====================
-// ============================================================================
+// ==================== ✅ END MIXED FEED ITEMS ✅ =============
 
                   
   const handleStoryPrev = useCallback(() => {
