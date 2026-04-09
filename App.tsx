@@ -3295,139 +3295,55 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
     }
   }, [currentUser, requireAuth]);
 
-const createStory = useCallback(async (storyData: Partial<Story> & { 
-  media_file?: File; 
-  audio_file?: File; 
-  video_file?: File;
-  media_urls?: string[];
-  media_types?: string[];
-  media_meta?: any[];
-}) => {
-  if (!requireAuth('Creating stories')) return;
-  if (!currentUser) return;
-  
-  const hasText = storyData.text_content && storyData.text_content.trim().length > 0;
-  const hasMedia = storyData.media_file || storyData.video_file || storyData.media_url;
-  
-  if (!hasText && !hasMedia) {
-    setLoginError('Please add text or media to your story');
-    return;
-  }
-  
-  // close immediately so user keeps using app
-  setShowCreateStoryModal(false);
-  setStoryCreateLoading(true);
-  
-  try {
-    let mediaUrl = storyData.media_url || null;
-    let musicUrl = storyData.music_url || null;
-    let mediaType = storyData.type || 'text';
-    let mediaUrls: string[] | null = Array.isArray((storyData as any).media_urls) ? (storyData as any).media_urls : null;
-    let mediaTypes: string[] | null = Array.isArray((storyData as any).media_types) ? (storyData as any).media_types : null;
-    let mediaMeta: any[] | null = Array.isArray((storyData as any).media_meta) ? (storyData as any).media_meta : null;
-    
-    // VIDEO
-    if (storyData.video_file) {
-      const videoFile = storyData.video_file;
-      if (videoFile.size > 50 * 1024 * 1024) {
-        throw new Error('Video file size must be less than 50MB');
-      }
-      const validVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
-      if (!validVideoTypes.includes(videoFile.type)) {
-        throw new Error('Please upload a valid video file (MP4, WebM, or MOV)');
-      }
-      const uploaded = await uploadStoryVideoBundle(videoFile);
-      mediaUrl = uploaded.media_url;
-      mediaUrls = uploaded.media_urls;
-      mediaTypes = uploaded.media_types;
-      mediaMeta = uploaded.media_meta;
-      mediaType = 'video';
-    }
-    // IMAGE
-    else if (storyData.media_file) {
-      const imageFile = storyData.media_file;
-      if (imageFile.size > 10 * 1024 * 1024) {
-        throw new Error('Image file size must be less than 10MB');
-      }
-      const validImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      if (!validImageTypes.includes(imageFile.type)) {
-        throw new Error('Please upload a valid image file (JPEG, PNG, WebP, or GIF)');
-      }
-      const uploaded = await uploadStoryImageBundle(imageFile);
-      mediaUrl = uploaded.media_url;
-      mediaUrls = uploaded.media_urls;
-      mediaTypes = uploaded.media_types;
-      mediaMeta = uploaded.media_meta;
-      mediaType = 'image';
-    }
-    // AUDIO
-    if (storyData.audio_file) {
-      const audioFile = storyData.audio_file;
-      if (audioFile.size > 5 * 1024 * 1024) {
-        throw new Error('Audio file size must be less than 5MB');
-      }
-      const uploadResult = await uploadToCloudflareR2(audioFile, 'story-audio');
-      musicUrl = uploadResult.url;
-    }
-    
-    const payload = {
-      user_id: currentUser.id,
-      type: mediaType,
-      text_content: storyData.text_content?.trim() || null,
-      media_url: mediaUrl || null,
-      media_urls: mediaUrls || null,
-      media_types: mediaTypes || null,
-      media_meta: mediaMeta || null,
-      background_style: storyData.background_style || null,
-      music_url: musicUrl || null,
-      music_title: storyData.music_title || null,
-      created_at: new Date().toISOString(),
-    };
-    
-    const data = await apiFetch('/api/stories', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    
-    const newStory = normalizeStory(data?.story ?? data, currentUser);
-    newStory.user = currentUser;
-    newStory.author_name = currentUser.name;
-    newStory.author_username = currentUser.username;
-    newStory.author_image = currentUser.profile_image_url;
-    
-    setStories(prev => [newStory, ...safeArray(prev)]);
-    
+  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
+    if (!requireAuth('Creating stories')) return;
+    if (!currentUser) return;
+
     try {
-      const cached = readStoriesCache();
-      const updatedCache = [newStory, ...safeArray(cached?.stories)];
-      writeStoriesCache(updatedCache);
-    } catch (error) {
-      console.warn('Failed to update stories cache:', error);
+      let mediaUrl = storyData.media_url;
+      let musicUrl = storyData.music_url;
+
+      if (storyData.media_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
+        mediaUrl = uploadResult.url;
+      }
+
+      if (storyData.audio_file) {
+        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
+        musicUrl = uploadResult.url;
+      }
+
+      const payload = {
+        user_id: currentUser.id,
+        type: storyData.type || 'text',
+        text_content: storyData.text_content || null,
+        media_url: mediaUrl || null,
+        background_style: storyData.background_style || null,
+        music_url: musicUrl || null,
+        music_title: storyData.music_title || null,
+        created_at: new Date().toISOString(),
+      };
+
+      const data = await apiFetch('/api/stories', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const newStory = normalizeStory(data?.story ?? data, currentUser);
+      newStory.user = currentUser;
+
+      setStories(prev => [newStory, ...prev]);
+
+      writeStoriesCache([newStory, ...stories]);
+
+      setLoginError('Story created successfully!');
+      
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      setLoginError(error?.message || 'Failed to create story');
     }
-    
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-    toast.innerText = 'Story posted successfully!';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
-    
-    return newStory;
-  } catch (error: any) {
-    console.error('Failed to create story:', error);
-    setLoginError(error?.message || 'Failed to create story');
-    
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-    toast.innerText = error?.message || 'Failed to create story';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
-    
-    throw error;
-  } finally {
-    setStoryCreateLoading(false);
-  }
-}, [currentUser, requireAuth, setStories, setShowCreateStoryModal]); 
-  
+  }, [currentUser, requireAuth, stories]);
+
   useEffect(() => {
     if (!authHydrated) return;
 
@@ -8388,4 +8304,4 @@ return (
       )}
     </div>
   );
-}    
+}   
