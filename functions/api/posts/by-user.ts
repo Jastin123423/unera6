@@ -12,7 +12,11 @@ const cors = {
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 const toInt = (v: any, fallback = 0) => {
@@ -20,7 +24,8 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+const clamp = (n: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, n));
 
 const safeStr = (v: any) => String(v ?? "");
 
@@ -33,32 +38,55 @@ const sortDescByCreatedAt = (a: any, b: any) =>
   normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at));
 
 // --------------------
-// ✅ Multi-media helpers (same as feeds.ts behavior)
+// Multi-media helpers
 // --------------------
 const cleanUrl = (v: any) => {
   const s = String(v ?? "").trim();
   if (!s) return "";
   if (s === "null" || s === "undefined") return "";
-  if (s.startsWith("data:")) return ""; // block base64
+  if (s.startsWith("data:")) return "";
   return s;
 };
 
+const isHttpUrl = (v: any) => {
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 const parseJsonArrayUrls = (raw: any, maxItems = 20): string[] => {
-  if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+  if (Array.isArray(raw)) {
+    return raw
+      .map(cleanUrl)
+      .filter((x) => isHttpUrl(x))
+      .slice(0, maxItems);
+  }
 
   if (typeof raw === "string") {
     const s = raw.trim();
     if (!s) return [];
     if (s.length > 10000) return [];
+
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) return parsed.map(cleanUrl).filter(Boolean).slice(0, maxItems);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map(cleanUrl)
+            .filter((x) => isHttpUrl(x))
+            .slice(0, maxItems);
+        }
         return [];
       } catch {}
     }
+
     const one = cleanUrl(s);
-    return one ? [one] : [];
+    return one && isHttpUrl(one) ? [one] : [];
   }
 
   return [];
@@ -76,6 +104,7 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
     const s = raw.trim();
     if (!s) return [];
     if (s.length > 10000) return [];
+
     if (s.startsWith("[")) {
       try {
         const parsed = JSON.parse(s);
@@ -88,6 +117,7 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
         return [];
       } catch {}
     }
+
     const one = String(s).trim();
     return one ? [one] : [];
   }
@@ -96,13 +126,87 @@ const parseJsonArrayStrings = (raw: any, maxItems = 20): string[] => {
 };
 
 const guessTypeFromUrl = (url: string) => {
-  const u = url.toLowerCase();
-  if (u.includes(".mp4") || u.includes(".webm") || u.includes(".mov")) return "video";
-  if (u.includes(".mp3") || u.includes(".wav") || u.includes(".m4a")) return "audio";
+  const u = String(url || "").toLowerCase();
+  if (
+    u.includes(".mp4") ||
+    u.includes(".webm") ||
+    u.includes(".mov") ||
+    u.includes(".m4v") ||
+    u.includes(".m3u8")
+  ) {
+    return "video";
+  }
+  if (
+    u.includes(".mp3") ||
+    u.includes(".wav") ||
+    u.includes(".m4a") ||
+    u.includes(".ogg") ||
+    u.includes(".aac")
+  ) {
+    return "audio";
+  }
   return "image";
 };
 
+const parseMediaMeta = (raw: any, maxItems = 20) => {
+  let arr: any[] = [];
+
+  if (Array.isArray(raw)) {
+    arr = raw;
+  } else if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s && s.length <= 100000) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {}
+    }
+  }
+
+  return arr
+    .slice(0, maxItems)
+    .map((m: any) => {
+      const thumb = cleanUrl(m?.thumb || m?.thumbnail_url);
+      const feed = cleanUrl(m?.feed || m?.feed_url || m?.url || m?.full || m?.full_url);
+      const full = cleanUrl(m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || m?.thumb);
+      const type = String(m?.type || "").trim().toLowerCase();
+
+      const finalType =
+        type === "image" || type === "video" || type === "audio"
+          ? type
+          : guessTypeFromUrl(full || feed || thumb);
+
+      return {
+        thumb: isHttpUrl(thumb) ? thumb : null,
+        feed: isHttpUrl(feed) ? feed : null,
+        full: isHttpUrl(full) ? full : null,
+        type: finalType,
+      };
+    })
+    .filter((m) => m.thumb || m.feed || m.full);
+};
+
 const normalizeMedia = (row: any) => {
+  const meta = parseMediaMeta(row?.media_meta);
+
+  if (meta.length > 0) {
+    return {
+      media: meta,
+      media_url: meta[0]?.feed || meta[0]?.full || meta[0]?.thumb || null,
+      media_urls: meta.map((m: any) => m.feed || m.full || m.thumb).filter(Boolean),
+      media_types: meta.map(
+        (m: any) => m.type || guessTypeFromUrl(m.feed || m.full || m.thumb)
+      ),
+      images: meta
+        .filter((m: any) => (m.type || "").toLowerCase() === "image")
+        .map((m: any) => m.feed || m.full || m.thumb)
+        .filter(Boolean),
+      thumb_url: meta[0]?.thumb || null,
+      feed_url: meta[0]?.feed || null,
+      full_url: meta[0]?.full || null,
+    };
+  }
+
   const single = cleanUrl(row?.media_url);
   const urls = parseJsonArrayUrls(row?.media_urls);
   const outUrls = urls.length ? urls : single ? [single] : [];
@@ -114,11 +218,25 @@ const normalizeMedia = (row: any) => {
     outTypes = outUrls.map(guessTypeFromUrl);
   }
 
+  const media = outUrls.map((url, i) => {
+    const type = outTypes[i] || guessTypeFromUrl(url);
+    return {
+      thumb: type === "image" ? url : null,
+      feed: url,
+      full: url,
+      type,
+    };
+  });
+
   return {
-    media_url: single || null,
-    media_urls: outUrls, // ✅ ALWAYS array
-    media_types: outTypes, // ✅ ALWAYS array
-    images: outUrls, // ✅ alias for UI
+    media,
+    media_url: single || outUrls[0] || null,
+    media_urls: outUrls,
+    media_types: outTypes,
+    images: outUrls,
+    thumb_url: media[0]?.thumb || null,
+    feed_url: media[0]?.feed || null,
+    full_url: media[0]?.full || null,
   };
 };
 
@@ -131,17 +249,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const url = new URL(request.url);
 
-    const userId = toInt(url.searchParams.get("userId"), 0); // profile owner
-    const viewerId = toInt(url.searchParams.get("viewerId"), 0); // current viewer
+    const userId = toInt(url.searchParams.get("userId"), 0);
+    const viewerId = toInt(url.searchParams.get("viewerId"), 0);
     const limit = clamp(toInt(url.searchParams.get("limit"), 30), 1, 50);
 
     if (!userId) return json({ success: false, error: "Missing userId" }, 400);
 
-    // fetch more per type then merge
     const perType = clamp(Math.ceil(limit * 1.5), 10, 60);
 
     // ============================================================
-    // 1) POSTS (match feeds.ts: comments_count + reactions_preview + reactions_by_type)
+    // 1) POSTS (videos excluded, supports media_meta)
     // ============================================================
     const qPosts = `
       SELECT
@@ -198,6 +315,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN length(p.media_types) > 5000 THEN NULL
           ELSE p.media_types
         END AS media_types,
+
+        CASE
+          WHEN length(p.media_meta) > 100000 THEN NULL
+          ELSE p.media_meta
+        END AS media_meta,
 
         (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 
@@ -289,104 +411,31 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
-      WHERE p.user_id = ?
+      WHERE
+        p.user_id = ?
+        AND (
+          p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public'
+        )
+        AND (
+          COALESCE(LOWER(p.media_type), '') NOT LIKE '%video%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mp4%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.webm%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mov%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m4v%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m3u8%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mp4%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.webm%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mov%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m4v%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m3u8%'
+          AND (p.media_meta IS NULL OR LOWER(p.media_meta) NOT LIKE '%"type":"video"%')
+        )
       ORDER BY p.created_at DESC
       LIMIT ?
     `;
 
     // ============================================================
-    // 2) REELS (match feeds.ts extra fields)
-    // ============================================================
-    const qReels = `
-      SELECT
-        'reel' AS source,
-        'reel' AS item_type,
-
-        r.id AS id,
-        ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
-        r.created_at AS created_at,
-
-        NULL AS post_id,
-        r.id AS reel_id,
-        NULL AS song_id2,
-        NULL AS podcast_id,
-        NULL AS event_id,
-        NULL AS group_post_id,
-        NULL AS product_id2,
-
-        r.user_id AS user_id,
-        COALESCE(u.username,'user') AS username,
-        COALESCE(u.name, u.username,'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        NULL AS content,
-        r.visibility AS visibility,
-        r.views AS views,
-        r.shares AS shares,
-
-        r.video_url AS media_url,
-        'video' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-
-        0 AS comments_count,
-
-        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
-        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
-
-        NULL AS reactor_name,
-        NULL AS reactions_preview,
-        NULL AS reactions_by_type,
-
-        r.video_url AS video_url,
-        r.caption AS caption,
-        r.song_name AS song_name,
-        r.audio_url AS audio_url,
-        COALESCE(r.audio_start, 0) AS audio_start,
-        COALESCE(r.audio_end, 0) AS audio_end,
-        r.location AS location,
-        r.sound_key AS sound_key,
-        r.sound_id AS sound_id,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-
-      FROM reels r
-      LEFT JOIN users u ON u.id = r.user_id
-      WHERE r.user_id = ?
-      ORDER BY r.created_at DESC
-      LIMIT ?
-    `;
-
-    // ============================================================
-    // 3) SONGS (match feeds.ts extra fields)
+    // 2) SONGS
     // ============================================================
     const qSongs = `
       SELECT
@@ -442,6 +491,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -499,7 +550,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS (match feeds.ts style: audio as media_url + cover in media_urls)
+    // 3) PODCASTS
     // ============================================================
     const qPodcasts = `
       SELECT
@@ -548,6 +599,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           THEN json_array('image')
           ELSE NULL
         END AS media_types,
+
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -600,7 +653,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) PRODUCTS (normalize images like feed)
+    // 4) PRODUCTS
     // ============================================================
     const qProducts = `
       SELECT
@@ -639,6 +692,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS media_type,
         pr.images AS media_urls,
         NULL AS media_types,
+        NULL AS media_meta,
 
         0 AS comments_count,
 
@@ -690,9 +744,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const [postsRes, reelsRes, songsRes, podcastsRes, productsRes] = await Promise.all([
+    const [postsRes, songsRes, podcastsRes, productsRes] = await Promise.all([
       env.DB.prepare(qPosts).bind(viewerId || 0, userId, perType).all(),
-      env.DB.prepare(qReels).bind(viewerId || 0, userId, perType).all(),
       env.DB.prepare(qSongs).bind(viewerId || 0, userId, perType).all(),
       env.DB.prepare(qPodcasts).bind(userId, perType).all(),
       env.DB.prepare(qProducts).bind(userId, perType).all(),
@@ -700,27 +753,26 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const items = [
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
-      ...(Array.isArray(reelsRes.results) ? reelsRes.results : []),
       ...(Array.isArray(songsRes.results) ? songsRes.results : []),
       ...(Array.isArray(podcastsRes.results) ? podcastsRes.results : []),
       ...(Array.isArray(productsRes.results) ? productsRes.results : []),
     ];
 
-    // dedupe by feed_key
     const map = new Map<string, any>();
     for (const it of items) {
       const k = safeStr(it?.feed_key) || `${safeStr(it?.source)}:${Number(it?.id)}`;
       if (!map.has(k)) map.set(k, it);
     }
 
-    // sort + slice
-    const merged = Array.from(map.values()).sort(sortDescByCreatedAt).slice(0, limit);
+    const merged = Array.from(map.values())
+      .sort(sortDescByCreatedAt)
+      .slice(0, limit);
 
-    // ✅ normalize media (same as feeds.ts)
     const normalized = merged.map((item: any) => ({
       ...item,
       ...normalizeMedia(item),
       comments_count: Number(item?.comments_count ?? 0),
+      reactions_count: Number(item?.reactions_count ?? 0),
     }));
 
     return json(normalized, 200);
