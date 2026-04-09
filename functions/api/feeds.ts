@@ -125,6 +125,7 @@ const guessTypeFromUrl = (url: string) => {
     u.includes(".mp4") ||
     u.includes(".webm") ||
     u.includes(".mov") ||
+    u.includes(".m4v") ||
     u.includes(".m3u8")
   ) {
     return "video";
@@ -284,7 +285,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const exploreCount = Math.max(0, limit - freshCount);
 
     // ============================================================
-    // 1) POSTS
+    // 1) POSTS (videos excluded)
     // ============================================================
     const wherePosts: string[] = [];
     const bindsPosts: any[] = [];
@@ -299,6 +300,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       AND p.content NOT LIKE '%"product_id"%'
       AND p.content NOT LIKE '%marketplace%'
     ))`);
+
+    wherePosts.push(`(
+      COALESCE(LOWER(p.media_type), '') NOT LIKE '%video%'
+      AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m3u8%'
+      AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m3u8%'
+      AND (p.media_meta IS NULL OR LOWER(p.media_meta) NOT LIKE '%"type":"video"%')
+    )`);
 
     if (cursor && cursor.trim()) {
       wherePosts.push(`p.created_at < ?`);
@@ -474,122 +490,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 2) REELS
-    // ============================================================
-    const whereReels: string[] = [];
-    const bindsReels: any[] = [];
-
-    whereReels.push(
-      `(r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')`
-    );
-
-    if (cursor && cursor.trim()) {
-      whereReels.push(`r.created_at < ?`);
-      bindsReels.push(cursor.trim());
-    }
-    if (seen.length > 0) {
-      whereReels.push(`r.id NOT IN (${seen.map(() => "?").join(",")})`);
-      bindsReels.push(...seen);
-    }
-
-    const whereReelsSql = whereReels.length
-      ? `WHERE ${whereReels.join(" AND ")}`
-      : "";
-
-    const baseSelectReels = `
-      SELECT
-        'reel' AS source,
-        'reel' AS item_type,
-
-        r.id AS id,
-        ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
-
-        r.created_at AS created_at,
-
-        NULL AS post_id,
-        r.id AS reel_id,
-        NULL AS song_id2,
-        NULL AS podcast_id,
-        NULL AS event_id,
-        NULL AS group_post_id,
-        NULL AS product_id2,
-
-        r.user_id AS user_id,
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.name, u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        NULL AS content,
-        r.visibility AS visibility,
-        r.views AS views,
-        r.shares AS shares,
-
-        r.video_url AS media_url,
-        'video' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-        NULL AS media_meta,
-
-        0 AS comments_count,
-
-        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
-        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
-
-        NULL AS reactor_name,
-        NULL AS reactions_preview,
-        NULL AS reactions_by_type,
-
-        r.video_url AS video_url,
-        r.caption AS caption,
-        r.song_name AS song_name,
-        r.audio_url AS audio_url,
-        COALESCE(r.audio_start, 0) AS audio_start,
-        COALESCE(r.audio_end, 0) AS audio_end,
-        r.location AS location,
-        r.sound_key AS sound_key,
-        r.sound_id AS sound_id,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS event_date,
-        NULL AS event_description,
-        NULL AS attending_count,
-        NULL AS interested_count,
-        NULL AS my_rsvp_status,
-
-        NULL AS type,
-        NULL AS post_type,
-        NULL AS kind,
-        NULL AS meta,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-      FROM reels r
-      LEFT JOIN users u ON u.id = r.user_id
-    `;
-
-    // ============================================================
-    // 3) SONGS
+    // 2) SONGS
     // ============================================================
     const whereSongs: string[] = [];
     const bindsSongs: any[] = [];
@@ -723,7 +624,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 4) PODCASTS
+    // 3) PODCASTS
     // ============================================================
     const wherePodcasts: string[] = [];
     const bindsPodcasts: any[] = [];
@@ -846,7 +747,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 5) EVENTS
+    // 4) EVENTS
     // ============================================================
     const whereEvents: string[] = [];
     const bindsEvents: any[] = [];
@@ -986,12 +887,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 6) GROUP POSTS
+    // 5) GROUP POSTS (videos excluded)
     // ============================================================
     const whereGroupPosts: string[] = [];
     const bindsGroupPosts: any[] = [];
 
     whereGroupPosts.push(`(gp.visibility IS NULL OR gp.visibility = 'public')`);
+
+    whereGroupPosts.push(`(
+      COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.m3u8%'
+      AND COALESCE(LOWER(gp.media_urls), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(gp.media_urls), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(gp.media_urls), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(gp.media_urls), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(gp.media_urls), '') NOT LIKE '%.m3u8%'
+    )`);
 
     if (cursor && cursor.trim()) {
       whereGroupPosts.push(`gp.created_at < ?`);
@@ -1059,7 +973,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           WHEN length(gp.media_url) > 300 THEN NULL
           ELSE
             CASE
-              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
+              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' OR gp.media_url LIKE '%.m4v%' OR gp.media_url LIKE '%.m3u8%' THEN 'video'
               ELSE 'image'
             END
         END AS media_type,
@@ -1127,10 +1041,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ) t
         ) AS reactions_by_type,
 
-        CASE
-          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN gp.media_url
-          ELSE NULL
-        END AS video_url,
+        NULL AS video_url,
 
         NULL AS caption,
         NULL AS song_name,
@@ -1172,7 +1083,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 7) PRODUCTS feed-injection
+    // 6) PRODUCTS feed-injection
     // ============================================================
     const whereProductsFeed: string[] = [];
     const bindsProductsFeed: any[] = [];
@@ -1334,7 +1245,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 8) PRODUCTS (separate list)
+    // 7) PRODUCTS (separate list)
     // ============================================================
     const whereProducts: string[] = [];
     const bindsProducts: any[] = [];
@@ -1374,13 +1285,28 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
     // ============================================================
-    // 9) BOOSTED POSTS FROM ADS TABLE
+    // 8) BOOSTED POSTS FROM ADS TABLE (videos excluded)
     // ============================================================
     const whereAds: string[] = [];
     const bindsAds: any[] = [];
 
     whereAds.push(`a.status = 'active'`);
     whereAds.push(`a.post_id IS NOT NULL`);
+
+    whereAds.push(`(
+      COALESCE(LOWER(p.media_type), '') NOT LIKE '%video%'
+      AND COALESCE(LOWER(COALESCE(a.media_url, p.media_url)), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(COALESCE(a.media_url, p.media_url)), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(COALESCE(a.media_url, p.media_url)), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(COALESCE(a.media_url, p.media_url)), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(COALESCE(a.media_url, p.media_url)), '') NOT LIKE '%.m3u8%'
+      AND COALESCE(LOWER(COALESCE(a.media_urls, p.media_urls)), '') NOT LIKE '%.mp4%'
+      AND COALESCE(LOWER(COALESCE(a.media_urls, p.media_urls)), '') NOT LIKE '%.webm%'
+      AND COALESCE(LOWER(COALESCE(a.media_urls, p.media_urls)), '') NOT LIKE '%.mov%'
+      AND COALESCE(LOWER(COALESCE(a.media_urls, p.media_urls)), '') NOT LIKE '%.m4v%'
+      AND COALESCE(LOWER(COALESCE(a.media_urls, p.media_urls)), '') NOT LIKE '%.m3u8%'
+      AND (p.media_meta IS NULL OR LOWER(p.media_meta) NOT LIKE '%"type":"video"%')
+    )`);
 
     if (cursor && cursor.trim()) {
       whereAds.push(`a.created_at < ?`);
@@ -1584,15 +1510,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ? freshPostsRes.results
       : [];
 
-    const freshReelsRes = await env.DB.prepare(
-      `${baseSelectReels} ${whereReelsSql} ORDER BY r.created_at DESC LIMIT ?`
-    )
-      .bind(reactionUserId, ...bindsReels, freshCount)
-      .all();
-    const freshReels = Array.isArray(freshReelsRes?.results)
-      ? freshReelsRes.results
-      : [];
-
     const freshSongsRes = await env.DB.prepare(
       `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
     )
@@ -1658,7 +1575,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     // RUN QUERIES (Explore)
     // ============================================================
     let explorePosts: any[] = [];
-    let exploreReels: any[] = [];
     let exploreSongs: any[] = [];
     let explorePodcasts: any[] = [];
     let exploreEvents: any[] = [];
@@ -1675,15 +1591,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .all();
       explorePosts = Array.isArray(explorePostsRes?.results)
         ? explorePostsRes.results
-        : [];
-
-      const exploreReelsRes = await env.DB.prepare(
-        `${baseSelectReels} ${whereReelsSql} ORDER BY RANDOM() LIMIT ?`
-      )
-        .bind(reactionUserId, ...bindsReels, exploreCount)
-        .all();
-      exploreReels = Array.isArray(exploreReelsRes?.results)
-        ? exploreReelsRes.results
         : [];
 
       const exploreSongsRes = await env.DB.prepare(
@@ -1764,7 +1671,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const map = new Map<string, any>();
     const allFeedRows = [
       ...freshPosts,
-      ...freshReels,
       ...freshSongs,
       ...freshPodcasts,
       ...freshEvents,
@@ -1772,7 +1678,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...freshProductsFeed,
       ...freshAds,
       ...explorePosts,
-      ...exploreReels,
       ...exploreSongs,
       ...explorePodcasts,
       ...exploreEvents,
@@ -1864,6 +1769,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             AND p.content NOT LIKE '%"product_id"%'
             AND p.content NOT LIKE '%marketplace%'
           ))
+          AND (
+            COALESCE(LOWER(p.media_type), '') NOT LIKE '%video%'
+            AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mp4%'
+            AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.webm%'
+            AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mov%'
+            AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m4v%'
+            AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m3u8%'
+            AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mp4%'
+            AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.webm%'
+            AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mov%'
+            AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m4v%'
+            AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m3u8%'
+            AND (p.media_meta IS NULL OR LOWER(p.media_meta) NOT LIKE '%"type":"video"%')
+          )
           AND p.created_at < ?
         ORDER BY p.created_at DESC
         LIMIT 1
@@ -1893,7 +1812,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           returnedProducts: products.length,
           fresh: {
             posts: freshPosts.length,
-            reels: freshReels.length,
             songs: freshSongs.length,
             podcasts: freshPodcasts.length,
             events: freshEvents.length,
@@ -1904,7 +1822,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           },
           explore: {
             posts: explorePosts.length,
-            reels: exploreReels.length,
             songs: exploreSongs.length,
             podcasts: explorePodcasts.length,
             events: exploreEvents.length,
