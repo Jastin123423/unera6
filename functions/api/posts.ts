@@ -830,17 +830,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS views,
         0 AS shares,
 
-        (SELECT COUNT(*) FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id) AS reactions_count,
-        (SELECT 'like' FROM group_post_likes gpl WHERE gpl.group_post_id = gp.id AND gpl.user_id = ? LIMIT 1) AS my_reaction,
+ (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
+(SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
-        (
-          SELECT COALESCE(lu.username, '')
-          FROM group_post_likes gpl2
-          LEFT JOIN users lu ON lu.id = gpl2.user_id
-          WHERE gpl2.group_post_id = gp.id
-          ORDER BY gpl2.created_at DESC, gpl2.id DESC
-          LIMIT 1
-        ) AS reactor_name,
+(
+  SELECT COALESCE(lu.username, '')
+  FROM group_post_reactions gpr2
+  LEFT JOIN users lu ON lu.id = gpr2.user_id
+  WHERE gpr2.group_post_id = gp.id
+  ORDER BY gpr2.created_at DESC, gpr2.id DESC
+  LIMIT 1
+) AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
         COALESCE(u.name, u.username, 'User') AS name,
