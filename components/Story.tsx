@@ -54,6 +54,14 @@ export interface StoryType {
   user_id: number;
   type: 'image' | 'video' | 'text';
   media_url: string | null;
+  media_urls?: string[];
+  media_types?: string[];
+  media_meta?: Array<{
+    thumb?: string | null;
+    feed?: string | null;
+    full?: string | null;
+    type?: string;
+  }>;
   text_content: string | null;
   background_style: string | null;
   music_url: string | null;
@@ -76,13 +84,232 @@ export interface CreateStoryData {
   user_id: number;
   type: 'image' | 'video' | 'text';
   media_file?: File;
-  media_url?: string;
+  media_url?: string | null;
+  media_urls?: string[];
+  media_types?: string[];
+  media_meta?: Array<{
+    thumb?: string | null;
+    feed?: string | null;
+    full?: string | null;
+    type?: string;
+  }>;
   text_content?: string;
   background_style?: string;
   music_url?: string;
   music_title?: string;
   audio_file?: File;
 }
+
+// ==================== STORY UPLOAD HELPERS ====================
+const STORY_VIDEO_MAX_SECONDS = 90;
+
+const fileExtFromName = (name?: string) => {
+  const s = String(name || '').trim();
+  const i = s.lastIndexOf('.');
+  return i >= 0 ? s.slice(i + 1).toLowerCase() : '';
+};
+
+const isVideoFile = (file?: File | null) => 
+  !!file && (file.type.startsWith('video/') || ['mp4', 'webm', 'mov', 'm4v'].includes(fileExtFromName(file.name)));
+
+const loadImageElement = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+
+const loadVideoElement = (src: string) =>
+  new Promise<HTMLVideoElement>((resolve, reject) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.playsInline = true;
+    v.muted = true;
+    v.src = src;
+    const cleanup = () => {
+      v.onloadedmetadata = null;
+      v.onerror = null;
+    };
+    v.onloadedmetadata = () => {
+      cleanup();
+      resolve(v);
+    };
+    v.onerror = () => {
+      cleanup();
+      reject(new Error('Failed to load video'));
+    };
+  });
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+  new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const makeImageVariants = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    
+    const calcSize = (w: number, h: number, max: number) => {
+      if (Math.max(w, h) <= max) return { width: w, height: h };
+      const scale = max / Math.max(w, h);
+      return {
+        width: Math.round(w * scale),
+        height: Math.round(h * scale),
+      };
+    };
+
+    const feedSize = calcSize(img.naturalWidth, img.naturalHeight, 1080);
+    const thumbSize = calcSize(img.naturalWidth, img.naturalHeight, 320);
+
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d')!.drawImage(img, 0, 0);
+
+    const feedCanvas = document.createElement('canvas');
+    feedCanvas.width = feedSize.width;
+    feedCanvas.height = feedSize.height;
+    feedCanvas.getContext('2d')!.drawImage(img, 0, 0, feedSize.width, feedSize.height);
+
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = thumbSize.width;
+    thumbCanvas.height = thumbSize.height;
+    thumbCanvas.getContext('2d')!.drawImage(img, 0, 0, thumbSize.width, thumbSize.height);
+
+    const fullBlob = file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp'
+      ? file
+      : new File([await canvasToBlob(fullCanvas, 'image/jpeg', 0.92)], `${Date.now()}-original.jpg`, { type: 'image/jpeg' });
+
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+
+    const fullFile = fullBlob instanceof File ? fullBlob : new File([fullBlob], `${Date.now()}-original.jpg`, { type: 'image/jpeg' });
+    const feedFile = new File([feedBlob], `${Date.now()}-feed.webp`, { type: 'image/webp' });
+    const thumbFile = new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+
+    return { fullFile, feedFile, thumbFile };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const createVideoThumbnailFile = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    
+    if (Number.isFinite(video.duration) && video.duration > STORY_VIDEO_MAX_SECONDS) {
+      throw new Error('Story videos must be 1 minute 30 seconds or less');
+    }
+
+    const seekTo = Math.min(Math.max(video.duration * 0.2, 0.1), Math.max(video.duration - 0.1, 0.1));
+    
+    await new Promise<void>((resolve, reject) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('error', onError);
+        reject(new Error('Could not seek video for thumbnail'));
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+
+    const max = 320;
+    const scale = max / Math.max(video.videoWidth || max, video.videoHeight || max);
+    const width = Math.max(1, Math.round((video.videoWidth || max) * Math.min(scale, 1)));
+    const height = Math.max(1, Math.round((video.videoHeight || max) * Math.min(scale, 1)));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d')!.drawImage(video, 0, 0, width, height);
+
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    return new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadStoryImageSecret = async (file: File) => {
+  const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
+  const fd = new FormData();
+  fd.append('original', fullFile);
+  fd.append('feed', feedFile);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Story image upload failed');
+  }
+  
+  return {
+    media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['image'],
+    media_meta: [
+      {
+        thumb: data?.uploaded?.thumbnail?.url || null,
+        feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+        full: data?.uploaded?.original?.url || null,
+        type: 'image',
+      },
+    ],
+  };
+};
+
+const uploadStoryVideoSecret = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    if (Number.isFinite(video.duration) && video.duration > STORY_VIDEO_MAX_SECONDS) {
+      throw new Error('Story videos must be 1 minute 30 seconds or less');
+    }
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+  
+  const thumbFile = await createVideoThumbnailFile(file);
+  const fd = new FormData();
+  fd.append('original', file);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Story video upload failed');
+  }
+  
+  return {
+    media_url: data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['video'],
+    media_meta: [
+      {
+        thumb: data?.uploaded?.thumbnail?.url || null,
+        feed: null,
+        full: data?.uploaded?.original?.url || null,
+        type: 'video',
+      },
+    ],
+  };
+};
 
 // -------------------- HELPER FUNCTIONS --------------------
 const parseServerTime = (value?: string): number => {
@@ -851,6 +1078,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
+  // Get the best quality URL for display
+  const getDisplayMediaUrl = useCallback((story: StoryType): string => {
+    const meta = story.media_meta?.[0];
+    if (meta?.feed) return meta.feed;
+    if (story.media_url) return story.media_url;
+    return '';
+  }, []);
+
   // Lock page scroll when story viewer is open
   useEffect(() => {
     const prevBodyOverflow = document.body.style.overflow;
@@ -1069,10 +1304,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
   useEffect(() => {
-    if (story.media_url && !isBlob(story.media_url)) {
-      lastMediaUrlRef.current = story.media_url;
+    const displayUrl = getDisplayMediaUrl(story);
+    if (displayUrl && !isBlob(displayUrl)) {
+      lastMediaUrlRef.current = displayUrl;
     }
-  }, [story.id, story.media_url]);
+  }, [story.id, story, getDisplayMediaUrl]);
 
   useEffect(() => {
     return () => {
@@ -1171,23 +1407,23 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       return;
     }
 
-    const url = story.media_url || '';
-    if (!url || isBlob(url)) {
+    const displayUrl = getDisplayMediaUrl(story);
+    if (!displayUrl || isBlob(displayUrl)) {
       setMediaReady(true);
       return;
     }
 
-    if (preloadReadyRef.current.get(url)) {
+    if (preloadReadyRef.current.get(displayUrl)) {
       setMediaReady(true);
       return;
     }
 
-    if (!isVideoUrl(url)) {
+    if (!isVideoUrl(displayUrl)) {
       const img = new Image();
-      img.src = url;
+      img.src = displayUrl;
 
       const done = () => {
-        preloadReadyRef.current.set(url, true);
+        preloadReadyRef.current.set(displayUrl, true);
         setMediaReady(true);
       };
 
@@ -1200,16 +1436,16 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       img.onerror = done;
       return;
     }
-  }, [story.id, story.type, story.media_url]);
+  }, [story.id, story.type, getDisplayMediaUrl, story]);
 
   useEffect(() => {
-    if (story.type === 'video' || isVideoUrl(story.media_url)) {
+    if (story.type === 'video' || isVideoUrl(getDisplayMediaUrl(story))) {
       const v = videoRef.current;
       if (v && v.readyState >= 2) {
         setMediaReady(true);
       }
     }
-  }, [story.type, story.media_url]);
+  }, [story.type, getDisplayMediaUrl, story]);
 
   useEffect(() => {
     const userStories = frozenUserStoriesRef.current;
@@ -1239,8 +1475,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
 
     if (currentIndex >= 0) {
-      const next1 = userStories[currentIndex + 1]?.media_url;
-      const next2 = userStories[currentIndex + 2]?.media_url;
+      const next1 = userStories[currentIndex + 1]?.media_meta?.[0]?.feed || userStories[currentIndex + 1]?.media_url;
+      const next2 = userStories[currentIndex + 2]?.media_meta?.[0]?.feed || userStories[currentIndex + 2]?.media_url;
       if (next1) preload(next1);
       if (next2) preload(next2);
     }
@@ -1304,7 +1540,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
 
   const storyIsText = story.type === 'text';
-  const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(story.media_url));
+  const storyIsVideo = story.type === 'video' || (!storyIsText && isVideoUrl(getDisplayMediaUrl(story)));
   const storyIsImage = !storyIsText && !storyIsVideo;
 
   const totalViews = story.views_count || viewersCount || story.analytics?.total_views || cachedViewsCountRef.current;
@@ -1485,14 +1721,15 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     color: userReaction === 'like' ? '#1877F2' : userReaction === 'love' ? '#F3425F' : '#F7B928'
   } : null;
 
+  const displayMediaUrl = getDisplayMediaUrl(story);
+
   return (
-    // CHANGED: Full page wrapper without centering
     <div className="fixed inset-0 z-[250] bg-black animate-fade-in">
       <div
         className="absolute inset-0 opacity-30 bg-cover bg-center blur-3xl"
         style={{
-          backgroundImage: story.media_url ? `url(${story.media_url})` : undefined,
-          background: !story.media_url ? (story as any).background_style : undefined,
+          backgroundImage: displayMediaUrl ? `url(${displayMediaUrl})` : undefined,
+          background: !displayMediaUrl ? (story as any).background_style : undefined,
         }}
       />
 
@@ -1507,7 +1744,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         <i className="fas fa-times text-[#E4E6EB] text-2xl"></i>
       </button>
 
-      {/* CHANGED: Full page inner wrapper without max-width and rounded corners */}
       <div
         className="relative w-full h-full bg-black overflow-hidden flex flex-col touch-none"
         style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
@@ -1682,11 +1918,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   {(story as any).text_content}
                 </span>
               </div>
-            ) : story.media_url && !isBlob(story.media_url) ? (
+            ) : displayMediaUrl && !isBlob(displayMediaUrl) ? (
               storyIsVideo ? (
                 <video
                   ref={videoRef}
-                  src={story.media_url}
+                  src={displayMediaUrl}
                   className="w-full h-full object-cover z-10"
                   playsInline
                   autoPlay
@@ -1720,13 +1956,13 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                   <div
                     className="absolute inset-0 blur-3xl scale-110 opacity-40"
                     style={{
-                      backgroundImage: `url(${story.media_url})`,
+                      backgroundImage: `url(${displayMediaUrl})`,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }}
                   />
                   <img
-                    src={story.media_url}
+                    src={displayMediaUrl}
                     alt="Story"
                     className="relative w-full h-full object-contain"
                     loading="eager"
@@ -2042,10 +2278,10 @@ interface StoryReelProps {
   onViewStory: (story: StoryType) => void;
   currentUser: User | null;
   onRequestLogin: () => void;
-  
   onFollow?: (userId: number) => void;
   checkIsFollowing?: (userId: number) => boolean;
   followLoading?: { [key: number]: boolean };
+  storyCreateLoading?: boolean;
 }
 
 export const StoryReel: React.FC<StoryReelProps> = ({
@@ -2058,6 +2294,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
   onFollow,
   checkIsFollowing,
   followLoading,
+  storyCreateLoading = false,
 }) => {
   const toTime = (d: any) => parseServerTime(d);
 
@@ -2076,6 +2313,14 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     for (const s of sortedStories) m.set(Number(s.user_id), (m.get(Number(s.user_id)) || 0) + 1);
     return m;
   }, [sortedStories]);
+
+  const getDisplayThumbnail = (story: StoryType): string => {
+    const meta = story.media_meta?.[0];
+    if (meta?.thumb) return meta.thumb;
+    if (meta?.feed) return meta.feed;
+    if (story.media_url) return story.media_url;
+    return '';
+  };
 
   const renderCountDots = (count: number) => {
     const maxDots = 5;
@@ -2115,8 +2360,15 @@ export const StoryReel: React.FC<StoryReelProps> = ({
           className="h-[75%] w-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-80"
         />
         <div className="absolute bottom-0 w-full h-[25%] bg-[#242526] flex flex-col items-center justify-end pb-3">
-          <div className="absolute -top-5 w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center border-4 border-[#242526] text-white shadow-lg">
-            <i className="fas fa-plus text-lg"></i>
+          <div className="absolute -top-5 w-10 h-10 flex items-center justify-center">
+            <div className="relative w-10 h-10">
+              <div className="absolute inset-0 bg-[#1877F2] rounded-full border-4 border-[#242526] text-white shadow-lg flex items-center justify-center">
+                <i className="fas fa-plus text-lg"></i>
+              </div>
+              {storyCreateLoading && (
+                <div className="absolute inset-[-3px] rounded-full border-[3px] border-white/15 border-t-[#4CC2FF] border-r-[#1877F2] animate-spin" />
+              )}
+            </div>
           </div>
           <span className="text-xs font-bold text-[#E4E6EB] mt-4">Create Story</span>
         </div>
@@ -2155,7 +2407,8 @@ export const StoryReel: React.FC<StoryReelProps> = ({
 
         const count = userStoryCounts.get(Number(story.user_id)) || 1;
         const isText = story.type === 'text';
-        const isVid = story.type === 'video' || (!isText && isVideoUrl(story.media_url));
+        const isVid = story.type === 'video' || (!isText && isVideoUrl(getDisplayThumbnail(story)));
+        const thumbnailUrl = getDisplayThumbnail(story);
 
         return (
           <div
@@ -2180,11 +2433,11 @@ export const StoryReel: React.FC<StoryReelProps> = ({
                   {(story as any).text_content}
                 </span>
               </div>
-            ) : story.media_url && !isBlob(story.media_url) ? (
+            ) : thumbnailUrl && !isBlob(thumbnailUrl) ? (
               isVid ? (
                 <div className="absolute w-full h-full">
                   <video
-                    src={story.media_url}
+                    src={thumbnailUrl}
                     className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                     muted
                     playsInline
@@ -2195,7 +2448,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
                 </div>
               ) : (
                 <img
-                  src={story.media_url}
+                  src={thumbnailUrl}
                   alt="Story"
                   className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                 />
@@ -2278,7 +2531,7 @@ interface CreateStoryModalProps {
   currentUser: User;
   songs: Song[];
   onClose: () => void;
-  onCreate: (story: CreateStoryData) => void;
+  onCreate: (story: any) => Promise<void> | void;
 }
 
 type MediaPick = { file: File; url: string; kind: 'image' | 'video' };
@@ -2302,6 +2555,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   } | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -2312,35 +2566,67 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     for (const p of arr) if (p.url && p.url.startsWith('blob:')) URL.revokeObjectURL(p.url);
   }, []);
 
-  const handleCreate = () => {
-    if (!canShare) return;
-
-    if (mode === 'text') {
-      onCreate({
-        user_id: currentUser.id,
-        type: 'text',
-        text_content: text,
-        background_style: background,
-        music_url: selectedMusic?.url,
-        music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-        audio_file: audioFile || undefined,
-      });
-      onClose();
-      return;
-    }
-
-    picks.forEach((p, idx) => {
-      onCreate({
-        user_id: currentUser.id,
-        type: p.kind === 'video' ? 'video' : 'image',
-        media_file: p.file,
-        music_url: selectedMusic?.url,
-        music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-        audio_file: audioFile || undefined,
-      });
-    });
-
+  const handleCreate = async () => {
+    if (!canShare || creating) return;
+    setCreating(true);
+    
+    // close immediately so user continues using app
     onClose();
+    
+    const run = async () => {
+      try {
+        if (mode === 'text') {
+          await onCreate({
+            user_id: currentUser.id,
+            type: 'text',
+            text_content: text,
+            background_style: background,
+            music_url: selectedMusic?.url,
+            music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+          });
+          return;
+        }
+        
+        for (const p of picks) {
+          if (p.kind === 'image') {
+            const uploaded = await uploadStoryImageSecret(p.file);
+            await onCreate({
+              user_id: currentUser.id,
+              type: 'image',
+              media_url: uploaded.media_url,
+              media_urls: uploaded.media_urls,
+              media_types: uploaded.media_types,
+              media_meta: uploaded.media_meta,
+              music_url: selectedMusic?.url,
+              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            });
+          } else {
+            const uploaded = await uploadStoryVideoSecret(p.file);
+            await onCreate({
+              user_id: currentUser.id,
+              type: 'video',
+              media_url: uploaded.media_url,
+              media_urls: uploaded.media_urls,
+              media_types: uploaded.media_types,
+              media_meta: uploaded.media_meta,
+              music_url: selectedMusic?.url,
+              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error('Failed to create story:', error);
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg z-[400]';
+        toast.innerText = error?.message || 'Failed to create story';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2200);
+      } finally {
+        setCreating(false);
+      }
+    };
+    
+    void run();
   };
 
   const addFiles = (files: FileList | null) => {
