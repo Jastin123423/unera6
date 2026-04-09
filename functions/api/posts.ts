@@ -5,7 +5,7 @@ type Env = { DB: D1Database };
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 const json = (data: any, status = 200) =>
@@ -23,14 +23,6 @@ const safeNumber = (v: any, fallback = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
-
-const toInt = (v: any, fallback = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const clamp = (n: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, n));
 
 const isHttpUrl = (v: any) => {
   if (typeof v !== "string") return false;
@@ -169,11 +161,6 @@ const normalizePostMedia = (item: any) => {
   return [];
 };
 
-const normCreatedAt = (v: any) => {
-  const s = String(v ?? "").trim();
-  return s || "1970-01-01 00:00:00";
-};
-
 export const onRequestOptions: PagesFunction = async () => {
   return new Response(null, {
     status: 204,
@@ -193,15 +180,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const body = await request.json().catch(() => ({} as any));
 
     const content = safeString(body.content).trim();
+
+    // old single-media compatibility
     const media_url = body.media_url ?? null;
     const media_type = body.media_type ?? null;
 
-    // Allow guest posts like old version
-    const user_id = body.user_id ?? null;
-
+    // new multi-media support
     const media_urls_arr = normalizeStringArray(body.media_urls);
     const media_types_arr = normalizeStringArray(body.media_types);
     const media_meta_arr = normalizeMediaMetaArray(body.media_meta);
+
+    // Allow guest posts: user_id can be null
+    const user_id = body.user_id ?? null;
 
     const filtered_urls = media_urls_arr
       .filter((u) => !String(u).startsWith("data:"))
@@ -252,8 +242,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const hasSingle =
       typeof final_media_url === "string" && final_media_url.trim().length > 0;
     const hasMulti = final_multi_urls.length > 0;
+    const hasMeta = media_meta_arr.length > 0;
 
-    if (!content && !hasSingle && !hasMulti) {
+    if (!content && !hasSingle && !hasMulti && !hasMeta) {
       return json(
         { error: "content or media_url or media_urls is required" },
         400
@@ -297,24 +288,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     try {
       result = await env.DB.prepare(
-        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, media_meta, visibility)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-        .bind(
-          user_id,
-          content || null,
-          final_media_url,
-          final_media_type,
-          media_urls_json,
-          media_types_json,
-          media_meta_json,
-          body.visibility ?? "public"
-        )
-        .run();
-    } catch {
-      insertedWithMediaMeta = false;
-      result = await env.DB.prepare(
-        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, visibility)
+        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types, media_meta)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
         .bind(
@@ -324,12 +298,42 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           final_media_type,
           media_urls_json,
           media_types_json,
-          body.visibility ?? "public"
+          media_meta_json
+        )
+        .run();
+    } catch {
+      insertedWithMediaMeta = false;
+      result = await env.DB.prepare(
+        `INSERT INTO posts (user_id, content, media_url, media_type, media_urls, media_types)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          user_id,
+          content || null,
+          final_media_url,
+          final_media_type,
+          media_urls_json,
+          media_types_json
         )
         .run();
     }
 
     const post_id = result.meta?.last_row_id;
+
+    const media = insertedWithMediaMeta
+      ? normalizePostMedia({
+          media_url: final_media_url,
+          media_type: final_media_type,
+          media_urls: media_urls_json,
+          media_types: media_types_json,
+          media_meta: media_meta_json,
+        })
+      : normalizePostMedia({
+          media_url: final_media_url,
+          media_type: final_media_type,
+          media_urls: media_urls_json,
+          media_types: media_types_json,
+        });
 
     return json(
       {
@@ -344,27 +348,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           media_urls: media_urls_json,
           media_types: media_types_json,
           media_meta: insertedWithMediaMeta ? media_meta_json : null,
-          media: insertedWithMediaMeta
-            ? normalizePostMedia({
-                media_url: final_media_url,
-                media_type: final_media_type,
-                media_urls: media_urls_json,
-                media_types: media_types_json,
-                media_meta: media_meta_json,
-              })
-            : normalizePostMedia({
-                media_url: final_media_url,
-                media_type: final_media_type,
-                media_urls: media_urls_json,
-                media_types: media_types_json,
-              }),
-          visibility: body.visibility ?? "public",
+          media,
+          thumb_url: media[0]?.thumb || null,
+          feed_url: media[0]?.feed || null,
+          full_url: media[0]?.full || null,
           created_at: new Date().toISOString(),
-          views: 0,
-          shares: 0,
-          source: "post",
-          item_type: "post",
-          feed_key: `post:${post_id}`,
         },
       },
       201
@@ -377,7 +365,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 };
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
     if (!env.DB) {
       return json(
@@ -386,110 +374,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       );
     }
 
-    const url = new URL(request.url);
-    const limit = clamp(toInt(url.searchParams.get("limit"), 50), 1, 100);
-    const viewerId = toInt(url.searchParams.get("viewerId"), 0);
+    // KEEP OLD LOGIC EXACTLY: broad fetch from posts only
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM posts ORDER BY created_at DESC"
+    ).all();
 
-    const { results } = await env.DB.prepare(`
-      SELECT
-        p.*,
+    const normalized = (Array.isArray(results) ? results : []).map((item: any) => {
+      const media = normalizePostMedia(item);
 
-        'post' AS source,
-        'post' AS item_type,
-        ('post:' || CAST(p.id AS TEXT)) AS feed_key,
+      return {
+        ...item,
+        media,
+        media_count: media.length,
+        thumb_url: media[0]?.thumb || null,
+        feed_url: media[0]?.feed || null,
+        full_url: media[0]?.full || null,
+      };
+    });
 
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.name, u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 300 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
-        (SELECT COUNT(*) FROM post_reactions pr WHERE pr.post_id = p.id) AS reactions_count,
-        (SELECT pr.type FROM post_reactions pr WHERE pr.post_id = p.id AND pr.user_id = ? LIMIT 1) AS my_reaction,
-
-        (
-          SELECT COALESCE(u2.name, u2.username, '')
-          FROM post_reactions pr2
-          LEFT JOIN users u2 ON u2.id = pr2.user_id
-          WHERE pr2.post_id = p.id
-          ORDER BY pr2.created_at DESC, pr2.id DESC
-          LIMIT 1
-        ) AS reactor_name,
-
-        (
-          SELECT json_group_array(
-            json_object(
-              'user_id', x.user_id,
-              'type', x.type,
-              'name', x.name,
-              'profile_image_url', x.profile_image_url
-            )
-          )
-          FROM (
-            SELECT
-              pr3.user_id AS user_id,
-              LOWER(COALESCE(pr3.type,'like')) AS type,
-              COALESCE(u3.name, u3.username, '') AS name,
-              CASE
-                WHEN u3.profile_image_url LIKE 'data:%' THEN NULL
-                WHEN length(u3.profile_image_url) > 300 THEN NULL
-                ELSE u3.profile_image_url
-              END AS profile_image_url
-            FROM post_reactions pr3
-            LEFT JOIN users u3 ON u3.id = pr3.user_id
-            WHERE pr3.post_id = p.id
-            ORDER BY pr3.created_at DESC, pr3.id DESC
-            LIMIT 30
-          ) x
-        ) AS reactions_preview,
-
-        (
-          SELECT json_group_array(
-            json_object('type', t.type, 'count', t.c)
-          )
-          FROM (
-            SELECT LOWER(COALESCE(type,'like')) AS type, COUNT(*) AS c
-            FROM post_reactions
-            WHERE post_id = p.id
-            GROUP BY LOWER(COALESCE(type,'like'))
-            ORDER BY c DESC
-          ) t
-        ) AS reactions_by_type
-
-      FROM posts p
-      LEFT JOIN users u ON u.id = p.user_id
-      ORDER BY p.created_at DESC
-      LIMIT ?
-    `)
-      .bind(viewerId || 0, limit)
-      .all();
-
-    const merged = (Array.isArray(results) ? results : [])
-      .sort((a: any, b: any) =>
-        normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at))
-      )
-      .map((item: any) => {
-        const media = normalizePostMedia(item);
-
-        return {
-          ...item,
-          media,
-          media_count: media.length,
-          thumb_url: media[0]?.thumb || null,
-          feed_url: media[0]?.feed || null,
-          full_url: media[0]?.full || null,
-          comments_count: Number(item?.comments_count ?? 0),
-          reactions_count: Number(item?.reactions_count ?? 0),
-          shares: Number(item?.shares ?? 0),
-        };
-      });
-
-    return json(merged, 200);
+    return json(normalized, 200);
   } catch (err: any) {
     return json(
       { error: "Backend crash", message: String(err?.message ?? err) },
