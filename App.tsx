@@ -7240,8 +7240,9 @@ return (
       onReply={replyToStory}
       onToggleMute={() => setStoryMuted(!storyMuted)}
       muted={storyMuted}
+      storyCreateLoading={storyCreateLoading}
     />
-
+    
     {currentUser && (
       <CreatePost
         currentUser={currentUser}
