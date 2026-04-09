@@ -3419,8 +3419,75 @@ const getOrientation = (item: {
 const classifyOrientations = (
   media: { width?: number; height?: number }[]
 ): MediaOrientation[] => media.map(getOrientation);
-    
-// ==================== MEDIA GRID (updated with progressive image loading) ====================
+
+    // ==================== PROGRESSIVE TILE IMAGE (MOVED OUTSIDE MEDIA GRID) ====================
+const ProgressiveTileImage = memo(
+  ({
+    item,
+    className,
+  }: {
+    item: { url: string; thumb?: string; feed?: string; full?: string };
+    className: string;
+  }) => {
+    const thumbSrc = item.thumb || item.url || '';
+    const feedSrc = item.feed || '';
+    const fullSrc = item.full || '';
+    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}`;
+    const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || '');
+    const upgradedRef = useRef(false);
+    const lastMediaKeyRef = useRef(mediaKey);
+
+    // Reset only when actual image changes
+    useEffect(() => {
+      if (lastMediaKeyRef.current === mediaKey) return;
+      lastMediaKeyRef.current = mediaKey;
+      upgradedRef.current = false;
+      setSrc(thumbSrc || feedSrc || fullSrc || '');
+    }, [mediaKey, thumbSrc, feedSrc, fullSrc]);
+
+    // Upgrade once: thumb -> feed (never downgrade)
+    useEffect(() => {
+      if (!feedSrc || feedSrc === thumbSrc) return;
+      if (upgradedRef.current) return;
+      if (src === feedSrc) {
+        upgradedRef.current = true;
+        return;
+      }
+
+      let cancelled = false;
+      const img = new Image();
+      img.src = feedSrc;
+
+      img.onload = () => {
+        if (cancelled) return;
+        upgradedRef.current = true;
+        setSrc(feedSrc);
+      };
+
+      img.onerror = () => {};
+
+      return () => {
+        cancelled = true;
+        img.onload = null;
+        img.onerror = null;
+      };
+    }, [thumbSrc, feedSrc, src]);
+
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className={className}
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+        }}
+      />
+    );
+  }
+);
+
 // ==================== MEDIA GRID (updated with stable progressive thumb -> feed loading) ====================
 const MediaGrid = memo(
   ({
@@ -3440,6 +3507,7 @@ const MediaGrid = memo(
     const total = Array.isArray(media) ? media.length : 0;
     const [measuredMedia, setMeasuredMedia] = useState(media);
 
+    // Measure image dimensions for orientation detection
     useEffect(() => {
       let cancelled = false;
 
@@ -3500,72 +3568,6 @@ const MediaGrid = memo(
     const extra = total <= 5 ? 0 : total === 6 ? 0 : total - 6;
     const orientations = classifyOrientations(visible);
 
-    const ProgressiveTileImage = memo(
-      ({
-        item,
-        className,
-      }: {
-        item: { url: string; thumb?: string; feed?: string; full?: string };
-        className: string;
-      }) => {
-        const thumbSrc = item.thumb || item.url || '';
-        const feedSrc = item.feed || '';
-        const fullSrc = item.full || '';
-        const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}`;
-
-        const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || '');
-        const lastMediaKeyRef = useRef(mediaKey);
-
-        // Reset only when this is actually a different image
-        useEffect(() => {
-          if (lastMediaKeyRef.current === mediaKey) return;
-          lastMediaKeyRef.current = mediaKey;
-          setSrc(thumbSrc || feedSrc || fullSrc || '');
-        }, [mediaKey, thumbSrc, feedSrc, fullSrc]);
-
-        // Upgrade thumb -> feed, never downgrade back to thumb
-        useEffect(() => {
-          if (!feedSrc || feedSrc === thumbSrc) return;
-          if (src === feedSrc) return;
-
-          let cancelled = false;
-          const img = new Image();
-          img.src = feedSrc;
-
-          img.onload = () => {
-            if (cancelled) return;
-            setSrc((prev) => {
-              if (!prev) return feedSrc;
-              if (prev === feedSrc) return prev;
-              if (prev === fullSrc) return prev;
-              return feedSrc;
-            });
-          };
-
-          img.onerror = () => {};
-
-          return () => {
-            cancelled = true;
-            img.onload = null;
-            img.onerror = null;
-          };
-        }, [thumbSrc, feedSrc, fullSrc, src]);
-
-        return (
-          <img
-            src={src}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className={className}
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        );
-      }
-    );
-
     const Tile = ({
       item,
       index,
@@ -3579,6 +3581,7 @@ const MediaGrid = memo(
     }) => (
       <button
         type="button"
+        key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
         onClick={(e) => {
           e.stopPropagation();
           onOpen(item.full || item.feed || item.thumb || item.url, index);
@@ -3609,6 +3612,7 @@ const MediaGrid = memo(
         <div className="w-full bg-black">
           <button
             type="button"
+            key={`single-${visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url}`}
             onClick={(e) => {
               e.stopPropagation();
               onOpen(
@@ -3789,7 +3793,7 @@ const MediaGrid = memo(
     );
   }
 );
-  
+            
 
 // ==================== GROUP POST HEADER (internal) ====================
 const GroupPostHeader = memo(
