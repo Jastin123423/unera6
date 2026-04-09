@@ -85,6 +85,7 @@ const inferTypeFromUrl = (url: string) => {
     u.includes(".mp4") ||
     u.includes(".webm") ||
     u.includes(".mov") ||
+    u.includes(".m4v") ||
     u.includes(".m3u8")
   ) {
     return "video";
@@ -93,7 +94,8 @@ const inferTypeFromUrl = (url: string) => {
     u.includes(".mp3") ||
     u.includes(".wav") ||
     u.includes(".ogg") ||
-    u.includes(".m4a")
+    u.includes(".m4a") ||
+    u.includes(".aac")
   ) {
     return "audio";
   }
@@ -105,16 +107,16 @@ const normalizePostMedia = (item: any) => {
   const mediaUrls = normalizeStringArray(item?.media_urls);
   const mediaTypes = normalizeStringArray(item?.media_types);
 
-  // 1) Best source: media_meta
+  // 1) Best source: media_meta with thumb/feed/full
   if (mediaMeta.length > 0) {
     const normalized = mediaMeta
       .map((m: any) => {
-        const thumb = String(m?.thumb || "").trim();
+        const thumb = String(m?.thumb || m?.thumbnail_url || "").trim();
         const feed = String(
           m?.feed || m?.feed_url || m?.url || m?.full || m?.full_url || ""
         ).trim();
         const full = String(
-          m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || ""
+          m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || m?.thumb || ""
         ).trim();
 
         const chosenType = normalizeMediaType(
@@ -201,30 +203,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const content = safeString(body.content).trim();
 
-    // single media (backward compatible)
     const media_url = body.media_url ?? null;
     const media_type = body.media_type ?? null;
 
-    // multi media
     const media_urls_arr = normalizeStringArray(body.media_urls);
     const media_types_arr = normalizeStringArray(body.media_types);
-
-    // rich media meta (optional)
     const media_meta_arr = normalizeMediaMetaArray(body.media_meta);
 
-    // Validate and filter simple multi URLs
     const filtered_urls = media_urls_arr
       .filter((u) => !String(u).startsWith("data:"))
       .filter((u) => isHttpUrl(u));
 
-    // Keep types aligned
     const filtered_types: string[] = [];
     for (let i = 0; i < filtered_urls.length; i++) {
       const t = String(media_types_arr[i] || "").trim();
       filtered_types.push(t || "");
     }
 
-    // If media_meta was sent, extract FEED urls first for compatibility
     const mediaMetaFeedUrls = media_meta_arr
       .map((item: any) =>
         String(
@@ -240,7 +235,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .filter((u: string) => isHttpUrl(u));
 
     const mediaMetaTypes = media_meta_arr.map((item: any) =>
-      String(item?.type || inferTypeFromUrl(item?.full || item?.feed || item?.thumb || "")).trim()
+      String(
+        item?.type || inferTypeFromUrl(item?.full || item?.feed || item?.thumb || "")
+      ).trim()
     );
 
     const final_multi_urls =
@@ -249,7 +246,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const final_multi_types =
       filtered_types.length > 0 ? filtered_types : mediaMetaTypes;
 
-    // If multi provided but single missing, prefer FEED url as single preview URL
     const final_media_url =
       typeof media_url === "string" && media_url.trim().length > 0
         ? media_url
@@ -391,7 +387,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 /**
  * GET /api/posts
  * Mixed feed for guests and logged users
- * Returns more variety by overfetching each type before merge/sort/slice.
+ * Reels removed
+ * Videos removed from posts and group posts
+ * Supports thumb/feed/full via media_meta
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -521,92 +519,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       FROM posts p
       LEFT JOIN users u ON u.id = p.user_id
-      WHERE (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
+      WHERE
+        (p.visibility IS NULL OR p.visibility = 'public' OR p.visibility = '' OR p.visibility = 'Public')
+        AND (
+          COALESCE(LOWER(p.media_type), '') NOT LIKE '%video%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mp4%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.webm%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.mov%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m4v%'
+          AND COALESCE(LOWER(p.media_url), '') NOT LIKE '%.m3u8%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mp4%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.webm%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.mov%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m4v%'
+          AND COALESCE(LOWER(p.media_urls), '') NOT LIKE '%.m3u8%'
+          AND (p.media_meta IS NULL OR LOWER(p.media_meta) NOT LIKE '%"type":"video"%')
+        )
       ORDER BY p.created_at DESC
-      LIMIT ?
-    `;
-
-    const qReels = `
-      SELECT
-        'reel' AS source,
-        'reel' AS item_type,
-        r.id AS id,
-        ('reel:' || CAST(r.id AS TEXT)) AS feed_key,
-
-        r.user_id AS user_id,
-        NULL AS content,
-
-        r.video_url AS media_url,
-        'video' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-        NULL AS media_meta,
-
-        r.visibility AS visibility,
-        r.created_at AS created_at,
-        r.views AS views,
-        r.shares AS shares,
-
-        (SELECT COUNT(*) FROM reel_likes rl WHERE rl.reel_id = r.id) AS reactions_count,
-        (SELECT rl.type FROM reel_likes rl WHERE rl.reel_id = r.id AND rl.user_id = ? LIMIT 1) AS my_reaction,
-
-        NULL AS reactor_name,
-
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.name, u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 500 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        r.video_url AS video_url,
-        r.caption AS caption,
-        r.song_name AS song_name,
-        r.audio_url AS audio_url,
-        COALESCE(r.audio_start, 0) AS audio_start,
-        COALESCE(r.audio_end, 0) AS audio_end,
-        r.location AS location,
-        r.song_id AS song_id,
-        r.sound_key AS sound_key,
-        r.sound_id AS sound_id,
-
-        NULL AS product_title,
-        NULL AS product_category,
-        NULL AS product_description,
-        NULL AS product_country,
-        NULL AS product_address,
-        NULL AS product_main_price,
-        NULL AS product_discount_price,
-        NULL AS product_quantity,
-        NULL AS product_phone_number,
-        NULL AS product_images,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-
-      FROM reels r
-      LEFT JOIN users u ON u.id = r.user_id
-      WHERE (r.visibility IS NULL OR r.visibility = 'public' OR r.visibility = '' OR r.visibility = 'Public')
-      ORDER BY r.created_at DESC
       LIMIT ?
     `;
 
@@ -880,10 +809,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS media_url,
 
         CASE
-          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%'
-          THEN 'video'
-          WHEN gp.media_url IS NOT NULL AND gp.media_url != ''
-          THEN 'image'
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN 'image'
           ELSE NULL
         END AS media_type,
 
@@ -893,12 +819,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         END AS media_urls,
 
         CASE
-          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN json_array(
-            CASE
-              WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%' THEN 'video'
-              ELSE 'image'
-            END
-          )
+          WHEN gp.media_url IS NOT NULL AND gp.media_url != '' THEN json_array('image')
           ELSE NULL
         END AS media_types,
 
@@ -931,12 +852,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(u.is_verified, 0) AS is_verified,
         COALESCE(u.role, 'user') AS role,
 
-        CASE
-          WHEN gp.media_url LIKE '%.mp4%' OR gp.media_url LIKE '%.webm%' OR gp.media_url LIKE '%.mov%'
-          THEN gp.media_url
-          ELSE NULL
-        END AS video_url,
-
+        NULL AS video_url,
         NULL AS caption,
         NULL AS song_name,
         NULL AS audio_url,
@@ -980,21 +896,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       FROM group_posts gp
       LEFT JOIN users u ON u.id = gp.user_id
       LEFT JOIN groups g ON g.id = gp.group_id
-      WHERE (gp.visibility IS NULL OR gp.visibility = 'public')
+      WHERE
+        (gp.visibility IS NULL OR gp.visibility = 'public')
+        AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.mp4%'
+        AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.webm%'
+        AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.mov%'
+        AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.m4v%'
+        AND COALESCE(LOWER(gp.media_url), '') NOT LIKE '%.m3u8%'
       ORDER BY gp.created_at DESC
       LIMIT ?
     `;
 
     const [
       postsRes,
-      reelsRes,
       songsRes,
       podcastsRes,
       productsRes,
       groupPostsRes,
     ] = await Promise.all([
       env.DB.prepare(qPosts).bind(viewerId || 0, perType).all(),
-      env.DB.prepare(qReels).bind(viewerId || 0, perType).all(),
       env.DB.prepare(qSongs).bind(viewerId || 0, perType).all(),
       env.DB.prepare(qPodcasts).bind(perType).all(),
       env.DB.prepare(qProducts).bind(perType).all(),
@@ -1003,7 +923,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const items = [
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
-      ...(Array.isArray(reelsRes.results) ? reelsRes.results : []),
       ...(Array.isArray(songsRes.results) ? songsRes.results : []),
       ...(Array.isArray(podcastsRes.results) ? podcastsRes.results : []),
       ...(Array.isArray(productsRes.results) ? productsRes.results : []),
@@ -1028,8 +947,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           ...item,
           media: normalizedMedia,
           media_count: normalizedMedia.length,
-
-          // Helpful compatibility fields for frontend
           thumb_url: normalizedMedia[0]?.thumb || null,
           feed_url: normalizedMedia[0]?.feed || null,
           full_url: normalizedMedia[0]?.full || null,
