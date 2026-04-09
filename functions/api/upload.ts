@@ -17,19 +17,16 @@ export const onRequestOptions: PagesFunction = async () =>
 const safeExtFromType = (ct: string) => {
   const t = (ct || "").toLowerCase();
 
-  // images
   if (t.includes("jpeg")) return "jpg";
   if (t.includes("png")) return "png";
   if (t.includes("webp")) return "webp";
   if (t.includes("gif")) return "gif";
   if (t.includes("avif")) return "avif";
 
-  // video
   if (t.includes("mp4")) return "mp4";
   if (t.includes("webm")) return "webm";
   if (t.includes("quicktime")) return "mov";
 
-  // audio
   if (t.includes("opus")) return "webm";
   if (t.includes("audio/webm")) return "webm";
   if (t === "audio/mpeg" || t.includes("mpeg")) return "mp3";
@@ -39,7 +36,6 @@ const safeExtFromType = (ct: string) => {
   if (t.includes("m4a")) return "m4a";
   if (t.includes("audio/mp4")) return "m4a";
 
-  // docs
   if (t.includes("pdf")) return "pdf";
   if (t.includes("msword")) return "doc";
   if (t.includes("officedocument.wordprocessingml")) return "docx";
@@ -55,35 +51,34 @@ const safeExtFromType = (ct: string) => {
 const contentTypeFromExt = (ext: string) => {
   const e = (ext || "").toLowerCase();
 
-  // images
   if (e === "jpg" || e === "jpeg") return "image/jpeg";
   if (e === "png") return "image/png";
   if (e === "webp") return "image/webp";
   if (e === "gif") return "image/gif";
   if (e === "avif") return "image/avif";
 
-  // video
   if (e === "mp4") return "video/mp4";
   if (e === "webm") return "video/webm";
   if (e === "mov") return "video/quicktime";
 
-  // audio
   if (e === "mp3") return "audio/mpeg";
   if (e === "wav") return "audio/wav";
   if (e === "ogg") return "audio/ogg";
   if (e === "aac") return "audio/aac";
   if (e === "m4a") return "audio/mp4";
 
-  // docs
   if (e === "pdf") return "application/pdf";
   if (e === "txt") return "text/plain; charset=utf-8";
   if (e === "doc") return "application/msword";
-  if (e === "docx")
+  if (e === "docx") {
     return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (e === "xlsx")
+  }
+  if (e === "xlsx") {
     return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  if (e === "pptx")
+  }
+  if (e === "pptx") {
     return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  }
 
   if (e === "zip") return "application/zip";
 
@@ -118,11 +113,11 @@ const fileTypeFromMimeOrExt = (mime: string, ext: string) => {
   return "other";
 };
 
-const safeKey = (ext: string, prefix = "uploads") =>
-  `${prefix}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext || "bin"}`;
-
 const safeVariantKey = (base: string, variant: string, ext: string) =>
   `${base}_${variant}.${ext || "bin"}`;
+
+const safeKey = (ext: string, prefix = "uploads") =>
+  `${prefix}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext || "bin"}`;
 
 const publicUrl = (key: string) => `${PUBLIC_BASE}/${key}`;
 
@@ -214,10 +209,32 @@ const tryCfImageTransform = async (
       },
     });
 
-    if (!res.ok) {
-      return null;
-    }
+    if (!res.ok) return null;
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+};
 
+const tryCfVideoPoster = async (
+  originalBuffer: Uint8Array
+): Promise<Uint8Array | null> => {
+  try {
+    const res = await fetch("https://dummy", {
+      method: "POST",
+      body: originalBuffer,
+      // @ts-ignore
+      cf: {
+        image: {
+          format: "webp",
+          width: 320,
+          fit: "cover",
+          quality: 70,
+        },
+      },
+    });
+
+    if (!res.ok) return null;
     return new Uint8Array(await res.arrayBuffer());
   } catch {
     return null;
@@ -234,17 +251,15 @@ const processImageVariants = async (
 
   const baseKey = `${baseFolder}/${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  // original
-  const originalKey = safeVariantKey(baseKey, "full", originalInfo.ext);
-  const originalUrl = await putObject(env, {
-    key: originalKey,
+  const fullKey = safeVariantKey(baseKey, "original", originalInfo.ext);
+  const fullUrl = await putObject(env, {
+    key: fullKey,
     bytes: originalInfo.bytes,
     mime_type: originalInfo.mime_type,
-    filename: originalInfo.filename || `upload.${originalInfo.ext}`,
+    filename: originalInfo.filename || `original.${originalInfo.ext}`,
     file_type: originalInfo.file_type,
   });
 
-  // Try Cloudflare image resizing, but fall back safely if it fails
   const transformedFeed = await tryCfImageTransform(bytes, {
     width: 1080,
     fit: "cover",
@@ -260,13 +275,13 @@ const processImageVariants = async (
   });
 
   const feedKey = safeVariantKey(baseKey, "feed", transformedFeed ? "webp" : originalInfo.ext);
-  const thumbKey = safeVariantKey(baseKey, "thumb", transformedThumb ? "webp" : originalInfo.ext);
+  const thumbKey = safeVariantKey(baseKey, "thumbnail", transformedThumb ? "webp" : originalInfo.ext);
 
   const feedUrl = await putObject(env, {
     key: feedKey,
     bytes: transformedFeed || originalInfo.bytes,
     mime_type: transformedFeed ? "image/webp" : originalInfo.mime_type,
-    filename: filename || (transformedFeed ? "feed.webp" : `feed.${originalInfo.ext}`),
+    filename: transformedFeed ? "feed.webp" : `feed.${originalInfo.ext}`,
     file_type,
   });
 
@@ -274,7 +289,7 @@ const processImageVariants = async (
     key: thumbKey,
     bytes: transformedThumb || originalInfo.bytes,
     mime_type: transformedThumb ? "image/webp" : originalInfo.mime_type,
-    filename: filename || (transformedThumb ? "thumb.webp" : `thumb.${originalInfo.ext}`),
+    filename: transformedThumb ? "thumbnail.webp" : `thumbnail.${originalInfo.ext}`,
     file_type,
   });
 
@@ -284,10 +299,10 @@ const processImageVariants = async (
     media_urls: {
       thumb: thumbUrl,
       feed: feedUrl,
-      full: originalUrl,
+      full: fullUrl,
     },
-    key: originalKey,
-    url: originalUrl,
+    key: fullKey,
+    url: fullUrl,
     filename: filename || null,
     size_bytes: originalInfo.bytes.byteLength,
     mime_type: originalInfo.mime_type,
@@ -295,6 +310,67 @@ const processImageVariants = async (
     metadata: {
       cache_control: LONG_CACHE_CONTROL,
       transform_used: Boolean(transformedFeed || transformedThumb),
+    },
+  };
+};
+
+const processVideoVariants = async (
+  env: Env,
+  file: File,
+  baseFolder = "uploads/videos"
+) => {
+  const originalInfo = await getFileInfo(file);
+  const { filename, bytes } = originalInfo;
+
+  const originalExt = originalInfo.ext === "mp4" ? "mp4" : originalInfo.ext;
+  const baseKey = `${baseFolder}/${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const fullKey = safeVariantKey(baseKey, "original", originalExt);
+  const fullMime = originalExt === "mp4" ? "video/mp4" : originalInfo.mime_type;
+
+  const fullUrl = await putObject(env, {
+    key: fullKey,
+    bytes: originalInfo.bytes,
+    mime_type: fullMime,
+    filename: filename || `original.${originalExt}`,
+    file_type: "video",
+  });
+
+  const transformedThumb = await tryCfVideoPoster(bytes);
+  const thumbExt = transformedThumb ? "webp" : "jpg";
+  const thumbMime = transformedThumb ? "image/webp" : "image/jpeg";
+  const thumbBytes = transformedThumb || new Uint8Array();
+
+  let thumbUrl: string | null = null;
+
+  if (thumbBytes.byteLength > 0) {
+    const thumbKey = safeVariantKey(baseKey, "thumbnail", thumbExt);
+    thumbUrl = await putObject(env, {
+      key: thumbKey,
+      bytes: thumbBytes,
+      mime_type: thumbMime,
+      filename: transformedThumb ? "thumbnail.webp" : "thumbnail.jpg",
+      file_type: "image",
+    });
+  }
+
+  return {
+    success: true,
+    media_type: "video",
+    media_urls: {
+      thumb: thumbUrl,
+      feed: null,
+      full: fullUrl,
+    },
+    key: fullKey,
+    url: fullUrl,
+    filename: filename || null,
+    size_bytes: originalInfo.bytes.byteLength,
+    mime_type: fullMime,
+    file_type: "video",
+    metadata: {
+      cache_control: LONG_CACHE_CONTROL,
+      transform_used: Boolean(transformedThumb),
     },
   };
 };
@@ -364,19 +440,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         if (originalFile instanceof File) {
           uploaded.original = await uploadBundlePart(env, originalFile, baseFolder, "original");
         }
-
         if (feedFile instanceof File) {
           uploaded.feed = await uploadBundlePart(env, feedFile, baseFolder, "feed");
         }
-
         if (playFile instanceof File) {
           uploaded.play = await uploadBundlePart(env, playFile, baseFolder, "play");
         }
-
         if (thumbnailFile instanceof File) {
           uploaded.thumbnail = await uploadBundlePart(env, thumbnailFile, baseFolder, "thumbnail");
         }
-
         if (audioFile instanceof File) {
           uploaded.audio = await uploadBundlePart(env, audioFile, baseFolder, "audio");
         }
@@ -404,7 +476,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       const { filename, ext, mime_type, file_type, bytes } = await getFileInfo(singleFile);
 
-      // Image: return 3 URLs
       if (file_type === "image" || file_type === "gif") {
         const imageResult = await processImageVariants(env, singleFile);
         return toJson({
@@ -413,15 +484,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         });
       }
 
-      // Video/audio/doc: store original only
+      if (file_type === "video") {
+        const videoResult = await processVideoVariants(env, singleFile);
+        return toJson({
+          ...videoResult,
+          media_urls: JSON.stringify(videoResult.media_urls),
+        });
+      }
+
       const folder =
-        file_type === "video"
-          ? "uploads/videos"
-          : file_type === "audio"
-            ? "uploads/audio"
-            : file_type === "document"
-              ? "uploads/documents"
-              : "uploads/files";
+        file_type === "audio"
+          ? "uploads/audio"
+          : file_type === "document"
+            ? "uploads/documents"
+            : "uploads/files";
 
       const key = safeKey(ext, folder);
       const url = await putObject(env, {
@@ -493,14 +569,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
     }
 
+    if (file_type === "video") {
+      const originalFile = new File([bytes], filename || `upload.${ext}`, { type: mime_type });
+      const videoResult = await processVideoVariants(env, originalFile);
+
+      return toJson({
+        ...videoResult,
+        media_urls: JSON.stringify(videoResult.media_urls),
+      });
+    }
+
     const folder =
-      file_type === "video"
-        ? "uploads/videos"
-        : file_type === "audio"
-          ? "uploads/audio"
-          : file_type === "document"
-            ? "uploads/documents"
-            : "uploads/files";
+      file_type === "audio"
+        ? "uploads/audio"
+        : file_type === "document"
+          ? "uploads/documents"
+          : "uploads/files";
 
     const key = safeKey(ext, folder);
     const url = await putObject(env, {
