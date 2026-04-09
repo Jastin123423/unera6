@@ -3421,7 +3421,7 @@ const classifyOrientations = (
 ): MediaOrientation[] => media.map(getOrientation);
     
 // ==================== MEDIA GRID (updated with progressive image loading) ====================
-
+// ==================== MEDIA GRID (updated with stable progressive thumb -> feed loading) ====================
 const MediaGrid = memo(
   ({
     media,
@@ -3695,7 +3695,7 @@ const MediaGrid = memo(
       const firstLandscape = first === 'landscape' || second === 'landscape';
       const tallLeft = third === 'portrait';
 
-      // Layout A: Tall left + 3 stacked right
+      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
       if (tallLeft) {
         return (
           <div className="w-full bg-black">
@@ -3721,7 +3721,7 @@ const MediaGrid = memo(
         );
       }
 
-      // Layout B: 2 top large + 4 bottom squares
+      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
       if (firstLandscape || !topPortraitPair) {
         return (
           <div className="w-full bg-black">
@@ -3746,6 +3746,7 @@ const MediaGrid = memo(
       }
 
       // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
+      // Good for portrait-heavy first image
       return (
         <div className="w-full bg-black">
           <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
@@ -3770,24 +3771,6 @@ const MediaGrid = memo(
       );
     }
 
-    // Fallback
-    return (
-      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
-        <Tile item={visible[0]} index={0} className="h-[180px] w-full" />
-        <Tile item={visible[1]} index={1} className="h-[180px] w-full" />
-        <Tile item={visible[2]} index={2} className="h-[180px] w-full" />
-        <Tile item={visible[3]} index={3} className="h-[180px] w-full" />
-        <Tile item={visible[4]} index={4} className="h-[180px] w-full" />
-        <Tile
-          item={visible[5]}
-          index={5}
-          className="h-[180px] w-full"
-          showOverlay={extra > 0}
-        />
-      </div>
-    );
-  }
-);                                                           
     // Fallback for any other case (should not reach here)
     return (
       <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
@@ -3804,9 +3787,9 @@ const MediaGrid = memo(
         />
       </div>
     );
-  },
-  (prev, next) => prev.media === next.media
+  }
 );
+  
 
 // ==================== GROUP POST HEADER (internal) ====================
 const GroupPostHeader = memo(
