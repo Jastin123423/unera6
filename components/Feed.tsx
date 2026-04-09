@@ -188,21 +188,51 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
 );
 
 // ==================== PROGRESSIVE IMAGE COMPONENT ====================
+
 const ProgressiveFeedImage = memo(
-  ({ thumb, feed, full, alt, className, onClick }) => {
+  ({
+    thumb,
+    feed,
+    full,
+    alt,
+    className,
+    onClick,
+  }: {
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    alt?: string;
+    className?: string;
+    onClick?: () => void;
+  }) => {
     const initialSrc = thumb || feed || full || '';
     const [src, setSrc] = useState(initialSrc);
     const [loadedFeed, setLoadedFeed] = useState(false);
 
+    // ✅ reset when media changes
     useEffect(() => {
-      const next = feed || '';
-      if (!next || next === src) return;
+      setSrc(thumb || feed || full || '');
+      setLoadedFeed(false);
+    }, [thumb, feed, full]);
+
+    // ✅ upgrade from thumb -> feed only
+    useEffect(() => {
+      if (!feed) return;
+      if (src === feed) {
+        setLoadedFeed(true);
+        return;
+      }
 
       const img = new Image();
-      img.src = next;
+      img.src = feed;
+
       img.onload = () => {
-        setSrc(next);
+        setSrc(feed);
         setLoadedFeed(true);
+      };
+
+      img.onerror = () => {
+        // keep thumb if feed fails
       };
 
       return () => {
@@ -214,19 +244,19 @@ const ProgressiveFeedImage = memo(
     return (
       <img
         src={src}
-        alt={alt}
+        alt={alt || ''}
         onClick={onClick}
         className={className}
+        loading="lazy"
+        decoding="async"
         style={{
-          transition: 'filter 180ms ease',
+          transition: 'filter 180ms ease, opacity 180ms ease',
           filter: loadedFeed ? 'none' : 'blur(0px)',
         }}
-        loading="lazy"
       />
     );
   }
 );
-
 // ==================== HELPER FUNCTIONS ====================
 const formatViewCount = (n?: number): string => {
   const v = Number(n || 0);
