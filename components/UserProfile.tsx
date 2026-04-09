@@ -1,4 +1,3 @@
-
 // UserProfile.tsx - Facebook-style like Tuko.co.ke
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
@@ -33,7 +32,10 @@ import {
   ReelFeedCard,
   normalizeReelFromFeed,
   formatReelCount,
-  getReelAuthorName
+  getReelAuthorName,
+  getPostMediaList,
+  MediaGrid,
+  ProgressiveFeedImage
 } from './Feed';
 
 // ============================================================================
@@ -1045,7 +1047,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               <span>Works at {(user as any).work}</span>
             </div>
           )}
-          {/* Education field hidden as requested */}
         </div>
 
         <div className="flex flex-col gap-4">
@@ -1071,7 +1072,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
               </span>
             </div>
           )}
-          {/* Birth date field hidden as requested */}
         </div>
       </div>
     </div>
@@ -1361,8 +1361,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   onRSVP={onRSVP}
                   groups={groups}
                   brands={brands}
+                  chats={[]}
                   isFollowing={isFollowing}
                   onFollow={onFollow}
+                  followLoading={false}
                   onOpenReactions={handleOpenReactions}
                 />
               </div>
@@ -1777,6 +1779,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           }}
           onViewProductFromPost={onViewProductFromPost}
           onOpenAudio={onOpenAudio}
+          onReact={handleProfileReact}
+          onShare={(id, newCount) => {
+            onShare(id, newCount);
+            refreshPost(id);
+          }}
+          onVideoClick={onVideoClick}
+          groups={groups}
+          brands={brands}
+          chats={[]}
+          onOpenGroup={() => {}}
+          onRSVP={onRSVP}
+          onEventClick={() => {}}
+          onOpenReactions={handleOpenReactions}
         />
       )}
 
@@ -1788,7 +1803,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setShowReactionsSheet(false);
             setSelectedPostForReactions(null);
           }}
-          postId={selectedPostForReactions}
+          post={profilePosts.find(p => safePostIdHelper(p) === selectedPostForReactions) as PostType}
           onProfileClick={onProfileClick}
           onOpenComments={handleOpenComments}
         />
@@ -1818,14 +1833,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           urls={galleryUrls}
           startIndex={galleryIndex}
           onClose={() => setGalleryOpen(false)}
-          postId={0}
+          post={{ id: 0, content: '', created_at: new Date().toISOString() } as PostType}
           currentUser={currentUser}
           reactionCount={0}
           commentCount={0}
           shareCount={0}
+          myReaction={undefined}
           onReact={() => {}}
           onOpenComments={() => {}}
           onShare={() => {}}
+          onOpenReactions={() => {}}
         />
       )}
     </div>
