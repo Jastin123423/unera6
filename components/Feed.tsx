@@ -3197,6 +3197,7 @@ const normalizeEventFromFeed = (item: any) => {
 };
 
 // ==================== MEDIA HELPERS ====================
+// ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
   const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
@@ -3254,72 +3255,106 @@ const getPostMediaList = (p: any) => {
   const guessKind = (url: string, explicitType?: string) => {
     const t = String(explicitType || '').toLowerCase();
     const u = String(url || '').toLowerCase();
-    if (t.includes('video') || u.match(/\.(mp4|webm|mov)(\?|$)/)) return 'video';
-    if (t.includes('audio') || u.match(/\.(mp3|wav|m4a|ogg)(\?|$)/)) return 'audio';
+    if (t.includes('video') || /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)) return 'video';
+    if (t.includes('audio') || /\.(mp3|wav|m4a|ogg|aac)(\?|$)/i.test(u)) return 'audio';
     return 'image';
   };
 
-  try {
-    const rawUrls = p?.media_urls;
-    const rawTypes = p?.media_types;
-    const urls = Array.isArray(rawUrls) ? rawUrls : typeof rawUrls === 'string' ? JSON.parse(rawUrls || '[]') : [];
-    const types = Array.isArray(rawTypes) ? rawTypes : typeof rawTypes === 'string' ? JSON.parse(rawTypes || '[]') : [];
+  const safeParseArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return [];
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
 
-    if (Array.isArray(urls)) {
-      urls.forEach((item: any, i: number) => {
+  try {
+    // ✅ Prefer media_meta first
+    const metaItems = safeParseArray(p?.media_meta);
+    const rawUrls = safeParseArray(p?.media_urls);
+    const rawTypes = safeParseArray(p?.media_types);
+
+    const sourceItems =
+      Array.isArray(metaItems) && metaItems.length > 0 ? metaItems : rawUrls;
+
+    if (Array.isArray(sourceItems)) {
+      sourceItems.forEach((item: any, i: number) => {
+        const explicitType = item?.type || rawTypes[i];
+
         if (typeof item === 'string') {
+          let parsedObj: any = null;
+
           try {
             const parsed = JSON.parse(item);
-            if (parsed && typeof parsed === 'object') {
-              const feedUrl = String(parsed.feed || parsed.feed_url || '').trim();
-              const fullUrl = String(parsed.full || parsed.full_url || feedUrl).trim();
-              const thumbUrl = String(parsed.thumb || parsed.thumbnail_url || feedUrl).trim();
-              const mainUrl = feedUrl || fullUrl || thumbUrl;
-              if (!mainUrl) return;
-              out.push({
-                url: mainUrl,
-                thumb: thumbUrl || mainUrl,
-                feed: feedUrl || mainUrl,
-                full: fullUrl || mainUrl,
-                kind: guessKind(mainUrl, types[i]),
-              });
-              return;
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              parsedObj = parsed;
             }
           } catch {
-            // old plain string URL
+            parsedObj = null;
           }
+
+          if (parsedObj) {
+            const thumbUrl = String(parsedObj.thumb || parsedObj.thumbnail_url || '').trim();
+            const feedUrl = String(parsedObj.feed || parsedObj.feed_url || '').trim();
+            const fullUrl = String(parsedObj.full || parsedObj.full_url || '').trim();
+            const directUrl = String(parsedObj.url || '').trim();
+
+            const displayUrl = thumbUrl || feedUrl || fullUrl || directUrl;
+            if (!displayUrl) return;
+
+            out.push({
+              url: displayUrl,
+              thumb: thumbUrl || feedUrl || fullUrl || directUrl,
+              feed: feedUrl || thumbUrl || fullUrl || directUrl,
+              full: fullUrl || feedUrl || thumbUrl || directUrl,
+              kind: guessKind(fullUrl || feedUrl || thumbUrl || directUrl, explicitType),
+            });
+            return;
+          }
+
           const cleanUrl = item.trim();
           if (!cleanUrl) return;
+
           out.push({
             url: cleanUrl,
+            thumb: cleanUrl,
             feed: cleanUrl,
             full: cleanUrl,
-            kind: guessKind(cleanUrl, types[i]),
+            kind: guessKind(cleanUrl, explicitType),
           });
           return;
         }
+
         if (item && typeof item === 'object') {
           const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
           const feedUrl = String(item.feed || item.feed_url || '').trim();
           const fullUrl = String(item.full || item.full_url || '').trim();
-          const mainUrl = feedUrl || fullUrl || thumbUrl;
-          if (!mainUrl) return;
+          const directUrl = String(item.url || '').trim();
+
+          const displayUrl = thumbUrl || feedUrl || fullUrl || directUrl;
+          if (!displayUrl) return;
+
           out.push({
-            url: mainUrl,
-            thumb: thumbUrl || mainUrl,
-            feed: feedUrl || mainUrl,
-            full: fullUrl || mainUrl,
-            kind: guessKind(mainUrl, item.type || types[i]),
+            url: displayUrl,
+            thumb: thumbUrl || feedUrl || fullUrl || directUrl,
+            feed: feedUrl || thumbUrl || fullUrl || directUrl,
+            full: fullUrl || feedUrl || thumbUrl || directUrl,
+            kind: guessKind(fullUrl || feedUrl || thumbUrl || directUrl, explicitType),
           });
         }
       });
     }
 
+    // fallback to old single-media field
     if (!out.length && p?.media_url) {
       const single = String(p.media_url).trim();
       if (single) {
         out.push({
           url: single,
+          thumb: single,
           feed: single,
           full: single,
           kind: guessKind(single, p?.media_type),
@@ -3332,6 +3367,7 @@ const getPostMediaList = (p: any) => {
       if (single) {
         out.push({
           url: single,
+          thumb: single,
           feed: single,
           full: single,
           kind: guessKind(single, p?.media_type),
@@ -3364,7 +3400,7 @@ const getOrientation = (item: {
 const classifyOrientations = (
   media: { width?: number; height?: number }[]
 ): MediaOrientation[] => media.map(getOrientation);
-
+    
 // ==================== MEDIA GRID (updated with progressive image loading) ====================
 const MediaGrid = memo(
   ({
