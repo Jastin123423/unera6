@@ -188,7 +188,6 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
 );
 
 // ==================== PROGRESSIVE IMAGE COMPONENT ====================
-
 const ProgressiveFeedImage = memo(
   ({
     thumb,
@@ -209,13 +208,19 @@ const ProgressiveFeedImage = memo(
     const [src, setSrc] = useState(initialSrc);
     const [loadedFeed, setLoadedFeed] = useState(false);
 
-    // ✅ reset when media changes
+    const lastMediaKeyRef = React.useRef('');
+
+    // only reset when actual media item changes
     useEffect(() => {
+      const mediaKey = `${thumb || ''}|${feed || ''}|${full || ''}`;
+      if (lastMediaKeyRef.current === mediaKey) return;
+
+      lastMediaKeyRef.current = mediaKey;
       setSrc(thumb || feed || full || '');
       setLoadedFeed(false);
     }, [thumb, feed, full]);
 
-    // ✅ upgrade from thumb -> feed only
+    // upgrade thumb -> feed only
     useEffect(() => {
       if (!feed) return;
       if (src === feed) {
@@ -225,21 +230,19 @@ const ProgressiveFeedImage = memo(
 
       const img = new Image();
       img.src = feed;
-
       img.onload = () => {
-        setSrc(feed);
+        setSrc((prev) => {
+          // never downgrade once feed is loaded
+          if (prev === full) return prev;
+          return feed;
+        });
         setLoadedFeed(true);
-      };
-
-      img.onerror = () => {
-        // keep thumb if feed fails
       };
 
       return () => {
         img.onload = null;
-        img.onerror = null;
       };
-    }, [feed, src]);
+    }, [feed]);
 
     return (
       <img
@@ -250,13 +253,14 @@ const ProgressiveFeedImage = memo(
         loading="lazy"
         decoding="async"
         style={{
-          transition: 'filter 180ms ease, opacity 180ms ease',
-          filter: loadedFeed ? 'none' : 'blur(0px)',
+          transition: 'opacity 180ms ease',
+          opacity: 1,
         }}
       />
     );
   }
 );
+      
 // ==================== HELPER FUNCTIONS ====================
 const formatViewCount = (n?: number): string => {
   const v = Number(n || 0);
