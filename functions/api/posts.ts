@@ -391,7 +391,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
  * Videos removed from posts and group posts
  * Supports thumb/feed/full via media_meta
  */
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
+ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     if (!env.DB) {
       return json(
@@ -411,6 +411,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       120
     );
 
+    // ============================================================
+    // 1) NORMAL POSTS FROM ALL USERS (NO VIDEOS)
+    // ============================================================
     const qPosts = `
       SELECT
         'post' AS source,
@@ -487,32 +490,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS sound_key,
         NULL AS sound_id,
 
-        NULL AS product_title,
-        NULL AS product_category,
-        NULL AS product_description,
-        NULL AS product_country,
-        NULL AS product_address,
-        NULL AS product_main_price,
-        NULL AS product_discount_price,
-        NULL AS product_quantity,
-        NULL AS product_phone_number,
-        NULL AS product_images,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
         NULL AS group_id,
         NULL AS group_name,
         NULL AS group_image
@@ -539,259 +516,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const qSongs = `
-      SELECT
-        'song' AS source,
-        'song' AS item_type,
-        s.id AS id,
-        ('song:' || CAST(s.id AS TEXT)) AS feed_key,
-
-        s.uploader_id AS user_id,
-        NULL AS content,
-
-        s.cover_image_url AS media_url,
-        'image' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-        NULL AS media_meta,
-
-        'public' AS visibility,
-        s.created_at AS created_at,
-        0 AS views,
-        0 AS shares,
-
-        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS reactions_count,
-        (SELECT 'like' FROM song_likes sl WHERE sl.song_id = s.id AND sl.user_id = ? LIMIT 1) AS my_reaction,
-
-        NULL AS reactor_name,
-
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.name, u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 500 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        NULL AS video_url,
-        NULL AS caption,
-        NULL AS song_name,
-        s.audio_url AS audio_url,
-        0 AS audio_start,
-        0 AS audio_end,
-        NULL AS location,
-        NULL AS song_id,
-        NULL AS sound_key,
-        NULL AS sound_id,
-
-        NULL AS product_title,
-        NULL AS product_category,
-        NULL AS product_description,
-        NULL AS product_country,
-        NULL AS product_address,
-        NULL AS product_main_price,
-        NULL AS product_discount_price,
-        NULL AS product_quantity,
-        NULL AS product_phone_number,
-        NULL AS product_images,
-
-        s.title AS song_title,
-        s.artist_name AS song_artist_name,
-        s.album_name AS song_album_name,
-        s.cover_image_url AS song_cover_image_url,
-        s.duration_seconds AS song_duration_seconds,
-        s.genre AS song_genre,
-        (SELECT COUNT(*) FROM song_likes sl WHERE sl.song_id = s.id) AS song_likes_count,
-        (
-          (SELECT COUNT(*) FROM song_play_events spe WHERE spe.song_id = s.id)
-          +
-          (SELECT COUNT(*) FROM song_plays sp WHERE sp.song_id = s.id)
-        ) AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-
-      FROM songs s
-      LEFT JOIN users u ON u.id = s.uploader_id
-      ORDER BY s.created_at DESC
-      LIMIT ?
-    `;
-
-    const qPodcasts = `
-      SELECT
-        'podcast' AS source,
-        'podcast' AS item_type,
-        pc.id AS id,
-        ('podcast:' || CAST(pc.id AS TEXT)) AS feed_key,
-
-        pc.creator_id AS user_id,
-        NULL AS content,
-
-        pc.cover_url AS media_url,
-        'image' AS media_type,
-        NULL AS media_urls,
-        NULL AS media_types,
-        NULL AS media_meta,
-
-        'public' AS visibility,
-        pc.created_at AS created_at,
-        0 AS views,
-        0 AS shares,
-
-        0 AS reactions_count,
-        NULL AS my_reaction,
-
-        NULL AS reactor_name,
-
-        COALESCE(u.username, 'user') AS username,
-        COALESCE(u.name, u.username, 'User') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 500 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        NULL AS video_url,
-        NULL AS caption,
-        NULL AS song_name,
-        pc.audio_url AS audio_url,
-        0 AS audio_start,
-        0 AS audio_end,
-        NULL AS location,
-        NULL AS song_id,
-        NULL AS sound_key,
-        NULL AS sound_id,
-
-        NULL AS product_title,
-        NULL AS product_category,
-        NULL AS product_description,
-        NULL AS product_country,
-        NULL AS product_address,
-        NULL AS product_main_price,
-        NULL AS product_discount_price,
-        NULL AS product_quantity,
-        NULL AS product_phone_number,
-        NULL AS product_images,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        pc.title AS podcast_title,
-        pc.description AS podcast_description,
-        pc.audio_url AS podcast_audio_url,
-        pc.cover_url AS podcast_cover_url,
-        COALESCE(pc.plays_count, 0) AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-
-      FROM podcasts pc
-      LEFT JOIN users u ON u.id = pc.creator_id
-      ORDER BY pc.created_at DESC
-      LIMIT ?
-    `;
-
-    const qProducts = `
-      SELECT
-        'product' AS source,
-        'product' AS item_type,
-        pr.id AS id,
-        ('product:' || CAST(pr.id AS TEXT)) AS feed_key,
-
-        pr.seller_id AS user_id,
-        NULL AS content,
-
-        NULL AS media_url,
-        NULL AS media_type,
-        pr.images AS media_urls,
-        NULL AS media_types,
-        NULL AS media_meta,
-
-        'public' AS visibility,
-        pr.created_at AS created_at,
-        0 AS views,
-        0 AS shares,
-
-        0 AS reactions_count,
-        NULL AS my_reaction,
-
-        NULL AS reactor_name,
-
-        COALESCE(u.username, 'seller') AS username,
-        COALESCE(u.name, u.username, 'Seller') AS name,
-        CASE
-          WHEN u.profile_image_url LIKE 'data:%' THEN NULL
-          WHEN length(u.profile_image_url) > 500 THEN NULL
-          ELSE u.profile_image_url
-        END AS profile_image_url,
-        COALESCE(u.is_verified, 0) AS is_verified,
-        COALESCE(u.role, 'user') AS role,
-
-        NULL AS video_url,
-        NULL AS caption,
-        NULL AS song_name,
-        NULL AS audio_url,
-        0 AS audio_start,
-        0 AS audio_end,
-        NULL AS location,
-        NULL AS song_id,
-        NULL AS sound_key,
-        NULL AS sound_id,
-
-        pr.title AS product_title,
-        pr.category AS product_category,
-        pr.description AS product_description,
-        pr.country AS product_country,
-        pr.address AS product_address,
-        pr.main_price AS product_main_price,
-        pr.discount_price AS product_discount_price,
-        pr.quantity AS product_quantity,
-        pr.phone_number AS product_phone_number,
-        pr.images AS product_images,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
-        NULL AS group_id,
-        NULL AS group_name,
-        NULL AS group_image
-
-      FROM products pr
-      LEFT JOIN users u ON u.id = pr.seller_id
-      ORDER BY pr.created_at DESC
-      LIMIT ?
-    `;
-
+    // ============================================================
+    // 2) GROUP POSTS FROM ALL GROUPS/USERS (NO VIDEOS)
+    // ============================================================
     const qGroupPosts = `
       SELECT
         'group_post' AS source,
@@ -830,17 +557,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         0 AS views,
         0 AS shares,
 
- (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
-(SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
+        (SELECT COUNT(*) FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id) AS reactions_count,
+        (SELECT gpr.type FROM group_post_reactions gpr WHERE gpr.group_post_id = gp.id AND gpr.user_id = ? LIMIT 1) AS my_reaction,
 
-(
-  SELECT COALESCE(lu.username, '')
-  FROM group_post_reactions gpr2
-  LEFT JOIN users lu ON lu.id = gpr2.user_id
-  WHERE gpr2.group_post_id = gp.id
-  ORDER BY gpr2.created_at DESC, gpr2.id DESC
-  LIMIT 1
-) AS reactor_name,
+        (
+          SELECT COALESCE(lu.username, '')
+          FROM group_post_reactions gpr2
+          LEFT JOIN users lu ON lu.id = gpr2.user_id
+          WHERE gpr2.group_post_id = gp.id
+          ORDER BY gpr2.created_at DESC, gpr2.id DESC
+          LIMIT 1
+        ) AS reactor_name,
 
         COALESCE(u.username, 'user') AS username,
         COALESCE(u.name, u.username, 'User') AS name,
@@ -863,32 +590,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         NULL AS sound_key,
         NULL AS sound_id,
 
-        NULL AS product_title,
-        NULL AS product_category,
-        NULL AS product_description,
-        NULL AS product_country,
-        NULL AS product_address,
-        NULL AS product_main_price,
-        NULL AS product_discount_price,
-        NULL AS product_quantity,
-        NULL AS product_phone_number,
-        NULL AS product_images,
-
-        NULL AS song_title,
-        NULL AS song_artist_name,
-        NULL AS song_album_name,
-        NULL AS song_cover_image_url,
-        NULL AS song_duration_seconds,
-        NULL AS song_genre,
-        NULL AS song_likes_count,
-        NULL AS song_plays_count,
-
-        NULL AS podcast_title,
-        NULL AS podcast_description,
-        NULL AS podcast_audio_url,
-        NULL AS podcast_cover_url,
-        NULL AS podcast_plays_count,
-
         gp.group_id AS group_id,
         COALESCE(g.name, 'Group') AS group_name,
         COALESCE(g.profile_image, g.cover_image, NULL) AS group_image
@@ -907,25 +608,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ?
     `;
 
-    const [
-      postsRes,
-      songsRes,
-      podcastsRes,
-      productsRes,
-      groupPostsRes,
-    ] = await Promise.all([
+    const [postsRes, groupPostsRes] = await Promise.all([
       env.DB.prepare(qPosts).bind(viewerId || 0, perType).all(),
-      env.DB.prepare(qSongs).bind(viewerId || 0, perType).all(),
-      env.DB.prepare(qPodcasts).bind(perType).all(),
-      env.DB.prepare(qProducts).bind(perType).all(),
       env.DB.prepare(qGroupPosts).bind(viewerId || 0, perType).all(),
     ]);
 
     const items = [
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
-      ...(Array.isArray(songsRes.results) ? songsRes.results : []),
-      ...(Array.isArray(podcastsRes.results) ? podcastsRes.results : []),
-      ...(Array.isArray(productsRes.results) ? productsRes.results : []),
       ...(Array.isArray(groupPostsRes.results) ? groupPostsRes.results : []),
     ];
 
@@ -960,4 +649,4 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       500
     );
   }
-};
+}; 
