@@ -3216,8 +3216,6 @@ const normalizeEventFromFeed = (item: any) => {
     },
   };
 };
-
-// ==================== MEDIA HELPERS ====================
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
@@ -3423,6 +3421,7 @@ const classifyOrientations = (
 ): MediaOrientation[] => media.map(getOrientation);
     
 // ==================== MEDIA GRID (updated with progressive image loading) ====================
+
 const MediaGrid = memo(
   ({
     media,
@@ -3430,6 +3429,7 @@ const MediaGrid = memo(
   }: {
     media: {
       url: string;
+      thumb?: string;
       feed?: string;
       full?: string;
       width?: number;
@@ -3449,12 +3449,19 @@ const MediaGrid = memo(
             (item) =>
               new Promise<{
                 url: string;
+                thumb?: string;
                 feed?: string;
                 full?: string;
                 width?: number;
                 height?: number;
               }>((resolve) => {
                 if (item.width && item.height) {
+                  resolve(item);
+                  return;
+                }
+
+                const probeSrc = item.feed || item.thumb || item.url;
+                if (!probeSrc) {
                   resolve(item);
                   return;
                 }
@@ -3468,14 +3475,12 @@ const MediaGrid = memo(
                   });
                 };
                 img.onerror = () => resolve(item);
-                img.src = item.feed || item.url;
+                img.src = probeSrc;
               })
           )
         );
 
-        if (!cancelled) {
-          setMeasuredMedia(next);
-        }
+        if (!cancelled) setMeasuredMedia(next);
       };
 
       run();
@@ -3492,43 +3497,74 @@ const MediaGrid = memo(
         ? measuredMedia.slice(0, 5)
         : measuredMedia.slice(0, 6);
 
-    const extra =
-      total <= 5 ? 0 : total === 6 ? 0 : total - 6;
-
+    const extra = total <= 5 ? 0 : total === 6 ? 0 : total - 6;
     const orientations = classifyOrientations(visible);
 
-    const ProgressiveTileImage = ({
-      item,
-      className,
-    }: {
-      item: { url: string; feed?: string; full?: string };
-      className: string;
-    }) => {
-      const [src, setSrc] = useState(item.url);
+    const ProgressiveTileImage = memo(
+      ({
+        item,
+        className,
+      }: {
+        item: { url: string; thumb?: string; feed?: string; full?: string };
+        className: string;
+      }) => {
+        const thumbSrc = item.thumb || item.url || '';
+        const feedSrc = item.feed || '';
+        const fullSrc = item.full || '';
+        const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}`;
 
-      useEffect(() => {
-        setSrc(item.url);
-        const next = item.feed;
-        if (!next || next === item.url) return;
-        const img = new Image();
-        img.src = next;
-        img.onload = () => {
-          setSrc(next);
-        };
-      }, [item.url, item.feed]);
+        const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || '');
+        const lastMediaKeyRef = useRef(mediaKey);
 
-      return (
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          className={className}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
-          }}
-        />
-      );
-    };
+        // Reset only when this is actually a different image
+        useEffect(() => {
+          if (lastMediaKeyRef.current === mediaKey) return;
+          lastMediaKeyRef.current = mediaKey;
+          setSrc(thumbSrc || feedSrc || fullSrc || '');
+        }, [mediaKey, thumbSrc, feedSrc, fullSrc]);
+
+        // Upgrade thumb -> feed, never downgrade back to thumb
+        useEffect(() => {
+          if (!feedSrc || feedSrc === thumbSrc) return;
+          if (src === feedSrc) return;
+
+          let cancelled = false;
+          const img = new Image();
+          img.src = feedSrc;
+
+          img.onload = () => {
+            if (cancelled) return;
+            setSrc((prev) => {
+              if (!prev) return feedSrc;
+              if (prev === feedSrc) return prev;
+              if (prev === fullSrc) return prev;
+              return feedSrc;
+            });
+          };
+
+          img.onerror = () => {};
+
+          return () => {
+            cancelled = true;
+            img.onload = null;
+            img.onerror = null;
+          };
+        }, [thumbSrc, feedSrc, fullSrc, src]);
+
+        return (
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={className}
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        );
+      }
+    );
 
     const Tile = ({
       item,
@@ -3536,7 +3572,7 @@ const MediaGrid = memo(
       className,
       showOverlay = false,
     }: {
-      item: { url: string; feed?: string; full?: string };
+      item: { url: string; thumb?: string; feed?: string; full?: string };
       index: number;
       className: string;
       showOverlay?: boolean;
@@ -3545,12 +3581,15 @@ const MediaGrid = memo(
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onOpen(item.full || item.feed || item.url, index);
+          onOpen(item.full || item.feed || item.thumb || item.url, index);
         }}
         className={`relative overflow-hidden ${className}`}
         style={{ borderRadius: 0 }}
       >
-        <ProgressiveTileImage item={item} className="absolute inset-0 w-full h-full object-cover" />
+        <ProgressiveTileImage
+          item={item}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
 
         {showOverlay && extra > 0 && (
           <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
@@ -3572,7 +3611,10 @@ const MediaGrid = memo(
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onOpen(visible[0].full || visible[0].feed || visible[0].url, 0);
+              onOpen(
+                visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url,
+                0
+              );
             }}
             className="w-full block"
           >
@@ -3653,7 +3695,7 @@ const MediaGrid = memo(
       const firstLandscape = first === 'landscape' || second === 'landscape';
       const tallLeft = third === 'portrait';
 
-      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
+      // Layout A: Tall left + 3 stacked right
       if (tallLeft) {
         return (
           <div className="w-full bg-black">
@@ -3679,7 +3721,7 @@ const MediaGrid = memo(
         );
       }
 
-      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
+      // Layout B: 2 top large + 4 bottom squares
       if (firstLandscape || !topPortraitPair) {
         return (
           <div className="w-full bg-black">
@@ -3704,7 +3746,6 @@ const MediaGrid = memo(
       }
 
       // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
-      // Good for portrait-heavy first image
       return (
         <div className="w-full bg-black">
           <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
@@ -3729,6 +3770,24 @@ const MediaGrid = memo(
       );
     }
 
+    // Fallback
+    return (
+      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+        <Tile item={visible[0]} index={0} className="h-[180px] w-full" />
+        <Tile item={visible[1]} index={1} className="h-[180px] w-full" />
+        <Tile item={visible[2]} index={2} className="h-[180px] w-full" />
+        <Tile item={visible[3]} index={3} className="h-[180px] w-full" />
+        <Tile item={visible[4]} index={4} className="h-[180px] w-full" />
+        <Tile
+          item={visible[5]}
+          index={5}
+          className="h-[180px] w-full"
+          showOverlay={extra > 0}
+        />
+      </div>
+    );
+  }
+);                                                           
     // Fallback for any other case (should not reach here)
     return (
       <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
