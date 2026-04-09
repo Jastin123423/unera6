@@ -1971,6 +1971,194 @@ const deleteStory = useCallback(async (storyId: number) => {
   }
 }, [currentUser, requireAuth]);
 
+// ============================================================================
+// ✅ STORY UPLOAD HELPERS
+// ============================================================================
+
+const STORY_VIDEO_MAX_SECONDS = 90;
+
+const loadImageElement = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
+const loadVideoElement = (src: string) => new Promise<HTMLVideoElement>((resolve, reject) => {
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.playsInline = true;
+  v.muted = true;
+  v.src = src;
+  const cleanup = () => {
+    v.onloadedmetadata = null;
+    v.onerror = null;
+  };
+  v.onloadedmetadata = () => {
+    cleanup();
+    resolve(v);
+  };
+  v.onerror = () => {
+    cleanup();
+    reject(new Error('Failed to load video'));
+  };
+});
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => 
+  new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const makeStoryImageVariants = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    
+    const calcSize = (w: number, h: number, max: number) => {
+      if (Math.max(w, h) <= max) return { width: w, height: h };
+      const scale = max / Math.max(w, h);
+      return {
+        width: Math.round(w * scale),
+        height: Math.round(h * scale),
+      };
+    };
+    
+    const feedSize = calcSize(img.naturalWidth, img.naturalHeight, 1080);
+    const thumbSize = calcSize(img.naturalWidth, img.naturalHeight, 320);
+    
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d')!.drawImage(img, 0, 0);
+    
+    const feedCanvas = document.createElement('canvas');
+    feedCanvas.width = feedSize.width;
+    feedCanvas.height = feedSize.height;
+    feedCanvas.getContext('2d')!.drawImage(img, 0, 0, feedSize.width, feedSize.height);
+    
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = thumbSize.width;
+    thumbCanvas.height = thumbSize.height;
+    thumbCanvas.getContext('2d')!.drawImage(img, 0, 0, thumbSize.width, thumbSize.height);
+    
+    const fullFile = file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp' 
+      ? file 
+      : new File([await canvasToBlob(fullCanvas, 'image/jpeg', 0.92)], `${Date.now()}-original.jpg`, { type: 'image/jpeg' });
+    
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    
+    const feedFile = new File([feedBlob], `${Date.now()}-feed.webp`, { type: 'image/webp' });
+    const thumbFile = new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+    
+    return { fullFile, feedFile, thumbFile };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const makeStoryVideoThumbnail = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    
+    if (Number.isFinite(video.duration) && video.duration > STORY_VIDEO_MAX_SECONDS) {
+      throw new Error('Story video must be 1 minute 30 seconds or less');
+    }
+    
+    const seekTo = Math.min(Math.max(video.duration * 0.2, 0.1), Math.max(video.duration - 0.1, 0.1));
+    
+    await new Promise<void>((resolve, reject) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('error', onError);
+        reject(new Error('Could not generate video thumbnail'));
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+    
+    const max = 320;
+    const scale = max / Math.max(video.videoWidth || max, video.videoHeight || max);
+    const width = Math.max(1, Math.round((video.videoWidth || max) * Math.min(scale, 1)));
+    const height = Math.max(1, Math.round((video.videoHeight || max) * Math.min(scale, 1)));
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d')!.drawImage(video, 0, 0, width, height);
+    
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    return new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadStoryImageBundle = async (file: File) => {
+  const { fullFile, feedFile, thumbFile } = await makeStoryImageVariants(file);
+  const fd = new FormData();
+  fd.append('original', fullFile);
+  fd.append('feed', feedFile);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story image');
+  }
+  
+  return {
+    media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['image'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'image',
+    }],
+  };
+};
+
+const uploadStoryVideoBundle = async (file: File) => {
+  const thumbFile = await makeStoryVideoThumbnail(file);
+  const fd = new FormData();
+  fd.append('original', file);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story video');
+  }
+  
+  return {
+    media_url: data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['video'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'video',
+    }],
+  };
+};
+
 // ==================== STORY REACTIONS, SHARE & COMMENT HANDLERS ====================
 
 const fetchStoryReactions = useCallback(async (storyId: number) => {
