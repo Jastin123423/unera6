@@ -708,37 +708,58 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       ...(Array.isArray(postsRes.results) ? postsRes.results : []),
       ...(Array.isArray(groupPostsRes.results) ? groupPostsRes.results : []),
     ];
+const map = new Map<string, any>();
+for (const it of items) {
+  const k = String(it?.feed_key || `${it?.source}:${it?.id}`);
+  if (!map.has(k)) map.set(k, it);
+}
 
-    const map = new Map<string, any>();
-    for (const it of items) {
-      const k = String(it?.feed_key || `${it?.source}:${it?.id}`);
-      if (!map.has(k)) map.set(k, it);
+const deduped = Array.from(map.values()).sort((a, b) =>
+  normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at))
+);
+
+// Group by user so one user does not dominate first page
+const byUser = new Map<string, any[]>();
+for (const item of deduped) {
+  const key = String(item?.user_id ?? "0");
+  if (!byUser.has(key)) byUser.set(key, []);
+  byUser.get(key)!.push(item);
+}
+
+// Round-robin across users
+const fairOrdered: any[] = [];
+let added = true;
+
+while (added && fairOrdered.length < limit) {
+  added = false;
+
+  for (const [, arr] of byUser) {
+    if (arr.length > 0) {
+      fairOrdered.push(arr.shift());
+      added = true;
+      if (fairOrdered.length >= limit) break;
     }
+  }
+}
 
-    const merged = Array.from(map.values())
-      .sort((a, b) =>
-        normCreatedAt(b.created_at).localeCompare(normCreatedAt(a.created_at))
-      )
-      .slice(0, limit)
-      .map((item) => {
-        const mediaNormalized = normalizeMedia(item);
-        const media = Array.isArray(mediaNormalized.media) ? mediaNormalized.media : [];
+const merged = fairOrdered.map((item) => {
+  const mediaNormalized = normalizeMedia(item);
+  const media = Array.isArray(mediaNormalized.media) ? mediaNormalized.media : [];
 
-        return {
-          ...item,
-          ...mediaNormalized,
-          media,
-          media_count: media.length,
-          thumb_url: mediaNormalized.thumb_url || null,
-          feed_url: mediaNormalized.feed_url || null,
-          full_url: mediaNormalized.full_url || null,
-          comments_count: Number(item?.comments_count ?? 0),
-          reactions_count: Number(item?.reactions_count ?? 0),
-          shares: Number(item?.shares ?? 0),
-        };
-      });
-
-    return json(Array.isArray(merged) ? merged : [], 200);
+  return {
+    ...item,
+    ...mediaNormalized,
+    media,
+    media_count: media.length,
+    thumb_url: mediaNormalized.thumb_url || null,
+    feed_url: mediaNormalized.feed_url || null,
+    full_url: mediaNormalized.full_url || null,
+    comments_count: Number(item?.comments_count ?? 0),
+    reactions_count: Number(item?.reactions_count ?? 0),
+    shares: Number(item?.shares ?? 0),
+  };
+});
+return json(Array.isArray(merged) ? merged : [], 200);
   } catch (err: any) {
     return json(
       { error: "Backend crash", message: String(err?.message ?? err) },
