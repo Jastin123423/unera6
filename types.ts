@@ -485,11 +485,21 @@ export interface Story {
   // Media stories
   media_url?: string;
 
+  // ✅ bundled media support
+  media_urls?: string[];
+  media_types?: string[];
+  media_meta?: Array<{
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    type?: string;
+  }>;
+
   // Music
   music_url?: string;
   music_title?: string;
 
-  // User info (either embedded user object or separate fields)
+  // User info
   user?: User;
 
   author_name?: string;
@@ -497,13 +507,11 @@ export interface Story {
   author_image?: string;
   username?: string;
 
-  // ✅ make stable for UI
   liked_by_me: boolean;
 
   created_at: string;
   expires_at?: string;
 
-  // ✅ keep consistent with your Reaction type
   reactions?: Reaction[];
   replies?: { user_id: number; text: string; created_at: string }[];
 
@@ -511,7 +519,14 @@ export interface Story {
   seen?: boolean;
   views?: number;
 
-  // ✅ aliases to tolerate different API shapes
+  // extra story stats used in UI
+  views_count?: number;
+  reactions_count?: number;
+  my_reaction?: ReactionType | null;
+  reaction_breakdown?: Record<string, number>;
+  is_active?: boolean;
+
+  // aliases
   story_id?: number;
   userId?: number;
 
@@ -519,6 +534,14 @@ export interface Story {
   backgroundStyle?: string;
 
   mediaUrl?: string;
+  mediaUrls?: string[];
+  mediaTypes?: string[];
+  mediaMeta?: Array<{
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    type?: string;
+  }>;
 
   musicUrl?: string;
   musicTitle?: string;
