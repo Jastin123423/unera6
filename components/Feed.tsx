@@ -3187,7 +3187,7 @@ type NormalizedMedia = {
   full?: string;
   kind: 'image' | 'video' | 'audio';
 };
-
+                       
 const getPostMediaList = (p: any) => {
   const out: Array<{
     url: string;
@@ -3324,6 +3324,124 @@ const getOrientation = (item: {
 const classifyOrientations = (
   media: { width?: number; height?: number }[]
 ): MediaOrientation[] => media.map(getOrientation);
+    
+  //===========GET STORY MEDIA LIST======
+
+const getStoryMediaList = (story: any) => {
+  const out: Array<{
+    url: string;
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    kind: 'image' | 'video' | 'audio';
+  }> = [];
+
+  const guessKind = (url: string, explicitType?: string) => {
+    const t = String(explicitType || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+
+    if (t.includes('video') || /\.(mp4|webm|mov|m4v)(\?|$)/i.test(u)) return 'video';
+    if (t.includes('audio') || /\.(mp3|wav|m4a|ogg|aac)(\?|$)/i.test(u)) return 'audio';
+    return 'image';
+  };
+
+  const safeParseArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return [];
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  try {
+    const metaItems = safeParseArray(story?.media_meta);
+
+    if (metaItems.length > 0) {
+      metaItems.forEach((item: any) => {
+        let parsedItem = item;
+
+        if (typeof item === 'string') {
+          try {
+            parsedItem = JSON.parse(item);
+          } catch {
+            parsedItem = null;
+          }
+        }
+
+        if (parsedItem && typeof parsedItem === 'object') {
+          const thumbUrl = String(parsedItem.thumb || parsedItem.thumbnail_url || '').trim();
+          const feedUrl = String(parsedItem.feed || parsedItem.feed_url || '').trim();
+          const fullUrl = String(parsedItem.full || parsedItem.full_url || '').trim();
+
+          const displayUrl = feedUrl || fullUrl || thumbUrl;
+
+          if (displayUrl) {
+            out.push({
+              url: displayUrl,
+              thumb: thumbUrl || feedUrl || fullUrl,
+              feed: feedUrl || fullUrl || thumbUrl,
+              full: fullUrl || feedUrl || thumbUrl,
+              kind: guessKind(displayUrl, parsedItem.type || story?.type),
+            });
+          }
+        }
+      });
+
+      if (out.length > 0) return out;
+    }
+
+    const urls = safeParseArray(story?.media_urls);
+    const types = safeParseArray(story?.media_types);
+
+    if (urls.length > 0) {
+      urls.forEach((url: string, i: number) => {
+        const cleanUrl = String(url || '').trim();
+        if (cleanUrl) {
+          out.push({
+            url: cleanUrl,
+            thumb: cleanUrl,
+            feed: cleanUrl,
+            full: cleanUrl,
+            kind: guessKind(cleanUrl, types[i] || story?.type),
+          });
+        }
+      });
+    }
+
+    if (!out.length && story?.media_url) {
+      const single = String(story.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          thumb: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, story?.type),
+        });
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to parse story media:', error);
+
+    if (story?.media_url) {
+      const single = String(story.media_url).trim();
+      if (single) {
+        out.push({
+          url: single,
+          thumb: single,
+          feed: single,
+          full: single,
+          kind: guessKind(single, story?.type),
+        });
+      }
+    }
+  }
+
+  return out;
+};    
 
     
 // ==================== PROGRESSIVE TILE IMAGE (MOVED OUTSIDE MEDIA GRID) ====================
