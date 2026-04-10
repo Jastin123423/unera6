@@ -187,95 +187,6 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   </svg>
 );
 
-// ==================== PROGRESSIVE IMAGE COMPONENT ====================
-const ProgressiveTileImage = memo(
-  ({
-    item,
-    className,
-  }: {
-    item: { url: string; thumb?: string; feed?: string; full?: string };
-    className: string;
-  }) => {
-    const thumbSrc = item.thumb || '';
-    const feedSrc = item.feed || '';
-    const fullSrc = item.full || '';
-    const fallbackSrc = item.url || '';
-
-    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}|${fallbackSrc}`;
-
-    // Start with thumb first, then fallback to feed/full/url
-    const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
-    const upgradedRef = useRef(false);
-    const lastMediaKeyRef = useRef(mediaKey);
-
-    useEffect(() => {
-      if (lastMediaKeyRef.current === mediaKey) return;
-      lastMediaKeyRef.current = mediaKey;
-      upgradedRef.current = false;
-      setSrc(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
-    }, [mediaKey, thumbSrc, feedSrc, fullSrc, fallbackSrc]);
-
-    // Upgrade from thumb to feed
-    useEffect(() => {
-      if (!feedSrc) return;
-      if (feedSrc === src) {
-        upgradedRef.current = true;
-        return;
-      }
-      if (upgradedRef.current) return;
-
-      let cancelled = false;
-      const img = new Image();
-      img.src = feedSrc;
-
-      img.onload = () => {
-        if (cancelled) return;
-        upgradedRef.current = true;
-        setSrc(feedSrc);
-      };
-
-      img.onerror = () => {};
-
-      return () => {
-        cancelled = true;
-        img.onload = null;
-        img.onerror = null;
-      };
-    }, [feedSrc, src]);
-
-    return (
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className={className}
-        onError={(e) => {
-          const target = e.currentTarget as HTMLImageElement;
-          const current = target.getAttribute('src') || '';
-
-          if (current === thumbSrc && feedSrc && feedSrc !== thumbSrc) {
-            target.src = feedSrc;
-            return;
-          }
-
-          if (current === feedSrc && fullSrc && fullSrc !== feedSrc) {
-            target.src = fullSrc;
-            return;
-          }
-
-          if (current !== fallbackSrc && fallbackSrc) {
-            target.src = fallbackSrc;
-            return;
-          }
-
-          target.style.display = 'none';
-        }}
-      />
-    );
-  }
-);
-      
 // ==================== HELPER FUNCTIONS ====================
 const formatViewCount = (n?: number): string => {
   const v = Number(n || 0);
@@ -3414,7 +3325,7 @@ const classifyOrientations = (
   media: { width?: number; height?: number }[]
 ): MediaOrientation[] => media.map(getOrientation);
 
-    // ==================== PROGRESSIVE TILE IMAGE (MOVED OUTSIDE MEDIA GRID) ====================
+// ==================== PROGRESSIVE TILE IMAGE (MOVED OUTSIDE MEDIA GRID) ====================
 const ProgressiveTileImage = memo(
   ({
     item,
@@ -3423,11 +3334,13 @@ const ProgressiveTileImage = memo(
     item: { url: string; thumb?: string; feed?: string; full?: string };
     className: string;
   }) => {
-    const thumbSrc = item.thumb || item.url || '';
+    const thumbSrc = item.thumb || '';
     const feedSrc = item.feed || '';
     const fullSrc = item.full || '';
-    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}`;
-    const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || '');
+    const fallbackSrc = item.url || '';
+
+    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}|${fallbackSrc}`;
+    const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
     const upgradedRef = useRef(false);
     const lastMediaKeyRef = useRef(mediaKey);
 
@@ -3436,17 +3349,16 @@ const ProgressiveTileImage = memo(
       if (lastMediaKeyRef.current === mediaKey) return;
       lastMediaKeyRef.current = mediaKey;
       upgradedRef.current = false;
-      setSrc(thumbSrc || feedSrc || fullSrc || '');
-    }, [mediaKey, thumbSrc, feedSrc, fullSrc]);
+      setSrc(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
+    }, [mediaKey, thumbSrc, feedSrc, fullSrc, fallbackSrc]);
 
-    // Upgrade once: thumb -> feed (never downgrade)
+    // Upgrade once: thumb -> feed
     useEffect(() => {
-      if (!feedSrc || feedSrc === thumbSrc) return;
-      if (upgradedRef.current) return;
-      if (src === feedSrc) {
-        upgradedRef.current = true;
+      if (!feedSrc || feedSrc === src) {
+        if (feedSrc === src) upgradedRef.current = true;
         return;
       }
+      if (upgradedRef.current) return;
 
       let cancelled = false;
       const img = new Image();
@@ -3465,7 +3377,7 @@ const ProgressiveTileImage = memo(
         img.onload = null;
         img.onerror = null;
       };
-    }, [thumbSrc, feedSrc, src]);
+    }, [feedSrc, src]);
 
     return (
       <img
@@ -3475,13 +3387,30 @@ const ProgressiveTileImage = memo(
         decoding="async"
         className={className}
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
+          const target = e.currentTarget as HTMLImageElement;
+          const current = target.getAttribute('src') || '';
+
+          if (current === thumbSrc && feedSrc && feedSrc !== thumbSrc) {
+            target.src = feedSrc;
+            return;
+          }
+
+          if (current === feedSrc && fullSrc && fullSrc !== feedSrc) {
+            target.src = fullSrc;
+            return;
+          }
+
+          if (current !== fallbackSrc && fallbackSrc) {
+            target.src = fallbackSrc;
+            return;
+          }
+
+          target.style.display = 'none';
         }}
       />
     );
   }
 );
-
 
 
 // ==================== MEDIA GRID (keep old sizes, add thumb->feed progressive loading) ====================
