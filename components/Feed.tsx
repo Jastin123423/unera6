@@ -3325,7 +3325,7 @@ const classifyOrientations = (
   media: { width?: number; height?: number }[]
 ): MediaOrientation[] => media.map(getOrientation);
 
-// ==================== PROGRESSIVE TILE IMAGE (MOVED OUTSIDE MEDIA GRID) ====================
+// ==================== PROGRESSIVE TILE IMAGE (STABLE thumb -> feed) ====================
 const ProgressiveTileImage = memo(
   ({
     item,
@@ -3334,31 +3334,35 @@ const ProgressiveTileImage = memo(
     item: { url: string; thumb?: string; feed?: string; full?: string };
     className: string;
   }) => {
-    const thumbSrc = item.thumb || '';
-    const feedSrc = item.feed || '';
-    const fullSrc = item.full || '';
-    const fallbackSrc = item.url || '';
+    const thumbSrc = String(item.thumb || '').trim();
+    const feedSrc = String(item.feed || '').trim();
+    const fullSrc = String(item.full || '').trim();
+    const fallbackSrc = String(item.url || '').trim();
 
-    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}|${fallbackSrc}`;
+    // ✅ only track actual progressive sources
+    const stableKey = `${thumbSrc}|${feedSrc}|${fullSrc}`;
+
     const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
     const upgradedRef = useRef(false);
-    const lastMediaKeyRef = useRef(mediaKey);
+    const lastStableKeyRef = useRef(stableKey);
 
-    // Reset only when actual image changes
+    // ✅ reset only when the real media changes
     useEffect(() => {
-      if (lastMediaKeyRef.current === mediaKey) return;
-      lastMediaKeyRef.current = mediaKey;
+      if (lastStableKeyRef.current === stableKey) return;
+
+      lastStableKeyRef.current = stableKey;
       upgradedRef.current = false;
       setSrc(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
-    }, [mediaKey, thumbSrc, feedSrc, fullSrc, fallbackSrc]);
+    }, [stableKey, thumbSrc, feedSrc, fullSrc, fallbackSrc]);
 
-    // Upgrade once: thumb -> feed
+    // ✅ once upgraded to feed, stay there
     useEffect(() => {
-      if (!feedSrc || feedSrc === src) {
-        if (feedSrc === src) upgradedRef.current = true;
+      if (!feedSrc) return;
+      if (upgradedRef.current) return;
+      if (src === feedSrc) {
+        upgradedRef.current = true;
         return;
       }
-      if (upgradedRef.current) return;
 
       let cancelled = false;
       const img = new Image();
@@ -3367,7 +3371,11 @@ const ProgressiveTileImage = memo(
       img.onload = () => {
         if (cancelled) return;
         upgradedRef.current = true;
-        setSrc(feedSrc);
+        setSrc((current) => {
+          // if already on feed, keep it
+          if (current === feedSrc) return current;
+          return feedSrc;
+        });
       };
 
       img.onerror = () => {};
@@ -3377,7 +3385,7 @@ const ProgressiveTileImage = memo(
         img.onload = null;
         img.onerror = null;
       };
-    }, [feedSrc, src]);
+    }, [feedSrc]);
 
     return (
       <img
@@ -3388,19 +3396,19 @@ const ProgressiveTileImage = memo(
         className={className}
         onError={(e) => {
           const target = e.currentTarget as HTMLImageElement;
-          const current = target.getAttribute('src') || '';
+          const currentSrc = target.currentSrc || target.src || '';
 
-          if (current === thumbSrc && feedSrc && feedSrc !== thumbSrc) {
+          if (thumbSrc && currentSrc.includes(thumbSrc) && feedSrc && feedSrc !== thumbSrc) {
             target.src = feedSrc;
             return;
           }
 
-          if (current === feedSrc && fullSrc && fullSrc !== feedSrc) {
+          if (feedSrc && currentSrc.includes(feedSrc) && fullSrc && fullSrc !== feedSrc) {
             target.src = fullSrc;
             return;
           }
 
-          if (current !== fallbackSrc && fallbackSrc) {
+          if (fallbackSrc && !currentSrc.includes(fallbackSrc)) {
             target.src = fallbackSrc;
             return;
           }
@@ -3411,7 +3419,7 @@ const ProgressiveTileImage = memo(
     );
   }
 );
-
+                              
 
 // ==================== MEDIA GRID (keep old sizes, add thumb->feed progressive loading) ====================
 const MediaGrid = memo(
