@@ -188,73 +188,88 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
 );
 
 // ==================== PROGRESSIVE IMAGE COMPONENT ====================
-const ProgressiveFeedImage = memo(
+const ProgressiveTileImage = memo(
   ({
-    thumb,
-    feed,
-    full,
-    alt,
+    item,
     className,
-    onClick,
   }: {
-    thumb?: string;
-    feed?: string;
-    full?: string;
-    alt?: string;
-    className?: string;
-    onClick?: () => void;
+    item: { url: string; thumb?: string; feed?: string; full?: string };
+    className: string;
   }) => {
-    const initialSrc = thumb || feed || full || '';
-    const [src, setSrc] = useState(initialSrc);
-    const [loadedFeed, setLoadedFeed] = useState(false);
+    const thumbSrc = item.thumb || '';
+    const feedSrc = item.feed || '';
+    const fullSrc = item.full || '';
+    const fallbackSrc = item.url || '';
 
-    const lastMediaKeyRef = React.useRef('');
+    const mediaKey = `${thumbSrc}|${feedSrc}|${fullSrc}|${fallbackSrc}`;
 
-    // only reset when actual media item changes
+    // Start with thumb first, then fallback to feed/full/url
+    const [src, setSrc] = useState(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
+    const upgradedRef = useRef(false);
+    const lastMediaKeyRef = useRef(mediaKey);
+
     useEffect(() => {
-      const mediaKey = `${thumb || ''}|${feed || ''}|${full || ''}`;
       if (lastMediaKeyRef.current === mediaKey) return;
-
       lastMediaKeyRef.current = mediaKey;
-      setSrc(thumb || feed || full || '');
-      setLoadedFeed(false);
-    }, [thumb, feed, full]);
+      upgradedRef.current = false;
+      setSrc(thumbSrc || feedSrc || fullSrc || fallbackSrc || '');
+    }, [mediaKey, thumbSrc, feedSrc, fullSrc, fallbackSrc]);
 
-    // upgrade thumb -> feed only
+    // Upgrade from thumb to feed
     useEffect(() => {
-      if (!feed) return;
-      if (src === feed) {
-        setLoadedFeed(true);
+      if (!feedSrc) return;
+      if (feedSrc === src) {
+        upgradedRef.current = true;
         return;
       }
+      if (upgradedRef.current) return;
 
+      let cancelled = false;
       const img = new Image();
-      img.src = feed;
+      img.src = feedSrc;
+
       img.onload = () => {
-        setSrc((prev) => {
-          // never downgrade once feed is loaded
-          if (prev === full) return prev;
-          return feed;
-        });
-        setLoadedFeed(true);
+        if (cancelled) return;
+        upgradedRef.current = true;
+        setSrc(feedSrc);
       };
+
+      img.onerror = () => {};
 
       return () => {
+        cancelled = true;
         img.onload = null;
+        img.onerror = null;
       };
-    }, [feed]);
+    }, [feedSrc, src]);
 
     return (
       <img
         src={src}
-        alt={alt || ''}
-        onClick={onClick}
-        className={className}
+        alt=""
         loading="lazy"
         decoding="async"
-        style={{
-          transition: 'opacity 180ms ease',
-          opacity: 1,
+        className={className}
+        onError={(e) => {
+          const target = e.currentTarget as HTMLImageElement;
+          const current = target.getAttribute('src') || '';
+
+          if (current === thumbSrc && feedSrc && feedSrc !== thumbSrc) {
+            target.src = feedSrc;
+            return;
+          }
+
+          if (current === feedSrc && fullSrc && fullSrc !== feedSrc) {
+            target.src = fullSrc;
+            return;
+          }
+
+          if (current !== fallbackSrc && fallbackSrc) {
+            target.src = fallbackSrc;
+            return;
+          }
+
+          target.style.display = 'none';
         }}
       />
     );
