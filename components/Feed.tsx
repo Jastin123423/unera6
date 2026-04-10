@@ -3291,83 +3291,61 @@ const getPostMediaList = (p: any) => {
   };
 
   try {
-    // ✅ Prefer media_meta first
+    // ✅ STEP 1: Check media_meta first
     const metaItems = safeParseArray(p?.media_meta);
+
+    if (metaItems.length > 0) {
+      metaItems.forEach((item: any) => {
+        let parsedItem = item;
+        if (typeof item === 'string') {
+          try {
+            parsedItem = JSON.parse(item);
+          } catch {
+            parsedItem = null;
+          }
+        }
+
+        if (parsedItem && typeof parsedItem === 'object') {
+          const thumbUrl = String(parsedItem.thumb || parsedItem.thumbnail_url || '').trim();
+          const feedUrl = String(parsedItem.feed || parsedItem.feed_url || '').trim();
+          const fullUrl = String(parsedItem.full || parsedItem.full_url || '').trim();
+
+          const displayUrl = feedUrl || fullUrl || thumbUrl;
+          if (displayUrl) {
+            out.push({
+              url: displayUrl,                         // feed card
+              thumb: thumbUrl || feedUrl || fullUrl,  // small preview
+              feed: feedUrl || fullUrl || thumbUrl,   // feed image
+              full: feedUrl || fullUrl || thumbUrl,   // ✅ full now prefers feed too
+              kind: guessKind(displayUrl, parsedItem.type),
+            });
+          }
+        }
+      });
+
+      if (out.length > 0) return out;
+    }
+
+    // ✅ STEP 2: Fallback to media_urls
     const rawUrls = safeParseArray(p?.media_urls);
     const rawTypes = safeParseArray(p?.media_types);
 
-    const sourceItems =
-      Array.isArray(metaItems) && metaItems.length > 0 ? metaItems : rawUrls;
-
-    if (Array.isArray(sourceItems)) {
-      sourceItems.forEach((item: any, i: number) => {
-        const explicitType = item?.type || rawTypes[i];
-
-        if (typeof item === 'string') {
-          let parsedObj: any = null;
-
-          try {
-            const parsed = JSON.parse(item);
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-              parsedObj = parsed;
-            }
-          } catch {
-            parsedObj = null;
-          }
-
-          if (parsedObj) {
-            const thumbUrl = String(parsedObj.thumb || parsedObj.thumbnail_url || '').trim();
-            const feedUrl = String(parsedObj.feed || parsedObj.feed_url || '').trim();
-            const fullUrl = String(parsedObj.full || parsedObj.full_url || '').trim();
-            const directUrl = String(parsedObj.url || '').trim();
-
-            const displayUrl = thumbUrl || feedUrl || fullUrl || directUrl;
-            if (!displayUrl) return;
-
-            out.push({
-              url: displayUrl,
-              thumb: thumbUrl || feedUrl || fullUrl || directUrl,
-              feed: feedUrl || thumbUrl || fullUrl || directUrl,
-              full: fullUrl || feedUrl || thumbUrl || directUrl,
-              kind: guessKind(fullUrl || feedUrl || thumbUrl || directUrl, explicitType),
-            });
-            return;
-          }
-
-          const cleanUrl = item.trim();
-          if (!cleanUrl) return;
-
+    if (rawUrls.length > 0) {
+      rawUrls.forEach((url: string, i: number) => {
+        const cleanUrl = String(url || '').trim();
+        if (cleanUrl) {
           out.push({
             url: cleanUrl,
             thumb: cleanUrl,
             feed: cleanUrl,
             full: cleanUrl,
-            kind: guessKind(cleanUrl, explicitType),
-          });
-          return;
-        }
-
-        if (item && typeof item === 'object') {
-          const thumbUrl = String(item.thumb || item.thumbnail_url || '').trim();
-          const feedUrl = String(item.feed || item.feed_url || '').trim();
-          const fullUrl = String(item.full || item.full_url || '').trim();
-          const directUrl = String(item.url || '').trim();
-
-          const displayUrl = thumbUrl || feedUrl || fullUrl || directUrl;
-          if (!displayUrl) return;
-
-          out.push({
-            url: displayUrl,
-            thumb: thumbUrl || feedUrl || fullUrl || directUrl,
-            feed: feedUrl || thumbUrl || fullUrl || directUrl,
-            full: fullUrl || feedUrl || thumbUrl || directUrl,
-            kind: guessKind(fullUrl || feedUrl || thumbUrl || directUrl, explicitType),
+            kind: guessKind(cleanUrl, rawTypes[i]),
           });
         }
       });
     }
 
-    // fallback to old single-media field
+    // ✅ STEP 3: Fallback to single media_url
     if (!out.length && p?.media_url) {
       const single = String(p.media_url).trim();
       if (single) {
@@ -3380,7 +3358,8 @@ const getPostMediaList = (p: any) => {
         });
       }
     }
-  } catch {
+  } catch (error) {
+    console.warn('Failed to parse post media:', error);
     if (p?.media_url) {
       const single = String(p.media_url).trim();
       if (single) {
