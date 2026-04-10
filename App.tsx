@@ -295,19 +295,35 @@ const parseJSON = (v: any) => {
   return v;
 };
 
-/** ✅ safeImages helper for marketplace product posts */
-const safeImages = (imgs: any): string[] => {
-  if (Array.isArray(imgs)) return imgs.filter(Boolean);
-  if (typeof imgs === 'string') {
+ const safeImageVariants = (value: any) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => ({
+        thumb: String(v?.thumb || '').trim(),
+        feed: String(v?.feed || v?.full || '').trim(),
+        full: String(v?.feed || v?.full || '').trim(),
+        type: 'image',
+      }))
+      .filter((v) => v.feed);
+  }
+  if (typeof value === 'string') {
     try {
-      const p = JSON.parse(imgs);
-      return Array.isArray(p) ? p.filter(Boolean) : [];
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((v: any) => ({
+          thumb: String(v?.thumb || '').trim(),
+          feed: String(v?.feed || v?.full || '').trim(),
+          full: String(v?.feed || v?.full || '').trim(),
+          type: 'image',
+        }))
+        .filter((v: any) => v.feed);
     } catch {
       return [];
     }
   }
   return [];
-};
+}; 
 
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
