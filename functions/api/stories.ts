@@ -99,7 +99,6 @@ const normalizeStoryMedia = (item: any) => {
   const mediaUrls = normalizeStringArray(item?.media_urls);
   const mediaTypes = normalizeStringArray(item?.media_types);
 
-  // 1) Best source: media_meta
   if (mediaMeta.length > 0) {
     const normalized = mediaMeta
       .map((m: any) => {
@@ -128,7 +127,6 @@ const normalizeStoryMedia = (item: any) => {
     if (normalized.length > 0) return normalized;
   }
 
-  // 2) Fallback: media_urls + media_types
   if (mediaUrls.length > 0) {
     const normalized = mediaUrls
       .map((url, i) => {
@@ -149,7 +147,6 @@ const normalizeStoryMedia = (item: any) => {
     if (normalized.length > 0) return normalized;
   }
 
-  // 3) Final fallback: single media_url
   const singleUrl = String(item?.media_url || "").trim();
   if (isHttpUrl(singleUrl)) {
     const t = normalizeMediaType(item?.type, inferTypeFromUrl(singleUrl));
@@ -187,10 +184,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const user_id = toInt(body.user_id, 0);
     const type = toStr(body.type, "").trim().toLowerCase();
 
-    // old single-media support
     const media_url = body.media_url ? toStr(body.media_url).trim() : null;
 
-    // new posts-like media support
     const media_urls_arr = normalizeStringArray(body.media_urls);
     const media_types_arr = normalizeStringArray(body.media_types);
     const media_meta_arr = normalizeMediaMetaArray(body.media_meta);
@@ -250,9 +245,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         ? media_url
         : final_multi_urls[0] ?? null;
 
-    const final_media_type =
-      final_multi_types[0] || type || null;
-
     if ((type === "image" || type === "video") && !final_media_url && media_meta_arr.length === 0) {
       return json({ success: false, error: "media_url or media_meta is required" }, 400);
     }
@@ -269,15 +261,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       ? JSON.stringify(media_meta_arr)
       : null;
 
-    // Permanent stories: expires_at stays NULL
     let result: D1Result<any>;
-    let insertedWithRichMedia = true;
 
     try {
       const stmt = `
         INSERT INTO stories
         (user_id, type, media_url, media_urls, media_types, media_meta, text_content, background_style, music_url, music_title, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '9999-12-31')
       `;
 
       result = await env.DB.prepare(stmt)
@@ -295,12 +285,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         )
         .run();
     } catch {
-      insertedWithRichMedia = false;
-
       const stmt = `
         INSERT INTO stories
         (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, ?, '9999-12-31')
       `;
 
       result = await env.DB.prepare(stmt)
