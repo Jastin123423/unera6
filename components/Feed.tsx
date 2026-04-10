@@ -6080,6 +6080,9 @@ export const Post = memo(
     }}
   />
 )}
+  </>
+) : (
+  <>
 
                 {!p.background && videoMedia.length > 0 && (
                   <div
