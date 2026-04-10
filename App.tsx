@@ -7240,7 +7240,6 @@ return (
   onReply={replyToStory}
   onToggleMute={() => setStoryMuted(!storyMuted)}
   muted={storyMuted}
-  storyCreateLoading={storyCreateLoading}  // ✅ ADD THIS LINE
 />
 
     {currentUser && (
