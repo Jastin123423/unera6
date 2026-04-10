@@ -1971,6 +1971,194 @@ const deleteStory = useCallback(async (storyId: number) => {
   }
 }, [currentUser, requireAuth]);
 
+// ============================================================================
+// ✅ STORY UPLOAD HELPERS
+// ============================================================================
+
+const STORY_VIDEO_MAX_SECONDS = 90;
+
+const loadImageElement = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
+const loadVideoElement = (src: string) => new Promise<HTMLVideoElement>((resolve, reject) => {
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.playsInline = true;
+  v.muted = true;
+  v.src = src;
+  const cleanup = () => {
+    v.onloadedmetadata = null;
+    v.onerror = null;
+  };
+  v.onloadedmetadata = () => {
+    cleanup();
+    resolve(v);
+  };
+  v.onerror = () => {
+    cleanup();
+    reject(new Error('Failed to load video'));
+  };
+});
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => 
+  new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const makeStoryImageVariants = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    
+    const calcSize = (w: number, h: number, max: number) => {
+      if (Math.max(w, h) <= max) return { width: w, height: h };
+      const scale = max / Math.max(w, h);
+      return {
+        width: Math.round(w * scale),
+        height: Math.round(h * scale),
+      };
+    };
+    
+    const feedSize = calcSize(img.naturalWidth, img.naturalHeight, 1080);
+    const thumbSize = calcSize(img.naturalWidth, img.naturalHeight, 320);
+    
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d')!.drawImage(img, 0, 0);
+    
+    const feedCanvas = document.createElement('canvas');
+    feedCanvas.width = feedSize.width;
+    feedCanvas.height = feedSize.height;
+    feedCanvas.getContext('2d')!.drawImage(img, 0, 0, feedSize.width, feedSize.height);
+    
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = thumbSize.width;
+    thumbCanvas.height = thumbSize.height;
+    thumbCanvas.getContext('2d')!.drawImage(img, 0, 0, thumbSize.width, thumbSize.height);
+    
+    const fullFile = file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp' 
+      ? file 
+      : new File([await canvasToBlob(fullCanvas, 'image/jpeg', 0.92)], `${Date.now()}-original.jpg`, { type: 'image/jpeg' });
+    
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    
+    const feedFile = new File([feedBlob], `${Date.now()}-feed.webp`, { type: 'image/webp' });
+    const thumbFile = new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+    
+    return { fullFile, feedFile, thumbFile };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const makeStoryVideoThumbnail = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    
+    if (Number.isFinite(video.duration) && video.duration > STORY_VIDEO_MAX_SECONDS) {
+      throw new Error('Story video must be 1 minute 30 seconds or less');
+    }
+    
+    const seekTo = Math.min(Math.max(video.duration * 0.2, 0.1), Math.max(video.duration - 0.1, 0.1));
+    
+    await new Promise<void>((resolve, reject) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('error', onError);
+        reject(new Error('Could not generate video thumbnail'));
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+    
+    const max = 320;
+    const scale = max / Math.max(video.videoWidth || max, video.videoHeight || max);
+    const width = Math.max(1, Math.round((video.videoWidth || max) * Math.min(scale, 1)));
+    const height = Math.max(1, Math.round((video.videoHeight || max) * Math.min(scale, 1)));
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d')!.drawImage(video, 0, 0, width, height);
+    
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    return new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadStoryImageBundle = async (file: File) => {
+  const { fullFile, feedFile, thumbFile } = await makeStoryImageVariants(file);
+  const fd = new FormData();
+  fd.append('original', fullFile);
+  fd.append('feed', feedFile);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story image');
+  }
+  
+  return {
+    media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['image'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'image',
+    }],
+  };
+};
+
+const uploadStoryVideoBundle = async (file: File) => {
+  const thumbFile = await makeStoryVideoThumbnail(file);
+  const fd = new FormData();
+  fd.append('original', file);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story video');
+  }
+  
+  return {
+    media_url: data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['video'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'video',
+    }],
+  };
+};
+
 // ==================== STORY REACTIONS, SHARE & COMMENT HANDLERS ====================
 
 const fetchStoryReactions = useCallback(async (storyId: number) => {
@@ -3107,55 +3295,139 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
     }
   }, [currentUser, requireAuth]);
 
-  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
-    if (!requireAuth('Creating stories')) return;
-    if (!currentUser) return;
-
-    try {
-      let mediaUrl = storyData.media_url;
-      let musicUrl = storyData.music_url;
-
-      if (storyData.media_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
-        mediaUrl = uploadResult.url;
+const createStory = useCallback(async (storyData: Partial<Story> & { 
+  media_file?: File; 
+  audio_file?: File; 
+  video_file?: File;
+  media_urls?: string[];
+  media_types?: string[];
+  media_meta?: any[];
+}) => {
+  if (!requireAuth('Creating stories')) return;
+  if (!currentUser) return;
+  
+  const hasText = storyData.text_content && storyData.text_content.trim().length > 0;
+  const hasMedia = storyData.media_file || storyData.video_file || storyData.media_url;
+  
+  if (!hasText && !hasMedia) {
+    setLoginError('Please add text or media to your story');
+    return;
+  }
+  
+  // close immediately so user keeps using app
+  setShowCreateStoryModal(false);
+  setStoryCreateLoading(true);
+  
+  try {
+    let mediaUrl = storyData.media_url || null;
+    let musicUrl = storyData.music_url || null;
+    let mediaType = storyData.type || 'text';
+    let mediaUrls: string[] | null = Array.isArray((storyData as any).media_urls) ? (storyData as any).media_urls : null;
+    let mediaTypes: string[] | null = Array.isArray((storyData as any).media_types) ? (storyData as any).media_types : null;
+    let mediaMeta: any[] | null = Array.isArray((storyData as any).media_meta) ? (storyData as any).media_meta : null;
+    
+    // VIDEO
+    if (storyData.video_file) {
+      const videoFile = storyData.video_file;
+      if (videoFile.size > 50 * 1024 * 1024) {
+        throw new Error('Video file size must be less than 50MB');
       }
-
-      if (storyData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
-        musicUrl = uploadResult.url;
+      const validVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+      if (!validVideoTypes.includes(videoFile.type)) {
+        throw new Error('Please upload a valid video file (MP4, WebM, or MOV)');
       }
-
-      const payload = {
-        user_id: currentUser.id,
-        type: storyData.type || 'text',
-        text_content: storyData.text_content || null,
-        media_url: mediaUrl || null,
-        background_style: storyData.background_style || null,
-        music_url: musicUrl || null,
-        music_title: storyData.music_title || null,
-        created_at: new Date().toISOString(),
-      };
-
-      const data = await apiFetch('/api/stories', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newStory = normalizeStory(data?.story ?? data, currentUser);
-      newStory.user = currentUser;
-
-      setStories(prev => [newStory, ...prev]);
-
-      writeStoriesCache([newStory, ...stories]);
-
-      setLoginError('Story created successfully!');
-      
-    } catch (error: any) {
-      console.error('Failed to create story:', error);
-      setLoginError(error?.message || 'Failed to create story');
+      const uploaded = await uploadStoryVideoBundle(videoFile);
+      mediaUrl = uploaded.media_url;
+      mediaUrls = uploaded.media_urls;
+      mediaTypes = uploaded.media_types;
+      mediaMeta = uploaded.media_meta;
+      mediaType = 'video';
     }
-  }, [currentUser, requireAuth, stories]);
-
+    // IMAGE
+    else if (storyData.media_file) {
+      const imageFile = storyData.media_file;
+      if (imageFile.size > 10 * 1024 * 1024) {
+        throw new Error('Image file size must be less than 10MB');
+      }
+      const validImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validImageTypes.includes(imageFile.type)) {
+        throw new Error('Please upload a valid image file (JPEG, PNG, WebP, or GIF)');
+      }
+      const uploaded = await uploadStoryImageBundle(imageFile);
+      mediaUrl = uploaded.media_url;
+      mediaUrls = uploaded.media_urls;
+      mediaTypes = uploaded.media_types;
+      mediaMeta = uploaded.media_meta;
+      mediaType = 'image';
+    }
+    // AUDIO
+    if (storyData.audio_file) {
+      const audioFile = storyData.audio_file;
+      if (audioFile.size > 5 * 1024 * 1024) {
+        throw new Error('Audio file size must be less than 5MB');
+      }
+      const uploadResult = await uploadToCloudflareR2(audioFile, 'story-audio');
+      musicUrl = uploadResult.url;
+    }
+    
+    const payload = {
+      user_id: currentUser.id,
+      type: mediaType,
+      text_content: storyData.text_content?.trim() || null,
+      media_url: mediaUrl || null,
+      media_urls: mediaUrls || null,
+      media_types: mediaTypes || null,
+      media_meta: mediaMeta || null,
+      background_style: storyData.background_style || null,
+      music_url: musicUrl || null,
+      music_title: storyData.music_title || null,
+      created_at: new Date().toISOString(),
+    };
+    
+    const data = await apiFetch('/api/stories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    
+    const newStory = normalizeStory(data?.story ?? data, currentUser);
+    newStory.user = currentUser;
+    newStory.author_name = currentUser.name;
+    newStory.author_username = currentUser.username;
+    newStory.author_image = currentUser.profile_image_url;
+    
+    setStories(prev => [newStory, ...safeArray(prev)]);
+    
+    try {
+      const cached = readStoriesCache();
+      const updatedCache = [newStory, ...safeArray(cached?.stories)];
+      writeStoriesCache(updatedCache);
+    } catch (error) {
+      console.warn('Failed to update stories cache:', error);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story posted successfully!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+    
+    return newStory;
+  } catch (error: any) {
+    console.error('Failed to create story:', error);
+    setLoginError(error?.message || 'Failed to create story');
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = error?.message || 'Failed to create story';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+    
+    throw error;
+  } finally {
+    setStoryCreateLoading(false);
+  }
+}, [currentUser, requireAuth, setStories, setShowCreateStoryModal]); 
+  
   useEffect(() => {
     if (!authHydrated) return;
 
@@ -7223,26 +7495,26 @@ return (
     )}
 
     <StoryReel
-  stories={orderedStories}
-  onProfileClick={(id) => openProfile(id)}
-  onCreateStory={() => {
-    if (!requireAuth('Creating stories')) return;
-    setShowCreateStoryModal(true);
-  }}
-  onViewStory={openStoryViewer}
-  currentUser={currentUser}
-  onRequestLogin={() => setView('login')}
-  onFollow={followUser}
-  checkIsFollowing={checkIsFollowing}
-  followLoading={followLoading}
-  onFetchViewers={fetchStoryViewers}
-  onReaction={reactToStory}
-  onReply={replyToStory}
-  onToggleMute={() => setStoryMuted(!storyMuted)}
-  muted={storyMuted}
- storyCreateLoading={storyCreateLoading}
-/>
-
+      stories={orderedStories}
+      onProfileClick={(id) => openProfile(id)}
+      onCreateStory={() => {
+        if (!requireAuth('Creating stories')) return;
+        setShowCreateStoryModal(true);
+      }}
+      onViewStory={openStoryViewer}
+      currentUser={currentUser}
+      onRequestLogin={() => setView('login')}
+      onFollow={followUser}
+      checkIsFollowing={checkIsFollowing}
+      followLoading={followLoading}
+      onFetchViewers={fetchStoryViewers}
+      onReaction={reactToStory}
+      onReply={replyToStory}
+      onToggleMute={() => setStoryMuted(!storyMuted)}
+      muted={storyMuted}
+      storyCreateLoading={storyCreateLoading}
+    />
+    
     {currentUser && (
       <CreatePost
         currentUser={currentUser}
