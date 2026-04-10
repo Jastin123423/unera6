@@ -5726,20 +5726,21 @@ export const Post = memo(
                 </div>
               </>
             ) : (
-              <>
-                {!p.background && imageMedia.length > 0 && (
-                  <MediaGrid
-                    media={imageMedia.map((m) => ({
-                      url: m.thumb || m.feed || m.url,
-                      feed: m.feed || m.url,
-                      full: m.full || m.feed || m.url,
-                    }))}
-                    onOpen={(url, index) => {
-                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
-                      openGallery(urls, index);
-                    }}
-                  />
-                )}
+              <>   
+   {!p.background && imageMedia.length > 0 && (
+  <MediaGrid
+    media={imageMedia.map((m) => ({
+      url: m.feed || m.url,
+      thumb: m.thumb || m.url,
+      feed: m.feed || m.url,
+      full: m.full || m.feed || m.url,
+    }))}
+    onOpen={(url, index) => {
+      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+      openGallery(urls, index);
+    }}
+  />
+)}
 
                 {!p.background && videoMedia.length > 0 && (
                   <div
