@@ -649,7 +649,45 @@ const getMarketplaceProductId = (p: any) => {
     }
     return [];
   };
+const getMarketplaceImageVariants = (
+  p: any,
+  productData?: any
+): Array<{ thumb: string; feed: string; full: string; type: string }> => {
+  const parseVariants = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
 
+  const normalize = (arr: any[]) =>
+    arr
+      .map((v: any) => ({
+        thumb: v?.thumb || v?.feed || v?.full || '',
+        feed: v?.feed || v?.full || v?.thumb || '',
+        full: v?.feed || v?.full || v?.thumb || '', // ✅ products full = feed
+        type: v?.type || 'image',
+      }))
+      .filter((v) => v.feed);
+
+  const direct = normalize(parseVariants((p as any)?.image_variants));
+  if (direct.length > 0) return direct;
+
+  const fromProduct = normalize(parseVariants(productData?.image_variants));
+  if (fromProduct.length > 0) return fromProduct;
+
+  const fromMeta = normalize(parseVariants(p?.meta?.marketplace?.image_variants));
+  if (fromMeta.length > 0) return fromMeta;
+
+  return [];
+};
+    
   // ✅ image_variants first
   const directVariants = parseVariants((p as any)?.image_variants);
   if (directVariants.length > 0) {
