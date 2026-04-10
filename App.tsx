@@ -1136,17 +1136,33 @@ const normalizeSong = (s: any): Song => {
 const normalizeProduct = (p: any) => {
   let imgs: string[] = [];
   try {
-    const parsed = typeof p?.images === "string" ? JSON.parse(p.images) : p.images;
+    const parsed = typeof p?.images === 'string' ? JSON.parse(p.images) : p.images;
     imgs = Array.isArray(parsed) ? parsed : [];
-  } catch { imgs = []; }
+  } catch {
+    imgs = [];
+  }
+
+  let imageVariants: any[] = [];
+  try {
+    const parsed = typeof p?.image_variants === 'string' ? JSON.parse(p.image_variants) : p?.image_variants;
+    imageVariants = Array.isArray(parsed) ? parsed.map((v: any) => ({
+      thumb: v?.thumb || '',
+      feed: v?.feed || v?.full || '',
+      full: v?.feed || v?.full || '',
+      type: v?.type || 'image',
+    })) : [];
+  } catch {
+    imageVariants = [];
+  }
 
   return {
     ...p,
     id: safeNumber(p?.id),
     seller_id: safeNumber(p?.seller_id),
-    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
-    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
+    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? 'Seller'),
+    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ''),
     images: imgs.length ? imgs : [],
+    image_variants: imageVariants,
     main_price: safeNumber(p?.main_price),
     discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
     quantity: safeNumber(p?.quantity, 1),
@@ -1155,7 +1171,7 @@ const normalizeProduct = (p: any) => {
     description: safeString(p?.description),
     category: safeString(p?.category),
     country: safeString(p?.country),
-    phone_number: safeString(p?.phone_number ?? ""),
+    phone_number: safeString(p?.phone_number ?? ''),
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
