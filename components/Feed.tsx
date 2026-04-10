@@ -3467,8 +3467,9 @@ const ProgressiveTileImage = memo(
   }
 );
 
-// ==================== MEDIA GRID (updated with stable progressive thumb -> feed loading) ====================
- const MediaGrid = memo(
+
+// ==================== MEDIA GRID WITH OPTIMIZED IMAGES ====================
+const MediaGrid = memo(
   ({
     media,
     onOpen,
@@ -3486,6 +3487,7 @@ const ProgressiveTileImage = memo(
     const total = Array.isArray(media) ? media.length : 0;
     const [measuredMedia, setMeasuredMedia] = useState(media);
 
+    // ✅ Measure dimensions using optimized feed image
     useEffect(() => {
       let cancelled = false;
 
@@ -3493,20 +3495,13 @@ const ProgressiveTileImage = memo(
         const next = await Promise.all(
           media.map(
             (item) =>
-              new Promise<{
-                url: string;
-                thumb?: string;
-                feed?: string;
-                full?: string;
-                width?: number;
-                height?: number;
-              }>((resolve) => {
+              new Promise<typeof item>((resolve) => {
                 if (item.width && item.height) {
                   resolve(item);
                   return;
                 }
 
-                // ✅ Use feed URL for measurement (optimized image)
+                // Use feed image for measurement (optimized)
                 const probeSrc = item.feed || item.thumb || item.url;
                 if (!probeSrc) {
                   resolve(item);
@@ -3514,13 +3509,12 @@ const ProgressiveTileImage = memo(
                 }
 
                 const img = new Image();
-                img.onload = () => {
+                img.onload = () =>
                   resolve({
                     ...item,
                     width: img.naturalWidth,
                     height: img.naturalHeight,
                   });
-                };
                 img.onerror = () => resolve(item);
                 img.src = probeSrc;
               })
@@ -3537,6 +3531,7 @@ const ProgressiveTileImage = memo(
       };
     }, [media]);
 
+    // ✅ Update measured media when media changes
     useEffect(() => {
       setMeasuredMedia(media);
     }, [media]);
@@ -3549,122 +3544,189 @@ const ProgressiveTileImage = memo(
         : measuredMedia.slice(0, 6);
 
     const extra = total <= 5 ? 0 : total === 6 ? 0 : total - 6;
-    const orientations = classifyOrientations(visible);
 
-    const Tile = ({
+    // ✅ Progressive loading tile component
+    const ProgressiveTile = ({
       item,
       index,
       className,
       showOverlay = false,
     }: {
-      item: {
-        url: string;
-        thumb?: string;
-        feed?: string;
-        full?: string;
-        width?: number;
-        height?: number;
-      };
+      item: typeof media[number];
       index: number;
       className: string;
       showOverlay?: boolean;
-    }) => (
-      <button
-        type="button"
-        key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          // ✅ Use full URL for viewer (optimized)
-          onOpen(item.full || item.feed || item.thumb || item.url, index);
-        }}
-        className={`relative overflow-hidden ${className}`}
-        style={{ borderRadius: 0 }}
-      >
-        <ProgressiveTileImage
-          item={item}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
+    }) => {
+      const [imgSrc, setImgSrc] = useState(item.thumb || item.feed || item.url);
+      const [loaded, setLoaded] = useState(false);
 
-        {showOverlay && extra > 0 && (
-          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-            <span className="text-white font-bold text-[34px] leading-none">
-              +{extra}
-            </span>
-          </div>
-        )}
-      </button>
-    );
+      useEffect(() => {
+        // Start with thumb, upgrade to feed when ready
+        if (item.feed && imgSrc !== item.feed && !loaded) {
+          const img = new Image();
+          img.src = item.feed;
+          img.onload = () => {
+            setImgSrc(item.feed!);
+            setLoaded(true);
+          };
+        }
+      }, [item.feed, imgSrc, loaded]);
 
-    // 1 image layout
+      return (
+        <button
+          type="button"
+          key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(item.full || item.feed || item.thumb || item.url, index);
+          }}
+          className={`relative overflow-hidden bg-[#1c1e21] ${className}`}
+          style={{ borderRadius: 0 }}
+        >
+          <img
+            src={imgSrc}
+            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+            style={{ opacity: loaded ? 1 : 0.8 }}
+            loading="lazy"
+            alt=""
+          />
+
+          {showOverlay && extra > 0 && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+              <span className="text-white font-bold text-[34px] leading-none">
+                +{extra}
+              </span>
+            </div>
+          )}
+        </button>
+      );
+    };
+
+    // ==================== LAYOUTS WITH PROPER SPACING ====================
+
+    // 1 IMAGE - Full width, 4:5 aspect ratio
     if (visible.length === 1) {
       return (
-        <div className="w-full">
-          <Tile item={visible[0]} index={0} className="w-full aspect-[4/5]" />
+        <div className="w-full bg-black">
+          <ProgressiveTile 
+            item={visible[0]} 
+            index={0} 
+            className="w-full aspect-[4/5]" 
+          />
         </div>
       );
     }
 
-    // 2 images layout
+    // 2 IMAGES - 50/50 split with 1px gap
     if (visible.length === 2) {
       return (
-        <div className="grid grid-cols-2 gap-[2px] w-full">
-          <Tile item={visible[0]} index={0} className="aspect-square" />
-          <Tile item={visible[1]} index={1} className="aspect-square" />
+        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
+          <ProgressiveTile 
+            item={visible[0]} 
+            index={0} 
+            className="aspect-square w-full" 
+          />
+          <ProgressiveTile 
+            item={visible[1]} 
+            index={1} 
+            className="aspect-square w-full" 
+          />
         </div>
       );
     }
 
-    // 3 images layout
+    // 3 IMAGES - 1 tall left + 2 stacked right
     if (visible.length === 3) {
       return (
-        <div className="grid grid-cols-2 gap-[2px] w-full">
-          <Tile item={visible[0]} index={0} className="aspect-square row-span-2 h-full" />
-          <Tile item={visible[1]} index={1} className="aspect-square" />
-          <Tile item={visible[2]} index={2} className="aspect-square" />
+        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
+          <ProgressiveTile 
+            item={visible[0]} 
+            index={0} 
+            className="row-span-2 aspect-square w-full h-full" 
+          />
+          <div className="flex flex-col gap-[1px]">
+            <ProgressiveTile 
+              item={visible[1]} 
+              index={1} 
+              className="aspect-square w-full" 
+            />
+            <ProgressiveTile 
+              item={visible[2]} 
+              index={2} 
+              className="aspect-square w-full" 
+            />
+          </div>
         </div>
       );
     }
 
-    // 4 images layout
+    // 4 IMAGES - 2x2 grid
     if (visible.length === 4) {
       return (
-        <div className="grid grid-cols-2 gap-[2px] w-full">
+        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
           {visible.map((item, index) => (
-            <Tile key={index} item={item} index={index} className="aspect-square" />
+            <ProgressiveTile 
+              key={index} 
+              item={item} 
+              index={index} 
+              className="aspect-square w-full" 
+            />
           ))}
         </div>
       );
     }
 
-    // 5 images layout
+    // 5 IMAGES - 1 tall left + 4 square right (2x2)
     if (visible.length === 5) {
       return (
-        <div className="grid grid-cols-2 gap-[2px] w-full">
-          <Tile item={visible[0]} index={0} className="aspect-square row-span-2 h-full" />
-          <Tile item={visible[1]} index={1} className="aspect-square" />
-          <Tile item={visible[2]} index={2} className="aspect-square" />
-          <Tile item={visible[3]} index={3} className="aspect-square" />
-          <Tile item={visible[4]} index={4} className="aspect-square" />
+        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
+          <ProgressiveTile 
+            item={visible[0]} 
+            index={0} 
+            className="row-span-2 aspect-square w-full h-full" 
+          />
+          <div className="grid grid-cols-2 gap-[1px]">
+            <ProgressiveTile 
+              item={visible[1]} 
+              index={1} 
+              className="aspect-square w-full" 
+            />
+            <ProgressiveTile 
+              item={visible[2]} 
+              index={2} 
+              className="aspect-square w-full" 
+            />
+            <ProgressiveTile 
+              item={visible[3]} 
+              index={3} 
+              className="aspect-square w-full" 
+            />
+            <ProgressiveTile 
+              item={visible[4]} 
+              index={4} 
+              className="aspect-square w-full" 
+            />
+          </div>
         </div>
       );
     }
 
-    // 6+ images layout (shows first 6 with +N overlay on last)
+    // 6+ IMAGES - 3x3 grid with +N overlay on last item
     return (
-      <div className="grid grid-cols-3 gap-[2px] w-full">
+      <div className="grid grid-cols-3 gap-[1px] w-full bg-black">
         {visible.map((item, index) => (
-          <Tile
+          <ProgressiveTile
             key={index}
             item={item}
             index={index}
-            className="aspect-square"
+            className="aspect-square w-full"
             showOverlay={index === 5 && extra > 0}
           />
         ))}
       </div>
     );
   }
-);       
+);
 
 // ==================== GROUP POST HEADER (internal) ====================
 const GroupPostHeader = memo(
