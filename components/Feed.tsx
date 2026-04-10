@@ -3468,7 +3468,7 @@ const ProgressiveTileImage = memo(
 );
 
 // ==================== MEDIA GRID (updated with stable progressive thumb -> feed loading) ====================
-const MediaGrid = memo(
+ const MediaGrid = memo(
   ({
     media,
     onOpen,
@@ -3486,7 +3486,6 @@ const MediaGrid = memo(
     const total = Array.isArray(media) ? media.length : 0;
     const [measuredMedia, setMeasuredMedia] = useState(media);
 
-    // Measure image dimensions for orientation detection
     useEffect(() => {
       let cancelled = false;
 
@@ -3507,6 +3506,7 @@ const MediaGrid = memo(
                   return;
                 }
 
+                // ✅ Use feed URL for measurement (optimized image)
                 const probeSrc = item.feed || item.thumb || item.url;
                 if (!probeSrc) {
                   resolve(item);
@@ -3537,6 +3537,10 @@ const MediaGrid = memo(
       };
     }, [media]);
 
+    useEffect(() => {
+      setMeasuredMedia(media);
+    }, [media]);
+
     const visible =
       total <= 4
         ? measuredMedia
@@ -3553,7 +3557,14 @@ const MediaGrid = memo(
       className,
       showOverlay = false,
     }: {
-      item: { url: string; thumb?: string; feed?: string; full?: string };
+      item: {
+        url: string;
+        thumb?: string;
+        feed?: string;
+        full?: string;
+        width?: number;
+        height?: number;
+      };
       index: number;
       className: string;
       showOverlay?: boolean;
@@ -3563,6 +3574,7 @@ const MediaGrid = memo(
         key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
         onClick={(e) => {
           e.stopPropagation();
+          // ✅ Use full URL for viewer (optimized)
           onOpen(item.full || item.feed || item.thumb || item.url, index);
         }}
         className={`relative overflow-hidden ${className}`}
@@ -3583,196 +3595,76 @@ const MediaGrid = memo(
       </button>
     );
 
-    if (total === 0) return null;
-
-    // Single image layout
-    if (total === 1) {
+    // 1 image layout
+    if (visible.length === 1) {
       return (
-        <div className="w-full bg-black">
-          <button
-            type="button"
-            key={`single-${visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(
-                visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url,
-                0
-              );
-            }}
-            className="w-full block"
-          >
-            <ProgressiveTileImage
-              item={visible[0]}
-              className="w-full h-auto max-h-[650px] object-contain"
-            />
-          </button>
+        <div className="w-full">
+          <Tile item={visible[0]} index={0} className="w-full aspect-[4/5]" />
         </div>
       );
     }
 
     // 2 images layout
-    if (total === 2) {
+    if (visible.length === 2) {
       return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
-          <Tile item={visible[1]} index={1} className="h-[320px] w-full" />
+        <div className="grid grid-cols-2 gap-[2px] w-full">
+          <Tile item={visible[0]} index={0} className="aspect-square" />
+          <Tile item={visible[1]} index={1} className="aspect-square" />
         </div>
       );
     }
 
     // 3 images layout
-    if (total === 3) {
+    if (visible.length === 3) {
       return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile item={visible[0]} index={0} className="h-[420px] w-full" />
-          <div className="grid grid-rows-2 gap-[2px] h-[420px]">
-            <Tile item={visible[1]} index={1} className="w-full h-full" />
-            <Tile item={visible[2]} index={2} className="w-full h-full" />
-          </div>
+        <div className="grid grid-cols-2 gap-[2px] w-full">
+          <Tile item={visible[0]} index={0} className="aspect-square row-span-2 h-full" />
+          <Tile item={visible[1]} index={1} className="aspect-square" />
+          <Tile item={visible[2]} index={2} className="aspect-square" />
         </div>
       );
     }
 
     // 4 images layout
-    if (total === 4) {
+    if (visible.length === 4) {
       return (
-        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
-          <Tile item={visible[0]} index={0} className="h-[260px] w-full" />
-          <Tile item={visible[1]} index={1} className="h-[260px] w-full" />
-          <Tile item={visible[2]} index={2} className="h-[260px] w-full" />
-          <Tile item={visible[3]} index={3} className="h-[260px] w-full" />
+        <div className="grid grid-cols-2 gap-[2px] w-full">
+          {visible.map((item, index) => (
+            <Tile key={index} item={item} index={index} className="aspect-square" />
+          ))}
         </div>
       );
     }
 
     // 5 images layout
-    if (total === 5) {
+    if (visible.length === 5) {
       return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
-            <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
-          </div>
-
-          <div className="grid grid-cols-3 gap-[2px]">
-            <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
-            <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
-            <Tile
-              item={visible[4]}
-              index={4}
-              className="h-[170px] w-full"
-              showOverlay={extra > 0}
-            />
-          </div>
+        <div className="grid grid-cols-2 gap-[2px] w-full">
+          <Tile item={visible[0]} index={0} className="aspect-square row-span-2 h-full" />
+          <Tile item={visible[1]} index={1} className="aspect-square" />
+          <Tile item={visible[2]} index={2} className="aspect-square" />
+          <Tile item={visible[3]} index={3} className="aspect-square" />
+          <Tile item={visible[4]} index={4} className="aspect-square" />
         </div>
       );
     }
 
-    // Smart 6-image layout based on orientation
-    if (total >= 6) {
-      const first = orientations[0];
-      const second = orientations[1];
-      const third = orientations[2];
-
-      const topPortraitPair = first === 'portrait' && second === 'portrait';
-      const firstLandscape = first === 'landscape' || second === 'landscape';
-      const tallLeft = third === 'portrait';
-
-      // Layout A: Tall left + 3 stacked right - Best when 3rd image is portrait
-      if (tallLeft) {
-        return (
-          <div className="w-full bg-black">
-            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-              <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
-              <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-[2px]">
-              <Tile item={visible[2]} index={2} className="h-[340px] w-full" />
-              <div className="grid grid-rows-3 gap-[2px] h-[340px]">
-                <Tile item={visible[3]} index={3} className="w-full h-full" />
-                <Tile item={visible[4]} index={4} className="w-full h-full" />
-                <Tile
-                  item={visible[5]}
-                  index={5}
-                  className="w-full h-full"
-                  showOverlay={extra > 0}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Layout B: 2 top large + 4 bottom squares - Better for landscapes/squares
-      if (firstLandscape || !topPortraitPair) {
-        return (
-          <div className="w-full bg-black">
-            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-              <Tile item={visible[0]} index={0} className="h-[230px] w-full" />
-              <Tile item={visible[1]} index={1} className="h-[230px] w-full" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-[2px]">
-              <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
-              <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
-              <Tile item={visible[4]} index={4} className="h-[170px] w-full" />
-              <Tile
-                item={visible[5]}
-                index={5}
-                className="h-[170px] w-full"
-                showOverlay={extra > 0}
-              />
-            </div>
-          </div>
-        );
-      }
-
-      // Layout C: 1 big left + 2 stacked right on top, then 3 bottom tiles
-      // Good for portrait-heavy first image
-      return (
-        <div className="w-full bg-black">
-          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
-            <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
-            <div className="grid grid-rows-2 gap-[2px] h-[320px]">
-              <Tile item={visible[1]} index={1} className="w-full h-full" />
-              <Tile item={visible[2]} index={2} className="w-full h-full" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-[2px]">
-            <Tile item={visible[3]} index={3} className="h-[150px] w-full" />
-            <Tile item={visible[4]} index={4} className="h-[150px] w-full" />
-            <Tile
-              item={visible[5]}
-              index={5}
-              className="h-[150px] w-full"
-              showOverlay={extra > 0}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Fallback for any other case (should not reach here)
+    // 6+ images layout (shows first 6 with +N overlay on last)
     return (
-      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
-        <Tile item={visible[0]} index={0} className="h-[180px] w-full" />
-        <Tile item={visible[1]} index={1} className="h-[180px] w-full" />
-        <Tile item={visible[2]} index={2} className="h-[180px] w-full" />
-        <Tile item={visible[3]} index={3} className="h-[180px] w-full" />
-        <Tile item={visible[4]} index={4} className="h-[180px] w-full" />
-        <Tile
-          item={visible[5]}
-          index={5}
-          className="h-[180px] w-full"
-          showOverlay={extra > 0}
-        />
+      <div className="grid grid-cols-3 gap-[2px] w-full">
+        {visible.map((item, index) => (
+          <Tile
+            key={index}
+            item={item}
+            index={index}
+            className="aspect-square"
+            showOverlay={index === 5 && extra > 0}
+          />
+        ))}
       </div>
     );
   }
-);
-            
+);       
 
 // ==================== GROUP POST HEADER (internal) ====================
 const GroupPostHeader = memo(
