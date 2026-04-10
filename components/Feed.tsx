@@ -197,15 +197,44 @@ const formatViewCount = (n?: number): string => {
   if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
   return String(v);
 };
+
 const isStoryVideo = (story: any) => {
-  const url = String(story?.media_url || '').toLowerCase();
-  return (
-    story?.type === 'video' ||
-    url.endsWith('.mp4') ||
-    url.endsWith('.webm') ||
-    url.endsWith('.mov') ||
-    url.endsWith('.m4v')
-  );
+  if (story?.type === 'video') return true;
+
+  const safeParseArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return [];
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const mediaMeta = safeParseArray(story?.media_meta);
+  if (mediaMeta.length > 0) {
+    const first = mediaMeta[0];
+    const item = typeof first === 'string' ? (() => {
+      try {
+        return JSON.parse(first);
+      } catch {
+        return null;
+      }
+    })() : first;
+
+    if (item?.type === 'video') return true;
+
+    const metaUrl = String(item?.feed || item?.full || item?.thumb || '').toLowerCase();
+    if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(metaUrl)) return true;
+  }
+
+  const mediaUrls = safeParseArray(story?.media_urls);
+  const firstUrl = String(
+    story?.media_url || mediaUrls[0] || ''
+  ).toLowerCase();
+
+  return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(firstUrl);
 };
 
 const getStoryAuthorName = (story: any) =>
