@@ -875,7 +875,7 @@ const normalizeEvent = (e: any): Event => {
   } as any;
 };
 /** Normalize story data */
-const normalizeStory = (s: any, existingUser?: User): Story => {
+    const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
 
@@ -884,21 +884,81 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     storyUser = mergeUserSafe(existingUser, storyUser);
   }
 
+  const rawMediaUrl = String(s?.media_url ?? s?.mediaUrl ?? '').trim();
+  const rawText = String(s?.text_content ?? s?.text ?? '').trim();
+
   const normalizedType =
     s?.type === 'text' || s?.type === 'video' || s?.type === 'image'
       ? s.type
-      : (s?.media_url ?? s?.mediaUrl ?? '').toString().toLowerCase().match(/\.(mp4|webm|mov|m4v)/)
+      : rawMediaUrl.toLowerCase().match(/\.(mp4|webm|mov|m4v)(\?|$)/)
       ? 'video'
-      : (s?.text_content ?? s?.text ?? '')
+      : rawText
       ? 'text'
       : 'image';
+
+  let mediaMeta: any[] = [];
+  if (Array.isArray(s?.media_meta)) {
+    mediaMeta = s.media_meta.map((m: any) => ({
+      thumb: String(m?.thumb || '').trim(),
+      feed: String(m?.feed || m?.full || m?.thumb || '').trim(),
+      full: String(m?.feed || m?.full || m?.thumb || '').trim(),
+      type: m?.type || normalizedType,
+    }));
+  } else if (typeof s?.media_meta === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_meta);
+      if (Array.isArray(parsed)) {
+        mediaMeta = parsed.map((m: any) => ({
+          thumb: String(m?.thumb || '').trim(),
+          feed: String(m?.feed || m?.full || m?.thumb || '').trim(),
+          full: String(m?.feed || m?.full || m?.thumb || '').trim(),
+          type: m?.type || normalizedType,
+        }));
+      }
+    } catch {}
+  }
+
+  let mediaUrls: string[] = [];
+  if (Array.isArray(s?.media_urls)) {
+    mediaUrls = s.media_urls.map((x: any) => String(x || '').trim()).filter(Boolean);
+  } else if (typeof s?.media_urls === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_urls);
+      if (Array.isArray(parsed)) {
+        mediaUrls = parsed.map((x: any) => String(x || '').trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  let mediaTypes: string[] = [];
+  if (Array.isArray(s?.media_types)) {
+    mediaTypes = s.media_types.map((x: any) => String(x || '').trim()).filter(Boolean);
+  } else if (typeof s?.media_types === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_types);
+      if (Array.isArray(parsed)) {
+        mediaTypes = parsed.map((x: any) => String(x || '').trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  const finalMediaUrl =
+    rawMediaUrl ||
+    mediaMeta[0]?.feed ||
+    mediaMeta[0]?.full ||
+    mediaMeta[0]?.thumb ||
+    mediaUrls[0] ||
+    '';
 
   return {
     id: resolvedId,
     user_id: userId,
     type: normalizedType as 'text' | 'image' | 'video',
-    text_content: s?.text_content ?? s?.text ?? '',
-    media_url: s?.media_url ?? s?.mediaUrl ?? '',
+    text_content: rawText,
+    media_url: finalMediaUrl,
+    media_urls: mediaUrls,
+    media_types: mediaTypes,
+    media_meta: mediaMeta,
     background_style: s?.background_style ?? s?.backgroundStyle ?? '',
     music_url: s?.music_url ?? s?.musicUrl ?? '',
     music_title: s?.music_title ?? s?.musicTitle ?? '',
@@ -910,13 +970,10 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
     user: storyUser,
     views: safeArray(s?.views),
-
     views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
     reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
     my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
     reaction_breakdown: s?.reaction_breakdown ?? {},
-
-    // keep stories permanent in frontend
     expires_at: null,
     is_active: true,
   } as any;
