@@ -1,4 +1,6 @@
 // functions/api/products.ts
+type PagesFunction = any;
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -8,7 +10,80 @@ const cors = {
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-export const onRequestPost: PagesFunction = async ({ request, env }) => {
+const safeArray = (v: any) => (Array.isArray(v) ? v : []);
+
+const safeParseJsonArray = (value: any) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const normalizeImageVariants = (input: any) => {
+  const arr = safeParseJsonArray(input);
+
+  return arr
+    .map((item: any) => {
+      if (!item || typeof item !== "object") return null;
+
+      const thumb = String(item.thumb || item.thumbnail || "").trim();
+      const feed = String(item.feed || item.url || item.full || "").trim();
+
+      if (!feed) return null;
+
+      return {
+        thumb: thumb || feed,
+        feed,
+        full: feed, // product full = feed
+        type: "image",
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeImagesFromBody = (images: any, imageVariants: any) => {
+  const variants = normalizeImageVariants(imageVariants);
+
+  if (variants.length > 0) {
+    return variants.map((v: any) => v.feed).filter(Boolean);
+  }
+
+  const imgs = safeParseJsonArray(images)
+    .map((x: any) => String(x || "").trim())
+    .filter(Boolean);
+
+  return imgs;
+};
+
+const buildReturnedProduct = (row: any) => {
+  const image_variants = normalizeImageVariants(row?.image_variants);
+
+  let images: string[] = [];
+  try {
+    const rawImages = typeof row?.images === "string" ? JSON.parse(row.images) : row?.images;
+    images = Array.isArray(rawImages)
+      ? rawImages.map((x: any) => String(x || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    images = [];
+  }
+
+  if (!images.length && image_variants.length) {
+    images = image_variants.map((v: any) => v.feed).filter(Boolean);
+  }
+
+  return {
+    ...row,
+    images,
+    image_variants,
+  };
+};
+
+export const onRequestPost: PagesFunction = async ({ request, env }: any) => {
   try {
     const body = await request.json().catch(() => ({}));
 
@@ -25,20 +100,41 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
         : Number(body.discount_price);
     const quantity = Number(body.quantity ?? 1);
     const phone_number = body.phone_number ? String(body.phone_number).trim() : null;
-    const images = Array.isArray(body.images) ? body.images : [];
+
+    const image_variants = normalizeImageVariants(body.image_variants);
+    const images = normalizeImagesFromBody(body.images, image_variants);
 
     if (!seller_id || !title || !category || !description || !country || !address) {
-      return Response.json({ success: false, error: "Missing required fields" }, { status: 400, headers: cors });
+      return Response.json(
+        { success: false, error: "Missing required fields" },
+        { status: 400, headers: cors }
+      );
     }
+
     if (!Number.isFinite(main_price)) {
-      return Response.json({ success: false, error: "Invalid main_price" }, { status: 400, headers: cors });
+      return Response.json(
+        { success: false, error: "Invalid main_price" },
+        { status: 400, headers: cors }
+      );
     }
 
     const result = await env.DB.prepare(`
       INSERT INTO products
-      (seller_id, title, category, description, country, address, main_price,
-       discount_price, quantity, phone_number, images)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (
+        seller_id,
+        title,
+        category,
+        description,
+        country,
+        address,
+        main_price,
+        discount_price,
+        quantity,
+        phone_number,
+        images,
+        image_variants
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         seller_id,
@@ -51,13 +147,13 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
         discount_price,
         quantity,
         phone_number,
-        JSON.stringify(images)
+        JSON.stringify(images),
+        JSON.stringify(image_variants)
       )
       .run();
 
     const id = result?.meta?.last_row_id;
 
-    // Return created product with seller info
     const created = await env.DB.prepare(`
       SELECT
         p.*,
@@ -71,20 +167,10 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
       .bind(id)
       .first();
 
-    const safeImages = (() => {
-      try {
-        const raw = (created as any)?.images;
-        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    })();
-
     return Response.json(
       {
         success: true,
-        product: { ...(created as any), images: safeImages },
+        product: buildReturnedProduct(created),
       },
       { headers: cors }
     );
@@ -96,7 +182,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   }
 };
 
-export const onRequestGet: PagesFunction = async ({ env }) => {
+export const onRequestGet: PagesFunction = async ({ env }: any) => {
   try {
     const { results } = await env.DB.prepare(`
       SELECT
@@ -109,16 +195,7 @@ export const onRequestGet: PagesFunction = async ({ env }) => {
       ORDER BY p.created_at DESC
     `).all();
 
-    const normalized = (Array.isArray(results) ? results : []).map((r: any) => {
-      let imgs: any[] = [];
-      try {
-        const parsed = typeof r.images === "string" ? JSON.parse(r.images) : r.images;
-        imgs = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        imgs = [];
-      }
-      return { ...r, images: imgs };
-    });
+    const normalized = safeArray(results).map((row: any) => buildReturnedProduct(row));
 
     return Response.json(normalized, { headers: cors });
   } catch (e: any) {
