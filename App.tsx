@@ -1680,6 +1680,7 @@ const [groups, setGroups] = useState<Group[]>([]);
 const [brands, setBrands] = useState<Brand[]>([]);
 const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
+const [storyCreateLoading, setStoryCreateLoading] = useState(false);
 
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
