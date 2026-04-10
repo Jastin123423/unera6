@@ -3941,63 +3941,81 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
   }, [currentUser, requireAuth, fetchMyAds]);
 
   // Helper to create marketplace posts
-  const createMarketplacePost = useCallback(
-    async (product: any) => {
-      if (!currentUser) return;
+const createMarketplacePost = useCallback(
+  async (product: any) => {
+    if (!currentUser) return;
 
-      const images: string[] = safeImages(product.images);
-      const media_url = images[0] || '';
-      const media_type = media_url ? 'image' : null;
+    const variants = safeImageVariants(product.image_variants);
+    const images: string[] = safeImages(product.images);
+    
+    const mediaMeta = variants.length > 0 
+      ? variants.map((v) => ({
+          thumb: v.thumb || v.feed,
+          feed: v.feed,
+          full: v.feed, // keep full = feed
+          type: 'image',
+        }))
+      : images.map((url) => ({
+          thumb: url,
+          feed: url,
+          full: url,
+          type: 'image',
+        }));
+    
+    const media_urls = variants.length > 0 
+      ? variants.map((v) => v.feed).filter(Boolean) 
+      : images;
+    
+    const media_url = media_urls[0] || '';
+    const media_type = media_url ? 'image' : null;
 
-      const payload = {
-        user_id: currentUser.id,
-        
-        content: product.title || '',
-        visibility: 'public',
-        
-        type: "marketplace",
-        post_type: "product",
+    const payload = {
+      user_id: currentUser.id,
+      content: product.title || '',
+      visibility: 'public',
+      type: 'marketplace',
+      post_type: 'product',
+      product_id: product.id,
+      media_url,
+      media_type,
+      media_urls,
+      media_types: media_urls.map(() => 'image'),
+      media_meta: mediaMeta,
+      meta: {
+        kind: 'product',
         product_id: product.id,
-        
-        media_url,
-        media_type,
-        media_urls: images,
-        media_types: images.map(() => 'image'),
-        
-        meta: {
-          kind: "product",
+        marketplace: {
+          id: product.id,
           product_id: product.id,
-          marketplace: {
-            id: product.id,
-            product_id: product.id,
-            price: product.discount_price ?? product.main_price ?? null,
-            currency: product.currency_symbol || 'TZS',
-            location: product.address || '',
-            title: product.title,
-            images: images,
-          }
-        }
-      };
+          price: product.discount_price ?? product.main_price ?? null,
+          currency: product.currency_symbol || 'TZS',
+          location: product.address || '',
+          title: product.title,
+          images: media_urls,
+          image_variants: mediaMeta,
+        },
+      },
+    };
 
-      const created = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    const created = await apiFetch('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      const newPost = normalizePost(created?.post ?? created);
-      
-      setPosts(prev => [newPost, ...safeArray(prev)]);
-      
-      if (Number(currentUser.id) === Number(selectedUserId)) {
-        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
-      }
+    const newPost = normalizePost(created?.post ?? created);
+    
+    setPosts(prev => [newPost, ...safeArray(prev)]);
+    
+    if (Number(currentUser.id) === Number(selectedUserId)) {
+      setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+    }
 
-      scheduleSilentRefresh();
-      
-      return newPost;
-    },
-    [currentUser, selectedUserId]
-  );
+    scheduleSilentRefresh();
+    
+    return newPost;
+  },
+  [currentUser, selectedUserId]
+);
 
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
