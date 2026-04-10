@@ -3,38 +3,143 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Product } from '../types';
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_COUNTRIES } from '../constants';
 
-// --- Cloudflare R2 Upload Helper ---
-const uploadToCloudflareR2 = async (file: File): Promise<string> => {
+// ==================== MARKETPLACE IMAGE BUNDLE HELPERS ====================
+
+type ProductImageVariant = {
+  thumb: string;
+  feed: string;
+  full: string; // for products, full = feed
+  type: 'image';
+};
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const loadImageElement = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = src;
+  });
+
+const calcContainSize = (w: number, h: number, max: number) => {
+  if (!w || !h) return { width: max, height: max };
+  if (Math.max(w, h) <= max) return { width: w, height: h };
+  const scale = max / Math.max(w, h);
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+};
+
+const buildMarketplaceImageBundle = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-    formData.append('type', file.type);
-    
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Upload failed: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.url) {
-      throw new Error('No URL returned from upload');
-    }
-    
-    return result.url;
-  } catch (error) {
-    console.error('Upload failed:', error);
-    throw error;
+    const img = await loadImageElement(objectUrl);
+    const thumbSize = calcContainSize(img.naturalWidth, img.naturalHeight, 320);
+    const feedSize = calcContainSize(img.naturalWidth, img.naturalHeight, 1080);
+
+    const drawToCanvas = (width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas context not available');
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas;
+    };
+
+    const thumbCanvas = drawToCanvas(thumbSize.width, thumbSize.height);
+    const feedCanvas = drawToCanvas(feedSize.width, feedSize.height);
+
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+
+    const ts = Date.now();
+    const thumb = new File([thumbBlob], `${ts}-thumbnail.webp`, { type: 'image/webp' });
+    const feed = new File([feedBlob], `${ts}-feed.webp`, { type: 'image/webp' });
+
+    return { thumb, feed };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
   }
 };
 
-// --- Helper function to safely get images ---
+const uploadMarketplaceImageBundle = async (file: File): Promise<ProductImageVariant> => {
+  const bundle = await buildMarketplaceImageBundle(file);
+  const formData = new FormData();
+  formData.append('thumbnail', bundle.thumb);
+  formData.append('feed', bundle.feed);
+  formData.append('original', bundle.feed); // product full should be feed
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Upload failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  const thumb = result?.uploaded?.thumbnail?.url || result?.media_urls?.thumb || '';
+  const feed = result?.uploaded?.feed?.url || result?.media_urls?.feed || result?.url || '';
+
+  if (!feed) {
+    throw new Error('Marketplace upload failed: missing feed URL');
+  }
+
+  return {
+    thumb: thumb || feed,
+    feed,
+    full: feed, // important: full = feed
+    type: 'image',
+  };
+};
+
+// ==================== HELPER FUNCTIONS ====================
+
+// Safe image variants parser
+const safeImageVariants = (value: any): ProductImageVariant[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => ({
+        thumb: String(v?.thumb || '').trim(),
+        feed: String(v?.feed || v?.full || '').trim(),
+        full: String(v?.feed || v?.full || '').trim(),
+        type: 'image' as const,
+      }))
+      .filter((v) => v.feed);
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((v: any) => ({
+          thumb: String(v?.thumb || '').trim(),
+          feed: String(v?.feed || v?.full || '').trim(),
+          full: String(v?.feed || v?.full || '').trim(),
+          type: 'image' as const,
+        }))
+        .filter((v: any) => v.feed);
+    } catch {}
+  }
+  return [];
+};
+
+// Legacy safe images helper (for backward compatibility)
 const safeImages = (imgs: any): string[] => {
   if (Array.isArray(imgs)) return imgs.filter(Boolean);
   if (typeof imgs === 'string') {
@@ -46,7 +151,7 @@ const safeImages = (imgs: any): string[] => {
   return [];
 };
 
-// --- OSM LOCATION SEARCH COMPONENT (Duplicated for standalone use in Marketplace) ---
+// --- OSM LOCATION SEARCH COMPONENT ---
 const LocationSearch: React.FC<{ 
   value: string, 
   onSelect: (val: string) => void,
@@ -81,7 +186,6 @@ const LocationSearch: React.FC<{
     };
 
     const detectCountryFromLocation = (displayName: string): string | null => {
-      // Try to match country from location string
       for (const country of MARKETPLACE_COUNTRIES) {
         if (country.id !== 'all' && displayName.toLowerCase().includes(country.name.toLowerCase())) {
           return country.code;
@@ -115,7 +219,6 @@ const LocationSearch: React.FC<{
                                 setQuery(locationName);
                                 setShowResults(false);
                                 
-                                // Detect and notify about country
                                 if (onCountryDetected) {
                                   const detectedCountryCode = detectCountryFromLocation(locationName);
                                   if (detectedCountryCode) {
@@ -138,7 +241,6 @@ const LocationSearch: React.FC<{
 const detectCountryFromUser = (user: User | null): string => {
   if (!user) return 'all';
   
-  // Check nationality first
   if (user.nationality) {
     for (const country of MARKETPLACE_COUNTRIES) {
       if (country.id !== 'all' && user.nationality.toLowerCase().includes(country.name.toLowerCase())) {
@@ -147,7 +249,6 @@ const detectCountryFromUser = (user: User | null): string => {
     }
   }
   
-  // Check location field if available
   if (user.location) {
     for (const country of MARKETPLACE_COUNTRIES) {
       if (country.id !== 'all' && user.location.toLowerCase().includes(country.name.toLowerCase())) {
@@ -156,7 +257,6 @@ const detectCountryFromUser = (user: User | null): string => {
     }
   }
   
-  // Default to worldwide
   return 'all';
 };
 
@@ -169,26 +269,22 @@ const getCurrencySymbolForCountry = (countryCode: string): string => {
 // --- Helper to normalize country values for comparison ---
 const normCountry = (v: any): string => {
   const str = String(v || '').trim();
-  // Try to match by country code first
   for (const country of MARKETPLACE_COUNTRIES) {
     if (country.id === 'all') continue;
     
-    // Check if string matches country code
     if (str.toUpperCase() === country.code.toUpperCase()) {
       return country.code;
     }
     
-    // Check if string contains country name
     if (str.toLowerCase().includes(country.name.toLowerCase())) {
       return country.code;
     }
   }
   
-  // Return original string uppercase if no match
   return str.toUpperCase();
 };
 
-// --- PRODUCT DETAIL MODAL ---
+// --- PRODUCT DETAIL MODAL (UPDATED with optimized images) ---
 interface ProductDetailModalProps {
     product: Product;
     currentUser: User | null;
@@ -199,7 +295,22 @@ interface ProductDetailModalProps {
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onMessage }) => {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     
-    // Detect country from product address
+    // ✅ UPDATED: Use image_variants first, then fallback to legacy images
+    const productVariants = safeImageVariants((product as any).image_variants);
+    const legacyImages = safeImages((product as any).images);
+    
+    const productImages = productVariants.length 
+      ? productVariants.map((x) => ({
+          thumb: x.thumb,
+          feed: x.feed,
+          full: x.full,
+        }))
+      : legacyImages.map((url) => ({
+          thumb: url,
+          feed: url,
+          full: url,
+        }));
+    
     const detectProductCountry = (address: string) => {
       for (const country of MARKETPLACE_COUNTRIES) {
         if (country.id !== 'all' && address.toLowerCase().includes(country.name.toLowerCase())) {
@@ -209,7 +320,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
       return MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
     };
     
-    const productImages = safeImages((product as any).images);
     const countryData = detectProductCountry(product.address);
     const symbol = countryData.symbol;
     const hasDiscount = !!product.discount_price;
@@ -225,7 +335,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                 <div className="w-full md:w-[60%] bg-[#18191A] flex flex-col relative border-r border-[#3E4042]">
                     <div className="flex-1 relative flex items-center justify-center overflow-hidden">
                         {productImages.length > 0 ? (
-                            <img src={productImages[activeImageIndex]} alt={product.title} className="max-w-full max-h-full object-contain transition-all duration-300" />
+                            // ✅ UPDATED: Use feed for main viewer
+                            <img 
+                              src={productImages[activeImageIndex]?.feed || productImages[activeImageIndex]?.full || ''} 
+                              alt={product.title} 
+                              className="max-w-full max-h-full object-contain transition-all duration-300" 
+                            />
                         ) : (
                             <div className="flex items-center justify-center w-full h-full bg-[#242526]">
                                 <i className="fas fa-image text-5xl text-[#3E4042]"></i>
@@ -249,7 +364,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                             </>
                         )}
                     </div>
-                    {/* Thumbnails */}
+                    {/* Thumbnails - ✅ UPDATED: Use thumb for preview */}
                     {productImages.length > 1 && (
                         <div className="h-24 bg-[#242526]/50 backdrop-blur-sm flex items-center gap-3 px-4 overflow-x-auto border-t border-[#3E4042] scrollbar-hide">
                             {productImages.map((img, idx) => (
@@ -258,7 +373,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                                     className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${activeImageIndex === idx ? 'border-[#1877F2] scale-105 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'}`}
                                     onClick={() => setActiveImageIndex(idx)}
                                 >
-                                    <img src={img} className="h-full w-full object-cover" alt="thumb" />
+                                    <img src={img.thumb || img.feed || img.full} className="h-full w-full object-cover" alt="thumb" />
                                 </div>
                             ))}
                         </div>
@@ -364,31 +479,20 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
     const [images, setImages] = useState<{id: number, data: string, file: File}[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     
-    // ✅ ADDED: State for detected country from user profile and location
+    // State for detected country from user profile and location
     const [userCountry, setUserCountry] = useState<string>('all');
     const [detectedCountry, setDetectedCountry] = useState<string>('all');
     const [currencySymbol, setCurrencySymbol] = useState<string>('$');
     
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-detect user country for currency, but DON'T force filter
+    // Auto-detect user country for currency
     useEffect(() => {
-        console.log("Marketplace: products:", products.length, "selectedCountry:", selectedCountry, "userCountry:", userCountry);
-        if (products[0]) {
-            console.log("Sample product country:", (products[0] as any).country);
-            console.log("Normalized sample product country:", normCountry((products[0] as any).country));
-        }
-
         if (currentUser) {
             const detected = detectCountryFromUser(currentUser);
             setUserCountry(detected);
-            
-            // ✅ FIXED: DO NOT force filter — let user choose
-            // setSelectedCountry(detected);
-            
             setCurrencySymbol(getCurrencySymbolForCountry(detected));
             
-            // ✅ FIXED: Set phone from user profile
             if ((currentUser as any).phone) {
                 setPhone((currentUser as any).phone);
             }
@@ -396,7 +500,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             setUserCountry('all');
             setCurrencySymbol('$');
         }
-    }, [currentUser, products]);
+    }, [currentUser]);
 
     // Update currency symbol when detected country changes
     useEffect(() => {
@@ -419,7 +523,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 return;
             }
             Array.from(e.target.files).forEach((file: File) => {
-                // Create preview URL for display
                 const previewUrl = URL.createObjectURL(file);
                 setImages(prev => [...prev, { 
                     id: Date.now() + Math.random(), 
@@ -434,12 +537,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
         setImages(prev => {
             const imageToRemove = prev.find(img => img.id === id);
             if (imageToRemove) {
-                URL.revokeObjectURL(imageToRemove.data); // Clean up preview URL
+                URL.revokeObjectURL(imageToRemove.data);
             }
             return prev.filter(img => img.id !== id);
         });
     };
 
+    // ✅ UPDATED: Handle submit with bundled image uploads
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title || !category || !desc || !address || !mainPrice || !phone || images.length === 0) {
@@ -450,26 +554,29 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
         try {
             setIsUploading(true);
 
-            // Upload all images to Cloudflare R2
-            const uploadPromises = images.map(img => uploadToCloudflareR2(img.file));
-            const uploadedUrls = await Promise.all(uploadPromises);
+            // ✅ NEW: Upload compressed bundle images (thumb + feed)
+            const uploadedVariants = await Promise.all(
+                images.map((img) => uploadMarketplaceImageBundle(img.file))
+            );
+            const uploadedUrls = uploadedVariants.map((x) => x.feed).filter(Boolean);
 
-            // ✅ FIXED: Detect country from address for currency/region
             const countryFromAddress = MARKETPLACE_COUNTRIES.find(c => 
                 address.toLowerCase().includes(c.name.toLowerCase())
             )?.code || userCountry;
 
+            // ✅ UPDATED: Include both images (legacy) and image_variants (new structure)
             const newProduct: Partial<Product> = {
                 title,
                 category,
                 description: desc,
-                country: countryFromAddress, // ✅ Use detected country
+                country: countryFromAddress,
                 address,
                 main_price: parseFloat(mainPrice),
                 discount_price: discountPrice ? parseFloat(discountPrice) : null,
                 quantity: parseInt(quantity),
-                phone_number: phone, // ✅ This will now persist
-                images: uploadedUrls, // Store Cloudflare R2 URLs instead of base64
+                phone_number: phone,
+                images: uploadedUrls, // legacy support
+                image_variants: uploadedVariants, // new bundle structure
                 status: 'active',
                 views: 0,
                 ratings: [], 
@@ -480,7 +587,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             onCreateProduct(newProduct);
             setShowSellModal(false);
             
-            // Reset form but keep phone number for next listing
+            // Reset form
             setTitle(''); 
             setCategory(''); 
             setDesc(''); 
@@ -489,7 +596,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             setImages([]); 
             setAddress('');
             setQuantity('1');
-            // ✅ Keep phone number for next listing
         } catch (error: any) {
             console.error('Failed to upload product:', error);
             alert(`Failed to upload product: ${error.message}`);
@@ -498,37 +604,24 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
         }
     };
 
-    // ✅ FIXED: Tolerant country filtering logic
+    // Country filtering logic
     const filteredProducts = products.filter((p: any) => {
         const pCountry = normCountry(p.country);
         const sel = normCountry(selectedCountry);
         
-        // If country filter is active
         if (selectedCountry !== 'all') {
-            // Get the selected country object
             const selObj = MARKETPLACE_COUNTRIES.find(c => normCountry(c.code) === sel);
             
-            // Check multiple matching possibilities
             let match = false;
-            
-            // 1. Direct code match (TZ === TZ)
             if (pCountry === sel) match = true;
-            
-            // 2. Country name match (Tanzania === TZ)
             if (selObj && pCountry.toLowerCase().includes(selObj.name.toLowerCase())) match = true;
-            
-            // 3. Country code in product country field (TZ in "TZ, Dar es Salaam")
             if (!match && selObj && p.country && typeof p.country === 'string') {
                 if (p.country.toUpperCase().includes(selObj.code)) match = true;
             }
-            
             if (!match) return false;
         }
         
-        // Category filter
         if (selectedCategory !== 'all' && String(p.category) !== String(selectedCategory)) return false;
-        
-        // Search filter
         if (searchQuery && !String(p.title || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
         
         return true;
@@ -547,7 +640,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                     <h1 className="text-xl font-bold text-[#E4E6EB]">Marketplace</h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {/* Country Selector with Flag and Currency */}
                     <div 
                         className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors" 
                         onClick={() => {
@@ -602,7 +694,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
             </div>
 
             <div className="max-w-[1400px] mx-auto px-4 mt-6">
-                {/* Dynamic Location Banner - Show user's detected country */}
+                {/* Dynamic Location Banner */}
                 {currentUser && userCountry !== 'all' && selectedCountry === 'all' && (
                     <div className="mb-6 p-4 bg-[#263951] rounded-2xl border border-[#2D88FF]/30 flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -627,7 +719,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                     </div>
                 )}
 
-                {/* Products Grid */}
+                {/* Products Grid - ✅ UPDATED: Use thumb/feed for product cards */}
                 {filteredProducts.length > 0 ? (
                     <>
                         <div className="mb-4 text-sm text-[#B0B3B8]">
@@ -636,10 +728,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                             {filteredProducts.map((product: any) => {
-                                const productImages = safeImages(product.images);
-                                const cover = productImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
+                                // ✅ UPDATED: Use image_variants for thumbnail
+                                const productVariants = safeImageVariants((product as any).image_variants);
+                                const legacyImages = safeImages(product.images);
                                 
-                                // Detect country for this product
+                                const cover = productVariants[0]?.thumb || productVariants[0]?.feed || legacyImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
+                                
                                 const detectProductCountry = () => {
                                     const pCountry = normCountry(product.country);
                                     const country = MARKETPLACE_COUNTRIES.find(c => 
@@ -713,7 +807,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 )}
             </div>
 
-            {/* Sell Modal */}
+            {/* Sell Modal - ✅ UPDATED with bundled uploads */}
             {showSellModal && (
                 <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                     <div className="bg-[#242526] w-full max-w-[700px] rounded-3xl border border-[#3E4042] flex flex-col max-h-[90vh] shadow-2xl animate-slide-up">
