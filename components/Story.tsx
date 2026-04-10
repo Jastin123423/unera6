@@ -2283,6 +2283,12 @@ interface StoryReelProps {
   checkIsFollowing?: (userId: number) => boolean;
   followLoading?: { [key: number]: boolean };
 
+  onFetchViewers?: (storyId: number) => Promise<StoryViewer[]>;
+  onReaction?: (storyId: number, reaction: string) => void;
+  onReply?: (storyId: number, text: string) => void;
+  onToggleMute?: () => void;
+  muted?: boolean;
+
   storyCreateLoading?: boolean;
 }
 
