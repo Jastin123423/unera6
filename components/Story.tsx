@@ -2278,9 +2278,11 @@ interface StoryReelProps {
   onViewStory: (story: StoryType) => void;
   currentUser: User | null;
   onRequestLogin: () => void;
+
   onFollow?: (userId: number) => void;
   checkIsFollowing?: (userId: number) => boolean;
   followLoading?: { [key: number]: boolean };
+
   storyCreateLoading?: boolean;
 }
 
