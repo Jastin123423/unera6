@@ -244,6 +244,7 @@ const createVideoThumbnailFile = async (file: File) => {
   }
 };
 
+// ✅ UPDATED: Image upload returns full = feed
 const uploadStoryImageSecret = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
   const fd = new FormData();
@@ -258,6 +259,7 @@ const uploadStoryImageSecret = async (file: File) => {
     throw new Error(data?.error || 'Story image upload failed');
   }
   
+  // ✅ full = feed for optimized images
   return {
     media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
     media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
@@ -266,7 +268,7 @@ const uploadStoryImageSecret = async (file: File) => {
       {
         thumb: data?.uploaded?.thumbnail?.url || null,
         feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
-        full: data?.uploaded?.original?.url || null,
+        full: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null, // ✅ full = feed
         type: 'image',
       },
     ],
@@ -1078,40 +1080,35 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-// ==================== INSIDE StoryViewer COMPONENT ====================
+  // ✅ UPDATED: Get the best quality URL for display with proper fallback chain
+  const getDisplayMediaUrl = useCallback((story: StoryType): string => {
+    const meta = story.media_meta?.[0];
+    if (meta?.feed) return meta.feed;
+    if (meta?.full) return meta.full;
+    if (meta?.thumb) return meta.thumb;
+    if (story.media_url) return story.media_url;
+    return '';
+  }, []);
 
-// ✅ UPDATED: Get best available media URL with proper fallback chain
-const getDisplayMediaUrl = useCallback((story: StoryType): string => {
-  const meta = story.media_meta?.[0];
-  if (meta?.feed) return meta.feed;      // Optimized feed image (priority)
-  if (meta?.full) return meta.full;      // Full (same as feed for images)
-  if (meta?.thumb) return meta.thumb;    // Thumbnail fallback
-  if (story.media_url) return story.media_url; // Legacy fallback
-  return '';
-}, []);
-
-// ✅ Cache the display URL when story changes (no changes needed here)
-useEffect(() => {
-  const displayUrl = getDisplayMediaUrl(story);
-  if (displayUrl && !isBlob(displayUrl)) {
-    lastMediaUrlRef.current = displayUrl;
-  }
-}, [story.id, story, getDisplayMediaUrl]);
-
-// ✅ Cleanup on unmount (no changes needed)
-useEffect(() => {
-  return () => {
-    if (navigationTimeoutRef.current) {
-      clearTimeout(navigationTimeoutRef.current);
-    }
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-    }
-    if (progressIntervalRef.current) {
-      window.clearInterval(progressIntervalRef.current);
-    }
-  };
-}, []);
+  // Lock page scroll when story viewer is open
+  useEffect(() => {
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyTouchAction = document.body.style.touchAction;
+    const prevHtmlTouchAction = document.documentElement.style.touchAction;
+    
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+    document.documentElement.style.touchAction = 'none';
+    
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.touchAction = prevBodyTouchAction;
+      document.documentElement.style.touchAction = prevHtmlTouchAction;
+    };
+  }, []);
 
   // Block wheel scrolling for desktop and some Android webviews
   useEffect(() => {
@@ -1252,7 +1249,7 @@ useEffect(() => {
 
     const TAP_MOVE = 12;
     const TAP_TIME = 350;
-    if (Math.abs(dx) <= TAP_MOVE && Math.abs(dy) <= TAP_MOVE && dt <= TAP_TIME) {
+    if (Math.abs(dx) <= TAP_MOVE && Math.abs(dy) <= TAP_TIME && dt <= TAP_TIME) {
       const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const x = e.clientX - box.left;
       const ratio = x / box.width;
@@ -1310,6 +1307,7 @@ useEffect(() => {
     }
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
+  // ✅ Cache the display URL when story changes
   useEffect(() => {
     const displayUrl = getDisplayMediaUrl(story);
     if (displayUrl && !isBlob(displayUrl)) {
@@ -1481,13 +1479,16 @@ useEffect(() => {
       }
     };
 
+    // ✅ UPDATED: Use getDisplayMediaUrl for preloading
     if (currentIndex >= 0) {
-      const next1 = userStories[currentIndex + 1]?.media_meta?.[0]?.feed || userStories[currentIndex + 1]?.media_url;
-      const next2 = userStories[currentIndex + 2]?.media_meta?.[0]?.feed || userStories[currentIndex + 2]?.media_url;
+      const next1Story = userStories[currentIndex + 1];
+      const next2Story = userStories[currentIndex + 2];
+      const next1 = next1Story ? getDisplayMediaUrl(next1Story) : '';
+      const next2 = next2Story ? getDisplayMediaUrl(next2Story) : '';
       if (next1) preload(next1);
       if (next2) preload(next2);
     }
-  }, [story.id]);
+  }, [story.id, getDisplayMediaUrl]);
 
   useEffect(() => {
     const bestName = pickBestName(
@@ -2335,10 +2336,12 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     return m;
   }, [sortedStories]);
 
+  // ✅ UPDATED: Get thumbnail URL with proper fallback chain
   const getDisplayThumbnail = (story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.thumb) return meta.thumb;
     if (meta?.feed) return meta.feed;
+    if (meta?.full) return meta.full;
     if (story.media_url) return story.media_url;
     return '';
   };
@@ -2428,8 +2431,8 @@ export const StoryReel: React.FC<StoryReelProps> = ({
 
         const count = userStoryCounts.get(Number(story.user_id)) || 1;
         const isText = story.type === 'text';
-        const isVid = story.type === 'video' || (!isText && isVideoUrl(getDisplayThumbnail(story)));
         const thumbnailUrl = getDisplayThumbnail(story);
+        const isVid = story.type === 'video' || (!isText && isVideoUrl(thumbnailUrl));
 
         return (
           <div
