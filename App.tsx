@@ -6264,158 +6264,183 @@ const data = await apiFetch('/api/reels', {
   // ============================================================================
   // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
   // ============================================================================
+ 
   const createPost = useCallback(
-    async (
-      text: string,
-      files: File[] | File | null,
-      meta?: {
-        type?: 'text' | 'image' | 'video';
-        visibility?: string;
-        location?: string;
-        feeling?: string;
-        taggedUsers?: number[];
-        background?: string;
-        linkPreview?: any;
+  async (
+    text: string,
+    files: File[] | File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: any;
+    }
+  ) => {
+    if (!requireAuth('Creating posts')) return;
+
+    const trimmed = (text || '').trim();
+    if (!trimmed && !files && !meta?.background) return;
+
+    const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+
+    let media_urls: string[] = [];
+    let media_types: string[] = [];
+    let media_meta: any[] = [];
+    let media_url: string | null = null;
+    let media_type: string | null = null;
+
+    try {
+      // IMAGE POSTS -> compress in browser, upload bundled thumb/feed/original
+      // but STORE full as feed (not original)
+      if (meta?.type === 'image' && list.length) {
+        const uploadedItems = await Promise.all(
+          list.map(async (file) => {
+            const bundle = await buildImageUploadBundle(file);
+            const form = new FormData();
+            form.append('thumbnail', bundle.thumb);
+            form.append('feed', bundle.feed);
+            form.append('original', bundle.full);
+
+            const data = await apiFetch('/api/upload', {
+              method: 'POST',
+              body: form,
+            });
+
+            const thumb =
+              data?.uploaded?.thumbnail?.url ||
+              data?.media_urls?.thumb ||
+              '';
+
+            const feed =
+              data?.uploaded?.feed?.url ||
+              data?.media_urls?.feed ||
+              '';
+
+            if (!feed) {
+              throw new Error('Image upload failed: missing feed URL');
+            }
+
+            return {
+              thumb,
+              feed,
+              full: feed, // ✅ use feed instead of original
+              type: 'image',
+            };
+          })
+        );
+
+        media_urls = uploadedItems.map((item) => item.feed).filter(Boolean);
+        media_meta = uploadedItems.map((item) => ({
+          thumb: item.thumb,
+          feed: item.feed,
+          full: item.feed, // ✅ full = feed
+          type: 'image',
+        }));
+        media_types = uploadedItems.map(() => 'image');
+        media_url = uploadedItems[0]?.feed || null;
+        media_type = 'image';
       }
-    ) => {
-      if (!requireAuth('Creating posts')) return;
-
-      const trimmed = (text || '').trim();
-      if (!trimmed && !files && !meta?.background) return;
-
-      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
-
-      let media_urls: string[] = [];
-      let media_types: string[] = [];
-      let media_meta: any[] = [];
-      let media_url: string | null = null;
-      let media_type: string | null = null;
-
-      try {
-        // IMAGE POSTS -> compress in browser, upload bundled thumb/feed/full
-        if (meta?.type === 'image' && list.length) {
-          const uploadedItems = await Promise.all(
-            list.map(async (file) => {
-              const bundle = await buildImageUploadBundle(file);
-              const form = new FormData();
-              form.append('thumbnail', bundle.thumb);
-              form.append('feed', bundle.feed);
-              form.append('original', bundle.full);
-
-              const data = await apiFetch('/api/upload', {
-                method: 'POST',
-                body: form,
-              });
-
-              const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
-              const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
-              const full = data?.uploaded?.original?.url || data?.media_urls?.full || data?.url || '';
-
-              if (!feed) {
-                throw new Error('Image upload failed: missing feed URL');
-              }
-
-              return {
-                thumb,
-                feed,
-                full: full || feed,
-                type: 'image',
-              };
-            })
-          );
-
-          // Store plain feed URLs in media_urls for compatibility
-          media_urls = uploadedItems.map((item) => item.feed).filter(Boolean);
-          // Store rich objects separately in media_meta
-          media_meta = uploadedItems.map((item) => ({
-            thumb: item.thumb,
-            feed: item.feed,
-            full: item.full,
-            type: 'image',
-          }));
-          media_types = uploadedItems.map(() => 'image');
-          media_url = uploadedItems[0]?.feed || null;
-          media_type = 'image';
-        }
-        // NON-IMAGE POSTS -> keep old upload flow
-        else if (list.length) {
-          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u.url).filter(Boolean);
-          media_types = ups.map((u) => u.type).filter(Boolean);
-          media_url = media_urls[0] ?? null;
-          media_type = media_types[0] ?? null;
-        }
-      } catch (error: any) {
-        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
-        return;
+      // NON-IMAGE POSTS -> keep old upload flow
+      else if (list.length) {
+        const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+        media_urls = ups.map((u) => u.url).filter(Boolean);
+        media_types = ups.map((u) => u.type).filter(Boolean);
+        media_url = media_urls[0] ?? null;
+        media_type = media_types[0] ?? null;
       }
+    } catch (error: any) {
+      setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+      return;
+    }
 
-      const payload: any = {
-        user_id: currentUser!.id,
-        content: trimmed,
-        media_url,
-        media_type,
-        media_urls: media_urls.length ? media_urls : undefined,
-        media_types: media_types.length ? media_types : undefined,
-        media_meta: media_meta.length ? media_meta : undefined,
-        visibility: meta?.visibility ?? 'public',
-        location: meta?.location,
-        feeling: meta?.feeling,
-        tagged_users: meta?.taggedUsers,
-        background: meta?.background,
-        link_preview: meta?.linkPreview,
-        feed_key: `post:${Date.now()}`,
-        type: (() => {
-          const t = media_type || media_types[0] || null;
-          if (!t) return meta?.type || 'text';
-          if (typeof t === 'string' && t.startsWith('image')) return 'image';
-          if (typeof t === 'string' && t.startsWith('video')) return 'video';
-          if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
-          return meta?.type || 'text';
-        })(),
-      };
+    const payload: any = {
+      user_id: currentUser!.id,
+      content: trimmed,
+      media_url,
+      media_type,
+      media_urls: media_urls.length ? media_urls : undefined,
+      media_types: media_types.length ? media_types : undefined,
+      media_meta: media_meta.length ? media_meta : undefined,
+      visibility: meta?.visibility ?? 'public',
+      location: meta?.location,
+      feeling: meta?.feeling,
+      tagged_users: meta?.taggedUsers,
+      background: meta?.background,
+      link_preview: meta?.linkPreview,
+      feed_key: `post:${Date.now()}`,
+      type: (() => {
+        const t = media_type || media_types[0] || null;
+        if (!t) return meta?.type || 'text';
+        if (typeof t === 'string' && t.startsWith('image')) return 'image';
+        if (typeof t === 'string' && t.startsWith('video')) return 'video';
+        if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
+        return meta?.type || 'text';
+      })(),
+    };
 
-      const data = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    const data = await apiFetch('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      const newPostRaw = data?.post ?? {
-        ...payload,
-        post_id: data?.post_id ?? data?.id ?? Date.now(),
-        created_at: new Date().toISOString(),
-      };
+    const newPostRaw = data?.post ?? {
+      ...payload,
+      post_id: data?.post_id ?? data?.id ?? Date.now(),
+      created_at: new Date().toISOString(),
+    };
 
-      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : media_url ? [media_url] : []);
-      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : media_type ? [media_type] : []);
-      (newPostRaw as any).media_meta = (newPostRaw as any).media_meta || (media_meta.length ? media_meta : undefined);
+    (newPostRaw as any).media_urls =
+      (newPostRaw as any).media_urls ||
+      (media_urls.length ? media_urls : media_url ? [media_url] : []);
 
-      const normalized = normalizePost(newPostRaw);
+    (newPostRaw as any).media_types =
+      (newPostRaw as any).media_types ||
+      (media_types.length ? media_types : media_type ? [media_type] : []);
 
-      setPosts((prev) => {
-        const next = [normalized, ...safeArray(prev)];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
+    (newPostRaw as any).media_meta =
+      (newPostRaw as any).media_meta ||
+      (media_meta.length ? media_meta : undefined);
 
-      setProfilePosts((prev) => {
-        if (!currentUser) return prev;
-        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
-        if (!isMyProfile) return prev;
+    // ✅ safety normalize: force every image full -> feed
+    if (Array.isArray((newPostRaw as any).media_meta)) {
+      (newPostRaw as any).media_meta = (newPostRaw as any).media_meta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '', // ✅ full always feed
+        type: m?.type || 'image',
+      }));
+    }
 
-        const next = [normalized, ...safeArray(prev)];
-        return next;
-      });
+    const normalized = normalizePost(newPostRaw);
 
-      pushSeenIds([Number((normalized as any).id)]);
+    setPosts((prev) => {
+      const next = [normalized, ...safeArray(prev)];
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
 
-      setShowCreatePostModal(false);
-      scheduleSilentRefresh();
-    },
-    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
-  );
+    setProfilePosts((prev) => {
+      if (!currentUser) return prev;
+      const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+      if (!isMyProfile) return prev;
 
+      const next = [normalized, ...safeArray(prev)];
+      return next;
+    });
+
+    pushSeenIds([Number((normalized as any).id)]);
+
+    setShowCreatePostModal(false);
+    scheduleSilentRefresh();
+  },
+  [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+);      
+  
   // Update user details
   const updateUserDetails = useCallback(
     async (data: Partial<User>) => {
