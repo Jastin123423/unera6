@@ -2302,6 +2302,11 @@ export const StoryReel: React.FC<StoryReelProps> = ({
   onFollow,
   checkIsFollowing,
   followLoading,
+  onFetchViewers,
+  onReaction,
+  onReply,
+  onToggleMute,
+  muted = true,
   storyCreateLoading = false,
 }) => {
 
