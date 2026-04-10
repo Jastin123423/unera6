@@ -1078,33 +1078,40 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // Get the best quality URL for display
-  const getDisplayMediaUrl = useCallback((story: StoryType): string => {
-    const meta = story.media_meta?.[0];
-    if (meta?.feed) return meta.feed;
-    if (story.media_url) return story.media_url;
-    return '';
-  }, []);
+// ==================== INSIDE StoryViewer COMPONENT ====================
 
-  // Lock page scroll when story viewer is open
-  useEffect(() => {
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    const prevBodyTouchAction = document.body.style.touchAction;
-    const prevHtmlTouchAction = document.documentElement.style.touchAction;
-    
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.touchAction = 'none';
-    document.documentElement.style.touchAction = 'none';
-    
-    return () => {
-      document.body.style.overflow = prevBodyOverflow;
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.touchAction = prevBodyTouchAction;
-      document.documentElement.style.touchAction = prevHtmlTouchAction;
-    };
-  }, []);
+// ✅ UPDATED: Get best available media URL with proper fallback chain
+const getDisplayMediaUrl = useCallback((story: StoryType): string => {
+  const meta = story.media_meta?.[0];
+  if (meta?.feed) return meta.feed;      // Optimized feed image (priority)
+  if (meta?.full) return meta.full;      // Full (same as feed for images)
+  if (meta?.thumb) return meta.thumb;    // Thumbnail fallback
+  if (story.media_url) return story.media_url; // Legacy fallback
+  return '';
+}, []);
+
+// ✅ Cache the display URL when story changes (no changes needed here)
+useEffect(() => {
+  const displayUrl = getDisplayMediaUrl(story);
+  if (displayUrl && !isBlob(displayUrl)) {
+    lastMediaUrlRef.current = displayUrl;
+  }
+}, [story.id, story, getDisplayMediaUrl]);
+
+// ✅ Cleanup on unmount (no changes needed)
+useEffect(() => {
+  return () => {
+    if (navigationTimeoutRef.current) {
+      clearTimeout(navigationTimeoutRef.current);
+    }
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+    }
+    if (progressIntervalRef.current) {
+      window.clearInterval(progressIntervalRef.current);
+    }
+  };
+}, []);
 
   // Block wheel scrolling for desktop and some Android webviews
   useEffect(() => {
