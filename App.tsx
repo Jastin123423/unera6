@@ -3315,7 +3315,6 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
     return;
   }
   
-  // close immediately so user keeps using app
   setShowCreateStoryModal(false);
   setStoryCreateLoading(true);
   
@@ -3337,11 +3336,22 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
       if (!validVideoTypes.includes(videoFile.type)) {
         throw new Error('Please upload a valid video file (MP4, WebM, or MOV)');
       }
+
       const uploaded = await uploadStoryVideoBundle(videoFile);
+
       mediaUrl = uploaded.media_url;
       mediaUrls = uploaded.media_urls;
       mediaTypes = uploaded.media_types;
-      mediaMeta = uploaded.media_meta;
+      mediaMeta = Array.isArray(uploaded.media_meta)
+        ? uploaded.media_meta.map((m: any) => ({
+            ...m,
+            thumb: m?.thumb || '',
+            feed: m?.feed || m?.full || m?.thumb || '',
+            full: m?.feed || m?.full || m?.thumb || '', // ✅ full = feed
+            type: m?.type || 'video',
+          }))
+        : uploaded.media_meta;
+
       mediaType = 'video';
     }
     // IMAGE
@@ -3354,13 +3364,25 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
       if (!validImageTypes.includes(imageFile.type)) {
         throw new Error('Please upload a valid image file (JPEG, PNG, WebP, or GIF)');
       }
+
       const uploaded = await uploadStoryImageBundle(imageFile);
+
       mediaUrl = uploaded.media_url;
       mediaUrls = uploaded.media_urls;
       mediaTypes = uploaded.media_types;
-      mediaMeta = uploaded.media_meta;
+      mediaMeta = Array.isArray(uploaded.media_meta)
+        ? uploaded.media_meta.map((m: any) => ({
+            ...m,
+            thumb: m?.thumb || '',
+            feed: m?.feed || m?.full || m?.thumb || '',
+            full: m?.feed || m?.full || m?.thumb || '', // ✅ full = feed
+            type: m?.type || 'image',
+          }))
+        : uploaded.media_meta;
+
       mediaType = 'image';
     }
+
     // AUDIO
     if (storyData.audio_file) {
       const audioFile = storyData.audio_file;
@@ -3369,6 +3391,17 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
       }
       const uploadResult = await uploadToCloudflareR2(audioFile, 'story-audio');
       musicUrl = uploadResult.url;
+    }
+
+    // ✅ final safety normalization
+    if (Array.isArray(mediaMeta)) {
+      mediaMeta = mediaMeta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '', // ✅ full always feed
+        type: m?.type || mediaType,
+      }));
     }
     
     const payload = {
@@ -3395,6 +3428,17 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
     newStory.author_name = currentUser.name;
     newStory.author_username = currentUser.username;
     newStory.author_image = currentUser.profile_image_url;
+
+    // ✅ keep full = feed after response too
+    if (Array.isArray((newStory as any).media_meta)) {
+      (newStory as any).media_meta = (newStory as any).media_meta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '',
+        type: m?.type || newStory.type || 'image',
+      }));
+    }
     
     setStories(prev => [newStory, ...safeArray(prev)]);
     
@@ -3427,7 +3471,7 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
   } finally {
     setStoryCreateLoading(false);
   }
-}, [currentUser, requireAuth, setStories, setShowCreateStoryModal]); 
+}, [currentUser, requireAuth, setStories, setShowCreateStoryModal]);
   
   useEffect(() => {
     if (!authHydrated) return;
