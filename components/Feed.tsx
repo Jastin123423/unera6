@@ -3468,7 +3468,8 @@ const ProgressiveTileImage = memo(
 );
 
 
-// ==================== MEDIA GRID WITH OPTIMIZED IMAGES ====================
+
+// ==================== MEDIA GRID (keep old sizes, add thumb->feed progressive loading) ====================
 const MediaGrid = memo(
   ({
     media,
@@ -3487,7 +3488,6 @@ const MediaGrid = memo(
     const total = Array.isArray(media) ? media.length : 0;
     const [measuredMedia, setMeasuredMedia] = useState(media);
 
-    // ✅ Measure dimensions using optimized feed image
     useEffect(() => {
       let cancelled = false;
 
@@ -3495,13 +3495,19 @@ const MediaGrid = memo(
         const next = await Promise.all(
           media.map(
             (item) =>
-              new Promise<typeof item>((resolve) => {
+              new Promise<{
+                url: string;
+                thumb?: string;
+                feed?: string;
+                full?: string;
+                width?: number;
+                height?: number;
+              }>((resolve) => {
                 if (item.width && item.height) {
                   resolve(item);
                   return;
                 }
 
-                // Use feed image for measurement (optimized)
                 const probeSrc = item.feed || item.thumb || item.url;
                 if (!probeSrc) {
                   resolve(item);
@@ -3509,19 +3515,22 @@ const MediaGrid = memo(
                 }
 
                 const img = new Image();
-                img.onload = () =>
+                img.onload = () => {
                   resolve({
                     ...item,
                     width: img.naturalWidth,
                     height: img.naturalHeight,
                   });
+                };
                 img.onerror = () => resolve(item);
                 img.src = probeSrc;
               })
           )
         );
 
-        if (!cancelled) setMeasuredMedia(next);
+        if (!cancelled) {
+          setMeasuredMedia(next);
+        }
       };
 
       run();
@@ -3529,11 +3538,6 @@ const MediaGrid = memo(
       return () => {
         cancelled = true;
       };
-    }, [media]);
-
-    // ✅ Update measured media when media changes
-    useEffect(() => {
-      setMeasuredMedia(media);
     }, [media]);
 
     const visible =
@@ -3545,187 +3549,268 @@ const MediaGrid = memo(
 
     const extra = total <= 5 ? 0 : total === 6 ? 0 : total - 6;
 
-    // ✅ Progressive loading tile component
-    const ProgressiveTile = ({
+    const orientations = classifyOrientations(visible);
+
+    const ProgressiveTileImage = ({
+      item,
+      className,
+    }: {
+      item: { url: string; thumb?: string; feed?: string; full?: string };
+      className: string;
+    }) => {
+      const initialSrc = item.thumb || item.feed || item.url;
+      const [src, setSrc] = useState(initialSrc);
+
+      useEffect(() => {
+        const firstSrc = item.thumb || item.feed || item.url;
+        setSrc(firstSrc);
+
+        const nextSrc = item.feed || item.url;
+        if (!nextSrc || nextSrc === firstSrc) return;
+
+        const img = new Image();
+        img.src = nextSrc;
+        img.onload = () => {
+          setSrc(nextSrc);
+        };
+      }, [item.url, item.thumb, item.feed]);
+
+      return (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          className={className}
+          onError={(e) => {
+            const el = e.currentTarget as HTMLImageElement;
+            if (el.src !== (item.feed || item.url)) {
+              el.src = item.feed || item.url;
+              return;
+            }
+            el.style.display = 'none';
+          }}
+        />
+      );
+    };
+
+    const Tile = ({
       item,
       index,
       className,
       showOverlay = false,
     }: {
-      item: typeof media[number];
+      item: { url: string; thumb?: string; feed?: string; full?: string };
       index: number;
       className: string;
       showOverlay?: boolean;
-    }) => {
-      const [imgSrc, setImgSrc] = useState(item.thumb || item.feed || item.url);
-      const [loaded, setLoaded] = useState(false);
+    }) => (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(item.full || item.feed || item.thumb || item.url, index);
+        }}
+        className={`relative overflow-hidden ${className}`}
+        style={{ borderRadius: 0 }}
+      >
+        <ProgressiveTileImage
+          item={item}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
 
-      useEffect(() => {
-        // Start with thumb, upgrade to feed when ready
-        if (item.feed && imgSrc !== item.feed && !loaded) {
-          const img = new Image();
-          img.src = item.feed;
-          img.onload = () => {
-            setImgSrc(item.feed!);
-            setLoaded(true);
-          };
-        }
-      }, [item.feed, imgSrc, loaded]);
+        {showOverlay && extra > 0 && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+            <span className="text-white font-bold text-[34px] leading-none">
+              +{extra}
+            </span>
+          </div>
+        )}
+      </button>
+    );
 
-      return (
-        <button
-          type="button"
-          key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(item.full || item.feed || item.thumb || item.url, index);
-          }}
-          className={`relative overflow-hidden bg-[#1c1e21] ${className}`}
-          style={{ borderRadius: 0 }}
-        >
-          <img
-            src={imgSrc}
-            className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
-            style={{ opacity: loaded ? 1 : 0.8 }}
-            loading="lazy"
-            alt=""
-          />
+    if (total === 0) return null;
 
-          {showOverlay && extra > 0 && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
-              <span className="text-white font-bold text-[34px] leading-none">
-                +{extra}
-              </span>
-            </div>
-          )}
-        </button>
-      );
-    };
-
-    // ==================== LAYOUTS WITH PROPER SPACING ====================
-
-    // 1 IMAGE - Full width, 4:5 aspect ratio
-    if (visible.length === 1) {
+    // Single image layout
+    if (total === 1) {
       return (
         <div className="w-full bg-black">
-          <ProgressiveTile 
-            item={visible[0]} 
-            index={0} 
-            className="w-full aspect-[4/5]" 
-          />
-        </div>
-      );
-    }
-
-    // 2 IMAGES - 50/50 split with 1px gap
-    if (visible.length === 2) {
-      return (
-        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
-          <ProgressiveTile 
-            item={visible[0]} 
-            index={0} 
-            className="aspect-square w-full" 
-          />
-          <ProgressiveTile 
-            item={visible[1]} 
-            index={1} 
-            className="aspect-square w-full" 
-          />
-        </div>
-      );
-    }
-
-    // 3 IMAGES - 1 tall left + 2 stacked right
-    if (visible.length === 3) {
-      return (
-        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
-          <ProgressiveTile 
-            item={visible[0]} 
-            index={0} 
-            className="row-span-2 aspect-square w-full h-full" 
-          />
-          <div className="flex flex-col gap-[1px]">
-            <ProgressiveTile 
-              item={visible[1]} 
-              index={1} 
-              className="aspect-square w-full" 
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url, 0);
+            }}
+            className="w-full block"
+          >
+            <ProgressiveTileImage
+              item={visible[0]}
+              className="w-full h-auto max-h-[650px] object-contain"
             />
-            <ProgressiveTile 
-              item={visible[2]} 
-              index={2} 
-              className="aspect-square w-full" 
+          </button>
+        </div>
+      );
+    }
+
+    // 2 images layout
+    if (total === 2) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
+          <Tile item={visible[1]} index={1} className="h-[320px] w-full" />
+        </div>
+      );
+    }
+
+    // 3 images layout
+    if (total === 3) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[420px] w-full" />
+          <div className="grid grid-rows-2 gap-[2px] h-[420px]">
+            <Tile item={visible[1]} index={1} className="w-full h-full" />
+            <Tile item={visible[2]} index={2} className="w-full h-full" />
+          </div>
+        </div>
+      );
+    }
+
+    // 4 images layout
+    if (total === 4) {
+      return (
+        <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
+          <Tile item={visible[0]} index={0} className="h-[260px] w-full" />
+          <Tile item={visible[1]} index={1} className="h-[260px] w-full" />
+          <Tile item={visible[2]} index={2} className="h-[260px] w-full" />
+          <Tile item={visible[3]} index={3} className="h-[260px] w-full" />
+        </div>
+      );
+    }
+
+    // 5 images layout
+    if (total === 5) {
+      return (
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
+            <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
+            <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
+            <Tile
+              item={visible[4]}
+              index={4}
+              className="h-[170px] w-full"
+              showOverlay={extra > 0}
             />
           </div>
         </div>
       );
     }
 
-    // 4 IMAGES - 2x2 grid
-    if (visible.length === 4) {
-      return (
-        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
-          {visible.map((item, index) => (
-            <ProgressiveTile 
-              key={index} 
-              item={item} 
-              index={index} 
-              className="aspect-square w-full" 
-            />
-          ))}
-        </div>
-      );
-    }
+    // Smart 6-image layout
+    if (total >= 6) {
+      const first = orientations[0];
+      const second = orientations[1];
+      const third = orientations[2];
 
-    // 5 IMAGES - 1 tall left + 4 square right (2x2)
-    if (visible.length === 5) {
+      const topPortraitPair = first === 'portrait' && second === 'portrait';
+      const firstLandscape = first === 'landscape' || second === 'landscape';
+      const tallLeft = third === 'portrait';
+
+      // Layout A
+      if (tallLeft) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile item={visible[0]} index={0} className="h-[250px] w-full" />
+              <Tile item={visible[1]} index={1} className="h-[250px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile item={visible[2]} index={2} className="h-[340px] w-full" />
+              <div className="grid grid-rows-3 gap-[2px] h-[340px]">
+                <Tile item={visible[3]} index={3} className="w-full h-full" />
+                <Tile item={visible[4]} index={4} className="w-full h-full" />
+                <Tile
+                  item={visible[5]}
+                  index={5}
+                  className="w-full h-full"
+                  showOverlay={extra > 0}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Layout B
+      if (firstLandscape || !topPortraitPair) {
+        return (
+          <div className="w-full bg-black">
+            <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+              <Tile item={visible[0]} index={0} className="h-[230px] w-full" />
+              <Tile item={visible[1]} index={1} className="h-[230px] w-full" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-[2px]">
+              <Tile item={visible[2]} index={2} className="h-[170px] w-full" />
+              <Tile item={visible[3]} index={3} className="h-[170px] w-full" />
+              <Tile item={visible[4]} index={4} className="h-[170px] w-full" />
+              <Tile
+                item={visible[5]}
+                index={5}
+                className="h-[170px] w-full"
+                showOverlay={extra > 0}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      // Layout C
       return (
-        <div className="grid grid-cols-2 gap-[1px] w-full bg-black">
-          <ProgressiveTile 
-            item={visible[0]} 
-            index={0} 
-            className="row-span-2 aspect-square w-full h-full" 
-          />
-          <div className="grid grid-cols-2 gap-[1px]">
-            <ProgressiveTile 
-              item={visible[1]} 
-              index={1} 
-              className="aspect-square w-full" 
-            />
-            <ProgressiveTile 
-              item={visible[2]} 
-              index={2} 
-              className="aspect-square w-full" 
-            />
-            <ProgressiveTile 
-              item={visible[3]} 
-              index={3} 
-              className="aspect-square w-full" 
-            />
-            <ProgressiveTile 
-              item={visible[4]} 
-              index={4} 
-              className="aspect-square w-full" 
+        <div className="w-full bg-black">
+          <div className="grid grid-cols-2 gap-[2px] mb-[2px]">
+            <Tile item={visible[0]} index={0} className="h-[320px] w-full" />
+            <div className="grid grid-rows-2 gap-[2px] h-[320px]">
+              <Tile item={visible[1]} index={1} className="w-full h-full" />
+              <Tile item={visible[2]} index={2} className="w-full h-full" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-[2px]">
+            <Tile item={visible[3]} index={3} className="h-[150px] w-full" />
+            <Tile item={visible[4]} index={4} className="h-[150px] w-full" />
+            <Tile
+              item={visible[5]}
+              index={5}
+              className="h-[150px] w-full"
+              showOverlay={extra > 0}
             />
           </div>
         </div>
       );
     }
 
-    // 6+ IMAGES - 3x3 grid with +N overlay on last item
     return (
-      <div className="grid grid-cols-3 gap-[1px] w-full bg-black">
-        {visible.map((item, index) => (
-          <ProgressiveTile
-            key={index}
-            item={item}
-            index={index}
-            className="aspect-square w-full"
-            showOverlay={index === 5 && extra > 0}
-          />
-        ))}
+      <div className="w-full grid grid-cols-3 gap-[2px] bg-black">
+        <Tile item={visible[0]} index={0} className="h-[180px] w-full" />
+        <Tile item={visible[1]} index={1} className="h-[180px] w-full" />
+        <Tile item={visible[2]} index={2} className="h-[180px] w-full" />
+        <Tile item={visible[3]} index={3} className="h-[180px] w-full" />
+        <Tile item={visible[4]} index={4} className="h-[180px] w-full" />
+        <Tile
+          item={visible[5]}
+          index={5}
+          className="h-[180px] w-full"
+          showOverlay={extra > 0}
+        />
       </div>
     );
-  }
+  },
+  (prev, next) => prev.media === next.media
 );
 
 // ==================== GROUP POST HEADER (internal) ====================
