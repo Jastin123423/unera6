@@ -6077,9 +6077,6 @@ export const Post = memo(
     onOpen={(url, index) => {
       const urls = imageMedia.map((m) => m.full || m.feed || m.url);
       openGallery(urls, index);
-    }}
-  />
-)}
   </>
 ) : (
   <>
