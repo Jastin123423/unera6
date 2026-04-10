@@ -2671,7 +2671,9 @@ export const ReelFeedCard = memo(
   },
   reelCardPropsEqual
 );
+
 //============ STORY CARD COMPONENTS =======
+
 interface FeedStoryCardProps {
   story: any;
   onOpen?: (story: any) => void;
@@ -2680,12 +2682,30 @@ interface FeedStoryCardProps {
 const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
   const authorName = getStoryAuthorName(story);
   const authorImage = getStoryAuthorImage(story);
-  const storyLabel =
-    story?.type === 'text'
-      ? 'Text story'
-      : isStoryVideo(story)
-      ? 'Video story'
-      : 'Photo story';
+
+  const storyMedia = getStoryMediaList(story);
+  const primaryMedia = storyMedia[0];
+
+  const isText = story?.type === 'text';
+  const isVideo = story?.type === 'video' || primaryMedia?.kind === 'video';
+  const isImage = !isText && !isVideo;
+
+  const storyLabel = isText ? 'Text story' : isVideo ? 'Video story' : 'Photo story';
+
+  const displayMediaUrl =
+    primaryMedia?.feed ||
+    primaryMedia?.full ||
+    primaryMedia?.url ||
+    String(story?.media_url || '').trim();
+
+  const thumbnailUrl =
+    primaryMedia?.thumb ||
+    primaryMedia?.feed ||
+    primaryMedia?.full ||
+    displayMediaUrl;
+
+  const viewsCount = Number(story?.views_count || 0);
+  const reactionsCount = Number(story?.reactions_count || 0);
 
   return (
     <div className="bg-[#242526] rounded-2xl border border-[#3A3B3C] shadow-sm overflow-hidden mb-4">
@@ -2702,7 +2722,7 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
           </div>
           <p className="text-[#B0B3B8] text-[12px]">
             {storyLabel}
-            {typeof story?.views_count === 'number' ? ` · ${story.views_count} views` : ''}
+            {viewsCount > 0 ? ` · ${viewsCount} views` : ''}
           </p>
         </div>
       </div>
@@ -2712,12 +2732,13 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
         onClick={() => onOpen?.(story)}
         className="block w-full text-left"
       >
-        {story?.type === 'text' ? (
+        {isText ? (
           <div
             className="h-[420px] flex items-center justify-center text-center px-6"
             style={{
               background:
-                story?.background_style || 'linear-gradient(45deg, #1877F2, #0055FF)',
+                story?.background_style ||
+                'linear-gradient(45deg, #1877F2, #0055FF)',
             }}
           >
             <div className="max-w-[85%]">
@@ -2726,15 +2747,27 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
               </p>
             </div>
           </div>
-        ) : isStoryVideo(story) ? (
+        ) : isVideo ? (
           <div className="relative h-[420px] bg-black">
-            <video
-              src={story?.media_url || ''}
-              className="w-full h-full object-cover"
-              muted
-              playsInline
-              preload="metadata"
-            />
+            {thumbnailUrl ? (
+              <img
+                src={thumbnailUrl}
+                alt="Video story"
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : displayMediaUrl ? (
+              <video
+                src={displayMediaUrl}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <div className="w-full h-full bg-[#111]" />
+            )}
+
             <div className="absolute inset-0 bg-black/10" />
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="w-16 h-16 rounded-full bg-black/45 border border-white/30 flex items-center justify-center">
@@ -2742,26 +2775,41 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : isImage ? (
           <div className="relative h-[420px] bg-black">
-            <img
-              src={story?.media_url || ''}
-              alt="Story"
-              className="w-full h-full object-cover"
-            />
+            {primaryMedia ? (
+              <ProgressiveTileImage
+                item={{
+                  url: displayMediaUrl,
+                  thumb: primaryMedia.thumb || displayMediaUrl,
+                  feed: primaryMedia.feed || displayMediaUrl,
+                  full: primaryMedia.full || primaryMedia.feed || displayMediaUrl,
+                }}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : displayMediaUrl ? (
+              <img
+                src={displayMediaUrl}
+                alt="Story"
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full bg-[#111]" />
+            )}
           </div>
-        )}
+        ) : null}
       </button>
 
       <div className="px-4 py-3 border-t border-[#3A3B3C] flex items-center justify-between">
         <div className="flex items-center gap-4 text-[#B0B3B8] text-sm">
           <span className="flex items-center gap-1">
             <i className="fas fa-eye text-[13px]"></i>
-            {Number(story?.views_count || 0)}
+            {viewsCount}
           </span>
           <span className="flex items-center gap-1">
             <i className="fas fa-heart text-[13px]"></i>
-            {Number(story?.reactions_count || 0)}
+            {reactionsCount}
           </span>
         </div>
 
@@ -2776,6 +2824,8 @@ const FeedStoryCard: React.FC<FeedStoryCardProps> = ({ story, onOpen }) => {
     </div>
   );
 };
+
+
 
 /**
  * =========================
