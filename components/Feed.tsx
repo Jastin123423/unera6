@@ -3422,6 +3422,7 @@ const ProgressiveTileImage = memo(
                               
 
 // ==================== MEDIA GRID (keep old sizes, add thumb->feed progressive loading) ====================
+// ==================== MEDIA GRID (keep old sizes, add thumb->feed progressive loading) ====================
 const MediaGrid = memo(
   ({
     media,
@@ -3492,6 +3493,10 @@ const MediaGrid = memo(
       };
     }, [media]);
 
+    useEffect(() => {
+      setMeasuredMedia(media);
+    }, [media]);
+
     const visible =
       total <= 4
         ? measuredMedia
@@ -3502,48 +3507,6 @@ const MediaGrid = memo(
     const extra = total <= 5 ? 0 : total === 6 ? 0 : total - 6;
 
     const orientations = classifyOrientations(visible);
-
-    const ProgressiveTileImage = ({
-      item,
-      className,
-    }: {
-      item: { url: string; thumb?: string; feed?: string; full?: string };
-      className: string;
-    }) => {
-      const initialSrc = item.thumb || item.feed || item.url;
-      const [src, setSrc] = useState(initialSrc);
-
-      useEffect(() => {
-        const firstSrc = item.thumb || item.feed || item.url;
-        setSrc(firstSrc);
-
-        const nextSrc = item.feed || item.url;
-        if (!nextSrc || nextSrc === firstSrc) return;
-
-        const img = new Image();
-        img.src = nextSrc;
-        img.onload = () => {
-          setSrc(nextSrc);
-        };
-      }, [item.url, item.thumb, item.feed]);
-
-      return (
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          className={className}
-          onError={(e) => {
-            const el = e.currentTarget as HTMLImageElement;
-            if (el.src !== (item.feed || item.url)) {
-              el.src = item.feed || item.url;
-              return;
-            }
-            el.style.display = 'none';
-          }}
-        />
-      );
-    };
 
     const Tile = ({
       item,
@@ -3558,6 +3521,7 @@ const MediaGrid = memo(
     }) => (
       <button
         type="button"
+        key={`${item.full || item.feed || item.thumb || item.url}-${index}`}
         onClick={(e) => {
           e.stopPropagation();
           onOpen(item.full || item.feed || item.thumb || item.url, index);
@@ -3590,7 +3554,10 @@ const MediaGrid = memo(
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onOpen(visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url, 0);
+              onOpen(
+                visible[0].full || visible[0].feed || visible[0].thumb || visible[0].url,
+                0
+              );
             }}
             className="w-full block"
           >
@@ -3764,7 +3731,8 @@ const MediaGrid = memo(
   },
   (prev, next) => prev.media === next.media
 );
-
+              
+              
 // ==================== GROUP POST HEADER (internal) ====================
 const GroupPostHeader = memo(
   ({
