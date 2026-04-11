@@ -5856,8 +5856,7 @@ const marketplaceGridData = useMemo(() => {
                 {p.content}
               </div>
             )}
-
-        {isMarketplace ? (
+{isMarketplace ? (
   <>
     {marketplaceGridData.mediaForGrid.length > 0 && (
       <div
@@ -6040,7 +6039,114 @@ const marketplaceGridData = useMemo(() => {
 
     {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
       <div className="my-3">
-        {/* Audio player content */}
+        {(() => {
+          const cover =
+            (p as any).song_cover_image_url ||
+            imageMedia?.[0]?.url ||
+            a.profile_image_url;
+
+          const titleText = p.content || 'Audio';
+          const artistText =
+            (p as any).song_artist_name || a.name || 'Unknown';
+
+          return (
+            <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+              {cover ? (
+                <div className="relative">
+                  <img
+                    src={cover}
+                    alt="Cover"
+                    className="w-full h-[260px] md:h-[320px] object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const img = e.currentTarget as HTMLImageElement;
+                      if (
+                        a.profile_image_url &&
+                        img.src !== a.profile_image_url
+                      ) {
+                        img.src = a.profile_image_url;
+                      }
+                    }}
+                  />
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+                  <div className="absolute left-3 right-3 bottom-3">
+                    <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+                          <img
+                            src={cover}
+                            alt="Mini cover"
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[#E4E6EB] font-bold text-[17px]">
+                            Audio Track
+                          </div>
+                          <div className="text-[#B0B3B8] text-[15px] truncate">
+                            {titleText}
+                          </div>
+                          <div className="text-[#B0B3B8] text-[14px] truncate">
+                            {artistText}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            onPlayAudioTrack!({
+                              id: postId,
+                              title: titleText,
+                              artist: artistText,
+                              url: mediaInfo.mediaUrl,
+                              duration: 0,
+                              coverImage: cover || a.profile_image_url,
+                            })
+                          }
+                          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
+                        >
+                          <i className="fas fa-play mr-1"></i> Play
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="flex items-center gap-3">
+                    <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                    <div className="flex-1">
+                      <div className="text-[#E4E6EB] font-bold text-[17px]">
+                        Audio Track
+                      </div>
+                      <div className="text-[#B0B3B8] text-[15px]">
+                        {p.content || 'Listen to audio'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() =>
+                        onPlayAudioTrack!({
+                          id: postId,
+                          title: titleText,
+                          artist: artistText,
+                          url: mediaInfo.mediaUrl,
+                          duration: 0,
+                          coverImage: a.profile_image_url,
+                        })
+                      }
+                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
+                    >
+                      <i className="fas fa-play mr-1"></i> Play
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     )}
 
