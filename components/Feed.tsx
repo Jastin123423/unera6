@@ -6135,29 +6135,29 @@ const marketplaceGridData = useMemo(() => {
           setShowShareSheet(true);
         }}
       >
-     <i className="fas fa-share text-[22px]"></i>
-     <span className="text-[19px] font-bold">Share</span>
-     </button>
-      {pushButton && <div className="ml-2">{pushButton}</div>}
-       </div>
-      </>
-     ) : (
-      <>   
-   {!p.background && imageMedia.length > 0 && (
-  <MediaGrid
-    media={imageMedia.map((m) => ({
-      url: m.feed || m.url,
-      thumb: m.thumb || m.url,
-      feed: m.feed || m.url,
-      full: m.full || m.feed || m.url,
-    }))}
-    onOpen={(url, index) => {
-      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
-      openGallery(urls, index);
-    }}
-  />
-)}
-
+        <i className="fas fa-share text-[22px]"></i>
+        <span className="text-[19px] font-bold">Share</span>
+      </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>>
+    </div>
+  </>
+) : (
+  <>
+    {!p.background && imageMedia.length > 0 && (
+      <MediaGrid
+        media={imageMedia.map((m) => ({
+          url: m.feed || m.url,
+          thumb: m.thumb || m.url,
+          feed: m.feed || m.url,
+          full: m.full || m.feed || m.url,
+        }))}
+        onOpen={(url, index) => {
+          const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+          openGallery(urls, index);
+        }}
+      />
+    )}
+        
                 {!p.background && videoMedia.length > 0 && (
                   <div
                     className="cursor-pointer relative h-[500px] bg-black"
