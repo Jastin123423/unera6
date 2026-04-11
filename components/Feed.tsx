@@ -5998,7 +5998,6 @@ const marketplaceGridData = useMemo(() => {
     </div>
   </>
 ) : (
-  // Regular post rendering (non-marketplace)
   <>
     {!p.background && imageMedia.length > 0 && (
       <MediaGrid
@@ -6014,7 +6013,7 @@ const marketplaceGridData = useMemo(() => {
         }}
       />
     )}
-
+    
     {!p.background && videoMedia.length > 0 && (
       <div
         className="cursor-pointer relative h-[500px] bg-black"
