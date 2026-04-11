@@ -3500,63 +3500,68 @@ export const GroupsPage: React.FC<GroupsPageProps> = ({
       console.error('Failed to create group:', error);
     }
   };
+const handlePostSubmit = async () => {
+  if (!activeGroup) return;
+  if (!postContent.trim() && postFiles.length === 0) return;
 
-  const handlePostSubmit = async () => {
-    if (!activeGroup) return;
-    if (!postContent.trim() && postFiles.length === 0) return;
+  let metadata: any = {};
 
-    // Prepare metadata based on category
-    let metadata = {};
-    if (activeGroup.category === 'buy_sell') {
-      metadata = {
-        price: postMetadata.price,
-        currency: postMetadata.currency || 'USD',
-        condition: postMetadata.condition,
-        location: postMetadata.location,
-        status: 'available',
-      };
-    } else if (activeGroup.category === 'recruitment') {
-      metadata = {
-        job_title: postMetadata.job_title,
-        company: postMetadata.company,
-        street: postMetadata.street,
-        district: postMetadata.district,
-        region: postMetadata.region,
-        country: postMetadata.country,
-        location: [postMetadata.street, postMetadata.district, postMetadata.region, postMetadata.country].filter(Boolean).join(', '),
-        salary: postMetadata.salary,
-        job_type: postMetadata.job_type,
-        application_type: postMetadata.application_type,
-        application_value: postMetadata.application_value,
-        expiry_date: postMetadata.expiry_date,
-      };
-    } else if (activeGroup.category === 'music_drama') {
-      metadata = {
-        artist: postMetadata.artist,
-        series: postMetadata.series,
-        episode: postMetadata.episode,
-        duration: postMetadata.duration,
-      };
+  if (activeGroup.category === 'buy_sell') {
+    metadata = {
+      price: postMetadata.price,
+      currency: postMetadata.currency || 'USD',
+      condition: postMetadata.condition,
+      location: postMetadata.location,
+      status: 'available',
+    };
+  } else if (activeGroup.category === 'recruitment') {
+    metadata = {
+      job_title: postMetadata.job_title,
+      company: postMetadata.company,
+      street: postMetadata.street,
+      district: postMetadata.district,
+      region: postMetadata.region,
+      country: postMetadata.country,
+      location: [
+        postMetadata.street,
+        postMetadata.district,
+        postMetadata.region,
+        postMetadata.country,
+      ].filter(Boolean).join(', '),
+      salary: postMetadata.salary,
+      job_type: postMetadata.job_type,
+      application_type: postMetadata.application_type,
+      application_value: postMetadata.application_value,
+      expiry_date: postMetadata.expiry_date,
+    };
+  } else if (activeGroup.category === 'music_drama') {
+    metadata = {
+      artist: postMetadata.artist,
+      series: postMetadata.series,
+      episode: postMetadata.episode,
+      duration: postMetadata.duration,
+    };
+  }
+
+  try {
+    await onPostToGroup(activeGroup.id, postContent.trim(), postFiles, metadata);
+
+    setShowGroupPostModal(false);
+    setPostContent('');
+    setPostFiles([]);
+    setPreviews([]);
+    setPostMetadata({});
+
+    if (postFileInputRef.current) {
+      postFileInputRef.current.value = '';
     }
 
-    try {
-      await onPostToGroup(activeGroup.id, postContent.trim(), postFiles, metadata);
-      setShowGroupPostModal(false);
-      setPostContent('');
-      setPostFiles([]);
-      setPreviews([]);
-      setPostMetadata({});
-      
-      if (postFileInputRef.current) {
-        postFileInputRef.current.value = '';
-      }
-      
-      postsLoadedRef.current = false;
-      loadGroupPosts(true);
-    } catch (error) {
-      console.error('Failed to create group post:', error);
-    }
-  };
+    postsLoadedRef.current = false;
+    loadGroupPosts(true);
+  } catch (error) {
+    console.error('Failed to create group post:', error);
+  }
+};
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
     if (e.target.files && e.target.files[0] && activeGroup) {
