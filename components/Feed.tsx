@@ -5440,11 +5440,14 @@ export const Post = memo(
 
     const productId = isMarketplace ? getMarketplaceProductId(p) : null;
     const productData = productId ? getProductData?.(productId) : null;
+  
+   const mpImages = useMemo(() => 
+  isMarketplace ? getMarketplaceImages(p, productData) : []
+, [isMarketplace, p, productData]);
 
-    const mpImages = isMarketplace ? getMarketplaceImages(p, productData) : [];
-    const { price, currency, loc } = isMarketplace
-      ? getMarketplacePriceLine(productData)
-      : { price: null, currency: 'TZS', loc: 'Marketplace' };
+const { price, currency, loc } = isMarketplace
+  ? getMarketplacePriceLine(productData)
+  : { price: null, currency: 'TZS', loc: 'Marketplace' };
 
     const [galleryOpen, setGalleryOpen] = useState(false);
     const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
