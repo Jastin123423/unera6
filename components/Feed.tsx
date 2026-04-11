@@ -5533,6 +5533,40 @@ export const Post = memo(
       return formatReactionText(finalReactionCount, reactorName);
     }, [finalReactionCount, reactorName]);
 
+   
+      // Inside Post component, after all the useMemo declarations, before the return
+const marketplaceGridData = useMemo(() => {
+  if (!isMarketplace) {
+    return {
+      mediaForGrid: [] as Array<{ url: string; thumb?: string; feed?: string; full?: string; }>,
+      galleryUrls: [] as string[],
+    };
+  }
+  
+  const variants = getMarketplaceImageVariants(p, productData);
+  const hasVariants = variants.length > 0;
+  
+  const mediaForGrid = hasVariants
+    ? variants.map((v) => ({
+        url: v.feed || v.thumb || v.full || '',
+        thumb: v.thumb || v.feed || v.full || '',
+        feed: v.feed || v.full || v.thumb || '',
+        full: v.full || v.feed || v.thumb || '',
+      }))
+    : mpImages.map((url) => ({
+        url,
+        thumb: url,
+        feed: url,
+        full: url,
+      }));
+  
+  const galleryUrls = hasVariants
+    ? variants.map((v) => v.full || v.feed || v.thumb || '').filter(Boolean)
+    : mpImages.filter(Boolean);
+  
+  return { mediaForGrid, galleryUrls };
+}, [isMarketplace, p, productData, mpImages]);
+
     useEffect(() => {
       const newCommentCount =
         typeof p.comments_count === 'number'
