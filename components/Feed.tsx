@@ -696,7 +696,7 @@ const getMarketplaceImageVariants = (
       .map((v: any) => ({
         thumb: v?.thumb || v?.feed || v?.full || '',
         feed: v?.feed || v?.full || v?.thumb || '',
-        full: v?.feed || v?.full || v?.thumb || '', // ✅ products full = feed
+        full: v?.feed || v?.full || v?.thumb || '',
         type: v?.type || 'image',
       }))
       .filter((v) => v.feed);
@@ -711,7 +711,7 @@ const getMarketplaceImageVariants = (
   if (fromMeta.length > 0) return fromMeta;
 
   return [];
-};
+};                     
 
   // ✅ image_variants first
   const directVariants = parseVariants((p as any)?.image_variants);
@@ -722,7 +722,7 @@ const getMarketplaceImageVariants = (
   const productVariants = parseVariants(productData?.image_variants);
   if (productVariants.length > 0) {
     return productVariants.map((v: any) => v?.feed || v?.thumb || v?.full).filter(Boolean);
-  }
+
 
   // fallback old fields
   const pdImgs = safeJsonArray(productData?.images);
