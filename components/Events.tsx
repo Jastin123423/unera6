@@ -1,14 +1,87 @@
-// Events.tsx - Updated with all fixes and App.tsx compatibility improvements-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, Event } from '../types';
 
-// Use the uploadToCloudflareR2 function from your App.tsx
-const uploadToCloudflareR2 = async (file: File, folder = 'events'): Promise<{ url: string; type: string; filename: string }> => {
+/* =========================================================
+   EVENT COVER COMPRESSION HELPERS (Silent, no user notification)
+========================================================= */
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> => new Promise((resolve, reject) => {
+  canvas.toBlob((blob) => {
+    if (blob) resolve(blob);
+    else reject(new Error('Canvas export failed'));
+  }, type, quality);
+});
+
+const loadImageElement = (src: string): Promise<HTMLImageElement> => 
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = src;
+  });
+
+const calcContainSize = (w: number, h: number, max: number) => {
+  if (!w || !h) return { width: max, height: max };
+  if (Math.max(w, h) <= max) return { width: w, height: h };
+  const scale = max / Math.max(w, h);
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+};
+
+const compressEventCoverImage = async (file: File): Promise<File> => {
+  // Keep GIF/SVG as-is
+  if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
+    return file;
+  }
+  
+  const objectUrl = URL.createObjectURL(file);
   try {
+    const img = await loadImageElement(objectUrl);
+    // Good event cover size without keeping huge originals (max 1600px)
+    const targetSize = calcContainSize(img.naturalWidth, img.naturalHeight, 1600);
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize.width;
+    canvas.height = targetSize.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+    
+    ctx.drawImage(img, 0, 0, targetSize.width, targetSize.height);
+    const blob = await canvasToBlob(canvas, 'image/webp', 0.84);
+    const ts = Date.now();
+    
+    return new File([blob], `${ts}-event-cover.webp`, {
+      type: 'image/webp',
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+/* =========================================================
+   UPLOAD HELPER WITH COMPRESSION
+========================================================= */
+
+const uploadToCloudflareR2 = async (
+  file: File,
+  folder = 'events'
+): Promise<{ url: string; type: string; filename: string }> => {
+  try {
+    let uploadFile = file;
+    // Compress event cover images before upload
+    if (file.type.startsWith('image/')) {
+      uploadFile = await compressEventCoverImage(file);
+    }
+    
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('filename', file.name);
-    formData.append('type', file.type);
+    formData.append('file', uploadFile);
+    formData.append('filename', uploadFile.name);
+    formData.append('type', uploadFile.type);
     formData.append('folder', folder);
     formData.append('timestamp', Date.now().toString());
 
@@ -25,7 +98,11 @@ const uploadToCloudflareR2 = async (file: File, folder = 'events'): Promise<{ ur
     const result = await response.json();
     if (!result.url) throw new Error('No URL returned from upload');
 
-    return { url: result.url, type: file.type, filename: file.name };
+    return {
+      url: result.url,
+      type: uploadFile.type,
+      filename: uploadFile.name,
+    };
   } catch (error) {
     console.error('Upload failed:', error);
     throw error;
@@ -180,7 +257,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       return;
     }
 
-    // Validate file size (max 5MB)
+    // Validate file size (max 5MB - before compression)
     if (f.size > 5 * 1024 * 1024) {
       setError('Image size must be less than 5MB');
       return;
@@ -222,7 +299,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       // Default cover image if none uploaded
       let coverUrl = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 
-      // Upload image if provided
+      // Upload image if provided (will be compressed automatically by uploadToCloudflareR2)
       if (imageFile) {
         try {
           const uploadResult = await uploadToCloudflareR2(imageFile, 'events');
@@ -465,6 +542,3 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     </div>
   );
 };
-
-// ✅ Remove default export - use named export only
-// export default CreateEventModal; - COMMENTED OUT/DELETED
