@@ -5844,32 +5844,54 @@ export const Post = memo(
               </div>
             )}
 
-            {isMarketplace ? (
-              <>
-                {mpImages.length > 0 && (
-                  <div className="w-full">
-                    <div className="w-full bg-black">
-                      <MediaGrid
-                        media={mpImages.map((url) => ({ url }))}
-                        onOpen={(url, index) => {
-                          openGallery(mpImages, index);
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
+         {isMarketplace ? (
+  <>
+    {(() => {
+      const variants = getMarketplaceImageVariants(p, productData);
+      const hasVariants = variants.length > 0;
+      const mediaForGrid = hasVariants
+        ? variants.map((v) => ({
+            url: v.feed || v.thumb || v.full,
+            thumb: v.thumb || v.feed || v.full,
+            feed: v.feed || v.full || v.thumb,
+            full: v.full || v.feed || v.thumb,
+          }))
+        : mpImages.map((url) => ({
+            url,
+            thumb: url,
+            feed: url,
+            full: url,
+          }));
+      
+      const galleryUrls = hasVariants
+        ? variants.map((v) => v.full || v.feed || v.thumb).filter(Boolean)
+        : mpImages;
+      
+      return mediaForGrid.length > 0 ? (
+        <div className="w-full">
+          <div className="w-full bg-black">
+            <MediaGrid
+              media={mediaForGrid}
+              onOpen={(url, index) => {
+                openGallery(galleryUrls, index);
+              }}
+            />
+          </div>
+        </div>
+      ) : null;
+    })()}
 
-                {price && (
-                  <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[#E4E6EB] text-[19px] font-bold">
-                        {currency}
-                      </span>
-                      <span className="text-[#E4E6EB] text-[22px] font-bold">
-                        {price}
-                      </span>
-                    </div>
-
+    {/* Rest of marketplace UI (price, button, reactions, etc.) */}
+    {price && (
+      <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+        <div className="flex items-center gap-1">
+          <span className="text-[#E4E6EB] text-[19px] font-bold">
+            {currency}
+          </span>
+          <span className="text-[#E4E6EB] text-[22px] font-bold">
+            {price}
+          </span>
+        </div>
                     <button
                       className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
                       onClick={(e) => {
