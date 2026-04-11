@@ -1192,6 +1192,196 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
+// ==================== GROUP POST IMAGE BUNDLE HELPERS ====================
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const loadImageElement = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = src;
+  });
+
+const loadVideoElement = (src: string): Promise<HTMLVideoElement> =>
+  new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.playsInline = true;
+    v.muted = true;
+    v.src = src;
+    const cleanup = () => {
+      v.onloadedmetadata = null;
+      v.onerror = null;
+    };
+    v.onloadedmetadata = () => {
+      cleanup();
+      resolve(v);
+    };
+    v.onerror = () => {
+      cleanup();
+      reject(new Error('Failed to load video'));
+    };
+  });
+
+const calcContainSize = (w: number, h: number, max: number) => {
+  if (!w || !h) return { width: max, height: max };
+  if (Math.max(w, h) <= max) return { width: w, height: h };
+  const scale = max / Math.max(w, h);
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+};
+
+const buildGroupImageBundle = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    const thumbSize = calcContainSize(img.naturalWidth, img.naturalHeight, 320);
+    const feedSize = calcContainSize(img.naturalWidth, img.naturalHeight, 1280);
+
+    const drawToCanvas = (width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas context not available');
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas;
+    };
+
+    const thumbCanvas = drawToCanvas(thumbSize.width, thumbSize.height);
+    const feedCanvas = drawToCanvas(feedSize.width, feedSize.height);
+
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+
+    const ts = Date.now();
+    return {
+      thumb: new File([thumbBlob], `${ts}-thumbnail.webp`, { type: 'image/webp' }),
+      feed: new File([feedBlob], `${ts}-feed.webp`, { type: 'image/webp' }),
+      full: new File([feedBlob], `${ts}-feed.webp`, { type: 'image/webp' }), // full = feed
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const buildGroupVideoThumbnail = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    const seekTo = Math.min(
+      Math.max((video.duration || 1) * 0.2, 0.1),
+      Math.max((video.duration || 1) - 0.1, 0.1)
+    );
+
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+
+    const thumbSize = calcContainSize(video.videoWidth || 320, video.videoHeight || 320, 320);
+    const canvas = document.createElement('canvas');
+    canvas.width = thumbSize.width;
+    canvas.height = thumbSize.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+    ctx.drawImage(video, 0, 0, thumbSize.width, thumbSize.height);
+
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    const ts = Date.now();
+    return new File([thumbBlob], `${ts}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadGroupImageBundle = async (file: File) => {
+  const bundle = await buildGroupImageBundle(file);
+  const formData = new FormData();
+  formData.append('thumbnail', bundle.thumb);
+  formData.append('feed', bundle.feed);
+  formData.append('original', bundle.full);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) {
+    throw new Error(result?.error || 'Group image upload failed');
+  }
+
+  const thumb = result?.uploaded?.thumbnail?.url || result?.media_urls?.thumb || '';
+  const feed = result?.uploaded?.feed?.url || result?.media_urls?.feed || '';
+
+  if (!feed) {
+    throw new Error('Group image upload failed: missing feed URL');
+  }
+
+  return {
+    kind: 'image' as const,
+    thumb: thumb || feed,
+    feed,
+    full: feed,
+    type: 'image',
+  };
+};
+
+const uploadGroupVideoBundle = async (file: File) => {
+  const thumbFile = await buildGroupVideoThumbnail(file);
+  const formData = new FormData();
+  formData.append('thumbnail', thumbFile);
+  formData.append('original', file);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) {
+    throw new Error(result?.error || 'Group video upload failed');
+  }
+
+  const thumb = result?.uploaded?.thumbnail?.url || result?.media_urls?.thumb || '';
+  const original = result?.uploaded?.original?.url || result?.url || '';
+
+  if (!original) {
+    throw new Error('Group video upload failed: missing original video URL');
+  }
+
+  return {
+    kind: 'video' as const,
+    thumb,
+    feed: '',
+    full: original,
+    type: 'video',
+  };
+};
+      
 // ============================================================================
 // 🔧 Normalize groups
 // ============================================================================
