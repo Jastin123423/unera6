@@ -635,8 +635,7 @@ const getMarketplaceProductId = (p: any) => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
-
-  const getMarketplaceImages = (p: any, productData?: any): string[] => {
+const getMarketplaceImages = (p: any, productData?: any): string[] => {
   const parseVariants = (value: any) => {
     if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
@@ -649,6 +648,32 @@ const getMarketplaceProductId = (p: any) => {
     }
     return [];
   };
+
+  // ✅ image_variants first
+  const directVariants = parseVariants((p as any)?.image_variants);
+  if (directVariants.length > 0) {
+    return directVariants.map((v: any) => v?.feed || v?.thumb || v?.full).filter(Boolean);
+  }
+
+  const productVariants = parseVariants(productData?.image_variants);
+  if (productVariants.length > 0) {
+    return productVariants.map((v: any) => v?.feed || v?.thumb || v?.full).filter(Boolean);
+  }
+
+  // fallback old fields
+  const pdImgs = safeJsonArray(productData?.images);
+  if (pdImgs.length) return pdImgs;
+  
+  const mediaUrls = safeJsonArray(p?.media_urls);
+  if (mediaUrls.length) return mediaUrls;
+  
+  const imgs = safeJsonArray(p?.images);
+  if (imgs.length) return imgs;
+  
+  const single = typeof p?.media_url === 'string' && p.media_url ? [p.media_url] : [];
+  return single;
+};
+
 const getMarketplaceImageVariants = (
   p: any,
   productData?: any
@@ -687,7 +712,7 @@ const getMarketplaceImageVariants = (
 
   return [];
 };
-    
+
   // ✅ image_variants first
   const directVariants = parseVariants((p as any)?.image_variants);
   if (directVariants.length > 0) {
