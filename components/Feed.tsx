@@ -6135,14 +6135,14 @@ const marketplaceGridData = useMemo(() => {
           setShowShareSheet(true);
         }}
       >
-                    <i className="fas fa-share text-[22px]"></i>
-                    <span className="text-[19px] font-bold">Share</span>
-                  </button>
-                  {pushButton && <div className="ml-2">{pushButton}</div>}
-                </div>
-              </>
-            ) : (
-              <>   
+     <i className="fas fa-share text-[22px]"></i>
+     <span className="text-[19px] font-bold">Share</span>
+     </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>}
+       </div>
+      </>
+     ) : (
+      <>   
    {!p.background && imageMedia.length > 0 && (
   <MediaGrid
     media={imageMedia.map((m) => ({
