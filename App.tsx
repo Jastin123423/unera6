@@ -5580,94 +5580,129 @@ const data = await apiFetch('/api/reels', {
     }
   }, [currentUser, requireAuth, refreshGroupMembers]);
 
-  const createGroupPost = useCallback(async (
-    groupId: number, 
-    text: string, 
-    files?: File[] | File | null,
-    metadata?: any
-  ) => {
-    if (!requireAuth("Posting")) return;
-    const meId = Number(currentUser!.id);
+  //===CREATE GROUP POST =====
+            
+ const createGroupPost = useCallback(async (
+  groupId: number,
+  text: string,
+  files?: File[] | File | null,
+  metadata?: any
+) => {
+  if (!requireAuth("Posting")) return;
+  const meId = Number(currentUser!.id);
 
-    let media_url: string | null = null;
-    let media_urls: string[] = [];
-    let media_types: string[] = [];
+  let media_url: string | null = null;
+  let media_type: string | null = null;
+  let media_urls: string[] = [];
+  let media_types: string[] = [];
+  let media_meta: any[] = [];
 
-    if (files) {
-      const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
-      
-      if (fileArray.length > 0) {
-        try {
-          const uploadPromises = fileArray.map(file => 
-            uploadToCloudflareR2(file, "group-posts")
-          );
-          
-          const uploadResults = await Promise.all(uploadPromises);
-          
-          media_urls = uploadResults.map(r => r.url);
-          media_types = uploadResults.map(r => r.type);
-          
-          media_url = media_urls[0] || null;
-        } catch (error) {
-          console.error('Failed to upload files:', error);
-          throw new Error('Failed to upload files');
-        }
+  if (files) {
+    const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
+    
+    if (fileArray.length > 0) {
+      try {
+        const uploadResults = await Promise.all(
+          fileArray.map(async (file) => {
+            if (file.type.startsWith('image/')) {
+              return await uploadGroupImageBundle(file);
+            }
+            if (file.type.startsWith('video/')) {
+              return await uploadGroupVideoBundle(file);
+            }
+            throw new Error(`Unsupported file type: ${file.type}`);
+          })
+        );
+
+        media_meta = uploadResults.map((r) => {
+          if (r.kind === 'image') {
+            return {
+              thumb: r.thumb,
+              feed: r.feed,
+              full: r.feed, // full = feed
+              type: 'image',
+            };
+          }
+          return {
+            thumb: r.thumb || '',
+            feed: '',
+            full: r.full,
+            type: 'video',
+          };
+        });
+
+        media_urls = uploadResults
+          .map((r) => (r.kind === 'image' ? r.feed : r.full))
+          .filter(Boolean);
+        
+        media_types = uploadResults.map((r) => r.type);
+        media_url = media_urls[0] || null;
+        media_type = media_types[0] || null;
+      } catch (error) {
+        console.error('Failed to upload files:', error);
+        throw new Error('Failed to upload files');
       }
     }
+  }
 
-    try {
-      const payload: any = {
-        group_id: Number(groupId),
-        user_id: meId,
-        content: String(text || "").trim() || null,
-        media_url,
-      };
-      
-      if (media_urls.length > 0) {
-        payload.media_urls = media_urls;
-        payload.media_types = media_types;
-      }
+  try {
+    const payload: any = {
+      group_id: Number(groupId),
+      user_id: meId,
+      content: String(text || "").trim() || null,
+      media_url,
+      media_type,
+    };
 
-      if (metadata) {
-        if (metadata.job_title) payload.job_title = metadata.job_title;
-        if (metadata.company) payload.company = metadata.company;
-        if (metadata.street) payload.street = metadata.street;
-        if (metadata.district) payload.district = metadata.district;
-        if (metadata.region) payload.region = metadata.region;
-        if (metadata.country) payload.country = metadata.country;
-        if (metadata.location) payload.location = metadata.location;
-        if (metadata.salary) payload.salary = metadata.salary;
-        if (metadata.job_type) payload.job_type = metadata.job_type;
-        if (metadata.application_type) payload.application_type = metadata.application_type;
-        if (metadata.application_value) payload.application_value = metadata.application_value;
-        if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
-
-        if (metadata.price) payload.price = metadata.price;
-        if (metadata.currency) payload.currency = metadata.currency;
-        if (metadata.condition) payload.condition = metadata.condition;
-        if (metadata.status) payload.status = metadata.status;
-
-        if (metadata.artist) payload.artist = metadata.artist;
-        if (metadata.series) payload.series = metadata.series;
-        if (metadata.episode) payload.episode = metadata.episode;
-        if (metadata.duration) payload.duration = metadata.duration;
-      }
-
-      console.log('Creating group post with payload:', payload);
-
-      const result = await apiFetch("/api/group-posts", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to create group post:', error);
-      throw error;
+    if (media_urls.length > 0) {
+      payload.media_urls = media_urls;
+      payload.media_types = media_types;
+      payload.media_meta = media_meta;
     }
-  }, [currentUser, requireAuth]);
 
-  const createGroup = useCallback(async (groupData: Partial<Group>) => {
+    if (metadata) {
+      if (metadata.job_title) payload.job_title = metadata.job_title;
+      if (metadata.company) payload.company = metadata.company;
+      if (metadata.street) payload.street = metadata.street;
+      if (metadata.district) payload.district = metadata.district;
+      if (metadata.region) payload.region = metadata.region;
+      if (metadata.country) payload.country = metadata.country;
+      if (metadata.location) payload.location = metadata.location;
+      if (metadata.salary) payload.salary = metadata.salary;
+      if (metadata.job_type) payload.job_type = metadata.job_type;
+      if (metadata.application_type) payload.application_type = metadata.application_type;
+      if (metadata.application_value) payload.application_value = metadata.application_value;
+      if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
+
+      if (metadata.price) payload.price = metadata.price;
+      if (metadata.currency) payload.currency = metadata.currency;
+      if (metadata.condition) payload.condition = metadata.condition;
+      if (metadata.status) payload.status = metadata.status;
+
+      if (metadata.artist) payload.artist = metadata.artist;
+      if (metadata.series) payload.series = metadata.series;
+      if (metadata.episode) payload.episode = metadata.episode;
+      if (metadata.duration) payload.duration = metadata.duration;
+    }
+
+    console.log('Creating group post with payload:', payload);
+
+    const result = await apiFetch("/api/group-posts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('Failed to create group post:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+
+ //=======CREATE  GROUP=======
+
+  
+    const createGroup = useCallback(async (groupData: Partial<Group>) => {
     if (!requireAuth("Creating groups")) return;
     const meId = Number(currentUser!.id);
 
