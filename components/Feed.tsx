@@ -5856,10 +5856,17 @@ const marketplaceGridData = useMemo(() => {
                 {p.content}
               </div>
             )}
-{isMarketplace ? (
+
+        {isMarketplace ? (
   <>
     {marketplaceGridData.mediaForGrid.length > 0 && (
-      <div className="w-full">
+      <div
+        className="w-full relative z-[2]"
+        onClickCapture={(e) => e.stopPropagation()}
+        onMouseDownCapture={(e) => e.stopPropagation()}
+        onPointerDownCapture={(e) => e.stopPropagation()}
+        onTouchStartCapture={(e) => e.stopPropagation()}
+      >
         <div className="w-full bg-black">
           <MediaGrid
             media={marketplaceGridData.mediaForGrid}
@@ -5891,6 +5898,149 @@ const marketplaceGridData = useMemo(() => {
         >
           View product
         </button>
+      </div>
+    )}
+
+    {shouldShowSponsoredButton && (
+      <div className="px-3 pt-2 pb-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSponsoredClick();
+          }}
+          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+        >
+          {sponsoredCtaText}
+        </button>
+      </div>
+    )}
+
+    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+      <div className="flex items-center gap-2">
+        {finalReactionCount > 0 && (
+          <div
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenReactionsSheet();
+            }}
+          >
+            <div className="flex -space-x-2">
+              {emojiList.slice(0, 2).map((e, i) => (
+                <span
+                  key={i}
+                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                  style={{ zIndex: 10 - i }}
+                >
+                  {e}
+                </span>
+              ))}
+            </div>
+
+            {reactionText && (
+              <span className="text-[17px] text-[#E4E6EB] font-bold">
+                {reactionText}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4">
+        <span
+          className="hover:underline cursor-pointer text-[16px]"
+          onClick={() => handleOpenComments()}
+        >
+          {formatCount(commentCount)} Discussions
+        </span>
+        {shareCount > 0 && (
+          <span className="hover:underline text-[16px]">
+            {formatCount(shareCount)} Shares
+          </span>
+        )}
+      </div>
+    </div>
+
+    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+      <ReactionButton
+        currentUserReactions={finalMyReaction}
+        reactionCount={finalReactionCount}
+        onReact={handleReactClick}
+        isGuest={!currentUser}
+      />
+      <button
+        type="button"
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleOpenComments(e);
+        }}
+      >
+        <DiscussSignalIcon size={28} color="#1877F2" />
+        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+          Discuss
+        </span>
+      </button>
+      <button
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={() => {
+          if (!currentUser) {
+            alert('Please login to share posts.');
+            return;
+          }
+          setShowShareSheet(true);
+        }}
+      >
+        <i className="fas fa-share text-[22px]"></i>
+        <span className="text-[19px] font-bold">Share</span>
+      </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>}
+    </div>
+  </>
+) : (
+  // Regular post rendering (non-marketplace)
+  <>
+    {!p.background && imageMedia.length > 0 && (
+      <MediaGrid
+        media={imageMedia.map((m) => ({
+          url: m.feed || m.url,
+          thumb: m.thumb || m.url,
+          feed: m.feed || m.url,
+          full: m.full || m.feed || m.url,
+        }))}
+        onOpen={(url, index) => {
+          const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+          openGallery(urls, index);
+        }}
+      />
+    )}
+
+    {!p.background && videoMedia.length > 0 && (
+      <div
+        className="cursor-pointer relative h-[500px] bg-black"
+        onClick={() => onVideoClick(post)}
+      >
+        <video
+          src={videoMedia[0].url}
+          className="w-full h-full object-cover"
+          preload="metadata"
+          playsInline
+          muted
+          onError={(e) => {
+            console.error('Failed to load video:', videoMedia[0].url);
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <i className="fas fa-play text-white text-4xl opacity-50"></i>
+        </div>
+      </div>
+    )}
+
+    {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+      <div className="my-3">
+        {/* Audio player content */}
       </div>
     )}
 
