@@ -968,6 +968,73 @@ function mapEpisodeFromApi(e: any): Episode {
   } as any;
 }
 
+/* =========================================================
+   COVER IMAGE COMPRESSION HELPERS (Silent, no user notification)
+========================================================= */
+
+const loadCoverImage = (src: string): Promise<HTMLImageElement> => 
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load cover image'));
+    img.src = src;
+  });
+
+const canvasToImageBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> => new Promise((resolve, reject) => {
+  canvas.toBlob((blob) => {
+    if (blob) resolve(blob);
+    else reject(new Error('Canvas export failed'));
+  }, type, quality);
+});
+
+const calcCoverSize = (w: number, h: number, max: number) => {
+  if (!w || !h) return { width: max, height: max };
+  if (Math.max(w, h) <= max) return { width: w, height: h };
+  const scale = max / Math.max(w, h);
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+};
+
+const compressCoverImage = async (file: File): Promise<File> => {
+  if (!file.type.startsWith('image/')) return file;
+  
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadCoverImage(objectUrl);
+    // Music cover does not need huge size - max 900px
+    const target = calcCoverSize(img.naturalWidth, img.naturalHeight, 900);
+    const canvas = document.createElement('canvas');
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+    
+    ctx.drawImage(img, 0, 0, target.width, target.height);
+    const blob = await canvasToImageBlob(canvas, 'image/webp', 0.82);
+    
+    const safeName = (file.name || 'cover')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^\w\-]+/g, '_');
+    
+    return new File([blob], `${safeName}_cover.webp`, {
+      type: 'image/webp',
+      lastModified: Date.now(),
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadCompressedCoverToR2 = async (file: File) => {
+  const compressed = await compressCoverImage(file);
+  return uploadToR2(compressed);
+};
 
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
@@ -1699,7 +1766,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
     setSubmitting(true);
     try {
       const audioUrl = await uploadToR2(audioFile);
-      const coverUrl = coverFile ? await uploadToR2(coverFile) : null;
+      // Compress cover image before upload
+      const coverUrl = coverFile ? await uploadCompressedCoverToR2(coverFile) : null;
 
       if (type === "music") {
         const finalCoverUrl = coverUrl || DEFAULT_MUSIC_COVER;
@@ -1767,11 +1835,13 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
     setSubmitting(true);
     try {
-      const sharedCoverUrl = coverFile ? await uploadToR2(coverFile) : null;
+      // Compress album cover before upload
+      const sharedCoverUrl = coverFile ? await uploadCompressedCoverToR2(coverFile) : null;
 
       for (const t of albumTracks) {
         const audioUrl = await uploadToR2(t.file);
-        const trackCoverUrl = t.coverFile ? await uploadToR2(t.coverFile) : null;
+        // Compress track cover before upload
+        const trackCoverUrl = t.coverFile ? await uploadCompressedCoverToR2(t.coverFile) : null;
         const coverUrl = trackCoverUrl || sharedCoverUrl || DEFAULT_MUSIC_COVER;
 
         const payload = {
