@@ -713,31 +713,7 @@ const getMarketplaceImageVariants = (
   return [];
 };                     
 
-  // ✅ image_variants first
-  const directVariants = parseVariants((p as any)?.image_variants);
-  if (directVariants.length > 0) {
-    return directVariants.map((v: any) => v?.feed || v?.thumb || v?.full).filter(Boolean);
-  }
-
-  const productVariants = parseVariants(productData?.image_variants);
-  if (productVariants.length > 0) {
-    return productVariants.map((v: any) => v?.feed || v?.thumb || v?.full).filter(Boolean);
-
-
-  // fallback old fields
-  const pdImgs = safeJsonArray(productData?.images);
-  if (pdImgs.length) return pdImgs;
   
-  const mediaUrls = safeJsonArray(p?.media_urls);
-  if (mediaUrls.length) return mediaUrls;
-  
-  const imgs = safeJsonArray(p?.images);
-  if (imgs.length) return imgs;
-  
-  const single = typeof p?.media_url === 'string' && p.media_url ? [p.media_url] : [];
-  return single;
-};
-
 const getMarketplacePriceLine = (productData?: any) => {
   const priceRaw = productData?.price ?? productData?.main_price ?? null;
   const currency = productData?.currency || 'TZS';
