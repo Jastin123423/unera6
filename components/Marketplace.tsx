@@ -108,6 +108,34 @@ const uploadMarketplaceImageBundle = async (file: File): Promise<ProductImageVar
   };
 };
 
+// ==================== MARKETPLACE IMAGE WARM CACHE ====================
+const warmedMarketplaceImages = new Set<string>();
+const marketplaceWarmPromises = new Map<string, Promise<void>>();
+
+const warmMarketplaceImage = (src?: string): Promise<void> => {
+  const url = String(src || '').trim();
+  if (!url) return Promise.resolve();
+  if (warmedMarketplaceImages.has(url)) return Promise.resolve();
+  if (marketplaceWarmPromises.has(url)) return marketplaceWarmPromises.get(url)!;
+  
+  const promise = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      warmedMarketplaceImages.add(url);
+      marketplaceWarmPromises.delete(url);
+      resolve();
+    };
+    img.onerror = () => {
+      marketplaceWarmPromises.delete(url);
+      resolve();
+    };
+    img.src = url;
+  });
+  
+  marketplaceWarmPromises.set(url, promise);
+  return promise;
+};
+
 // ==================== HELPER FUNCTIONS ====================
 
 // Safe image variants parser
@@ -284,7 +312,7 @@ const normCountry = (v: any): string => {
   return str.toUpperCase();
 };
 
-// ==================== PRODUCT DETAIL MODAL (OPTIMIZED) ====================
+// ==================== PRODUCT DETAIL MODAL (WITH WARM CACHE) ====================
 interface ProductDetailModalProps {
     product: Product;
     currentUser: User | null;
@@ -300,7 +328,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 }) => {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [mainSrc, setMainSrc] = useState('');
-    const [mainLoading, setMainLoading] = useState(false);
     
     // ✅ Memoize product images to prevent recalculation on every render
     const productImages = useMemo(() => {
@@ -324,56 +351,23 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     // Reset index when product changes
     useEffect(() => {
         setActiveImageIndex(0);
-        setMainSrc('');
-        setMainLoading(false);
     }, [product.id]);
 
-    // ✅ Load current image with smooth transition
+    // Update main image source when index changes
     useEffect(() => {
         const current = productImages[activeImageIndex];
-        if (!current) {
-            setMainSrc('');
-            return;
-        }
+        const nextSrc = current?.feed || current?.full || current?.thumb || '';
+        setMainSrc(nextSrc || '');
+    }, [activeImageIndex, productImages]);
 
-        const nextSrc = current.feed || current.full || current.thumb || '';
-        if (!nextSrc) {
-            setMainSrc('');
-            return;
-        }
-
-        // If already same image, skip
-        if (mainSrc === nextSrc) return;
-
-        setMainLoading(true);
-        const img = new Image();
-        img.src = nextSrc;
-        img.onload = () => {
-            setMainSrc(nextSrc);
-            setMainLoading(false);
-        };
-        img.onerror = () => {
-            setMainSrc(nextSrc);
-            setMainLoading(false);
-        };
-    }, [activeImageIndex, productImages, mainSrc]);
-
-    // ✅ Preload next and previous images for instant navigation
+    // ✅ Warm all product images once when modal opens
     useEffect(() => {
         if (!productImages.length) return;
-
-        const preload = (src?: string) => {
-            if (!src) return;
-            const img = new Image();
-            img.src = src;
-        };
-
-        const next = productImages[activeImageIndex + 1];
-        const prev = productImages[activeImageIndex - 1];
-        
-        preload(next?.feed || next?.full || next?.thumb);
-        preload(prev?.feed || prev?.full || prev?.thumb);
-    }, [activeImageIndex, productImages]);
+        productImages.forEach((img) => {
+            void warmMarketplaceImage(img.feed || img.full || img.thumb);
+            void warmMarketplaceImage(img.thumb || img.feed || img.full);
+        });
+    }, [productImages]);
 
     const goPrev = useCallback(() => {
         setActiveImageIndex((prev) => 
@@ -414,30 +408,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <div className="w-full md:w-[60%] bg-[#18191A] flex flex-col relative border-r border-[#3E4042]">
                     <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-black/20">
                         {productImages.length > 0 ? (
-                            <>
-                                {mainSrc ? (
-                                    <img 
-                                        src={mainSrc} 
-                                        alt={product.title} 
-                                        className={`max-w-full max-h-full object-contain transition-opacity duration-200 ${
-                                            mainLoading ? 'opacity-50' : 'opacity-100'
-                                        }`}
-                                        draggable={false}
-                                    />
-                                ) : (
-                                    <img 
-                                        src={productImages[activeImageIndex]?.thumb || ''} 
-                                        alt={product.title} 
-                                        className="max-w-full max-h-full object-contain opacity-80"
-                                        draggable={false}
-                                    />
-                                )}
-                                {mainLoading && (
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                        <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                                    </div>
-                                )}
-                            </>
+                            <img 
+                                src={mainSrc || productImages[activeImageIndex]?.thumb || ''} 
+                                alt={product.title} 
+                                className="max-w-full max-h-full object-contain"
+                                draggable={false}
+                            />
                         ) : (
                             <div className="flex items-center justify-center w-full h-full bg-[#242526]">
                                 <i className="fas fa-image text-5xl text-[#3E4042]"></i>
@@ -770,6 +746,24 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
         return true;
     });
 
+    // ✅ Preload marketplace images once when filtered products change
+    useEffect(() => {
+        const items = filteredProducts.slice(0, 24);
+        items.forEach((product: any) => {
+            const variants = safeImageVariants(product?.image_variants);
+            const legacy = safeImages(product?.images);
+            const cover = variants[0]?.feed || variants[0]?.thumb || legacy[0] || '';
+            if (cover) {
+                void warmMarketplaceImage(cover);
+            }
+            variants.forEach((v) => {
+                void warmMarketplaceImage(v.thumb);
+                void warmMarketplaceImage(v.feed);
+                void warmMarketplaceImage(v.full);
+            });
+        });
+    }, [filteredProducts]);
+
     const activeCountry = MARKETPLACE_COUNTRIES.find(c => c.code === selectedCountry) || MARKETPLACE_COUNTRIES[0];
 
     return (
@@ -862,7 +856,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                     </div>
                 )}
 
-                {/* Products Grid - ✅ UPDATED: Use feed for card images (not thumb) */}
+                {/* Products Grid - ✅ UPDATED: Use feed for card images */}
                 {filteredProducts.length > 0 ? (
                     <>
                         <div className="mb-4 text-sm text-[#B0B3B8]">
@@ -871,11 +865,11 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                             {filteredProducts.map((product: any) => {
-                                // ✅ UPDATED: Prioritize feed for card images (faster perceived performance)
+                                // ✅ Use image_variants for thumbnail
                                 const productVariants = safeImageVariants((product as any).image_variants);
                                 const legacyImages = safeImages(product.images);
                                 
-                                // ✅ FIX: Use feed for main card image, not thumb
+                                // ✅ Use feed for main card image (faster perceived performance)
                                 const cover = productVariants[0]?.feed || productVariants[0]?.thumb || legacyImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
                                 
                                 const detectProductCountry = () => {
@@ -899,6 +893,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                                                 alt={product.title} 
                                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                                 loading="lazy"
+                                                decoding="async"
                                             />
                                             <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
                                                 <span>{flag}</span>
