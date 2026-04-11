@@ -1,5 +1,5 @@
 // Marketplace.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, Product } from '../types';
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_COUNTRIES } from '../constants';
 
@@ -284,7 +284,7 @@ const normCountry = (v: any): string => {
   return str.toUpperCase();
 };
 
-// --- PRODUCT DETAIL MODAL (UPDATED with optimized images) ---
+// ==================== PRODUCT DETAIL MODAL (OPTIMIZED) ====================
 interface ProductDetailModalProps {
     product: Product;
     currentUser: User | null;
@@ -292,32 +292,108 @@ interface ProductDetailModalProps {
     onMessage: (sellerId: number) => void;
 }
 
-export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onMessage }) => {
+export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ 
+    product, 
+    currentUser, 
+    onClose, 
+    onMessage 
+}) => {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const [mainSrc, setMainSrc] = useState('');
+    const [mainLoading, setMainLoading] = useState(false);
     
-    // ✅ UPDATED: Use image_variants first, then fallback to legacy images
-    const productVariants = safeImageVariants((product as any).image_variants);
-    const legacyImages = safeImages((product as any).images);
-    
-    const productImages = productVariants.length 
-      ? productVariants.map((x) => ({
-          thumb: x.thumb,
-          feed: x.feed,
-          full: x.full,
-        }))
-      : legacyImages.map((url) => ({
-          thumb: url,
-          feed: url,
-          full: url,
-        }));
-    
-    const detectProductCountry = (address: string) => {
-      for (const country of MARKETPLACE_COUNTRIES) {
-        if (country.id !== 'all' && address.toLowerCase().includes(country.name.toLowerCase())) {
-          return country;
+    // ✅ Memoize product images to prevent recalculation on every render
+    const productImages = useMemo(() => {
+        const productVariants = safeImageVariants((product as any).image_variants);
+        const legacyImages = safeImages((product as any).images);
+        
+        if (productVariants.length > 0) {
+            return productVariants.map((x) => ({
+                thumb: x.thumb,
+                feed: x.feed,
+                full: x.full || x.feed,
+            }));
         }
-      }
-      return MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
+        return legacyImages.map((url) => ({
+            thumb: url,
+            feed: url,
+            full: url,
+        }));
+    }, [product]);
+
+    // Reset index when product changes
+    useEffect(() => {
+        setActiveImageIndex(0);
+        setMainSrc('');
+        setMainLoading(false);
+    }, [product.id]);
+
+    // ✅ Load current image with smooth transition
+    useEffect(() => {
+        const current = productImages[activeImageIndex];
+        if (!current) {
+            setMainSrc('');
+            return;
+        }
+
+        const nextSrc = current.feed || current.full || current.thumb || '';
+        if (!nextSrc) {
+            setMainSrc('');
+            return;
+        }
+
+        // If already same image, skip
+        if (mainSrc === nextSrc) return;
+
+        setMainLoading(true);
+        const img = new Image();
+        img.src = nextSrc;
+        img.onload = () => {
+            setMainSrc(nextSrc);
+            setMainLoading(false);
+        };
+        img.onerror = () => {
+            setMainSrc(nextSrc);
+            setMainLoading(false);
+        };
+    }, [activeImageIndex, productImages, mainSrc]);
+
+    // ✅ Preload next and previous images for instant navigation
+    useEffect(() => {
+        if (!productImages.length) return;
+
+        const preload = (src?: string) => {
+            if (!src) return;
+            const img = new Image();
+            img.src = src;
+        };
+
+        const next = productImages[activeImageIndex + 1];
+        const prev = productImages[activeImageIndex - 1];
+        
+        preload(next?.feed || next?.full || next?.thumb);
+        preload(prev?.feed || prev?.full || prev?.thumb);
+    }, [activeImageIndex, productImages]);
+
+    const goPrev = useCallback(() => {
+        setActiveImageIndex((prev) => 
+            prev === 0 ? productImages.length - 1 : prev - 1
+        );
+    }, [productImages.length]);
+
+    const goNext = useCallback(() => {
+        setActiveImageIndex((prev) => 
+            prev === productImages.length - 1 ? 0 : prev + 1
+        );
+    }, [productImages.length]);
+
+    const detectProductCountry = (address: string) => {
+        for (const country of MARKETPLACE_COUNTRIES) {
+            if (country.id !== 'all' && address.toLowerCase().includes(country.name.toLowerCase())) {
+                return country;
+            }
+        }
+        return MARKETPLACE_COUNTRIES.find(c => c.code === 'US') || MARKETPLACE_COUNTRIES[0];
     };
     
     const countryData = detectProductCountry(product.address);
@@ -327,20 +403,41 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
     return (
         <div className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-0 md:p-4 animate-fade-in font-sans">
             <div className="bg-[#242526] w-full max-w-[1100px] md:rounded-2xl overflow-hidden flex flex-col md:flex-row h-full md:h-[90vh] relative shadow-2xl border border-[#3E4042]">
-                <button onClick={onClose} className="absolute top-4 right-4 z-30 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white transition-colors backdrop-blur-md">
+                <button 
+                    onClick={onClose} 
+                    className="absolute top-4 right-4 z-30 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white transition-colors backdrop-blur-md"
+                >
                     <i className="fas fa-times text-xl"></i>
                 </button>
 
                 {/* Left: Image Gallery */}
                 <div className="w-full md:w-[60%] bg-[#18191A] flex flex-col relative border-r border-[#3E4042]">
-                    <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+                    <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-black/20">
                         {productImages.length > 0 ? (
-                            // ✅ UPDATED: Use feed for main viewer
-                            <img 
-                              src={productImages[activeImageIndex]?.feed || productImages[activeImageIndex]?.full || ''} 
-                              alt={product.title} 
-                              className="max-w-full max-h-full object-contain transition-all duration-300" 
-                            />
+                            <>
+                                {mainSrc ? (
+                                    <img 
+                                        src={mainSrc} 
+                                        alt={product.title} 
+                                        className={`max-w-full max-h-full object-contain transition-opacity duration-200 ${
+                                            mainLoading ? 'opacity-50' : 'opacity-100'
+                                        }`}
+                                        draggable={false}
+                                    />
+                                ) : (
+                                    <img 
+                                        src={productImages[activeImageIndex]?.thumb || ''} 
+                                        alt={product.title} 
+                                        className="max-w-full max-h-full object-contain opacity-80"
+                                        draggable={false}
+                                    />
+                                )}
+                                {mainLoading && (
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                                    </div>
+                                )}
+                            </>
                         ) : (
                             <div className="flex items-center justify-center w-full h-full bg-[#242526]">
                                 <i className="fas fa-image text-5xl text-[#3E4042]"></i>
@@ -350,31 +447,45 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                         {productImages.length > 1 && (
                             <>
                                 <button 
+                                    type="button"
                                     className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                                    onClick={() => setActiveImageIndex(prev => prev === 0 ? productImages.length - 1 : prev - 1)}
+                                    onClick={goPrev}
                                 >
                                     <i className="fas fa-chevron-left text-xl"></i>
                                 </button>
                                 <button 
+                                    type="button"
                                     className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                                    onClick={() => setActiveImageIndex(prev => prev === productImages.length - 1 ? 0 : prev + 1)}
+                                    onClick={goNext}
                                 >
                                     <i className="fas fa-chevron-right text-xl"></i>
                                 </button>
                             </>
                         )}
                     </div>
-                    {/* Thumbnails - ✅ UPDATED: Use thumb for preview */}
+                    
+                    {/* Thumbnails */}
                     {productImages.length > 1 && (
                         <div className="h-24 bg-[#242526]/50 backdrop-blur-sm flex items-center gap-3 px-4 overflow-x-auto border-t border-[#3E4042] scrollbar-hide">
                             {productImages.map((img, idx) => (
-                                <div 
+                                <button 
+                                    type="button"
                                     key={idx} 
-                                    className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${activeImageIndex === idx ? 'border-[#1877F2] scale-105 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                    className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${
+                                        activeImageIndex === idx 
+                                            ? 'border-[#1877F2] scale-105 shadow-lg' 
+                                            : 'border-transparent opacity-50 hover:opacity-100'
+                                    }`}
                                     onClick={() => setActiveImageIndex(idx)}
                                 >
-                                    <img src={img.thumb || img.feed || img.full} className="h-full w-full object-cover" alt="thumb" />
-                                </div>
+                                    <img 
+                                        src={img.thumb || img.feed || img.full} 
+                                        className="h-full w-full object-cover" 
+                                        alt={`Thumbnail ${idx + 1}`}
+                                        draggable={false}
+                                        loading="lazy"
+                                    />
+                                </button>
                             ))}
                         </div>
                     )}
@@ -382,14 +493,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 
                 {/* Right: Details */}
                 <div className="w-full md:w-[40%] flex flex-col h-full bg-[#242526] relative">
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
                         <div>
                             <div className="flex items-center justify-between gap-3 mb-4">
                                 <div className="flex items-center gap-3 overflow-hidden">
-                                    <img src={product.seller_avatar} alt="Seller" className="w-12 h-12 rounded-full object-cover border-2 border-[#1877F2] flex-shrink-0" />
+                                    <img 
+                                        src={product.seller_avatar} 
+                                        alt="Seller" 
+                                        className="w-12 h-12 rounded-full object-cover border-2 border-[#1877F2] flex-shrink-0" 
+                                    />
                                     <div className="overflow-hidden">
-                                        <h4 className="text-[#E4E6EB] font-bold text-lg leading-tight truncate">{product.seller_name}</h4>
-                                        <p className="text-[#B0B3B8] text-xs truncate">Seller • Active in Marketplace</p>
+                                        <h4 className="text-[#E4E6EB] font-bold text-lg leading-tight truncate">
+                                            {product.seller_name}
+                                        </h4>
+                                        <p className="text-[#B0B3B8] text-xs truncate">
+                                            Seller • Active in Marketplace
+                                        </p>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -409,12 +528,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                                     </button>
                                 </div>
                             </div>
-                            <h1 className="text-2xl font-bold text-[#E4E6EB] leading-snug mb-2">{product.title}</h1>
+                            <h1 className="text-2xl font-bold text-[#E4E6EB] leading-snug mb-2">
+                                {product.title}
+                            </h1>
                             <div className="flex items-baseline gap-3">
-                                <span className="text-[#F02849] font-bold text-3xl">{symbol}{hasDiscount ? product.discount_price?.toFixed(2) : product.main_price.toFixed(2)}</span>
-                                {hasDiscount && <span className="text-[#B0B3B8] text-lg line-through">{symbol}{product.main_price.toFixed(2)}</span>}
+                                <span className="text-[#F02849] font-bold text-3xl">
+                                    {symbol}{hasDiscount ? product.discount_price?.toFixed(2) : product.main_price.toFixed(2)}
+                                </span>
+                                {hasDiscount && (
+                                    <span className="text-[#B0B3B8] text-lg line-through">
+                                        {symbol}{product.main_price.toFixed(2)}
+                                    </span>
+                                )}
                                 <span className="text-[#B0B3B8] text-sm ml-auto flex items-center gap-1">
-                                  <i className="fas fa-flag"></i> {countryData.name}
+                                    <i className="fas fa-flag"></i> {countryData.name}
                                 </span>
                             </div>
                         </div>
@@ -424,7 +551,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                                 <i className="fas fa-location-dot text-[#1877F2] mt-1"></i>
                                 <div>
                                     <p className="text-[#E4E6EB] font-bold text-sm">Location</p>
-                                    <p className="text-[#B0B3B8] text-sm leading-relaxed">{product.address}</p>
+                                    <p className="text-[#B0B3B8] text-sm leading-relaxed">
+                                        {product.address}
+                                    </p>
                                 </div>
                             </div>
 
@@ -438,12 +567,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 
                         <div className="grid grid-cols-2 gap-3">
                             <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042] text-center">
-                                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">Category</span>
-                                <span className="block text-[#E4E6EB] font-bold">{MARKETPLACE_CATEGORIES.find(c => c.id === product.category)?.name}</span>
+                                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">
+                                    Category
+                                </span>
+                                <span className="block text-[#E4E6EB] font-bold">
+                                    {MARKETPLACE_CATEGORIES.find(c => c.id === product.category)?.name}
+                                </span>
                             </div>
                             <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042] text-center">
-                                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">Status</span>
-                                <span className="block text-[#45BD62] font-bold uppercase text-xs">{product.quantity > 0 ? 'In Stock' : 'Out of Stock'}</span>
+                                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">
+                                    Status
+                                </span>
+                                <span className="block text-[#45BD62] font-bold uppercase text-xs">
+                                    {product.quantity > 0 ? 'In Stock' : 'Out of Stock'}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -461,7 +598,13 @@ interface MarketplacePageProps {
     onViewProduct: (product: Product) => void;
 }
 
-export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, products, onNavigateHome, onCreateProduct, onViewProduct }) => {
+export const MarketplacePage: React.FC<MarketplacePageProps> = ({ 
+    currentUser, 
+    products, 
+    onNavigateHome, 
+    onCreateProduct, 
+    onViewProduct 
+}) => {
     const [selectedCountry, setSelectedCountry] = useState<string>('all');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
@@ -554,7 +697,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
         try {
             setIsUploading(true);
 
-            // ✅ NEW: Upload compressed bundle images (thumb + feed)
+            // Upload compressed bundle images (thumb + feed)
             const uploadedVariants = await Promise.all(
                 images.map((img) => uploadMarketplaceImageBundle(img.file))
             );
@@ -564,7 +707,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 address.toLowerCase().includes(c.name.toLowerCase())
             )?.code || userCountry;
 
-            // ✅ UPDATED: Include both images (legacy) and image_variants (new structure)
+            // Include both images (legacy) and image_variants (new structure)
             const newProduct: Partial<Product> = {
                 title,
                 category,
@@ -719,7 +862,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                     </div>
                 )}
 
-                {/* Products Grid - ✅ UPDATED: Use thumb/feed for product cards */}
+                {/* Products Grid - ✅ UPDATED: Use feed for card images (not thumb) */}
                 {filteredProducts.length > 0 ? (
                     <>
                         <div className="mb-4 text-sm text-[#B0B3B8]">
@@ -728,11 +871,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                             {filteredProducts.map((product: any) => {
-                                // ✅ UPDATED: Use image_variants for thumbnail
+                                // ✅ UPDATED: Prioritize feed for card images (faster perceived performance)
                                 const productVariants = safeImageVariants((product as any).image_variants);
                                 const legacyImages = safeImages(product.images);
                                 
-                                const cover = productVariants[0]?.thumb || productVariants[0]?.feed || legacyImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
+                                // ✅ FIX: Use feed for main card image, not thumb
+                                const cover = productVariants[0]?.feed || productVariants[0]?.thumb || legacyImages[0] || 'https://via.placeholder.com/600x600?text=No+Image';
                                 
                                 const detectProductCountry = () => {
                                     const pCountry = normCountry(product.country);
@@ -750,7 +894,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                                 return (
                                     <div key={product.id} className="bg-[#242526] rounded-2xl overflow-hidden cursor-pointer hover:shadow-2xl hover:-translate-y-1 transition-all border border-[#3E4042] flex flex-col group" onClick={() => onViewProduct(product)}>
                                         <div className="relative aspect-square overflow-hidden bg-[#18191A]">
-                                            <img src={cover} alt={product.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                            <img 
+                                                src={cover} 
+                                                alt={product.title} 
+                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                                loading="lazy"
+                                            />
                                             <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
                                                 <span>{flag}</span>
                                                 <span className="truncate max-w-[80px]">{product.address ? product.address.split(',')[0] : 'No Location'}</span>
@@ -807,7 +956,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ currentUser, p
                 )}
             </div>
 
-            {/* Sell Modal - ✅ UPDATED with bundled uploads */}
+            {/* Sell Modal */}
             {showSellModal && (
                 <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
                     <div className="bg-[#242526] w-full max-w-[700px] rounded-3xl border border-[#3E4042] flex flex-col max-h-[90vh] shadow-2xl animate-slide-up">
