@@ -27,16 +27,28 @@ const safeStr = (v: any) => {
 
 const cleanUrl = (v: any) => {
   const s = safeStr(v);
+  if (!s) return "";
+  if (s.startsWith("data:")) return "";
+  if (s.length > 4000) return "";
   return s;
 };
 
+const parseJsonArray = (raw: any): any[] => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
 const parseMediaUrls = (raw: any): string[] => {
-  // Accept:
-  // - array: ["a","b"]
-  // - json string: '["a","b"]'
-  // - comma-separated string: "a,b"
-  // - string url: "a" => ["a"]
-  // - null => []
   if (Array.isArray(raw)) return raw.map(cleanUrl).filter(Boolean);
 
   if (typeof raw === "string") {
@@ -48,7 +60,7 @@ const parseMediaUrls = (raw: any): string[] => {
         const parsed = JSON.parse(s);
         return Array.isArray(parsed) ? parsed.map(cleanUrl).filter(Boolean) : [];
       } catch {
-        // fallthrough
+        // continue
       }
     }
 
@@ -63,7 +75,78 @@ const parseMediaUrls = (raw: any): string[] => {
   return [];
 };
 
+const parseMediaTypes = (raw: any): string[] => {
+  if (Array.isArray(raw)) return raw.map((x) => safeStr(x).toLowerCase()).filter(Boolean);
+
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        return Array.isArray(parsed)
+          ? parsed.map((x) => safeStr(x).toLowerCase()).filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  return [];
+};
+
+const parseMediaMeta = (raw: any): Array<{
+  thumb?: string;
+  feed?: string;
+  full?: string;
+  type?: string;
+}> => {
+  const arr = parseJsonArray(raw);
+
+  return arr
+    .map((item: any) => {
+      let x = item;
+      if (typeof x === "string") {
+        try {
+          x = JSON.parse(x);
+        } catch {
+          x = null;
+        }
+      }
+      if (!x || typeof x !== "object") return null;
+
+      const thumb = cleanUrl(x.thumb || x.thumbnail_url);
+      const feed = cleanUrl(x.feed || x.feed_url);
+      const full = cleanUrl(x.full || x.full_url);
+      const type = safeStr(x.type).toLowerCase() || "image";
+
+      if (!thumb && !feed && !full) return null;
+
+      return {
+        thumb: thumb || undefined,
+        feed: feed || undefined,
+        full: full || feed || thumb || undefined,
+        type,
+      };
+    })
+    .filter(Boolean) as Array<{
+    thumb?: string;
+    feed?: string;
+    full?: string;
+    type?: string;
+  }>;
+};
+
 const normalizeImagesForResponse = (row: any): string[] => {
+  const meta = parseMediaMeta(row?.media_meta);
+  if (meta.length > 0) {
+    return meta
+      .map((m) => cleanUrl(m.feed || m.full || m.thumb))
+      .filter(Boolean);
+  }
+
   const urls = parseMediaUrls(row?.media_urls);
   if (urls.length) return urls;
 
@@ -73,9 +156,9 @@ const normalizeImagesForResponse = (row: any): string[] => {
 
 const normalizeCategory = (v: any) => {
   const key = safeStr(v).toLowerCase();
-  // keep your real categories here
   if (key === "buy_sell" || key === "buysell" || key === "buy-sell") return "buy_sell";
   if (key === "recruitment" || key === "jobs" || key === "job") return "recruitment";
+  if (key === "music_drama" || key === "musicdrama" || key === "music-drama") return "music_drama";
   return key || "general";
 };
 
@@ -114,10 +197,13 @@ const getGroupCategory = async (env: any, group_id: number) => {
 /** ============================================================
  * CREATE: POST /api/group-posts
  * Supports:
- * - media_url, media_urls
+ * - media_url
+ * - media_urls
+ * - media_types
+ * - media_meta
  * - recruitment fields
  * - buy_sell fields
- * You can send category fields directly or inside body.metadata
+ * - music_drama fields
  * ============================================================ */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -129,11 +215,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const user_id = toInt(body.user_id, 0);
 
     const content = body.content == null ? null : String(body.content);
-
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
 
     const media_urls_arr = parseMediaUrls(body.media_urls);
+    const media_types_arr = parseMediaTypes(body.media_types);
+    const media_meta_arr = parseMediaMeta(body.media_meta);
+
     const media_urls_json = media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+    const media_types_json = media_types_arr.length ? JSON.stringify(media_types_arr) : null;
+    const media_meta_json = media_meta_arr.length ? JSON.stringify(media_meta_arr) : null;
 
     const visibility = normalizeVisibility(body.visibility);
 
@@ -142,25 +232,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const hasText = !!safeStr(content ?? "");
     const hasSingle = !!media_url;
     const hasMulti = media_urls_arr.length > 0;
+    const hasMeta = media_meta_arr.length > 0;
 
-    if (!hasText && !hasSingle && !hasMulti) {
-      return bad("content or media_url or media_urls required");
+    if (!hasText && !hasSingle && !hasMulti && !hasMeta) {
+      return bad("content or media_url or media_urls or media_meta required");
     }
 
     const mem = await isMemberOrAdmin(env, group_id, user_id);
     if (!mem.ok) return bad("User is not a member of this group", 403);
 
-    // ✅ Read group category (so we know rules)
     const catRes = await getGroupCategory(env, group_id);
     if (!catRes.ok) return bad("Group not found", 404);
     const groupCategory = catRes.category;
 
-    // metadata support
     const meta = body.metadata && typeof body.metadata === "object" ? body.metadata : {};
 
-    // =========================
-    // Recruitment fields
-    // =========================
+    // recruitment
     const job_title = safeStr(meta.job_title ?? body.job_title);
     const company = safeStr(meta.company ?? body.company);
     const job_type = safeStr(meta.job_type ?? body.job_type);
@@ -174,17 +261,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const application_type = normalizeApplicationType(meta.application_type ?? body.application_type);
     const application_value = safeStr(meta.application_value ?? body.application_value);
-    const expiry_date = safeStr(meta.expiry_date ?? body.expiry_date); // store ISO string
+    const expiry_date = safeStr(meta.expiry_date ?? body.expiry_date);
 
-    // =========================
-    // Buy/Sell fields
-    // =========================
+    // buy_sell
     const price = toNumOrNull(meta.price ?? body.price);
     const currency = safeStr(meta.currency ?? body.currency) || "USD";
     const condition = safeStr(meta.condition ?? body.condition);
     const status = normalizeStatus(meta.status ?? body.status);
 
-    // ✅ Category-based validation (recommended)
+    // music_drama
+    const artist = safeStr(meta.artist ?? body.artist);
+    const series = safeStr(meta.series ?? body.series);
+    const episode = safeStr(meta.episode ?? body.episode);
+    const duration = safeStr(meta.duration ?? body.duration);
+
     if (groupCategory === "recruitment") {
       if (!job_title) return bad("job_title is required for recruitment posts");
       if (application_type && !application_value) {
@@ -197,29 +287,42 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (!condition) return bad("condition is required for buy_sell posts");
     }
 
-    // Insert with new columns (safe even if they are null)
     const result = await env.DB.prepare(
       `INSERT INTO group_posts (
-        group_id, user_id, content, media_url, media_urls, visibility,
+        group_id, user_id, content,
+        media_url, media_urls, media_types, media_meta,
+        visibility,
 
         job_title, company, job_type, salary,
         street, district, region, country, location,
         application_type, application_value, expiry_date,
 
-        price, currency, condition, status
+        price, currency, condition, status,
+
+        artist, series, episode, duration
       )
-      VALUES (?, ?, ?, ?, ?, ?,
+      VALUES (?, ?, ?,
+              ?, ?, ?, ?,
+              ?,
+
               ?, ?, ?, ?,
               ?, ?, ?, ?, ?,
               ?, ?, ?,
+
+              ?, ?, ?, ?,
+
               ?, ?, ?, ?)`
     )
       .bind(
         group_id,
         user_id,
         content,
+
         media_url,
         media_urls_json,
+        media_types_json,
+        media_meta_json,
+
         visibility,
 
         job_title || null,
@@ -240,7 +343,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         price,
         currency,
         condition || null,
-        status
+        status,
+
+        artist || null,
+        series || null,
+        episode || null,
+        duration || null
       )
       .run();
 
@@ -248,6 +356,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       success: true,
       post_id: Number(result.meta.last_row_id),
       media_urls: media_urls_arr,
+      media_types: media_types_arr,
+      media_meta: media_meta_arr,
       group_category: groupCategory,
     });
   } catch (e: any) {
@@ -256,10 +366,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /** ============================================================
- * LIST:
- * - all: /api/group-posts
- * - by group: /api/group-posts?group_id=123
- * - include viewer: /api/group-posts?group_id=123&viewerId=4
+ * LIST
  * ============================================================ */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -356,10 +463,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const posts = (results || []).map((r: any) => {
       const images = normalizeImagesForResponse(r);
+      const media_meta = parseMediaMeta(r?.media_meta);
+      const media_types = parseMediaTypes(r?.media_types);
+
       return {
         ...r,
         images,
-        media_urls: images, // UI alias
+        media_urls: images,
+        media_types,
+        media_meta,
       };
     });
 
@@ -370,8 +482,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /** ============================================================
- * EDIT: PUT /api/group-posts?post_id=123
- * Supports updating new category fields too
+ * EDIT
  * ============================================================ */
 export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -405,15 +516,21 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     const isAuthor = author_id === user_id;
     if (!isAuthor && !isGroupAdmin) return bad("Not allowed to edit this post", 403);
 
-    // metadata support
     const meta = body.metadata && typeof body.metadata === "object" ? body.metadata : {};
 
     const content = body.content == null ? null : String(body.content).trim();
     const media_url = body.media_url == null ? null : cleanUrl(body.media_url);
 
     const media_urls_arr = body.media_urls == null ? null : parseMediaUrls(body.media_urls);
+    const media_types_arr = body.media_types == null ? null : parseMediaTypes(body.media_types);
+    const media_meta_arr = body.media_meta == null ? null : parseMediaMeta(body.media_meta);
+
     const media_urls_json =
       media_urls_arr && media_urls_arr.length ? JSON.stringify(media_urls_arr) : null;
+    const media_types_json =
+      media_types_arr && media_types_arr.length ? JSON.stringify(media_types_arr) : null;
+    const media_meta_json =
+      media_meta_arr && media_meta_arr.length ? JSON.stringify(media_meta_arr) : null;
 
     const visibility = body.visibility !== undefined ? normalizeVisibility(body.visibility) : undefined;
 
@@ -428,9 +545,10 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
     if (body.content !== undefined) setIf("content", content);
     if (body.media_url !== undefined) setIf("media_url", media_url);
     if (body.media_urls !== undefined) setIf("media_urls", media_urls_json);
+    if (body.media_types !== undefined) setIf("media_types", media_types_json);
+    if (body.media_meta !== undefined) setIf("media_meta", media_meta_json);
     if (visibility !== undefined) setIf("visibility", visibility);
 
-    // New fields (direct or metadata)
     const fieldMap: Array<[string, any]> = [
       ["job_title", safeStr(meta.job_title ?? body.job_title) || null],
       ["company", safeStr(meta.company ?? body.company) || null],
@@ -451,6 +569,11 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
       ["currency", body.currency !== undefined || meta.currency !== undefined ? (safeStr(meta.currency ?? body.currency) || "USD") : undefined],
       ["condition", body.condition !== undefined || meta.condition !== undefined ? (safeStr(meta.condition ?? body.condition) || null) : undefined],
       ["status", body.status !== undefined || meta.status !== undefined ? normalizeStatus(meta.status ?? body.status) : undefined],
+
+      ["artist", body.artist !== undefined || meta.artist !== undefined ? (safeStr(meta.artist ?? body.artist) || null) : undefined],
+      ["series", body.series !== undefined || meta.series !== undefined ? (safeStr(meta.series ?? body.series) || null) : undefined],
+      ["episode", body.episode !== undefined || meta.episode !== undefined ? (safeStr(meta.episode ?? body.episode) || null) : undefined],
+      ["duration", body.duration !== undefined || meta.duration !== undefined ? (safeStr(meta.duration ?? body.duration) || null) : undefined],
     ];
 
     for (const [col, val] of fieldMap) {
@@ -459,13 +582,13 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
 
     if (sets.length === 0) return bad("Nothing to update");
 
-    // Keep your safety check for clearing everything
     const willClearText = body.content !== undefined && !safeStr(content ?? "");
     const willClearSingle = body.media_url !== undefined && !media_url;
     const willClearMulti = body.media_urls !== undefined && !(media_urls_arr?.length);
+    const willClearMeta = body.media_meta !== undefined && !(media_meta_arr?.length);
 
-    if (willClearText && willClearSingle && willClearMulti) {
-      return bad("content or media_url or media_urls required");
+    if (willClearText && willClearSingle && willClearMulti && willClearMeta) {
+      return bad("content or media_url or media_urls or media_meta required");
     }
 
     const sql = `UPDATE group_posts SET ${sets.join(", ")} WHERE id=?`;
@@ -480,7 +603,7 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /** ============================================================
- * DELETE: DELETE /api/group-posts?post_id=123&user_id=4
+ * DELETE
  * ============================================================ */
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
