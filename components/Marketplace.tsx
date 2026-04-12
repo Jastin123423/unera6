@@ -974,6 +974,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [marketMode, setMarketMode] = useState<MarketMode>('for_you');
   const [showSellModal, setShowSellModal] = useState(false);
+  const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [title, setTitle] = useState('');
@@ -1136,16 +1137,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     }
   };
 
-  // Search filter for products
-  const searchFilteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return filteredProducts;
-    const query = searchQuery.toLowerCase();
-    return filteredProducts.filter((product: any) =>
-      String(product.title || '').toLowerCase().includes(query) ||
-      String(product.description || '').toLowerCase().includes(query)
-    );
-  }, [filteredProducts, searchQuery]);
-
+  // ✅ Filtered products based on country + category
   const filteredProducts = useMemo(() => {
     const base = safeArray<any>(products).filter((p: any) => {
       const pCountry = getProductCountryCode(p);
@@ -1164,6 +1156,19 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       sessionSeedRef.current
     );
   }, [products, selectedCountry, selectedCategory, currentUser, marketMode]);
+
+  // ✅ Search filter
+  const searchFilteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return filteredProducts;
+    return filteredProducts.filter((product: any) => {
+      return (
+        String(product?.title || '').toLowerCase().includes(q) ||
+        String(product?.description || '').toLowerCase().includes(q) ||
+        String(product?.address || '').toLowerCase().includes(q)
+      );
+    });
+  }, [filteredProducts, searchQuery]);
 
   useEffect(() => {
     const items = filteredProducts.slice(0, 24);
@@ -1199,26 +1204,20 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* ✅ Search button - WORKING */}
+            {/* ✅ Search button - opens overlay */}
             <button
               className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center hover:bg-[#4E4F50] transition-colors"
               aria-label="Search"
-              onClick={() => {
-                const searchInput = document.getElementById('marketplace-search-input');
-                if (searchInput) {
-                  searchInput.focus();
-                } else {
-                  const query = prompt('Search Marketplace:', searchQuery);
-                  if (query !== null) setSearchQuery(query);
-                }
-              }}
+              onClick={() => setShowSearchOverlay(true)}
             >
               <i className="fas fa-search text-lg"></i>
             </button>
 
             <button
               onClick={() => {
-                const countryList = ['all', ...(MARKETPLACE_COUNTRIES as any[]).filter((c) => c.id !== 'all').map((c) => c.code)];
+                const countryList = ['all', ...(MARKETPLACE_COUNTRIES as any[])
+                  .filter((c) => c.id !== 'all')
+                  .map((c) => c.code)];
                 const currentIndex = countryList.indexOf(selectedCountry);
                 const nextIndex = (currentIndex + 1) % countryList.length;
                 setSelectedCountry(countryList[nextIndex]);
@@ -1235,29 +1234,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
             >
               Sell
             </button>
-          </div>
-        </div>
-
-        {/* Search input - hidden until search icon is clicked */}
-        <div className="px-3 pb-3">
-          <div className="relative">
-            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
-            <input
-              id="marketplace-search-input"
-              type="text"
-              placeholder="Search Marketplace..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#3A3B3C] rounded-full py-2.5 pl-11 pr-4 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] text-[15px]"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
-              >
-                <i className="fas fa-times-circle"></i>
-              </button>
-            )}
           </div>
         </div>
 
@@ -1287,7 +1263,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       </div>
 
       {/* Sticky categories row */}
-      <div className="sticky top-[135px] z-30 bg-[#242526] border-b border-[#3E4042]">
+      <div className="sticky top-[104px] z-30 bg-[#242526] border-b border-[#3E4042]">
         <div className="px-3 py-2 overflow-x-auto scrollbar-hide">
           <div className="flex gap-2 min-w-max">
             {(MARKETPLACE_CATEGORIES as any[]).map((cat) => (
@@ -1328,12 +1304,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                   key={product.id}
                   type="button"
                   onClick={() => onViewProduct(product)}
-                  className="relative aspect-[0.86] bg-[#3A3B3C] overflow-hidden text-left group"
+                  className="relative aspect-[0.86] bg-[#3A3B3C] overflow-hidden text-left"
                 >
                   <img
                     src={cover}
                     alt={product.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    className="w-full h-full object-cover"
                     loading="lazy"
                     decoding="async"
                   />
@@ -1360,7 +1336,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
             </div>
             <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">No items found</h3>
             <p className="text-[#B0B3B8] max-w-xs mb-6">
-              Try changing your category or market view.
+              Try changing your category, market view, or search.
             </p>
             <button
               onClick={() => {
@@ -1376,6 +1352,52 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
           </div>
         )}
       </div>
+
+      {/* Search Overlay */}
+      {showSearchOverlay && (
+        <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#242526] border-b border-[#3E4042] px-3 pt-3 pb-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSearchOverlay(false)}
+                className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center"
+              >
+                <i className="fas fa-arrow-left"></i>
+              </button>
+              <div className="relative flex-1">
+                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search Marketplace..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-full py-3 pl-11 pr-11 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+                  >
+                    <i className="fas fa-times-circle"></i>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-[#B0B3B8] px-2">
+              {searchQuery.trim()
+                ? `${searchFilteredProducts.length} result${searchFilteredProducts.length === 1 ? '' : 's'}`
+                : 'Type to search products'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="absolute inset-0 -z-10 cursor-default"
+            onClick={() => setShowSearchOverlay(false)}
+            aria-label="Close search overlay"
+          />
+        </div>
+      )}
 
       {/* Create listing panel */}
       {showSellModal && (
