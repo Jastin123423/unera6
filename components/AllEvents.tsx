@@ -1,5 +1,5 @@
 // AllEvents.tsx
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { User } from "../types";
 
 // ========== API HELPERS ==========
@@ -47,10 +47,10 @@ const rsvpEventDirect = async (args: {
     newStatus === "going"
       ? "/api/attend"
       : newStatus === "interested"
-        ? "/api/interested"
-        : prevStatus === "interested"
-          ? "/api/interested"
-          : "/api/attend";
+      ? "/api/interested"
+      : prevStatus === "interested"
+      ? "/api/interested"
+      : "/api/attend";
 
   const payloadStatus = { event_id: eventId, user_id: userId, status: newStatus };
 
@@ -73,7 +73,7 @@ const rsvpEventDirect = async (args: {
 // ========== AVATAR HELPER ==========
 const avatarFrom = (u: any) => {
   if (!u) return `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
-  
+
   const img = String(
     u?.profile_image_url ??
       u?.profileImage ??
@@ -169,111 +169,308 @@ const formatRelativeTime = (dateInput: any): string => {
 // ========== LOCATION UTILITIES ==========
 const extractCountry = (location: string): string | null => {
   if (!location) return null;
-  
-  // Common Tanzanian cities
+
   const tanzanianCities = [
-    'dar es salaam', 'dar', 'dsm', 'arusha', 'mwanza', 'mbeya', 'morogoro', 
-    'tanga', 'dodoma', 'zanzibar', 'kilimanjaro', 'moshi', 'iringa', 'tabora',
-    'kigoma', 'mara', 'manyara', 'ruvuma', 'rukwa', 'katavi', 'simiyu',
-    'geita', 'songwe', 'njombe', 'lindi', 'mtwara', 'pwani', 'singida'
+    "dar es salaam",
+    "dar",
+    "dsm",
+    "arusha",
+    "mwanza",
+    "mbeya",
+    "morogoro",
+    "tanga",
+    "dodoma",
+    "zanzibar",
+    "kilimanjaro",
+    "moshi",
+    "iringa",
+    "tabora",
+    "kigoma",
+    "mara",
+    "manyara",
+    "ruvuma",
+    "rukwa",
+    "katavi",
+    "simiyu",
+    "geita",
+    "songwe",
+    "njombe",
+    "lindi",
+    "mtwara",
+    "pwani",
+    "singida",
   ];
-  
+
   const lowerLocation = location.toLowerCase();
-  
-  // Check if location contains any Tanzanian city
-  const isTanzania = tanzanianCities.some(city => lowerLocation.includes(city)) ||
-                     lowerLocation.includes('tanzania') ||
-                     lowerLocation.includes('tz');
-  
-  if (isTanzania) return 'Tanzania';
-  
-  // Add more countries as needed
+
+  const isTanzania =
+    tanzanianCities.some((city) => lowerLocation.includes(city)) ||
+    lowerLocation.includes("tanzania") ||
+    lowerLocation.includes("tz");
+
+  if (isTanzania) return "Tanzania";
+
   const countryMap: { [key: string]: string } = {
-    'kenya': 'Kenya',
-    'uganda': 'Uganda',
-    'rwanda': 'Rwanda',
-    'burundi': 'Burundi',
-    'south africa': 'South Africa',
-    'nigeria': 'Nigeria',
-    'ghana': 'Ghana',
-    'egypt': 'Egypt',
-    'morocco': 'Morocco',
-    'usa': 'USA',
-    'united states': 'USA',
-    'uk': 'UK',
-    'united kingdom': 'UK',
-    'canada': 'Canada',
-    'australia': 'Australia',
-    'germany': 'Germany',
-    'france': 'France',
-    'italy': 'Italy',
-    'spain': 'Spain',
-    'portugal': 'Portugal',
-    'netherlands': 'Netherlands',
-    'belgium': 'Belgium',
-    'sweden': 'Sweden',
-    'norway': 'Norway',
-    'denmark': 'Denmark',
-    'finland': 'Finland',
-    'switzerland': 'Switzerland',
-    'austria': 'Austria',
-    'japan': 'Japan',
-    'china': 'China',
-    'india': 'India',
-    'brazil': 'Brazil',
-    'argentina': 'Argentina',
-    'mexico': 'Mexico',
+    kenya: "Kenya",
+    uganda: "Uganda",
+    rwanda: "Rwanda",
+    burundi: "Burundi",
+    "south africa": "South Africa",
+    nigeria: "Nigeria",
+    ghana: "Ghana",
+    egypt: "Egypt",
+    morocco: "Morocco",
+    usa: "USA",
+    "united states": "USA",
+    uk: "UK",
+    "united kingdom": "UK",
+    canada: "Canada",
+    australia: "Australia",
+    germany: "Germany",
+    france: "France",
+    italy: "Italy",
+    spain: "Spain",
+    portugal: "Portugal",
+    netherlands: "Netherlands",
+    belgium: "Belgium",
+    sweden: "Sweden",
+    norway: "Norway",
+    denmark: "Denmark",
+    finland: "Finland",
+    switzerland: "Switzerland",
+    austria: "Austria",
+    japan: "Japan",
+    china: "China",
+    india: "India",
+    brazil: "Brazil",
+    argentina: "Argentina",
+    mexico: "Mexico",
   };
-  
+
   for (const [key, country] of Object.entries(countryMap)) {
     if (lowerLocation.includes(key)) return country;
   }
-  
+
   return null;
 };
 
 const getUserCountry = (user: User | null): string | null => {
   if (!user) return null;
-  
-  // Check user's location from profile
-  const userLocation = user.location || user.city || user.country || user.region || '';
-  if (userLocation) {
-    return extractCountry(userLocation);
-  }
-  
+  const userLocation = (user as any).location || (user as any).city || (user as any).country || (user as any).region || "";
+  if (userLocation) return extractCountry(userLocation);
   return null;
 };
 
 const isEventVisibleToUser = (event: EventFromAPI, user: User | null): boolean => {
-  if (!user) return true; // Show all events to non-logged in users
-  
+  if (!user) return true;
+
   const userCountry = getUserCountry(user);
-  const eventLocation = event.location || '';
+  const eventLocation = event.location || "";
   const eventCountry = extractCountry(eventLocation);
-  const eventVisibility = event.visibility || 'worldwide';
-  
-  // If event is worldwide, show to everyone
-  if (eventVisibility === 'worldwide') return true;
-  
-  // If event is targeted, check if it matches user's country
-  if (eventVisibility === 'targeted') {
-    // If we can determine event country, match with user country
+  const eventVisibility = event.visibility || "worldwide";
+
+  if (eventVisibility === "worldwide") return true;
+
+  if (eventVisibility === "targeted") {
     if (eventCountry && userCountry) {
       return eventCountry === userCountry;
     }
-    
-    // If event location contains Tanzania-related terms and user is from Tanzania
-    const isTanzaniaEvent = eventLocation.toLowerCase().includes('tanzania') ||
-                           ['dar es salaam', 'arusha', 'mwanza', 'mbeya'].some(city => 
-                             eventLocation.toLowerCase().includes(city.toLowerCase()));
-    
-    if (isTanzaniaEvent && userCountry === 'Tanzania') return true;
-    
-    // Default: show targeted events only if we can't determine country (fallback)
+
+    const isTanzaniaEvent =
+      eventLocation.toLowerCase().includes("tanzania") ||
+      ["dar es salaam", "arusha", "mwanza", "mbeya"].some((city) =>
+        eventLocation.toLowerCase().includes(city.toLowerCase())
+      );
+
+    if (isTanzaniaEvent && userCountry === "Tanzania") return true;
+
     return false;
   }
-  
+
   return true;
+};
+
+// ========== EVENT RANKING HELPERS ==========
+const safeArrayAny = (v: any): any[] => (Array.isArray(v) ? v : []);
+const safeString = (v: any) => String(v || "").trim();
+
+const getUserFollowingIds = (user: any): number[] => {
+  const raw =
+    user?.following_ids ??
+    user?.followingIds ??
+    user?.following ??
+    user?.followings ??
+    [];
+
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((x) => Number(x?.id ?? x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+};
+
+const startOfDay = (d: Date) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+const daysUntilEvent = (eventDateInput: any): number => {
+  const d = toDateSafe(eventDateInput);
+  if (!d) return 999999;
+  const now = new Date();
+  const diff = startOfDay(d).getTime() - startOfDay(now).getTime();
+  return Math.round(diff / (1000 * 60 * 60 * 24));
+};
+
+const eventAgeHours = (createdAt: any): number => {
+  const d = toDateSafe(createdAt);
+  if (!d) return 999999;
+  return Math.max(0, (Date.now() - d.getTime()) / (1000 * 60 * 60));
+};
+
+const isUpcomingEvent = (event: EventFromAPI) => {
+  const d = toDateSafe(event.event_date);
+  if (!d) return false;
+  return d.getTime() >= Date.now() - 60 * 1000;
+};
+
+const isNearUserCountry = (event: EventFromAPI, user: User | null): boolean => {
+  const eventCountry = extractCountry(event.location || "");
+  const userCountry = getUserCountry(user);
+  if (!eventCountry || !userCountry) return false;
+  return eventCountry === userCountry;
+};
+
+const isFromFollowedCreator = (event: EventFromAPI, user: User | null): boolean => {
+  if (!user) return false;
+  const followingIds = new Set(getUserFollowingIds(user));
+  const creatorId = Number(event.creator?.id ?? event.creator_id ?? 0);
+  return followingIds.has(creatorId);
+};
+
+const seededRandEvent = (seed: number) => {
+  let x = seed | 0;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  return ((x >>> 0) % 1_000_000) / 1_000_000;
+};
+
+const hashEventString = (input: string) => {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) {
+    h = (h * 31 + input.charCodeAt(i)) | 0;
+  }
+  return h;
+};
+
+const scoreEventForFeed = (event: EventFromAPI, currentUser: User | null, seed: number) => {
+  const untilDays = daysUntilEvent(event.event_date);
+  const ageHours = eventAgeHours(event.created_at);
+  const going = Number(event.attendees_count || 0);
+  const interested = Number(event.interested_count || 0);
+
+  let upcomingScore = 0;
+  if (untilDays < 0) upcomingScore = -40;
+  else if (untilDays === 0) upcomingScore = 80;
+  else if (untilDays === 1) upcomingScore = 65;
+  else if (untilDays <= 3) upcomingScore = 52;
+  else if (untilDays <= 7) upcomingScore = 40;
+  else if (untilDays <= 30) upcomingScore = 24;
+  else if (untilDays <= 90) upcomingScore = 12;
+  else upcomingScore = 4;
+
+  let freshnessScore = 0;
+  if (ageHours <= 12) freshnessScore = 28;
+  else if (ageHours <= 24) freshnessScore = 22;
+  else if (ageHours <= 72) freshnessScore = 18;
+  else if (ageHours <= 24 * 7) freshnessScore = 12;
+  else if (ageHours <= 24 * 30) freshnessScore = 6;
+  else freshnessScore = 2;
+
+  const followingScore = isFromFollowedCreator(event, currentUser) ? 26 : 0;
+  const localScore = isNearUserCountry(event, currentUser) ? 20 : 0;
+
+  const engagementScore = Math.min(20, going * 0.4) + Math.min(14, interested * 0.25);
+
+  let qualityScore = 0;
+  if (safeString(event.title).length >= 6) qualityScore += 8;
+  if (safeString(event.description).length >= 20) qualityScore += 8;
+  if (safeString(event.location).length >= 3) qualityScore += 6;
+  if (safeString(event.cover_url).length > 0) qualityScore += 8;
+
+  const rotation = seededRandEvent(seed + hashEventString(`${event.id}:${event.title}`)) * 5;
+
+  return (
+    upcomingScore +
+    freshnessScore +
+    followingScore +
+    localScore +
+    engagementScore +
+    qualityScore +
+    rotation
+  );
+};
+
+const rotateCloseScoreEvents = (items: (EventFromAPI & { __score?: number })[], seed: number) => {
+  if (!items.length) return items;
+
+  const buckets: (EventFromAPI & { __score?: number })[][] = [];
+  let current: (EventFromAPI & { __score?: number })[] = [];
+  let previousScore: number | null = null;
+
+  for (const item of items) {
+    const score = Number(item.__score || 0);
+    if (previousScore === null) {
+      current.push(item);
+      previousScore = score;
+      continue;
+    }
+
+    if (Math.abs(previousScore - score) <= 5) {
+      current.push(item);
+    } else {
+      buckets.push(
+        [...current]
+          .map((x, i) => ({
+            x,
+            r: seededRandEvent(seed + i + hashEventString(String(x.id))),
+          }))
+          .sort((a, b) => a.r - b.r)
+          .map((v) => v.x)
+      );
+      current = [item];
+    }
+
+    previousScore = score;
+  }
+
+  if (current.length) {
+    buckets.push(
+      [...current]
+        .map((x, i) => ({
+          x,
+          r: seededRandEvent(seed + i + hashEventString(String(x.id))),
+        }))
+        .sort((a, b) => a.r - b.r)
+        .map((v) => v.x)
+    );
+  }
+
+  return buckets.flat();
+};
+
+const rankEventsForFeed = (items: EventFromAPI[], currentUser: User | null) => {
+  const seed = Math.floor(Date.now() / (1000 * 60 * 30));
+
+  const scored = safeArrayAny(items)
+    .map((event: EventFromAPI) => ({
+      ...event,
+      __score: scoreEventForFeed(event, currentUser, seed),
+    }))
+    .sort((a, b) => Number(b.__score || 0) - Number(a.__score || 0));
+
+  return rotateCloseScoreEvents(scored, seed);
 };
 
 // ========== TYPES ==========
@@ -286,7 +483,7 @@ interface Attendee {
   name: string;
   username?: string;
   profile_image_url?: string | null;
-  is_friend?: boolean;
+  is_following?: boolean;
 }
 
 interface EventFromAPI {
@@ -304,11 +501,12 @@ interface EventFromAPI {
   attendees_count: number;
   interested_count: number;
   user_rsvp_status?: "" | "going" | "interested";
-  
+
   attendees?: Attendee[];
-  friend_attendees?: Attendee[];
+  following_attendees?: Attendee[];
+  friend_attendees?: Attendee[]; // backend compatibility
   interested?: Attendee[];
-  
+
   creator?: {
     id: number;
     name: string;
@@ -337,9 +535,10 @@ const FilterChip: React.FC<{
     className={`
       px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
       flex items-center gap-2 whitespace-nowrap
-      ${active
-        ? "bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20"
-        : "bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]"
+      ${
+        active
+          ? "bg-[#1877F2] text-white shadow-lg shadow-[#1877F2]/20"
+          : "bg-[#3A3B3C] text-[#B0B3B8] hover:bg-[#4E4F50] hover:text-[#E4E6EB]"
       }
     `}
   >
@@ -358,30 +557,28 @@ const RSVPCounts: React.FC<{
   size?: "sm" | "md";
 }> = ({ goingCount, interestedCount, onGoingClick, onInterestedClick, className = "", size = "md" }) => {
   const isSmall = size === "sm";
-  
+
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      {/* Going count with green button color */}
       <button
         onClick={onGoingClick}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#45BD62]/10 hover:bg-[#45BD62]/20 transition-colors"
       >
-        <div className={`${isSmall ? 'w-4 h-4' : 'w-5 h-5'} rounded-full bg-[#45BD62] flex items-center justify-center`}>
-          <i className={`fas fa-user-friends text-white ${isSmall ? 'text-[8px]' : 'text-[10px]'}`}></i>
+        <div className={`${isSmall ? "w-4 h-4" : "w-5 h-5"} rounded-full bg-[#45BD62] flex items-center justify-center`}>
+          <i className={`fas fa-user-friends text-white ${isSmall ? "text-[8px]" : "text-[10px]"}`}></i>
         </div>
-        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? 'text-xs' : 'text-sm'}`}>{goingCount}</span>
+        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? "text-xs" : "text-sm"}`}>{goingCount}</span>
         {!isSmall && <span className="text-[#B0B3B8] text-xs">Going</span>}
       </button>
 
-      {/* Interested count with interested button color */}
       <button
         onClick={onInterestedClick}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#F7B928]/10 hover:bg-[#F7B928]/20 transition-colors"
       >
-        <div className={`${isSmall ? 'w-4 h-4' : 'w-5 h-5'} rounded-full bg-[#F7B928] flex items-center justify-center`}>
-          <i className={`fas fa-user-friends text-black ${isSmall ? 'text-[8px]' : 'text-[10px]'}`}></i>
+        <div className={`${isSmall ? "w-4 h-4" : "w-5 h-5"} rounded-full bg-[#F7B928] flex items-center justify-center`}>
+          <i className={`fas fa-user-friends text-black ${isSmall ? "text-[8px]" : "text-[10px]"}`}></i>
         </div>
-        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? 'text-xs' : 'text-sm'}`}>{interestedCount}</span>
+        <span className={`text-[#E4E6EB] font-semibold ${isSmall ? "text-xs" : "text-sm"}`}>{interestedCount}</span>
         {!isSmall && <span className="text-[#B0B3B8] text-xs">Interested</span>}
       </button>
     </div>
@@ -422,9 +619,9 @@ const EventCard: React.FC<{
 
   const isTomorrow = (() => {
     if (!dateObj) return false;
-    const t = new Date(dateObj.getTime());
-    t.setDate(t.getDate() + 1);
-    return t.toDateString() === nowLocal.toDateString();
+    const tomorrow = new Date(nowLocal);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return dateObj.toDateString() === tomorrow.toDateString();
   })();
 
   const formatEventDate = () => {
@@ -445,6 +642,8 @@ const EventCard: React.FC<{
     username: "",
     profile_image_url: null,
   };
+
+  const followedCreator = isFromFollowedCreator(event, currentUser);
 
   const handleRSVPClick = async (status: "going" | "interested") => {
     if (!currentUser) {
@@ -501,11 +700,9 @@ const EventCard: React.FC<{
     }
   };
 
-  // Preview mode (full screen)
   if (isPreview) {
     return (
       <div className="fixed inset-0 z-[100] bg-[#18191A] overflow-y-auto">
-        {/* Close button */}
         <button
           onClick={() => onEventClick(0)}
           className="fixed top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
@@ -513,7 +710,6 @@ const EventCard: React.FC<{
           <i className="fas fa-times text-white text-xl"></i>
         </button>
 
-        {/* Cover Image */}
         <div className="relative h-[40vh] min-h-[300px] w-full">
           {event.cover_url && !imageError ? (
             <img
@@ -530,24 +726,25 @@ const EventCard: React.FC<{
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
         </div>
 
-        {/* Event Details */}
         <div className="max-w-4xl mx-auto px-4 py-6 -mt-20 relative z-10">
           <div className="bg-[#242526] rounded-xl p-6 border border-[#3E4042]">
-            {/* Title and Date */}
             <h1 className="text-[#E4E6EB] text-3xl font-black mb-4">{event.title}</h1>
-            
+
+            {followedCreator && (
+              <div className="mb-4 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#1877F2]/15 text-[#8AB4F8] text-xs font-bold">
+                <i className="fas fa-user-check"></i>
+                <span>Hosted by someone you follow</span>
+              </div>
+            )}
+
             <div className="space-y-3 mb-6">
               <div className="flex items-center gap-3 text-[#B0B3B8]">
                 <div className="w-8 h-8 rounded-full bg-[#3A3B3C] flex items-center justify-center">
                   <i className={`fas fa-calendar-alt ${isPast ? "text-[#B0B3B8]" : "text-[#1877F2]"}`}></i>
                 </div>
                 <div>
-                  <div className="text-[#E4E6EB] font-semibold">
-                    {formatEventDate()}
-                  </div>
-                  <div className="text-sm">
-                    {formatEventTime() || "Time TBD"}
-                  </div>
+                  <div className="text-[#E4E6EB] font-semibold">{formatEventDate()}</div>
+                  <div className="text-sm">{formatEventTime() || "Time TBD"}</div>
                 </div>
               </div>
 
@@ -579,17 +776,61 @@ const EventCard: React.FC<{
               </div>
             </div>
 
-            {/* RSVP Counts - Show in preview */}
             <div className="mb-6 pt-4 border-t border-[#3E4042]">
-              <RSVPCounts 
+              <RSVPCounts
                 goingCount={attendeesCount}
                 interestedCount={interestedCount}
-                onGoingClick={() => {}} // Optional: show attendees list
-                onInterestedClick={() => {}} // Optional: show interested list
+                onGoingClick={() => {}}
+                onInterestedClick={() => {}}
               />
             </div>
 
-            {/* Description */}
+            {!isPast && (
+              <div className="flex gap-3 mb-6">
+                <button
+                  disabled={loading}
+                  onClick={() => handleRSVPClick("going")}
+                  className={`
+                    flex-1 py-3 rounded-xl font-bold text-sm transition-all duration-200
+                    ${
+                      rsvpStatus === "going"
+                        ? "bg-[#45BD62] text-white"
+                        : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                    }
+                  `}
+                >
+                  {loading && rsvpStatus === "going" ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : rsvpStatus === "going" ? (
+                    "✓ Going"
+                  ) : (
+                    "Going"
+                  )}
+                </button>
+
+                <button
+                  disabled={loading}
+                  onClick={() => handleRSVPClick("interested")}
+                  className={`
+                    flex-1 py-3 rounded-xl font-bold text-sm transition-all duration-200
+                    ${
+                      rsvpStatus === "interested"
+                        ? "bg-[#F7B928] text-black"
+                        : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                    }
+                  `}
+                >
+                  {loading && rsvpStatus === "interested" ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : rsvpStatus === "interested" ? (
+                    "✓ Interested"
+                  ) : (
+                    "Interested"
+                  )}
+                </button>
+              </div>
+            )}
+
             {event.description && (
               <div className="pt-4 border-t border-[#3E4042]">
                 <h3 className="text-[#E4E6EB] font-bold mb-2">About this event</h3>
@@ -602,20 +843,18 @@ const EventCard: React.FC<{
     );
   }
 
-  // Horizontal layout card (image left, content right)
   if (layout === "horizontal") {
     return (
       <div
         className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group flex h-[200px] w-[500px] flex-shrink-0"
         onClick={() => onEventClick(event.id)}
       >
-        {/* Cover - Left side */}
         <div className="relative w-2/5 h-full overflow-hidden">
           {event.cover_url && !imageError ? (
             <img
               src={event.cover_url}
               alt={event.title}
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
               onError={() => setImageError(true)}
             />
           ) : (
@@ -623,14 +862,12 @@ const EventCard: React.FC<{
               <i className="fas fa-calendar text-white/30 text-4xl"></i>
             </div>
           )}
-          
+
           <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 border border-white/20">
             <div className="text-[#F7B928] text-[9px] font-black uppercase">
               {dateObj?.toLocaleDateString("en-US", { month: "short" })}
             </div>
-            <div className="text-white text-[18px] font-black leading-tight">
-              {dateObj?.getDate()}
-            </div>
+            <div className="text-white text-[18px] font-black leading-tight">{dateObj?.getDate()}</div>
           </div>
 
           {isPast ? (
@@ -644,13 +881,8 @@ const EventCard: React.FC<{
           )}
         </div>
 
-        {/* Details - Right side */}
         <div className="flex-1 p-3 flex flex-col">
-          {/* Creator row */}
-          <div
-            className="flex items-center justify-between mb-2"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="flex items-center justify-between mb-2" onClick={(e) => e.stopPropagation()}>
             <div
               className="flex items-center gap-1.5 cursor-pointer"
               onClick={() => {
@@ -662,7 +894,8 @@ const EventCard: React.FC<{
                 alt=""
                 className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+                  (e.target as HTMLImageElement).src =
+                    "https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true";
                 }}
               />
               <span className="text-[#B0B3B8] text-[10px] hover:underline truncate max-w-[80px]">
@@ -672,23 +905,23 @@ const EventCard: React.FC<{
               <span className="text-[#B0B3B8] text-[10px]">{formatRelativeTime(event.created_at)}</span>
             </div>
 
-            {/* RSVP Counts */}
             <div onClick={(e) => e.stopPropagation()}>
-              <RSVPCounts 
-                goingCount={attendeesCount}
-                interestedCount={interestedCount}
-                size="sm"
-              />
+              <RSVPCounts goingCount={attendeesCount} interestedCount={interestedCount} size="sm" />
             </div>
           </div>
+
+          {followedCreator && (
+            <div className="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1877F2]/15 text-[#8AB4F8] text-[9px] font-bold">
+              <i className="fas fa-user-check"></i>
+              <span>Following</span>
+            </div>
+          )}
 
           <h3 className="text-[#E4E6EB] font-black text-sm mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
             {event.title}
           </h3>
 
-          {event.description && (
-            <p className="text-[#B0B3B8] text-[10px] mb-2 line-clamp-2">{event.description}</p>
-          )}
+          {event.description && <p className="text-[#B0B3B8] text-[10px] mb-2 line-clamp-2">{event.description}</p>}
 
           <div className="space-y-1 mb-2 flex-1">
             <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[10px]">
@@ -707,7 +940,6 @@ const EventCard: React.FC<{
             )}
           </div>
 
-          {/* Buttons - Compact for horizontal */}
           <div className="flex gap-1 mt-auto">
             <button
               disabled={loading || isPast}
@@ -718,16 +950,19 @@ const EventCard: React.FC<{
               className={`
                 flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
                 ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                ${rsvpStatus === "going"
-                  ? "bg-[#45BD62] text-white"
-                  : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                ${
+                  rsvpStatus === "going"
+                    ? "bg-[#45BD62] text-white"
+                    : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
                 }
               `}
             >
               {loading && rsvpStatus === "going" ? (
                 <i className="fas fa-spinner fa-spin"></i>
+              ) : rsvpStatus === "going" ? (
+                "✓ Going"
               ) : (
-                rsvpStatus === "going" ? "✓ Going" : "Going"
+                "Going"
               )}
             </button>
 
@@ -740,16 +975,19 @@ const EventCard: React.FC<{
               className={`
                 flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all duration-200
                 ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                ${rsvpStatus === "interested"
-                  ? "bg-[#F7B928] text-black"
-                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                ${
+                  rsvpStatus === "interested"
+                    ? "bg-[#F7B928] text-black"
+                    : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
                 }
               `}
             >
               {loading && rsvpStatus === "interested" ? (
                 <i className="fas fa-spinner fa-spin"></i>
+              ) : rsvpStatus === "interested" ? (
+                "✓ Interested"
               ) : (
-                rsvpStatus === "interested" ? "✓ Interested" : "Interested"
+                "Interested"
               )}
             </button>
           </div>
@@ -758,20 +996,18 @@ const EventCard: React.FC<{
     );
   }
 
-  // Compact card for auto-scroll sections
   if (layout === "compact") {
     return (
       <div
         className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group w-[280px] flex-shrink-0"
         onClick={() => onEventClick(event.id)}
       >
-        {/* Cover */}
         <div className="relative h-24 overflow-hidden">
           {event.cover_url && !imageError ? (
             <img
               src={event.cover_url}
               alt={event.title}
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
               onError={() => setImageError(true)}
             />
           ) : (
@@ -784,9 +1020,7 @@ const EventCard: React.FC<{
             <div className="text-[#F7B928] text-[8px] font-black uppercase">
               {dateObj?.toLocaleDateString("en-US", { month: "short" })}
             </div>
-            <div className="text-white text-[14px] font-black leading-tight">
-              {dateObj?.getDate()}
-            </div>
+            <div className="text-white text-[14px] font-black leading-tight">{dateObj?.getDate()}</div>
           </div>
 
           {isPast ? (
@@ -800,16 +1034,18 @@ const EventCard: React.FC<{
           )}
         </div>
 
-        {/* Details */}
         <div className="p-2">
           <div className="flex items-center gap-1 mb-1">
-            <img
-              src={avatarFrom(creator)}
-              alt=""
-              className="w-4 h-4 rounded-full object-cover border border-[#3E4042]"
-            />
+            <img src={avatarFrom(creator)} alt="" className="w-4 h-4 rounded-full object-cover border border-[#3E4042]" />
             <span className="text-[#B0B3B8] text-[9px] truncate">{creator?.name || "Organizer"}</span>
           </div>
+
+          {followedCreator && (
+            <div className="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1877F2]/15 text-[#8AB4F8] text-[9px] font-bold">
+              <i className="fas fa-user-check"></i>
+              <span>Following</span>
+            </div>
+          )}
 
           <h3 className="text-[#E4E6EB] font-black text-xs mb-1 line-clamp-1 group-hover:text-[#1877F2] transition-colors">
             {event.title}
@@ -821,12 +1057,8 @@ const EventCard: React.FC<{
           </div>
 
           <div className="flex items-center justify-between">
-            <RSVPCounts 
-              goingCount={attendeesCount}
-              interestedCount={interestedCount}
-              size="sm"
-            />
-            
+            <RSVPCounts goingCount={attendeesCount} interestedCount={interestedCount} size="sm" />
+
             <div className="flex gap-1">
               <button
                 disabled={loading || isPast}
@@ -837,9 +1069,10 @@ const EventCard: React.FC<{
                 className={`
                   px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
                   ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                  ${rsvpStatus === "going"
-                    ? "bg-[#45BD62] text-white"
-                    : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
+                  ${
+                    rsvpStatus === "going"
+                      ? "bg-[#45BD62] text-white"
+                      : "bg-[#1877F2] text-white hover:bg-[#166FE5]"
                   }
                 `}
               >
@@ -855,9 +1088,10 @@ const EventCard: React.FC<{
                 className={`
                   px-2 py-0.5 rounded-lg font-bold text-[8px] transition-all duration-200
                   ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-                  ${rsvpStatus === "interested"
-                    ? "bg-[#F7B928] text-black"
-                    : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+                  ${
+                    rsvpStatus === "interested"
+                      ? "bg-[#F7B928] text-black"
+                      : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
                   }
                 `}
               >
@@ -870,19 +1104,17 @@ const EventCard: React.FC<{
     );
   }
 
-  // Regular vertical card view
   return (
     <div
       className="bg-[#242526] rounded-xl overflow-hidden border border-[#3E4042] hover:border-[#1877F2] transition-all duration-300 cursor-pointer group"
       onClick={() => onEventClick(event.id)}
     >
-      {/* Cover */}
       <div className="relative h-40 overflow-hidden">
         {event.cover_url && !imageError ? (
           <img
             src={event.cover_url}
             alt={event.title}
-            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
             onError={() => setImageError(true)}
           />
         ) : (
@@ -897,9 +1129,7 @@ const EventCard: React.FC<{
           <div className="text-[#F7B928] text-[11px] font-black uppercase">
             {dateObj?.toLocaleDateString("en-US", { month: "short" })}
           </div>
-          <div className="text-white text-[24px] font-black leading-tight">
-            {dateObj?.getDate()}
-          </div>
+          <div className="text-white text-[24px] font-black leading-tight">{dateObj?.getDate()}</div>
         </div>
 
         {isPast ? (
@@ -913,13 +1143,8 @@ const EventCard: React.FC<{
         )}
       </div>
 
-      {/* Details */}
       <div className="p-3">
-        {/* Creator row */}
-        <div
-          className="flex items-center justify-between mb-2"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex items-center justify-between mb-2" onClick={(e) => e.stopPropagation()}>
           <div
             className="flex items-center gap-2 cursor-pointer"
             onClick={() => {
@@ -931,33 +1156,32 @@ const EventCard: React.FC<{
               alt=""
               className="w-5 h-5 rounded-full object-cover border border-[#3E4042]"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true`;
+                (e.target as HTMLImageElement).src =
+                  "https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true";
               }}
             />
-            <span className="text-[#B0B3B8] text-xs hover:underline">
-              {creator?.name || "Event Organizer"}
-            </span>
+            <span className="text-[#B0B3B8] text-xs hover:underline">{creator?.name || "Event Organizer"}</span>
             <span className="text-[#3E4042] text-xs">•</span>
             <span className="text-[#B0B3B8] text-xs">{formatRelativeTime(event.created_at)}</span>
           </div>
 
-          {/* RSVP Counts - Now showing on card! */}
           <div onClick={(e) => e.stopPropagation()}>
-            <RSVPCounts 
-              goingCount={attendeesCount}
-              interestedCount={interestedCount}
-              size="sm"
-            />
+            <RSVPCounts goingCount={attendeesCount} interestedCount={interestedCount} size="sm" />
           </div>
         </div>
+
+        {followedCreator && (
+          <div className="mb-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#1877F2]/15 text-[#8AB4F8] text-[10px] font-bold">
+            <i className="fas fa-user-check"></i>
+            <span>From someone you follow</span>
+          </div>
+        )}
 
         <h3 className="text-[#E4E6EB] font-black text-[16px] mb-1 line-clamp-2 group-hover:text-[#1877F2] transition-colors">
           {event.title}
         </h3>
 
-        {event.description && (
-          <p className="text-[#B0B3B8] text-xs mb-2 line-clamp-2">{event.description}</p>
-        )}
+        {event.description && <p className="text-[#B0B3B8] text-xs mb-2 line-clamp-2">{event.description}</p>}
 
         <div className="space-y-1 mb-3">
           <div className="flex items-center gap-2 text-[#B0B3B8] text-xs">
@@ -976,7 +1200,6 @@ const EventCard: React.FC<{
           )}
         </div>
 
-        {/* Buttons */}
         <div className="flex gap-2">
           <button
             disabled={loading || isPast}
@@ -987,16 +1210,19 @@ const EventCard: React.FC<{
             className={`
               flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
               ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-              ${rsvpStatus === "going"
-                ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
-                : "bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20"
+              ${
+                rsvpStatus === "going"
+                  ? "bg-[#45BD62] text-white hover:bg-[#3da855]"
+                  : "bg-[#1877F2] text-white hover:bg-[#166FE5] hover:shadow-lg hover:shadow-[#1877F2]/20"
               }
             `}
           >
             {loading && rsvpStatus === "going" ? (
               <i className="fas fa-spinner fa-spin"></i>
+            ) : rsvpStatus === "going" ? (
+              "✓ Going"
             ) : (
-              rsvpStatus === "going" ? "✓ Going" : "Going"
+              "Going"
             )}
           </button>
 
@@ -1009,16 +1235,19 @@ const EventCard: React.FC<{
             className={`
               flex-1 py-2 rounded-lg font-bold text-xs transition-all duration-200
               ${isPast ? "opacity-50 cursor-not-allowed" : ""}
-              ${rsvpStatus === "interested"
-                ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
-                : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
+              ${
+                rsvpStatus === "interested"
+                  ? "bg-[#F7B928] text-black hover:bg-[#e5aa24]"
+                  : "bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]"
               }
             `}
           >
             {loading && rsvpStatus === "interested" ? (
               <i className="fas fa-spinner fa-spin"></i>
+            ) : rsvpStatus === "interested" ? (
+              "✓ Interested"
             ) : (
-              rsvpStatus === "interested" ? "✓ Interested" : "Interested"
+              "Interested"
             )}
           </button>
         </div>
@@ -1035,17 +1264,17 @@ const AutoScrollHorizontal: React.FC<{
   onEventClick: (id: number) => void;
   onProfileClick: (id: number) => void;
   onRSVPUpdate?: (eventId: number, newStatus: "" | "going" | "interested", newAtt: number, newInt: number) => void;
-  speed?: number; // pixels per second
-  direction?: 'left' | 'right';
-}> = ({ 
-  title, 
-  events, 
-  currentUser, 
-  onEventClick, 
-  onProfileClick, 
+  speed?: number;
+  direction?: "left" | "right";
+}> = ({
+  title,
+  events,
+  currentUser,
+  onEventClick,
+  onProfileClick,
   onRSVPUpdate,
-  speed = 40, // Default speed: 40px per second
-  direction = 'left'
+  speed = 28,
+  direction = "left",
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -1060,16 +1289,16 @@ const AutoScrollHorizontal: React.FC<{
 
       const container = scrollRef.current;
       const maxScroll = container.scrollWidth - container.clientWidth;
-      
-      if (direction === 'left') {
-        scrollPositionRef.current += speed / 60; // 60fps
+
+      if (direction === "left") {
+        scrollPositionRef.current += speed / 60;
         if (scrollPositionRef.current >= maxScroll) {
-          scrollPositionRef.current = 0; // Reset to beginning
+          scrollPositionRef.current = 0;
         }
       } else {
         scrollPositionRef.current -= speed / 60;
         if (scrollPositionRef.current <= 0) {
-          scrollPositionRef.current = maxScroll; // Reset to end
+          scrollPositionRef.current = maxScroll;
         }
       }
 
@@ -1081,17 +1310,12 @@ const AutoScrollHorizontal: React.FC<{
   }, [speed, direction, isPaused]);
 
   useEffect(() => {
-    if (!isPaused) {
-      startScrolling();
-    }
+    if (!isPaused) startScrolling();
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, [startScrolling, isPaused]);
 
-  // Prevent user scrolling
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
   };
@@ -1100,14 +1324,8 @@ const AutoScrollHorizontal: React.FC<{
     e.preventDefault();
   };
 
-  // Pause on hover
-  const handleMouseEnter = () => {
-    setIsPaused(true);
-  };
-
-  const handleMouseLeave = () => {
-    setIsPaused(false);
-  };
+  const handleMouseEnter = () => setIsPaused(true);
+  const handleMouseLeave = () => setIsPaused(false);
 
   if (events.length === 0) return null;
 
@@ -1117,16 +1335,16 @@ const AutoScrollHorizontal: React.FC<{
         <h2 className="text-[#E4E6EB] text-lg font-black">{title}</h2>
         <div className="flex gap-2">
           <div className="w-2 h-2 rounded-full bg-[#45BD62] animate-pulse"></div>
-          <span className="text-[#B0B3B8] text-xs">Auto-scrolling</span>
+          <span className="text-[#B0B3B8] text-xs">Live discovery</span>
         </div>
       </div>
-      <div 
+      <div
         ref={scrollRef}
         className="flex gap-4 overflow-x-auto scrollbar-hide cursor-default"
-        style={{ 
-          scrollbarWidth: 'none', 
-          msOverflowStyle: 'none',
-          WebkitOverflowScrolling: 'touch',
+        style={{
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+          WebkitOverflowScrolling: "touch",
         }}
         onWheel={handleWheel}
         onTouchMove={handleTouchMove}
@@ -1190,11 +1408,11 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Apply location-based filtering
   useEffect(() => {
     if (events.length > 0) {
-      const visibleEvents = events.filter(event => isEventVisibleToUser(event, currentUser));
-      setFilteredEvents(visibleEvents);
+      const visibleEvents = events.filter((event) => isEventVisibleToUser(event, currentUser));
+      const ranked = rankEventsForFeed(visibleEvents, currentUser);
+      setFilteredEvents(ranked);
     } else {
       setFilteredEvents([]);
     }
@@ -1203,9 +1421,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   const fetchEvents = useCallback(
     async (reset = false, nextPage?: number) => {
       const reqId = ++reqIdRef.current;
-
       const pageToLoad = typeof nextPage === "number" ? nextPage : reset ? 1 : page;
-      
+
       if (!reset) {
         if (fetchingMoreRef.current) return;
         fetchingMoreRef.current = true;
@@ -1217,16 +1434,17 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       try {
         const params = new URLSearchParams({
           page: String(pageToLoad),
-          limit: "24", // Increased limit to have more events for alternating sections
+          limit: "24",
           filter,
           sort,
         });
 
         if (debouncedQ) params.set("q", debouncedQ);
         if (currentUser?.id) params.set("user_id", String(currentUser.id));
-        
+
         params.set("include_attendees", "true");
         params.set("include_friends", "true");
+        params.set("include_following", "true");
 
         const res = await fetch(`/api/events_feeds?${params.toString()}`, {
           headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -1257,11 +1475,11 @@ export const AllEvents: React.FC<AllEventsProps> = ({
 
         setEvents((prev) => {
           if (reset) return sortedEvents;
-          const existingIds = new Set(prev.map(e => e.id));
-          const uniqueNewEvents = sortedEvents.filter(e => !existingIds.has(e.id));
+          const existingIds = new Set(prev.map((e) => e.id));
+          const uniqueNewEvents = sortedEvents.filter((e) => !existingIds.has(e.id));
           return [...prev, ...uniqueNewEvents];
         });
-        
+
         setHasMore(!!data?.has_more || newEvents.length === 24);
 
         if (reset) setPage(1);
@@ -1287,23 +1505,24 @@ export const AllEvents: React.FC<AllEventsProps> = ({
       setEvents((prev) =>
         prev.map((e) =>
           e.id === eventId
-            ? { 
-                ...e, 
-                user_rsvp_status: newStatus, 
-                attendees_count: newAtt, 
+            ? {
+                ...e,
+                user_rsvp_status: newStatus,
+                attendees_count: newAtt,
                 interested_count: newInt,
-                attendees: newStatus === "going" && currentUser
-                  ? [
-                      ...(e.attendees || []),
-                      {
-                        id: currentUser.id,
-                        name: currentUser.name || "You",
-                        username: currentUser.username,
-                        profile_image_url: currentUser.profile_image_url,
-                        is_friend: true
-                      }
-                    ]
-                  : e.attendees?.filter(a => a.id !== currentUser?.id)
+                attendees:
+                  newStatus === "going" && currentUser
+                    ? [
+                        ...(e.attendees || []),
+                        {
+                          id: currentUser.id,
+                          name: (currentUser as any).name || "You",
+                          username: (currentUser as any).username,
+                          profile_image_url: (currentUser as any).profile_image_url,
+                          is_following: true,
+                        },
+                      ]
+                    : e.attendees?.filter((a) => a.id !== currentUser?.id),
               }
             : e
         )
@@ -1312,45 +1531,33 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     [currentUser]
   );
 
-  // Handle event click for preview
   const handleEventClick = (eventId: number) => {
-    if (eventId === 0) {
-      setPreviewEventId(null); // Close preview
-    } else {
-      setPreviewEventId(eventId); // Open preview
-    }
+    if (eventId === 0) setPreviewEventId(null);
+    else setPreviewEventId(eventId);
   };
 
-  // Scroll horizontal section manually
-  const scrollHorizontal = (sectionId: string, direction: 'left' | 'right') => {
+  const scrollHorizontal = (sectionId: string, direction: "left" | "right") => {
     const ref = horizontalScrollRefs.current[sectionId];
     if (ref) {
-      const scrollAmount = 520; // Width of one card + gap
-      const newScrollLeft = direction === 'left' 
-        ? ref.scrollLeft - scrollAmount
-        : ref.scrollLeft + scrollAmount;
-      
+      const scrollAmount = 520;
+      const newScrollLeft = direction === "left" ? ref.scrollLeft - scrollAmount : ref.scrollLeft + scrollAmount;
+
       ref.scrollTo({
         left: newScrollLeft,
-        behavior: 'smooth'
+        behavior: "smooth",
       });
     }
   };
 
-  // Initial fetch
   useEffect(() => {
-    if (currentUser && !currentUser.id) return;
-    
-    const currentUserId = currentUser?.id;
-    if (prevUserIdRef.current === currentUserId && didInitRef.current) {
-      return;
-    }
-    
+    if (currentUser && !(currentUser as any).id) return;
+
+    const currentUserId = (currentUser as any)?.id;
+    if (prevUserIdRef.current === currentUserId && didInitRef.current) return;
+
     prevUserIdRef.current = currentUserId;
-    
-    if (didInitRef.current && prevUserIdRef.current === currentUserId) {
-      return;
-    }
+
+    if (didInitRef.current && prevUserIdRef.current === currentUserId) return;
 
     didInitRef.current = true;
     setEvents([]);
@@ -1359,17 +1566,14 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     fetchEvents(true, 1);
   }, [currentUser?.id, fetchEvents]);
 
-  // Reset on filter/sort/search changes
   useEffect(() => {
     if (!didInitRef.current) return;
-    
     setEvents([]);
     setHasMore(true);
     setPage(1);
     fetchEvents(true, 1);
   }, [filter, sort, debouncedQ, fetchEvents]);
 
-  // Observer for infinite scroll
   useEffect(() => {
     if (!hasMore) return;
 
@@ -1397,7 +1601,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     return () => obs.disconnect();
   }, [hasMore]);
 
-  // Load more
   useEffect(() => {
     if (page > 1) {
       fetchEvents(false, page);
@@ -1419,120 +1622,135 @@ export const AllEvents: React.FC<AllEventsProps> = ({
     { value: "trending", label: "Trending" },
   ];
 
-  const previewEvent = previewEventId ? events.find(e => e.id === previewEventId) : null;
+  const previewEvent = previewEventId ? events.find((e) => e.id === previewEventId) : null;
 
-  // Generate alternating sections
   const generateSections = () => {
     const sections: JSX.Element[] = [];
-    const eventsPerGrid = 6; // Number of events per grid section
-    const eventsPerHorizontal = 8; // Number of events per horizontal section
-    
-    let eventIndex = 0;
-    let sectionIndex = 0;
-    
-    // First section is always auto-scrolling featured
-    if (filteredEvents.length > 0) {
-      const featuredEvents = filteredEvents.slice(0, 8);
-      if (featuredEvents.length > 0) {
-        sections.push(
-          <AutoScrollHorizontal
-            key={`featured-${sectionIndex}`}
-            title="Featured Events"
-            events={featuredEvents}
-            currentUser={currentUser}
-            onEventClick={handleEventClick}
-            onProfileClick={onProfileClick}
-            onRSVPUpdate={handleRSVPUpdate}
-            speed={40}
-            direction="left"
-          />
-        );
-        eventIndex += featuredEvents.length;
-        sectionIndex++;
-      }
+
+    const happeningSoon = filteredEvents.filter((e) => {
+      const d = daysUntilEvent(e.event_date);
+      return d >= 0 && d <= 7;
+    });
+
+    const fromFollowing = filteredEvents.filter((e) => isFromFollowedCreator(e, currentUser));
+    const nearYou = filteredEvents.filter((e) => isNearUserCountry(e, currentUser));
+    const moreEvents = filteredEvents.filter(
+      (e) =>
+        !happeningSoon.some((x) => x.id === e.id) &&
+        !fromFollowing.some((x) => x.id === e.id) &&
+        !nearYou.some((x) => x.id === e.id)
+    );
+
+    if (happeningSoon.length > 0) {
+      sections.push(
+        <AutoScrollHorizontal
+          key="happening-soon"
+          title="Happening Soon"
+          events={happeningSoon.slice(0, 10)}
+          currentUser={currentUser}
+          onEventClick={handleEventClick}
+          onProfileClick={onProfileClick}
+          onRSVPUpdate={handleRSVPUpdate}
+          speed={28}
+          direction="left"
+        />
+      );
     }
-    
-    // Alternate between grid and horizontal sections
-    while (eventIndex < filteredEvents.length) {
-      // Grid section (vertical cards)
-      const gridEvents = filteredEvents.slice(eventIndex, eventIndex + eventsPerGrid);
-      if (gridEvents.length > 0) {
-        sections.push(
-          <div key={`grid-${sectionIndex}`} className="mb-8">
-            <h2 className="text-[#E4E6EB] text-lg font-black mb-4">Upcoming Events</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {gridEvents.map((event) => (
-                <div key={`grid-${event.event_key || `event:${event.id}`}`}>
-                  <EventCard
-                    event={event}
-                    currentUser={currentUser}
-                    onEventClick={handleEventClick}
-                    onProfileClick={onProfileClick}
-                    onRSVPUpdate={handleRSVPUpdate}
-                    layout="vertical"
-                  />
-                </div>
-              ))}
-            </div>
+
+    if (fromFollowing.length > 0) {
+      sections.push(
+        <div key="from-following" className="mb-8">
+          <h2 className="text-[#E4E6EB] text-lg font-black mb-4">From People You Follow</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {fromFollowing.slice(0, 6).map((event) => (
+              <div key={`follow-${event.id}`}>
+                <EventCard
+                  event={event}
+                  currentUser={currentUser}
+                  onEventClick={handleEventClick}
+                  onProfileClick={onProfileClick}
+                  onRSVPUpdate={handleRSVPUpdate}
+                  layout="vertical"
+                />
+              </div>
+            ))}
           </div>
-        );
-        eventIndex += gridEvents.length;
-        sectionIndex++;
-      }
-      
-      // Horizontal section (image-left cards) - manual scroll
-      const horizontalEvents = filteredEvents.slice(eventIndex, eventIndex + eventsPerHorizontal);
-      if (horizontalEvents.length > 0) {
-        const sectionId = `horizontal-${sectionIndex}`;
-        sections.push(
-          <div key={`horizontal-${sectionIndex}`} className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[#E4E6EB] text-lg font-black">More Events</h2>
+        </div>
+      );
+    }
+
+    if (nearYou.length > 0) {
+      const sectionId = "near-you";
+      sections.push(
+        <div key="near-you" className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[#E4E6EB] text-lg font-black">Near You</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-[#B0B3B8] text-xs">Based on your location</span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => scrollHorizontal(sectionId, 'left')}
+                  onClick={() => scrollHorizontal(sectionId, "left")}
                   className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 >
                   <i className="fas fa-chevron-left text-[#E4E6EB] text-sm"></i>
                 </button>
                 <button
-                  onClick={() => scrollHorizontal(sectionId, 'right')}
+                  onClick={() => scrollHorizontal(sectionId, "right")}
                   className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center transition-colors"
                 >
                   <i className="fas fa-chevron-right text-[#E4E6EB] text-sm"></i>
                 </button>
               </div>
             </div>
-            <div 
-              ref={el => horizontalScrollRefs.current[sectionId] = el}
-              className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
-              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-            >
-              {horizontalEvents.map((event) => (
+          </div>
+          <div
+            ref={(el) => (horizontalScrollRefs.current[sectionId] = el)}
+            className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide scroll-smooth"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          >
+            {nearYou.slice(0, 10).map((event) => (
+              <EventCard
+                key={`near-${event.id}`}
+                event={event}
+                currentUser={currentUser}
+                onEventClick={handleEventClick}
+                onProfileClick={onProfileClick}
+                onRSVPUpdate={handleRSVPUpdate}
+                layout="horizontal"
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (moreEvents.length > 0) {
+      sections.push(
+        <div key="more-events" className="mb-8">
+          <h2 className="text-[#E4E6EB] text-lg font-black mb-4">More Events</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {moreEvents.map((event) => (
+              <div key={`more-${event.id}`}>
                 <EventCard
-                  key={`horizontal-${event.event_key || `event:${event.id}`}`}
                   event={event}
                   currentUser={currentUser}
                   onEventClick={handleEventClick}
                   onProfileClick={onProfileClick}
                   onRSVPUpdate={handleRSVPUpdate}
-                  layout="horizontal"
+                  layout="vertical"
                 />
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        );
-        eventIndex += horizontalEvents.length;
-        sectionIndex++;
-      }
+        </div>
+      );
     }
-    
+
     return sections;
   };
 
   return (
     <div className="min-h-screen bg-[#18191A] font-sans">
-      {/* Header */}
       <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] backdrop-blur-lg bg-opacity-90">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -1559,10 +1777,8 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Search + filters */}
-        <div className="bg-[#242526] rounded-xl p-4 border border-[#3E4042] mb-6">
+        <div className="bg-[#242526] rounded-2xl p-4 border border-[#3E4042] mb-6 shadow-sm">
           <div className="relative mb-4">
             <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] text-sm"></i>
             <input
@@ -1570,7 +1786,7 @@ export const AllEvents: React.FC<AllEventsProps> = ({
               placeholder="Search events by title, location, or description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#3A3B3C] text-[#E4E6EB] placeholder-[#B0B3B8] rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all"
+              className="w-full bg-[#18191A] text-[#E4E6EB] placeholder-[#B0B3B8] rounded-full py-3 pl-12 pr-4 outline-none border border-[#3E4042] focus:ring-2 focus:ring-[#1877F2] focus:border-[#1877F2] transition-all"
             />
             {searchQuery && (
               <button
@@ -1604,9 +1820,10 @@ export const AllEvents: React.FC<AllEventsProps> = ({
                     onClick={() => setSort(o.value)}
                     className={`
                       px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors
-                      ${sort === o.value
-                        ? "bg-[#1877F2] text-white"
-                        : "text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]"
+                      ${
+                        sort === o.value
+                          ? "bg-[#1877F2] text-white"
+                          : "text-[#B0B3B8] hover:bg-[#3A3B3C] hover:text-[#E4E6EB]"
                       }
                     `}
                   >
@@ -1618,7 +1835,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         </div>
 
-        {/* Body */}
         {error ? (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <i className="fas fa-exclamation-triangle text-[#F02849] text-4xl mb-3"></i>
@@ -1641,7 +1857,9 @@ export const AllEvents: React.FC<AllEventsProps> = ({
             </div>
             <h3 className="text-[#E4E6EB] text-xl font-black mb-2">No events found</h3>
             <p className="text-[#B0B3B8] mb-6">
-              {searchQuery ? `No events matching "${searchQuery}"` : "There are no events to display in your region."}
+              {searchQuery
+                ? `No events matching "${searchQuery}"`
+                : "No events yet. Follow more creators or create an event to get started."}
             </p>
             {currentUser && (
               <button
@@ -1654,16 +1872,13 @@ export const AllEvents: React.FC<AllEventsProps> = ({
           </div>
         ) : (
           <>
-            {/* Dynamic alternating sections */}
             {generateSections()}
 
-            {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="h-1" />
 
             {loading && (
               <div className="flex justify-center py-8">
                 <div className="relative">
-                  {/* Professional slow spinner */}
                   <div className="w-12 h-12 rounded-full border-2 border-[#3A3B3C] border-t-[#1877F2] animate-spin-slow"></div>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-2 h-2 bg-[#1877F2] rounded-full opacity-0"></div>
@@ -1684,7 +1899,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         )}
       </div>
 
-      {/* Preview Modal */}
       {previewEvent && (
         <EventCard
           event={previewEvent}
@@ -1696,7 +1910,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         />
       )}
 
-      {/* FAB */}
       {currentUser && (
         <button
           onClick={onCreateEventClick}
@@ -1706,7 +1919,6 @@ export const AllEvents: React.FC<AllEventsProps> = ({
         </button>
       )}
 
-      {/* Add custom CSS for slow spinner */}
       <style jsx>{`
         @keyframes spin-slow {
           from {
@@ -1727,5 +1939,4 @@ export const AllEvents: React.FC<AllEventsProps> = ({
   );
 };
 
-// Export all components
 export { EventCard, FilterChip, RSVPCounts };
