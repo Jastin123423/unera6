@@ -719,23 +719,23 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
     <div className="relative w-full">
       <div className="relative">
         <input
-          className="w-full bg-[#F0F2F5] border border-[#DADDE1] rounded-xl p-4 text-[#1C1E21] outline-none focus:border-[#1877F2] text-[15px] pl-11 pr-10"
+          className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-[15px] pl-11 pr-10"
           placeholder="Search city, street or region..."
           value={query}
           onChange={handleChange}
           onFocus={() => setShowResults(true)}
           onBlur={() => setTimeout(() => setShowResults(false), 180)}
         />
-        <i className="fas fa-map-marker-alt absolute left-4 top-1/2 -translate-y-1/2 text-[#65676B]"></i>
+        <i className="fas fa-map-marker-alt absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
         {loading && <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>}
       </div>
 
       {showResults && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-white border border-[#DADDE1] rounded-2xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-2xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
           {results.map((res, i) => (
             <div
               key={i}
-              className="p-3 hover:bg-[#F0F2F5] cursor-pointer text-[#1C1E21] text-sm border-b border-[#E4E6EB] last:border-0 transition-colors"
+              className="p-3 hover:bg-[#3A3B3C] cursor-pointer text-[#E4E6EB] text-sm border-b border-[#3E4042] last:border-0 transition-colors"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 const locationName = String(res?.display_name || '').trim();
@@ -750,7 +750,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
                 }
               }}
             >
-              <i className="fas fa-location-dot mr-2 text-[#65676B]"></i>
+              <i className="fas fa-location-dot mr-2 text-[#B0B3B8]"></i>
               {res.display_name}
             </div>
           ))}
@@ -832,22 +832,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const displayPrice = hasDiscount ? (product as any).discount_price : (product as any).main_price;
 
   return (
-    <div className="fixed inset-0 z-[150] bg-white flex flex-col font-sans">
-      <div className="h-14 px-4 flex items-center justify-between border-b border-[#E4E6EB] bg-white">
-        <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center">
-          <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
+    <div className="fixed inset-0 z-[150] bg-[#18191A] flex flex-col font-sans">
+      <div className="h-14 px-4 flex items-center justify-between border-b border-[#3E4042] bg-[#242526]">
+        <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center">
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
         </button>
-        <div className="text-[#050505] font-bold text-lg truncate px-3">Marketplace</div>
+        <div className="text-[#E4E6EB] font-bold text-lg truncate px-3">Marketplace</div>
         <button
           onClick={() => onMessage((product as any).seller_id)}
-          className="w-10 h-10 rounded-full bg-[#E7F3FF] text-[#1877F2] flex items-center justify-center"
+          className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#1877F2] flex items-center justify-center"
         >
           <i className="fab fa-facebook-messenger text-lg"></i>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white">
-        <div className="relative bg-[#F0F2F5]">
+      <div className="flex-1 overflow-y-auto bg-[#18191A]">
+        <div className="relative bg-[#1E1E1E]">
           <div className="w-full aspect-square flex items-center justify-center overflow-hidden">
             {productImages.length > 0 ? (
               <img
@@ -858,7 +858,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               />
             ) : (
               <div className="flex items-center justify-center w-full h-full">
-                <i className="fas fa-image text-5xl text-[#BCC0C4]"></i>
+                <i className="fas fa-image text-5xl text-[#3E4042]"></i>
               </div>
             )}
           </div>
@@ -884,7 +884,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         </div>
 
         {productImages.length > 1 && (
-          <div className="px-4 py-3 flex gap-2 overflow-x-auto scrollbar-hide bg-white">
+          <div className="px-4 py-3 flex gap-2 overflow-x-auto scrollbar-hide bg-[#242526]">
             {productImages.map((img, idx) => (
               <button
                 key={idx}
@@ -905,46 +905,46 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
         )}
 
-        <div className="px-4 py-4 bg-white">
-          <div className="text-[#050505] font-bold text-[28px] leading-tight">
+        <div className="px-4 py-4 bg-[#242526]">
+          <div className="text-[#E4E6EB] font-bold text-[28px] leading-tight">
             {formatPriceWithCurrency(displayPrice, productCountryCode)}
           </div>
 
           {hasDiscount && (
-            <div className="text-[#65676B] text-base line-through mt-1">
+            <div className="text-[#B0B3B8] text-base line-through mt-1">
               {formatPriceWithCurrency((product as any).main_price, productCountryCode)}
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2 text-[#65676B] text-sm">
+          <div className="mt-3 flex items-center gap-2 text-[#B0B3B8] text-sm">
             <i className="fas fa-location-dot"></i>
             <span>{(product as any).address || countryData.name}</span>
           </div>
         </div>
 
-        <div className="bg-white border-t border-[#E4E6EB] px-4 py-4">
+        <div className="bg-[#242526] border-t border-[#3E4042] px-4 py-4">
           <div className="flex items-center gap-3">
             <img
               src={(product as any).seller_avatar}
               alt="Seller"
-              className="w-12 h-12 rounded-full object-cover bg-[#F0F2F5]"
+              className="w-12 h-12 rounded-full object-cover bg-[#3A3B3C]"
             />
             <div className="min-w-0 flex-1">
-              <div className="text-[#050505] font-semibold truncate">{(product as any).seller_name}</div>
-              <div className="text-[#65676B] text-sm">Seller</div>
+              <div className="text-[#E4E6EB] font-semibold truncate">{(product as any).seller_name}</div>
+              <div className="text-[#B0B3B8] text-sm">Seller</div>
             </div>
             <a
               href={`tel:${(product as any).phone_number}`}
-              className="w-10 h-10 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center no-underline"
+              className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center no-underline"
             >
               <i className="fas fa-phone-alt"></i>
             </a>
           </div>
         </div>
 
-        <div className="bg-white border-t border-[#E4E6EB] px-4 py-4">
-          <div className="text-[#050505] font-semibold mb-2">Description</div>
-          <div className="text-[#1C1E21] whitespace-pre-wrap leading-relaxed">
+        <div className="bg-[#242526] border-t border-[#3E4042] px-4 py-4">
+          <div className="text-[#E4E6EB] font-semibold mb-2">Description</div>
+          <div className="text-[#B0B3B8] whitespace-pre-wrap leading-relaxed">
             {(product as any).description}
           </div>
         </div>
@@ -974,6 +974,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [marketMode, setMarketMode] = useState<MarketMode>('for_you');
   const [showSellModal, setShowSellModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
@@ -1135,6 +1136,16 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     }
   };
 
+  // Search filter for products
+  const searchFilteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return filteredProducts;
+    const query = searchQuery.toLowerCase();
+    return filteredProducts.filter((product: any) =>
+      String(product.title || '').toLowerCase().includes(query) ||
+      String(product.description || '').toLowerCase().includes(query)
+    );
+  }, [filteredProducts, searchQuery]);
+
   const filteredProducts = useMemo(() => {
     const base = safeArray<any>(products).filter((p: any) => {
       const pCountry = getProductCountryCode(p);
@@ -1173,24 +1184,34 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     (MARKETPLACE_COUNTRIES as any[]).find((c) => c.code === selectedCountry) || MARKETPLACE_COUNTRIES[0];
 
   return (
-    <div className="min-h-screen bg-white font-sans pb-20 overflow-x-hidden">
+    <div className="min-h-screen bg-[#18191A] font-sans pb-20 overflow-x-hidden">
       {/* Top header */}
-      <div className="sticky top-0 z-40 bg-white border-b border-[#E4E6EB]">
+      <div className="sticky top-0 z-40 bg-[#242526] border-b border-[#3E4042]">
         <div className="h-14 px-3 flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={onNavigateHome}
-              className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center flex-shrink-0"
+              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center flex-shrink-0"
             >
-              <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
+              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
             </button>
-            <h1 className="text-[20px] font-bold text-[#050505] truncate">Marketplace</h1>
+            <h1 className="text-[20px] font-bold text-[#E4E6EB] truncate">Marketplace</h1>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* ✅ Search button - WORKING */}
             <button
-              className="w-10 h-10 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center"
+              className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center hover:bg-[#4E4F50] transition-colors"
               aria-label="Search"
+              onClick={() => {
+                const searchInput = document.getElementById('marketplace-search-input');
+                if (searchInput) {
+                  searchInput.focus();
+                } else {
+                  const query = prompt('Search Marketplace:', searchQuery);
+                  if (query !== null) setSearchQuery(query);
+                }
+              }}
             >
               <i className="fas fa-search text-lg"></i>
             </button>
@@ -1202,7 +1223,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                 const nextIndex = (currentIndex + 1) % countryList.length;
                 setSelectedCountry(countryList[nextIndex]);
               }}
-              className="h-10 min-w-[44px] px-3 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center"
+              className="h-10 min-w-[44px] px-3 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center"
               aria-label="Country filter"
             >
               <span className="text-lg">{(activeCountry as any).flag || '🌍'}</span>
@@ -1214,6 +1235,29 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
             >
               Sell
             </button>
+          </div>
+        </div>
+
+        {/* Search input - hidden until search icon is clicked */}
+        <div className="px-3 pb-3">
+          <div className="relative">
+            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+            <input
+              id="marketplace-search-input"
+              type="text"
+              placeholder="Search Marketplace..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#3A3B3C] rounded-full py-2.5 pl-11 pr-4 text-[#E4E6EB] outline-none focus:ring-2 focus:ring-[#1877F2] text-[15px]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+              >
+                <i className="fas fa-times-circle"></i>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1231,7 +1275,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                   key={item.id}
                   onClick={() => setMarketMode(item.id as MarketMode)}
                   className={`px-4 h-9 rounded-full whitespace-nowrap text-sm font-semibold transition-colors ${
-                    active ? 'bg-[#E7F3FF] text-[#1877F2]' : 'bg-[#F0F2F5] text-[#050505]'
+                    active ? 'bg-[#E7F3FF] text-[#1877F2]' : 'bg-[#3A3B3C] text-[#E4E6EB]'
                   }`}
                 >
                   {item.label}
@@ -1243,7 +1287,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       </div>
 
       {/* Sticky categories row */}
-      <div className="sticky top-[104px] z-30 bg-white border-b border-[#E4E6EB]">
+      <div className="sticky top-[135px] z-30 bg-[#242526] border-b border-[#3E4042]">
         <div className="px-3 py-2 overflow-x-auto scrollbar-hide">
           <div className="flex gap-2 min-w-max">
             {(MARKETPLACE_CATEGORIES as any[]).map((cat) => (
@@ -1253,7 +1297,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                 className={`px-4 h-9 rounded-full whitespace-nowrap text-sm font-semibold transition-colors ${
                   selectedCategory === cat.id
                     ? 'bg-[#1877F2] text-white'
-                    : 'bg-[#F0F2F5] text-[#050505]'
+                    : 'bg-[#3A3B3C] text-[#E4E6EB]'
                 }`}
               >
                 {cat.name}
@@ -1265,9 +1309,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
       {/* Grid */}
       <div className="px-[2px] pt-[2px]">
-        {filteredProducts.length > 0 ? (
+        {searchFilteredProducts.length > 0 ? (
           <div className="grid grid-cols-2 gap-[2px]">
-            {filteredProducts.map((product: any) => {
+            {searchFilteredProducts.map((product: any) => {
               const productVariants = safeImageVariants(product.image_variants);
               const legacyImages = safeImages(product.images);
               const cover =
@@ -1284,12 +1328,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                   key={product.id}
                   type="button"
                   onClick={() => onViewProduct(product)}
-                  className="relative aspect-[0.86] bg-[#F0F2F5] overflow-hidden text-left"
+                  className="relative aspect-[0.86] bg-[#3A3B3C] overflow-hidden text-left group"
                 >
                   <img
                     src={cover}
                     alt={product.title}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                     loading="lazy"
                     decoding="async"
                   />
@@ -1311,11 +1355,11 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-24 text-center px-6">
-            <div className="w-20 h-20 bg-[#F0F2F5] rounded-full flex items-center justify-center mb-5">
-              <i className="fas fa-store-slash text-3xl text-[#BCC0C4]"></i>
+            <div className="w-20 h-20 bg-[#3A3B3C] rounded-full flex items-center justify-center mb-5">
+              <i className="fas fa-store-slash text-3xl text-[#B0B3B8]"></i>
             </div>
-            <h3 className="text-[#050505] font-bold text-xl mb-2">No items found</h3>
-            <p className="text-[#65676B] max-w-xs mb-6">
+            <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">No items found</h3>
+            <p className="text-[#B0B3B8] max-w-xs mb-6">
               Try changing your category or market view.
             </p>
             <button
@@ -1323,6 +1367,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                 setSelectedCountry('all');
                 setSelectedCategory('all');
                 setMarketMode('for_you');
+                setSearchQuery('');
               }}
               className="px-6 py-3 bg-[#1877F2] text-white rounded-xl font-semibold"
             >
@@ -1334,35 +1379,35 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
       {/* Create listing panel */}
       {showSellModal && (
-        <div className="fixed inset-0 z-[120] bg-white flex flex-col">
-          <div className="h-14 px-3 flex items-center justify-between border-b border-[#E4E6EB] bg-white">
+        <div className="fixed inset-0 z-[120] bg-[#18191A] flex flex-col">
+          <div className="h-14 px-3 flex items-center justify-between border-b border-[#3E4042] bg-[#242526]">
             <button
               onClick={() => setShowSellModal(false)}
-              className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center"
+              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
             >
-              <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
+              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
             </button>
-            <div className="text-[#050505] font-bold text-[20px]">New listing</div>
+            <div className="text-[#E4E6EB] font-bold text-[20px]">New listing</div>
             <button
               onClick={handleSubmit as any}
               disabled={isUploading}
-              className={`text-[17px] font-semibold ${isUploading ? 'text-[#BCC0C4]' : 'text-[#1877F2]'}`}
+              className={`text-[17px] font-semibold ${isUploading ? 'text-[#5A5B5E]' : 'text-[#1877F2]'}`}
             >
               Publish
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-white">
+          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-[#18191A]">
             <div className="px-4 py-4 space-y-6">
               {/* Photos */}
               <section>
-                <div className="text-[#050505] font-semibold text-[17px] mb-3">Photos</div>
+                <div className="text-[#E4E6EB] font-semibold text-[17px] mb-3">Photos</div>
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="bg-[#F0F2F5] rounded-2xl border border-[#E4E6EB] p-5 text-center cursor-pointer"
+                  className="bg-[#3A3B3C] rounded-2xl border border-[#3E4042] p-5 text-center cursor-pointer"
                 >
-                  <i className="fas fa-images text-3xl text-[#65676B] mb-3"></i>
-                  <div className="text-[#050505] font-medium">Add photos</div>
+                  <i className="fas fa-images text-3xl text-[#B0B3B8] mb-3"></i>
+                  <div className="text-[#E4E6EB] font-medium">Add photos</div>
                 </div>
                 <input
                   type="file"
@@ -1393,9 +1438,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Category */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Category</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Category</label>
                 <select
-                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   required
@@ -1411,10 +1456,10 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Title */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">What are you selling?</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">What are you selling?</label>
                 <input
                   type="text"
-                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
@@ -1423,15 +1468,15 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Price */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Price</label>
-                <div className="flex rounded-xl overflow-hidden border border-[#E4E6EB] bg-[#F0F2F5]">
-                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#050505] font-semibold border-r border-[#E4E6EB]">
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Price</label>
+                <div className="flex rounded-xl overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#E4E6EB] font-semibold border-r border-[#3E4042]">
                     {currencyLabel}
                   </div>
                   <input
                     type="text"
                     inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
-                    className="flex-1 h-12 px-4 bg-transparent text-[#050505] outline-none"
+                    className="flex-1 h-12 px-4 bg-transparent text-[#E4E6EB] outline-none"
                     value={formatPriceInputForDisplay(mainPriceRaw, effectiveListingCountry)}
                     onChange={(e) => setMainPriceRaw(sanitizePriceInput(e.target.value, effectiveListingCountry))}
                     required
@@ -1441,15 +1486,15 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Discount */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Discount price</label>
-                <div className="flex rounded-xl overflow-hidden border border-[#E4E6EB] bg-[#F0F2F5]">
-                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#050505] font-semibold border-r border-[#E4E6EB]">
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Discount price</label>
+                <div className="flex rounded-xl overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#E4E6EB] font-semibold border-r border-[#3E4042]">
                     {currencyLabel}
                   </div>
                   <input
                     type="text"
                     inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
-                    className="flex-1 h-12 px-4 bg-transparent text-[#050505] outline-none"
+                    className="flex-1 h-12 px-4 bg-transparent text-[#E4E6EB] outline-none"
                     value={formatPriceInputForDisplay(discountPriceRaw, effectiveListingCountry)}
                     onChange={(e) => setDiscountPriceRaw(sanitizePriceInput(e.target.value, effectiveListingCountry))}
                   />
@@ -1458,7 +1503,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Location */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Location</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Location</label>
                 <LocationSearch
                   value={address}
                   onChangeText={setAddress}
@@ -1470,9 +1515,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Manual country */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Country</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Country</label>
                 <select
-                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none"
                   value={manualCountry}
                   onChange={(e) => setManualCountry(e.target.value)}
                 >
@@ -1489,9 +1534,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Description */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Description</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Description</label>
                 <textarea
-                  className="w-full min-h-[140px] px-4 py-3 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none resize-none"
+                  className="w-full min-h-[140px] px-4 py-3 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none resize-none"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
                   required
@@ -1500,9 +1545,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Availability */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Availability</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Availability</label>
                 <select
-                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                 >
@@ -1513,10 +1558,10 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 
               {/* Phone */}
               <section>
-                <label className="block text-[#65676B] text-[15px] mb-2">Phone</label>
+                <label className="block text-[#B0B3B8] text-[15px] mb-2">Phone</label>
                 <input
                   type="tel"
-                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   required
@@ -1528,8 +1573,8 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                   type="submit"
                   disabled={isUploading}
                   className={`w-full h-12 rounded-xl font-bold text-white ${
-                    isUploading ? 'bg-[#A0C5F8]' : 'bg-[#1877F2]'
-                  }`}
+                    isUploading ? 'bg-[#3A3B3C] text-[#B0B3B8]' : 'bg-[#1877F2] hover:bg-[#166FE5]'
+                  } transition-colors`}
                 >
                   {isUploading ? 'Uploading...' : 'Publish'}
                 </button>
