@@ -1,3 +1,4 @@
+// Layout.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { NotificationDropdown } from './Notifications';
@@ -63,13 +64,11 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
       <div className="h-14 px-4 flex items-center justify-between border-b border-[#3E4042] bg-[#242526] shadow-sm flex-shrink-0">
         <h2 className="text-[24px] font-bold text-[#E4E6EB]">Menu</h2>
 
-        <div className="flex gap-2">
-          <div
-            onClick={onClose}
-            className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center cursor-pointer hover:bg-[#4E4F50]"
-          >
-            <i className="fas fa-times text-[#E4E6EB] text-xl"></i>
-          </div>
+        <div
+          onClick={onClose}
+          className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center cursor-pointer hover:bg-[#4E4F50]"
+        >
+          <i className="fas fa-times text-[#E4E6EB] text-xl"></i>
         </div>
       </div>
 
@@ -87,8 +86,8 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
               alt={currentUser.name}
               className="w-10 h-10 rounded-full object-cover"
             />
-            <div className="flex flex-col">
-              <span className="font-bold text-[#E4E6EB] text-lg">{currentUser.name}</span>
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-[#E4E6EB] text-lg truncate">{currentUser.name}</span>
               <span className="text-[#B0B3B8] text-sm">View your profile</span>
             </div>
           </div>
@@ -191,12 +190,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showFullMenu, setShowFullMenu] = useState(false);
+  const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLDivElement>(null);
+  const searchOverlayRef = useRef<HTMLDivElement>(null);
   const presenceTimer = useRef<number | null>(null);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
@@ -263,7 +263,9 @@ export const Header: React.FC<HeaderProps> = ({
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setShowProfileMenu(false);
       }
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+      if (searchOverlayRef.current && !searchOverlayRef.current.contains(event.target as Node)) {
+        setShowSearchOverlay(false);
+        setSearchQuery('');
         setSearchResults([]);
       }
     };
@@ -286,7 +288,8 @@ export const Header: React.FC<HeaderProps> = ({
       .filter((u) => !currentUser || u.id !== currentUser.id)
       .map((user) => {
         let score = 0;
-        if (user.name.toLowerCase().includes(lowerQuery)) score += 10;
+        if (String(user.name || '').toLowerCase().includes(lowerQuery)) score += 10;
+        if (String((user as any).username || '').toLowerCase().includes(lowerQuery)) score += 7;
         return { user, score };
       })
       .filter((item) => item.score > 0)
@@ -296,256 +299,221 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchResults(scoredUsers);
   };
 
+  const goToMessages = () => {
+    onNavigate('messages');
+  };
+
+  const goToMusic = () => {
+    onNavigate('music');
+  };
+
+  const goToNotifications = () => {
+    onNavigate('notifications');
+    setShowNotifications(false);
+  };
+
+  const uneraBrand = (
+    <div
+      className="flex items-center gap-2 cursor-pointer select-none"
+      onClick={onHomeClick}
+      aria-label="UNERA"
+    >
+      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1877F2] to-[#1D8AF2] flex items-center justify-center shadow-[0_0_14px_rgba(24,119,242,0.25)]">
+        <i className="fas fa-globe-africa text-white text-[16px]"></i>
+      </div>
+      <span className="text-[24px] font-black bg-gradient-to-r from-[#1877F2] to-[#59A7FF] text-transparent bg-clip-text tracking-tight">
+        UNERA
+      </span>
+    </div>
+  );
+
+  const navItems = [
+    {
+      id: 'home',
+      icon: 'fas fa-home',
+      label: 'Home',
+      onClick: onHomeClick,
+      active: activeTab === 'home',
+      activeColor: '#1877F2',
+    },
+    {
+      id: 'music',
+      icon: 'fas fa-music',
+      label: 'Music',
+      onClick: goToMusic,
+      active: activeTab === 'music',
+      activeColor: '#0055FF',
+    },
+    {
+      id: 'messages',
+      icon: 'fab fa-facebook-messenger',
+      label: 'Messages',
+      onClick: goToMessages,
+      active: activeTab === 'messages',
+      activeColor: '#1877F2',
+    },
+    {
+      id: 'reels',
+      icon: 'fas fa-clapperboard',
+      label: 'Reels',
+      onClick: onReelsClick,
+      active: activeTab === 'reels',
+      activeColor: '#E41E3F',
+    },
+    {
+      id: 'notifications',
+      icon: 'fas fa-bell',
+      label: 'Notifications',
+      onClick: goToNotifications,
+      active: activeTab === 'notifications',
+      activeColor: '#E41E3F',
+      badge: unreadCount,
+    },
+    {
+      id: 'marketplace',
+      icon: 'fas fa-store',
+      label: 'Marketplace',
+      onClick: onMarketplaceClick,
+      active: activeTab === 'marketplace',
+      activeColor: '#1877F2',
+    },
+  ];
+
   return (
     <>
-      <style>{`
-        @keyframes uneraEarthRotate {
-          from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
-        }
+      <div className="sticky top-0 z-50 bg-[#242526] border-b border-[#3E4042] shadow-sm">
+        {/* ROW 1 */}
+        <div className="h-14 px-3 sm:px-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setShowFullMenu(true)}
+              className="w-11 h-11 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center transition-colors"
+              aria-label="Menu"
+            >
+              <i className="fas fa-bars text-[20px]"></i>
+            </button>
 
-        @keyframes uneraEarthGlow {
-          0%, 100% {
-            box-shadow:
-              0 0 10px rgba(29, 138, 242, 0.4),
-              0 0 20px rgba(24, 119, 242, 0.28),
-              inset -8px -8px 12px rgba(0, 0, 0, 0.32),
-              inset 6px 6px 10px rgba(255, 255, 255, 0.08);
-          }
-          50% {
-            box-shadow:
-              0 0 16px rgba(29, 138, 242, 0.55),
-              0 0 28px rgba(24, 119, 242, 0.35),
-              inset -9px -9px 14px rgba(0, 0, 0, 0.36),
-              inset 7px 7px 12px rgba(255, 255, 255, 0.10);
-          }
-        }
+            <button
+              onClick={() => setShowSearchOverlay(true)}
+              className="w-11 h-11 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center transition-colors"
+              aria-label="Search"
+            >
+              <i className="fas fa-search text-[20px]"></i>
+            </button>
 
-        .unera-earth-scene {
-          width: 38px;
-          height: 38px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          transform: rotate(-18deg);
-        }
+            {currentUser ? (
+              <button
+                onClick={() => onNavigate('create')}
+                className="w-11 h-11 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center transition-colors"
+                aria-label="Create"
+              >
+                <i className="fas fa-plus text-[22px]"></i>
+              </button>
+            ) : (
+              <button
+                onClick={onLoginClick}
+                className="h-11 px-4 rounded-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold text-sm transition-colors"
+              >
+                Log In
+              </button>
+            )}
+          </div>
 
-        .unera-earth-globe {
-          width: 38px;
-          height: 38px;
-          position: relative;
-          border-radius: 9999px;
-          overflow: hidden;
-          background:
-            radial-gradient(circle at 32% 28%, rgba(128, 219, 255, 0.85) 0%, rgba(61, 174, 255, 0.32) 16%, transparent 30%),
-            radial-gradient(circle at 48% 46%, #0d56c7 0%, #0a3ea4 44%, #062b7d 70%, #031d58 100%);
-          border: 1.5px solid rgba(163, 227, 255, 0.6);
-          animation: uneraEarthGlow 4s ease-in-out infinite;
-        }
-
-        .unera-earth-map {
-          position: absolute;
-          inset: -8% -28%;
-          width: 280%;
-          height: 116%;
-          background-repeat: repeat-x;
-          background-size: 50% 100%;
-          background-position: 0 0;
-          animation: uneraEarthRotate 12s linear infinite;
-          opacity: 0.95;
-          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 500'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%2388e0ff'/><stop offset='45%' stop-color='%232d9eff'/><stop offset='100%' stop-color='%231877F2'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%23a0e8ff'/><stop offset='100%' stop-color='%232d9eff'/></linearGradient></defs><g fill='url(%23g1)'><path d='M68 180l32-38 48-18 36 9 26 28-5 32-30 24-44 8-32-10-12-30-5-5z'/><path d='M158 240l28-10 32 12 16 22-16 34-24 30-13 48-18 28-26-12-5-34 10-32 16-26-12-24z'/><path d='M264 110l32-22 46-4 38 10 28 22-10 34-28 12-30-4-34 10-34-10-20-22-4-12z'/><path d='M328 158l34-10 28 12 16 28 28 10 34 18 22 22-10 22-34 12-22 24-32 5-22-12 2-22-16-22-2-28z'/><path d='M440 252l22 10 26 22 6 26-15 24-22 9-22-5-12-22 4-24z'/><path d='M476 108l44-16 50 5 40 20 10 34-22 24-46 8-36 16-48-8-16-34 12-28-8-8z'/><path d='M562 172l30-10 30 10 22-5 34 18 18 30-6 34-18 26-30 8-15-15-14-22-32-12-10-24-4-8z'/><path d='M664 122l34-12 40 4 28 16 6 26-20 18-30 2-28 14-32-5-14-24 6-26-4-8z'/><path d='M738 162l22 8 28-5 34 10 14 20-8 16-34 4-30 12-22-12-8-24-4-8z'/><path d='M778 236l24 8 20 22-5 30-14 24-8 36-22 12-22-10-4-38 8-28 12-22-4-8z'/><path d='M892 328l22-6 16 16-4 22-16 14-18-6-5-18-8-12z'/><path d='M68 280l18-12 32 8 24 18-8 28-22 18-28 6-24-12-6-24z'/><path d='M158 340l24-8 28 14 12 22-10 26-18 22-28 8-20-12-6-28 8-24z'/><path d='M264 280l22-16 36-6 28 16-6 24-18 14-28 4-22-12-6-18z'/><path d='M346 360l18-10 24 8 18 18-10 24-16 12-22-4-12-18-4-18z'/></g><g fill='url(%23g2)' opacity='0.96'><path d='M264 110l32-22 46-4 38 10 28 22-10 34-28 12-30-4-34 10-34-10-20-22-4-12z'/><path d='M476 108l44-16 50 5 40 20 10 34-22 24-46 8-36 16-48-8-16-34 12-28-8-8z'/><path d='M664 122l34-12 40 4 28 16 6 26-20 18-30 2-28 14-32-5-14-24 6-26-4-8z'/></g></svg>");
-          filter:
-            drop-shadow(0 0 2px rgba(160, 235, 255, 0.6))
-            drop-shadow(0 0 3px rgba(24, 119, 242, 0.28));
-        }
-
-        .unera-earth-lines {
-          position: absolute;
-          inset: 0;
-          border-radius: 9999px;
-          background:
-            linear-gradient(transparent 20%, rgba(110, 210, 255, 0.18) 22%, transparent 24%, transparent 46%, rgba(110, 210, 255, 0.14) 48%, transparent 50%, transparent 72%, rgba(110, 210, 255, 0.16) 74%, transparent 76%),
-            linear-gradient(90deg, transparent 24%, rgba(110, 210, 255, 0.12) 26%, transparent 28%, transparent 48%, rgba(110, 210, 255, 0.10) 50%, transparent 52%, transparent 72%, rgba(110, 210, 255, 0.12) 74%, transparent 76%);
-          opacity: 0.48;
-          mix-blend-mode: screen;
-          pointer-events: none;
-        }
-
-        .unera-earth-shade {
-          position: absolute;
-          inset: 0;
-          border-radius: 9999px;
-          background:
-            radial-gradient(circle at 28% 24%, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.12) 18%, transparent 32%),
-            radial-gradient(circle at 76% 56%, rgba(0,0,0,0.48) 0%, rgba(0,0,0,0.28) 26%, transparent 54%),
-            linear-gradient(90deg, rgba(255,255,255,0.08) 0%, transparent 28%, transparent 65%, rgba(0,0,0,0.28) 100%);
-          pointer-events: none;
-        }
-
-        .unera-earth-rim {
-          position: absolute;
-          inset: 0;
-          border-radius: 9999px;
-          box-shadow:
-            inset 0 0 0 1.5px rgba(220, 248, 255, 0.28),
-            0 0 10px rgba(77, 190, 255, 0.28);
-          pointer-events: none;
-        }
-
-        @media (max-width: 639px) {
-          .unera-earth-scene {
-            width: 42px;
-            height: 42px;
-          }
-
-          .unera-earth-globe {
-            width: 42px;
-            height: 42px;
-          }
-
-          .unera-earth-map {
-            inset: -10% -32%;
-            width: 300%;
-            height: 120%;
-          }
-        }
-
-        @media (min-width: 640px) {
-          .unera-earth-scene {
-            width: 42px;
-            height: 42px;
-          }
-
-          .unera-earth-globe {
-            width: 42px;
-            height: 42px;
-          }
-
-          .unera-earth-map {
-            inset: -8% -26%;
-            width: 260%;
-            height: 116%;
-          }
-        }
-      `}</style>
-
-      <div className="sticky top-0 z-50 bg-[#242526] shadow-sm h-14 flex items-center justify-between px-4 w-full border-b border-[#3E4042]">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center cursor-pointer gap-2 mr-2" onClick={onHomeClick}>
-            <span className="unera-earth-scene" aria-hidden="true">
-              <span className="unera-earth-globe">
-                <span className="unera-earth-map"></span>
-                <span className="unera-earth-lines"></span>
-                <span className="unera-earth-shade"></span>
-                <span className="unera-earth-rim"></span>
-              </span>
-            </span>
-
-            <h1 className="text-[24px] sm:text-[28px] font-bold bg-gradient-to-r from-[#1877F2] to-[#1D8AF2] text-transparent bg-clip-text tracking-tight">
-              UNERA
-            </h1>
+          <div className="min-w-0 flex items-center justify-end">
+            {uneraBrand}
           </div>
         </div>
 
-        <div className="flex-1 max-w-[600px] h-full hidden md:flex items-center justify-center gap-1">
-          <div
-            onClick={onHomeClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'home'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-home text-[24px]"></i>
-          </div>
+        {/* ROW 2 */}
+        <div className="h-14 px-1 sm:px-2 flex items-stretch justify-between border-t border-[#3E4042]">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={item.onClick}
+              className={`relative flex-1 h-full flex items-center justify-center transition-colors rounded-lg ${
+                item.active ? '' : 'hover:bg-[#3A3B3C]'
+              }`}
+              aria-label={item.label}
+            >
+              <div
+                className="flex items-center justify-center w-full h-full border-b-[3px]"
+                style={{
+                  borderBottomColor: item.active ? item.activeColor : 'transparent',
+                  color: item.active ? item.activeColor : '#B0B3B8',
+                }}
+              >
+                <i className={`${item.icon} text-[22px] sm:text-[24px]`}></i>
+              </div>
 
-          <div
-            onClick={onReelsClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'reels'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-clapperboard text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onMarketplaceClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'marketplace'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-store text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onGroupsClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'groups'
-                ? 'border-[#1877F2] text-[#1877F2]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-users text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onStoryFeedClick || (() => onNavigate('story-feed'))}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'story-feed'
-                ? 'border-[#45BD62] text-[#45BD62]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-layer-group text-[24px]"></i>
-          </div>
-
-          <div
-            onClick={onAdsClick}
-            className={`flex-1 h-full flex items-center justify-center cursor-pointer border-b-[3px] ${
-              activeTab === 'ads'
-                ? 'border-[#10B981] text-[#10B981]'
-                : 'border-transparent text-[#B0B3B8] hover:bg-[#3A3B3C] rounded-lg'
-            }`}
-          >
-            <i className="fas fa-chart-line text-[24px]"></i>
-          </div>
+              {item.badge && item.badge > 0 && (
+                <span className="absolute top-1.5 right-[18%] sm:right-[24%] bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center leading-tight">
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="flex items-center gap-2 justify-end">
+      {/* SEARCH OVERLAY */}
+      {showSearchOverlay && (
+        <div className="fixed inset-0 z-[180] bg-black/60 backdrop-blur-sm">
           <div
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer"
-            onClick={() => setShowFullMenu(true)}
+            ref={searchOverlayRef}
+            className="bg-[#242526] border-b border-[#3E4042] px-3 pt-3 pb-4 shadow-xl"
           >
-            <i className="fas fa-bars text-[#E4E6EB] text-[18px]"></i>
-          </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setShowSearchOverlay(false);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                }}
+                className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center"
+              >
+                <i className="fas fa-arrow-left"></i>
+              </button>
 
-          <div className="relative mr-1 md:mr-2" ref={searchRef}>
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <i className="fas fa-search text-[#B0B3B8]"></i>
+              <div className="relative flex-1">
+                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search in UNERA"
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-full py-3 pl-11 pr-11 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSearchResults([]);
+                    }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB]"
+                  >
+                    <i className="fas fa-times-circle"></i>
+                  </button>
+                )}
+              </div>
             </div>
 
-            <input
-              type="text"
-              className="bg-[#3A3B3C] text-[#E4E6EB] rounded-full py-2 pl-10 pr-4 w-[40px] md:w-[240px] focus:w-[240px] transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[#1877F2] cursor-pointer md:cursor-text"
-              placeholder="Search in UNERA"
-              value={searchQuery}
-              onChange={handleSearchChange}
-            />
+            <div className="mt-3 text-xs text-[#B0B3B8] px-2">
+              {searchQuery.trim()
+                ? `${searchResults.length} result${searchResults.length === 1 ? '' : 's'}`
+                : 'Search profiles on UNERA'}
+            </div>
 
-            {searchQuery && (
-              <div className="absolute top-12 right-0 w-[280px] bg-[#242526] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-[#3E4042] z-50 p-2 max-h-[400px] overflow-y-auto">
+            {searchQuery.trim() && (
+              <div className="mt-3 bg-[#18191A] rounded-2xl border border-[#3E4042] overflow-hidden max-h-[65vh] overflow-y-auto">
                 {searchResults.length > 0 ? (
                   searchResults.map((user) => (
                     <div
                       key={user.id}
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+                      className="flex items-center gap-3 p-3 hover:bg-[#242526] cursor-pointer border-b border-[#3E4042] last:border-0"
                       onClick={() => {
                         onProfileClick(user.id);
+                        setShowSearchOverlay(false);
                         setSearchQuery('');
                         setSearchResults([]);
                       }}
@@ -553,104 +521,74 @@ export const Header: React.FC<HeaderProps> = ({
                       <img
                         src={user.profile_image_url}
                         alt={user.name}
-                        className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+                        className="w-11 h-11 rounded-full object-cover border border-[#3E4042]"
                       />
-                      <div className="flex flex-col overflow-hidden">
-                        <span className="font-semibold text-[15px] text-[#E4E6EB] truncate">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-[15px] text-[#E4E6EB] truncate">
                           {user.name}
-                        </span>
+                        </div>
+                        {!!(user as any).username && (
+                          <div className="text-[#B0B3B8] text-sm truncate">
+                            @{(user as any).username}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="p-4 text-center text-[#B0B3B8] text-sm">No results found</div>
+                  <div className="p-5 text-center text-[#B0B3B8] text-sm">No results found</div>
                 )}
               </div>
             )}
           </div>
-
-          {!currentUser ? (
-            <button
-              onClick={onLoginClick}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-1.5 px-4 rounded-full transition-colors"
-            >
-              Log In
-            </button>
-          ) : (
-            <>
-              <div className="relative" ref={notifRef}>
-                <div
-                  className="flex items-center justify-center w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] cursor-pointer relative"
-                  onClick={() => onNavigate('notifications')}
-                >
-                  <i className="fas fa-bell text-[#E4E6EB] text-lg"></i>
-
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center">
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </div>
-
-                {showNotifications && (
-                  <NotificationDropdown
-                    notifications={notifications}
-                    users={users}
-                    onNotificationClick={(n) => {
-                      setShowNotifications(false);
-                      if ((n as any).post_id) onNavigate(`post-${(n as any).post_id}`);
-                      else if ((n as any).sender_id) onProfileClick((n as any).sender_id);
-                    }}
-                    onMarkAllRead={onMarkNotificationsRead}
-                  />
-                )}
-              </div>
-
-              <div
-                className="relative cursor-pointer"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                ref={profileRef}
-              >
-                <img
-                  src={currentUser.profile_image_url}
-                  alt="Profile"
-                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-                />
-
-                {showProfileMenu && (
-                  <div className="absolute top-12 right-0 w-[300px] bg-[#242526] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-[#3E4042] z-50 p-2">
-                    <div
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
-                      onClick={() => onProfileClick(currentUser.id)}
-                    >
-                      <img
-                        src={currentUser.profile_image_url}
-                        alt=""
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
-                      <span className="font-semibold text-[17px] text-[#E4E6EB]">
-                        {currentUser.name}
-                      </span>
-                    </div>
-
-                    <div className="border-b border-[#3E4042] my-1"></div>
-
-                    <div
-                      className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
-                      onClick={onLogout}
-                    >
-                      <div className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center">
-                        <i className="fas fa-sign-out-alt text-[#E4E6EB]"></i>
-                      </div>
-                      <span className="font-medium text-[15px] text-[#E4E6EB]">Log Out</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
         </div>
-      </div>
+      )}
+
+      {showNotifications && (
+        <div ref={notifRef}>
+          <NotificationDropdown
+            notifications={notifications}
+            users={users}
+            onNotificationClick={(n) => {
+              setShowNotifications(false);
+              if ((n as any).post_id) onNavigate(`post-${(n as any).post_id}`);
+              else if ((n as any).sender_id) onProfileClick((n as any).sender_id);
+            }}
+            onMarkAllRead={onMarkNotificationsRead}
+          />
+        </div>
+      )}
+
+      {currentUser && showProfileMenu && (
+        <div
+          ref={profileRef}
+          className="fixed top-[58px] right-3 w-[300px] bg-[#242526] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-[#3E4042] z-[190] p-2"
+        >
+          <div
+            className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer mb-2"
+            onClick={() => onProfileClick(currentUser.id)}
+          >
+            <img
+              src={currentUser.profile_image_url}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover"
+            />
+            <span className="font-semibold text-[17px] text-[#E4E6EB]">{currentUser.name}</span>
+          </div>
+
+          <div className="border-b border-[#3E4042] my-1"></div>
+
+          <div
+            className="flex items-center gap-3 p-2 hover:bg-[#3A3B3C] rounded-lg cursor-pointer"
+            onClick={onLogout}
+          >
+            <div className="w-9 h-9 bg-[#3A3B3C] rounded-full flex items-center justify-center">
+              <i className="fas fa-sign-out-alt text-[#E4E6EB]"></i>
+            </div>
+            <span className="font-medium text-[15px] text-[#E4E6EB]">Log Out</span>
+          </div>
+        </div>
+      )}
 
       {showFullMenu && (
         <MenuOverlay
