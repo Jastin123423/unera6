@@ -216,9 +216,7 @@ const tryCfImageTransform = async (
   }
 };
 
-const tryCfVideoPoster = async (
-  originalBuffer: Uint8Array
-): Promise<Uint8Array | null> => {
+const tryCfVideoPoster = async (originalBuffer: Uint8Array): Promise<Uint8Array | null> => {
   try {
     const res = await fetch("https://dummy", {
       method: "POST",
@@ -410,9 +408,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const ct = request.headers.get("content-type") || "";
 
-    // =========================
-    // MULTIPART FORM DATA
-    // =========================
     if (ct.includes("multipart/form-data")) {
       const form = await request.formData();
 
@@ -424,9 +419,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const thumbnailFile = form.get("thumbnail");
       const audioFile = form.get("audio");
 
-      // =========================================
-      // MULTI-ASSET BUNDLE UPLOAD
-      // =========================================
+      // Bundle mode: supports custom compressed flows from frontend.
+      // For image bundle callers, you can send only thumbnail + feed.
+      // For video bundle callers, you can send thumbnail + original.
       if (
         originalFile instanceof File ||
         feedFile instanceof File ||
@@ -437,32 +432,50 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         const baseFolder = `uploads/${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const uploaded: Record<string, any> = {};
 
-        if (originalFile instanceof File) {
-          uploaded.original = await uploadBundlePart(env, originalFile, baseFolder, "original");
-        }
-        if (feedFile instanceof File) {
-          uploaded.feed = await uploadBundlePart(env, feedFile, baseFolder, "feed");
-        }
-        if (playFile instanceof File) {
-          uploaded.play = await uploadBundlePart(env, playFile, baseFolder, "play");
-        }
         if (thumbnailFile instanceof File) {
           uploaded.thumbnail = await uploadBundlePart(env, thumbnailFile, baseFolder, "thumbnail");
         }
+
+        if (feedFile instanceof File) {
+          uploaded.feed = await uploadBundlePart(env, feedFile, baseFolder, "feed");
+        }
+
+        if (playFile instanceof File) {
+          uploaded.play = await uploadBundlePart(env, playFile, baseFolder, "play");
+        }
+
         if (audioFile instanceof File) {
           uploaded.audio = await uploadBundlePart(env, audioFile, baseFolder, "audio");
+        }
+
+        // Legacy/optional support only when caller truly sends original.
+        if (originalFile instanceof File) {
+          uploaded.original = await uploadBundlePart(env, originalFile, baseFolder, "original");
         }
 
         return toJson({
           success: true,
           media_type: "bundle",
           uploaded,
+          media_urls: {
+            thumb: uploaded.thumbnail?.url || null,
+            feed: uploaded.feed?.url || null,
+            play: uploaded.play?.url || null,
+            audio: uploaded.audio?.url || null,
+            full:
+              uploaded.original?.url ||
+              uploaded.feed?.url ||
+              uploaded.play?.url ||
+              uploaded.thumbnail?.url ||
+              null,
+          },
+          metadata: {
+            cache_control: LONG_CACHE_CONTROL,
+            bundle_mode: true,
+          },
         });
       }
 
-      // =========================================
-      // LEGACY SINGLE FILE UPLOAD
-      // =========================================
       if (!(singleFile instanceof File)) {
         return toJson(
           {
@@ -522,9 +535,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
     }
 
-    // =========================
-    // JSON BASE64 FALLBACK
-    // =========================
     const body = await request.json().catch(() => ({} as any));
     const filename = String(body.filename || "").trim();
     const incomingType = String(body.contentType || body.mime_type || "").trim();
