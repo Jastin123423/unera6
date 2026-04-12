@@ -1,22 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+// Events.tsx
+import React, { useState, useRef, useEffect } from 'react';
 import { User, Event } from '../types';
 
 /* =========================================================
-   EVENT COVER COMPRESSION HELPERS (Silent, no user notification)
+   EVENT COVER COMPRESSION HELPERS
 ========================================================= */
 
 const canvasToBlob = (
   canvas: HTMLCanvasElement,
   type: string,
   quality?: number
-): Promise<Blob> => new Promise((resolve, reject) => {
-  canvas.toBlob((blob) => {
-    if (blob) resolve(blob);
-    else reject(new Error('Canvas export failed'));
-  }, type, quality);
-});
+): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
 
-const loadImageElement = (src: string): Promise<HTMLImageElement> => 
+const loadImageElement = (src: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -35,26 +37,27 @@ const calcContainSize = (w: number, h: number, max: number) => {
 };
 
 const compressEventCoverImage = async (file: File): Promise<File> => {
-  // Keep GIF/SVG as-is
   if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
     return file;
   }
-  
+
   const objectUrl = URL.createObjectURL(file);
   try {
     const img = await loadImageElement(objectUrl);
-    // Good event cover size without keeping huge originals (max 1600px)
     const targetSize = calcContainSize(img.naturalWidth, img.naturalHeight, 1600);
+
     const canvas = document.createElement('canvas');
     canvas.width = targetSize.width;
     canvas.height = targetSize.height;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context not available');
-    
+
     ctx.drawImage(img, 0, 0, targetSize.width, targetSize.height);
+
     const blob = await canvasToBlob(canvas, 'image/webp', 0.84);
     const ts = Date.now();
-    
+
     return new File([blob], `${ts}-event-cover.webp`, {
       type: 'image/webp',
     });
@@ -73,11 +76,11 @@ const uploadToCloudflareR2 = async (
 ): Promise<{ url: string; type: string; filename: string }> => {
   try {
     let uploadFile = file;
-    // Compress event cover images before upload
+
     if (file.type.startsWith('image/')) {
       uploadFile = await compressEventCoverImage(file);
     }
-    
+
     const formData = new FormData();
     formData.append('file', uploadFile);
     formData.append('filename', uploadFile.name);
@@ -109,31 +112,90 @@ const uploadToCloudflareR2 = async (
   }
 };
 
-// --- OSM LOCATION SEARCH COMPONENT (with Fix 3, 4, 5) ---
-const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void }> = ({
-  value,
-  onSelect,
-}) => {
+/* =========================================================
+   LOCATION HELPERS
+========================================================= */
+
+const detectCountryFromText = (text: string): string | null => {
+  const raw = String(text || '').trim().toLowerCase();
+  if (!raw) return null;
+
+  const tanzaniaTerms = [
+    'tanzania',
+    'dar es salaam',
+    'dar',
+    'dsm',
+    'arusha',
+    'mwanza',
+    'mbeya',
+    'dodoma',
+    'zanzibar',
+    'moshi',
+    'morogoro',
+    'tanga',
+    'tz',
+  ];
+
+  if (tanzaniaTerms.some((term) => raw.includes(term))) return 'Tanzania';
+  if (raw.includes('kenya') || raw.includes('nairobi') || raw.includes('mombasa')) return 'Kenya';
+  if (raw.includes('uganda') || raw.includes('kampala')) return 'Uganda';
+  if (raw.includes('rwanda') || raw.includes('kigali')) return 'Rwanda';
+  if (raw.includes('burundi') || raw.includes('bujumbura')) return 'Burundi';
+  if (raw.includes('south africa') || raw.includes('johannesburg') || raw.includes('cape town')) return 'South Africa';
+  if (raw.includes('nigeria') || raw.includes('lagos') || raw.includes('abuja')) return 'Nigeria';
+  if (raw.includes('ghana') || raw.includes('accra')) return 'Ghana';
+  if (raw.includes('usa') || raw.includes('united states') || raw.includes('new york')) return 'USA';
+  if (raw.includes('uk') || raw.includes('united kingdom') || raw.includes('london')) return 'UK';
+
+  return null;
+};
+
+const getUserLocationFallback = (user: User | null): string => {
+  if (!user) return '';
+  return String(
+    (user as any).location ||
+      (user as any).city ||
+      (user as any).country ||
+      (user as any).region ||
+      ''
+  ).trim();
+};
+
+/* =========================================================
+   LOCATION SEARCH COMPONENT
+   - manual typing always works
+   - API suggestions are optional help only
+========================================================= */
+
+const LocationSearch: React.FC<{
+  value: string;
+  onChangeText: (val: string) => void;
+  onSelect: (val: string) => void;
+  userFallbackLocation?: string;
+}> = ({ value, onChangeText, onSelect, userFallbackLocation = '' }) => {
   const [query, setQuery] = useState(value || '');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+
   const searchTimeout = useRef<any>(null);
-  const boxRef = useRef<HTMLDivElement>(null); // Fix 3: outside click handler
+  const boxRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setQuery(value || ''), [value]);
+  useEffect(() => {
+    setQuery(value || '');
+  }, [value]);
 
-  // Fix 3: Outside click handler
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (!boxRef.current) return;
       if (!boxRef.current.contains(e.target as Node)) setShowResults(false);
     };
+
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  // Fix 5: Clear timeout on unmount
   useEffect(() => {
     return () => {
       if (searchTimeout.current) clearTimeout(searchTimeout.current);
@@ -141,29 +203,36 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
   }, []);
 
   const handleSearch = async (q: string) => {
-    const qq = (q || '').trim();
+    const qq = String(q || '').trim();
     if (qq.length < 3) {
       setResults([]);
+      setSearchFailed(false);
       return;
     }
+
     setLoading(true);
+    setSearchFailed(false);
+
     try {
-      // Fix 4: Add Accept header to Nominatim calls
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
           qq
         )}&addressdetails=1&limit=5`,
         {
           headers: {
-            'Accept': 'application/json',
-          }
+            Accept: 'application/json',
+          },
         }
       );
+
+      if (!res.ok) throw new Error(`Location search failed: ${res.status}`);
+
       const data = await res.json().catch(() => []);
       setResults(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Location search failed', err);
       setResults([]);
+      setSearchFailed(true);
     } finally {
       setLoading(false);
     }
@@ -172,17 +241,24 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
+    onChangeText(val);
     setShowResults(true);
+
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => handleSearch(val), 500);
   };
 
+  const placeholder =
+    userFallbackLocation && !query
+      ? `Type location or search... (${userFallbackLocation})`
+      : 'Type location or search city, venue, or address...';
+
   return (
-    <div ref={boxRef} className="relative w-full"> {/* Fix 3: Add ref for outside click */}
+    <div ref={boxRef} className="relative w-full">
       <div className="relative">
         <input
-          className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-sm pl-10"
-          placeholder="Search city or country..."
+          className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-3.5 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-sm pl-11 pr-10"
+          placeholder={placeholder}
           value={query}
           onChange={handleChange}
           onFocus={() => setShowResults(true)}
@@ -194,11 +270,12 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
       </div>
 
       {showResults && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-2xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto">
           {results.map((res, i) => (
             <div
               key={i}
               className="p-3 hover:bg-[#3A3B3C] cursor-pointer text-white text-sm border-b border-[#3E4042] last:border-0 transition-colors"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 const label = String(res?.display_name || '').trim();
                 if (!label) return;
@@ -213,21 +290,38 @@ const LocationSearch: React.FC<{ value: string; onSelect: (val: string) => void 
           ))}
         </div>
       )}
+
+      {showResults && !loading && results.length === 0 && query.trim().length >= 3 && (
+        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-2xl shadow-2xl overflow-hidden">
+          <div className="p-3 text-sm text-[#B0B3B8]">
+            <i className={`fas ${searchFailed ? 'fa-triangle-exclamation text-[#F7B928]' : 'fa-keyboard'} mr-2`}></i>
+            {searchFailed
+              ? 'Search failed. Your typed location will still be used.'
+              : 'No suggestion found. Your typed location will still be used.'}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-// ✅ UPDATED: Interface now accepts group info for Groups.tsx compatibility
+/* =========================================================
+   TYPES
+========================================================= */
+
 interface CreateEventModalProps {
   currentUser: User;
   onClose: () => void;
   onCreate: (event: Partial<Event>) => Promise<void>;
-  // ✅ allow Groups.tsx to pass these without TS crashing
   groupId?: number;
   groupName?: string;
 }
 
-// ✅ UPDATED: Component now receives groupId and groupName props
+/* =========================================================
+   CREATE EVENT PAGE
+   - full-page style, not floating popup
+========================================================= */
+
 export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   currentUser,
   onClose,
@@ -245,28 +339,59 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coverTouched, setCoverTouched] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const userFallbackLocation = getUserLocationFallback(currentUser);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
 
-    // Validate file is an image
     if (!f.type.startsWith('image/')) {
       setError('Only image files are allowed');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    // Validate file size (max 5MB - before compression)
     if (f.size > 5 * 1024 * 1024) {
       setError('Image size must be less than 5MB');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     setError(null);
+    setCoverTouched(true);
     setImageFile(f);
+
+    if (image && image.startsWith('blob:')) {
+      URL.revokeObjectURL(image);
+    }
+
     const previewUrl = URL.createObjectURL(f);
     setImage(previewUrl);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const clearImage = () => {
+    if (image && image.startsWith('blob:')) {
+      URL.revokeObjectURL(image);
+    }
+    setImage(null);
+    setImageFile(null);
+    setCoverTouched(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const resolveEventLocation = () => {
+    const typed = String(location || '').trim();
+    if (typed) return typed;
+    if (userFallbackLocation) return userFallbackLocation;
+    return '';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -288,7 +413,8 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       return;
     }
 
-    if (!location.trim()) {
+    const finalLocation = resolveEventLocation();
+    if (!finalLocation) {
       setError('Location is required');
       return;
     }
@@ -296,49 +422,42 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     try {
       setIsUploading(true);
 
-      // Default cover image if none uploaded
-      let coverUrl = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
+      let coverUrl =
+        'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 
-      // Upload image if provided (will be compressed automatically by uploadToCloudflareR2)
       if (imageFile) {
         try {
           const uploadResult = await uploadToCloudflareR2(imageFile, 'events');
           coverUrl = uploadResult.url;
         } catch (uploadError: any) {
           console.error('Image upload failed:', uploadError);
-          // Continue with default image if upload fails
-          // Show a warning but don't block event creation
-          setError('Image upload failed, but event will be created with default cover.');
+          setError('Cover upload failed. Event will be created with default cover.');
           setTimeout(() => setError(null), 3000);
         }
       }
 
-      // FIX 1: Send date as plain YYYY-MM-DD format, not ISO string
-      // This matches what your backend/DB expects
       const eventData = {
         title: title.trim(),
         description: desc.trim(),
-        event_date: date,  // Changed from ISO to plain date string
+        event_date: date,
         event_time: time,
-        location: location.trim(),
+        location: finalLocation,
         visibility,
-        cover_url: coverUrl, // FIX 2: Ensure this matches your API expectations
-        // Note: App.tsx will add organizer + attendees fields
+        cover_url: coverUrl,
+        ...(groupId ? { group_id: groupId } : {}),
       };
 
-      // Log the data being sent (helpful for debugging)
       console.log('Creating event with data:', eventData);
       if (groupId) {
         console.log(`Creating event for group: ${groupName} (ID: ${groupId})`);
       }
-      
+
       await onCreate(eventData as any);
-      
-      // Clean up blob URL if created
+
       if (image && image.startsWith('blob:')) {
         URL.revokeObjectURL(image);
       }
-      
+
       onClose();
     } catch (error: any) {
       console.error('Failed to create event:', error);
@@ -348,7 +467,6 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     }
   };
 
-  // Clean up blob URLs on unmount
   useEffect(() => {
     return () => {
       if (image && image.startsWith('blob:')) {
@@ -357,25 +475,44 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     };
   }, [image]);
 
+  const pageTitle = groupId ? `Create Event in ${groupName || 'Group'}` : 'Create event';
+
   return (
-    <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans backdrop-blur-sm">
-      <div className="bg-[#242526] w-full max-w-[500px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col max-h-[90vh] animate-slide-up">
-        <div className="p-4 border-b border-[#3E4042] flex justify-between items-center">
-          <h2 className="text-xl font-bold text-[#E4E6EB]">
-            {groupId ? `Create Event in ${groupName}` : 'Create Event'}
-          </h2>
-          <div
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] flex items-center justify-center cursor-pointer transition-colors"
-          >
-            <i className="fas fa-times text-[#B0B3B8]"></i>
-          </div>
+    <div className="fixed inset-0 z-[150] bg-[#18191A] flex flex-col font-sans">
+      {/* Header */}
+      <div className="h-14 px-3 flex items-center justify-between border-b border-[#3E4042] bg-[#242526] sticky top-0 z-20">
+        <button
+          onClick={onClose}
+          className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+        >
+          <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+        </button>
+
+        <div className="text-[#E4E6EB] font-bold text-[20px] truncate px-3">
+          {pageTitle}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
-          {/* Error Display */}
+        <button
+          type="submit"
+          form="create-event-form"
+          disabled={isUploading}
+          className={`text-[17px] font-semibold ${
+            isUploading ? 'text-[#5A5B5E]' : 'text-[#1877F2]'
+          }`}
+        >
+          {isUploading ? 'Creating...' : 'Create'}
+        </button>
+      </div>
+
+      <form
+        id="create-event-form"
+        onSubmit={handleSubmit}
+        className="flex-1 overflow-y-auto bg-[#18191A]"
+      >
+        <div className="px-4 py-4 space-y-6">
+          {/* Error */}
           {error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/40 rounded-lg text-red-200 text-sm">
+            <div className="p-3 bg-red-500/15 border border-red-500/30 rounded-xl text-red-200 text-sm">
               <div className="flex items-center gap-2">
                 <i className="fas fa-exclamation-triangle"></i>
                 <span>{error}</span>
@@ -383,162 +520,235 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
             </div>
           )}
 
-          {/* Image Upload */}
-          <div
-            className="w-full h-40 bg-[#3A3B3C] rounded-lg flex flex-col items-center justify-center cursor-pointer border border-dashed border-[#B0B3B8] hover:bg-[#4E4F50] transition-colors overflow-hidden relative group"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {image ? (
-              <div className="relative w-full h-full">
-                <img
-                  src={image}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  alt="Event Cover"
-                />
-                <button
-                  type="button"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    if (image.startsWith('blob:')) {
-                      URL.revokeObjectURL(image);
-                    }
-                    setImage(null);
-                    setImageFile(null);
-                  }}
-                  className="absolute top-2 right-2 bg-black/60 hover:bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs"
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-            ) : (
-              <>
-                <i className="fas fa-camera text-2xl text-[#E4E6EB] mb-2 group-hover:scale-110 transition-transform"></i>
-                <span className="text-[#E4E6EB] text-sm font-semibold">Add Cover Photo</span>
-                <span className="text-[#B0B3B8] text-xs mt-1">(Optional, max 5MB)</span>
-              </>
-            )}
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={handleFileChange}
-            />
-          </div>
+          {/* Cover */}
+          <section>
+            <div className="text-[#E4E6EB] font-semibold text-[17px] mb-3">Cover photo</div>
 
-          <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
-              Event Name <span className="text-red-400">*</span>
-            </label>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-52 rounded-2xl overflow-hidden border border-[#3E4042] bg-[#3A3B3C] cursor-pointer group relative"
+            >
+              {image ? (
+                <>
+                  <img
+                    src={image}
+                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                    alt="Event Cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                  <div className="absolute bottom-3 left-3 bg-black/60 text-white text-sm font-semibold px-3 py-1.5 rounded-full backdrop-blur-sm">
+                    Change cover
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      clearImage();
+                    }}
+                    className="absolute top-3 right-3 bg-black/60 hover:bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center text-xs transition-colors"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-center px-4">
+                  <div className="w-14 h-14 rounded-full bg-[#242526] flex items-center justify-center mb-3 group-hover:bg-[#4E4F50] transition-colors">
+                    <i className="fas fa-images text-[#E4E6EB] text-xl"></i>
+                  </div>
+                  <div className="text-[#E4E6EB] font-semibold text-base">Add cover photo</div>
+                  <div className="text-[#B0B3B8] text-sm mt-1">
+                    Optional, max 5MB
+                  </div>
+                </div>
+              )}
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileChange}
+              />
+            </div>
+
+            <div className="mt-2 text-sm text-[#B0B3B8]">
+              {imageFile ? '1 cover selected' : 'No cover selected'}
+            </div>
+          </section>
+
+          {/* Event Type / Group context */}
+          <section className="bg-[#242526] rounded-2xl border border-[#3E4042] p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-[#3A3B3C] flex items-center justify-center text-[#E4E6EB]">
+                <i className={`fas ${groupId ? 'fa-users' : 'fa-globe'} text-lg`}></i>
+              </div>
+              <div className="min-w-0">
+                <div className="text-[#E4E6EB] font-semibold">
+                  {groupId ? `Posting in ${groupName || 'Group'}` : 'Public Event'}
+                </div>
+                <div className="text-[#B0B3B8] text-sm">
+                  {groupId
+                    ? 'Members of this group can discover and engage with this event.'
+                    : 'Create an event for the UNERA community.'}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Title */}
+          <section>
+            <label className="block text-[#B0B3B8] text-[15px] mb-2">Event name</label>
             <input
               type="text"
-              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+              className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none focus:border-[#1877F2]"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="What's the name of your event?"
+              placeholder="What is your event called?"
               disabled={isUploading}
             />
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
-              Date & Time <span className="text-red-400">*</span>
-            </label>
-            <div className="flex gap-2">
+          {/* Date + Time */}
+          <section>
+            <label className="block text-[#B0B3B8] text-[15px] mb-2">Start date & time</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 type="date"
-                className="flex-1 bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none focus:border-[#1877F2]"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 disabled={isUploading}
               />
               <input
                 type="time"
-                className="flex-1 bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+                className="w-full h-12 px-4 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none focus:border-[#1877F2]"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
                 disabled={isUploading}
               />
             </div>
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
-              Location <span className="text-red-400">*</span>
-            </label>
-            <LocationSearch value={location} onSelect={setLocation} />
-            <p className="text-xs text-[#B0B3B8] mt-1">Search for a city, venue, or address</p>
-          </div>
-
-          <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">
-              Who should see this?
-            </label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="visibility" 
-                  value="worldwide" 
-                  checked={visibility === 'worldwide'} 
-                  onChange={() => setVisibility('worldwide')}
-                  className="accent-[#1877F2]"
-                  disabled={isUploading}
-                />
-                <span className="text-sm text-[#E4E6EB]">Worldwide</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="visibility" 
-                  value="targeted" 
-                  checked={visibility === 'targeted'} 
-                  onChange={() => setVisibility('targeted')}
-                  className="accent-[#1877F2]"
-                  disabled={isUploading}
-                />
-                <span className="text-sm text-[#E4E6EB]">Local Only</span>
-              </label>
+          {/* Location */}
+          <section>
+            <label className="block text-[#B0B3B8] text-[15px] mb-2">Location</label>
+            <LocationSearch
+              value={location}
+              onChangeText={setLocation}
+              onSelect={setLocation}
+              userFallbackLocation={userFallbackLocation}
+            />
+            <div className="mt-2 text-xs text-[#B0B3B8]">
+              You can type manually even if location search does not work.
             </div>
+          </section>
+
+          {/* Visibility */}
+          <section>
+            <label className="block text-[#B0B3B8] text-[15px] mb-2">Audience</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setVisibility('worldwide')}
+                className={`rounded-2xl border p-4 text-left transition-colors ${
+                  visibility === 'worldwide'
+                    ? 'border-[#1877F2] bg-[#1877F2]/10'
+                    : 'border-[#3E4042] bg-[#242526] hover:bg-[#2D2F31]'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <i className="fas fa-globe text-[#1877F2]"></i>
+                  <span className="text-[#E4E6EB] font-semibold">Worldwide</span>
+                </div>
+                <div className="text-[#B0B3B8] text-sm">
+                  Visible broadly across UNERA.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setVisibility('targeted')}
+                className={`rounded-2xl border p-4 text-left transition-colors ${
+                  visibility === 'targeted'
+                    ? 'border-[#1877F2] bg-[#1877F2]/10'
+                    : 'border-[#3E4042] bg-[#242526] hover:bg-[#2D2F31]'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <i className="fas fa-location-dot text-[#F02849]"></i>
+                  <span className="text-[#E4E6EB] font-semibold">Local Only</span>
+                </div>
+                <div className="text-[#B0B3B8] text-sm">
+                  Prioritize people near this location.
+                </div>
+              </button>
+            </div>
+
             {visibility === 'targeted' && (
-              <p className="text-[11px] text-[#B0B3B8] mt-1 italic">
-                Shown only to users in {location ? location.split(',').pop()?.trim() : 'selected location'}.
+              <p className="text-[12px] text-[#B0B3B8] mt-2 italic">
+                The system will try to target users near the location you entered.
               </p>
             )}
-          </div>
+          </section>
 
-          <div>
-            <label className="block text-[#E4E6EB] font-semibold mb-1 text-sm">Description</label>
-            <textarea 
-              className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-2.5 text-[#E4E6EB] outline-none focus:border-[#1877F2] h-24 resize-none"
+          {/* Description */}
+          <section>
+            <label className="block text-[#B0B3B8] text-[15px] mb-2">Description</label>
+            <textarea
+              className="w-full min-h-[140px] px-4 py-3 rounded-xl bg-[#3A3B3C] border border-[#3E4042] text-[#E4E6EB] outline-none resize-none focus:border-[#1877F2]"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder="Tell people more about the event..."
+              placeholder="Tell people more about this event..."
               disabled={isUploading}
             />
-            <p className="text-xs text-[#B0B3B8] mt-1">URLs will be clickable in the event description</p>
-          </div>
+            <p className="text-xs text-[#B0B3B8] mt-2">
+              Add important details like dress code, speakers, link, or agenda.
+            </p>
+          </section>
 
-          <button
-            type="submit"
-            disabled={isUploading}
-            className={`w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-3 rounded-lg font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 ${
-              isUploading ? 'opacity-70 cursor-not-allowed' : ''
-            }`}
-          >
-            {isUploading ? (
-              <>
-                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                Creating...
-              </>
-            ) : (
-              <>
-                <i className="fas fa-calendar-plus"></i> Create Event
-              </>
-            )}
-          </button>
-        </form>
-      </div>
+          {/* Organizer */}
+          <section className="bg-[#242526] rounded-2xl border border-[#3E4042] p-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={
+                  String(
+                    (currentUser as any)?.profile_image_url ||
+                      (currentUser as any)?.profileImage ||
+                      (currentUser as any)?.avatar ||
+                      ''
+                  ).trim() ||
+                  `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                    String((currentUser as any)?.name || 'User')
+                  )}&background=1877F2&color=fff&bold=true`
+                }
+                alt="Organizer"
+                className="w-12 h-12 rounded-full object-cover bg-[#3A3B3C]"
+              />
+              <div className="min-w-0">
+                <div className="text-[#E4E6EB] font-semibold truncate">
+                  {(currentUser as any)?.name || 'UNERA User'}
+                </div>
+                <div className="text-[#B0B3B8] text-sm">
+                  Event organizer
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Bottom create button */}
+          <div className="pt-2 pb-6">
+            <button
+              type="submit"
+              disabled={isUploading}
+              className={`w-full h-12 rounded-xl font-bold text-white ${
+                isUploading ? 'bg-[#3A3B3C] text-[#B0B3B8]' : 'bg-[#1877F2] hover:bg-[#166FE5]'
+              } transition-colors`}
+            >
+              {isUploading ? 'Creating...' : 'Create Event'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 };
