@@ -8,7 +8,7 @@ import { MARKETPLACE_CATEGORIES, MARKETPLACE_COUNTRIES } from '../constants';
 type ProductImageVariant = {
   thumb: string;
   feed: string;
-  full: string; // for products, full = feed
+  full: string;
   type: 'image';
 };
 
@@ -80,7 +80,7 @@ const uploadMarketplaceImageBundle = async (file: File): Promise<ProductImageVar
   const formData = new FormData();
   formData.append('thumbnail', bundle.thumb);
   formData.append('feed', bundle.feed);
-  formData.append('original', bundle.feed); // product full should be feed
+  formData.append('original', bundle.feed);
 
   const response = await fetch('/api/upload', {
     method: 'POST',
@@ -137,7 +137,7 @@ const warmMarketplaceImage = (src?: string): Promise<void> => {
   return promise;
 };
 
-// ==================== HELPER FUNCTIONS ====================
+// ==================== BASIC HELPERS ====================
 
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
@@ -162,7 +162,6 @@ const hashString = (input: string) => {
   return h;
 };
 
-// Safe image variants parser
 const safeImageVariants = (value: any): ProductImageVariant[] => {
   if (Array.isArray(value)) {
     return value
@@ -174,6 +173,7 @@ const safeImageVariants = (value: any): ProductImageVariant[] => {
       }))
       .filter((v) => v.feed);
   }
+
   if (typeof value === 'string') {
     try {
       const parsed = JSON.parse(value);
@@ -188,10 +188,10 @@ const safeImageVariants = (value: any): ProductImageVariant[] => {
         .filter((v: any) => v.feed);
     } catch {}
   }
+
   return [];
 };
 
-// Legacy safe images helper
 const safeImages = (imgs: any): string[] => {
   if (Array.isArray(imgs)) return imgs.filter(Boolean);
   if (typeof imgs === 'string') {
@@ -203,7 +203,7 @@ const safeImages = (imgs: any): string[] => {
   return [];
 };
 
-// ==================== COUNTRY / CURRENCY HELPERS ====================
+// ==================== COUNTRY / CURRENCY ====================
 
 type CountryMeta = {
   id: string;
@@ -226,16 +226,13 @@ const normCountry = (v: any): string => {
   if (!str) return '';
   for (const country of MARKETPLACE_COUNTRIES as any[]) {
     if (country.id === 'all') continue;
-
     if (str.toUpperCase() === String(country.code).toUpperCase()) {
       return String(country.code).toUpperCase();
     }
-
     if (str.toLowerCase().includes(String(country.name).toLowerCase())) {
       return String(country.code).toUpperCase();
     }
   }
-
   return str.toUpperCase();
 };
 
@@ -247,8 +244,6 @@ const detectCountryFromText = (text: string): string | null => {
     if (country.id === 'all') continue;
     const name = String(country.name || '').toLowerCase();
     const code = String(country.code || '').toLowerCase();
-    if (!name && !code) continue;
-
     if (raw.includes(name) || raw.includes(code)) {
       return String(country.code).toUpperCase();
     }
@@ -260,40 +255,32 @@ const detectCountryFromText = (text: string): string | null => {
 const detectCountryFromUser = (user: User | null): string => {
   if (!user) return 'all';
 
-  const nationality = safeString((user as any).nationality);
-  const location = safeString((user as any).location);
-
-  const fromNationality = detectCountryFromText(nationality);
+  const fromNationality = detectCountryFromText(safeString((user as any).nationality));
   if (fromNationality) return fromNationality;
 
-  const fromLocation = detectCountryFromText(location);
+  const fromLocation = detectCountryFromText(safeString((user as any).location));
   if (fromLocation) return fromLocation;
 
   return 'all';
 };
 
 const getCurrencyLabelForCountry = (countryCode: string): string => {
-  const c = getCountryMetaByCode(countryCode);
-  const code = String(c.code || '').toUpperCase();
+  const code = String(countryCode || '').toUpperCase();
+  if (['TZ', 'TZS'].includes(code)) return 'TSh';
+  if (['KE', 'KES'].includes(code)) return 'KSh';
+  if (['UG', 'UGX'].includes(code)) return 'USh';
+  if (['RW', 'RWF'].includes(code)) return 'RWF';
+  if (['BI', 'BIF'].includes(code)) return 'BIF';
+  if (['US', 'USD'].includes(code)) return '$';
+  if (['GB', 'GBP'].includes(code)) return '£';
+  if (['EU', 'EUR'].includes(code)) return '€';
 
-  if (code === 'TZS' || code === 'TZ') return 'TSh';
-  if (code === 'KES' || code === 'KE') return 'KSh';
-  if (code === 'UGX' || code === 'UG') return 'USh';
-  if (code === 'RWF' || code === 'RW') return 'RWF';
-  if (code === 'BIF' || code === 'BI') return 'BIF';
-  if (code === 'USD' || code === 'US') return '$';
-  if (code === 'EUR' || code === 'EU') return '€';
-  if (code === 'GBP' || code === 'GB') return '£';
-
-  return c.symbol || '$';
+  return getCountryMetaByCode(countryCode).symbol || '$';
 };
 
 const getCurrencyDecimals = (countryCode: string): number => {
   const code = String(countryCode || '').toUpperCase();
-
-  if (['TZ', 'TZS', 'KE', 'KES', 'UG', 'UGX', 'RW', 'RWF', 'BI', 'BIF'].includes(code)) {
-    return 0;
-  }
+  if (['TZ', 'TZS', 'KE', 'KES', 'UG', 'UGX', 'RW', 'RWF', 'BI', 'BIF'].includes(code)) return 0;
   return 2;
 };
 
@@ -312,7 +299,7 @@ const formatPriceValue = (value: any, countryCode: string): string => {
 };
 
 const formatPriceWithCurrency = (value: any, countryCode: string): string => {
-  return `${getCurrencyLabelForCountry(countryCode)} ${formatPriceValue(value, countryCode)}`;
+  return `${getCurrencyLabelForCountry(countryCode)}${formatPriceValue(value, countryCode)}`;
 };
 
 const sanitizePriceInput = (raw: string, countryCode: string): string => {
@@ -320,17 +307,13 @@ const sanitizePriceInput = (raw: string, countryCode: string): string => {
   let cleaned = String(raw || '').replace(/[^\d.]/g, '');
 
   if (decimals === 0) {
-    cleaned = cleaned.replace(/\./g, '');
-    return cleaned;
+    return cleaned.replace(/\./g, '');
   }
 
   const firstDot = cleaned.indexOf('.');
   if (firstDot >= 0) {
     const intPart = cleaned.slice(0, firstDot).replace(/\./g, '');
-    const fracPart = cleaned
-      .slice(firstDot + 1)
-      .replace(/\./g, '')
-      .slice(0, 2);
+    const fracPart = cleaned.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
     return fracPart ? `${intPart}.${fracPart}` : `${intPart}.`;
   }
 
@@ -342,7 +325,6 @@ const formatPriceInputForDisplay = (raw: string, countryCode: string): string =>
   if (!value) return '';
 
   const decimals = getCurrencyDecimals(countryCode);
-
   if (decimals === 0) {
     const digitsOnly = value.replace(/\D/g, '');
     if (!digitsOnly) return '';
@@ -362,10 +344,7 @@ const formatPriceInputForDisplay = (raw: string, countryCode: string): string =>
 const parseStoredPrice = (raw: string, countryCode: string): number => {
   const cleaned = sanitizePriceInput(raw, countryCode);
   if (!cleaned) return 0;
-
-  const decimals = getCurrencyDecimals(countryCode);
-  if (decimals === 0) return safeNumber(cleaned.replace(/\D/g, ''), 0);
-
+  if (getCurrencyDecimals(countryCode) === 0) return safeNumber(cleaned.replace(/\D/g, ''), 0);
   return safeNumber(cleaned, 0);
 };
 
@@ -395,11 +374,9 @@ const resolveListingCountry = ({
   return 'US';
 };
 
-// ==================== MARKETPLACE RANKING ====================
+// ==================== RANKING ====================
 
-type RankedProduct = Product & {
-  __score?: number;
-};
+type MarketMode = 'for_you' | 'local' | 'worldwide';
 
 const getProductCountryCode = (product: any): string => {
   const fromCountry = normCountry(product?.country);
@@ -443,7 +420,7 @@ const scoreMarketplaceProduct = (
 
   let locality = 0;
   if (localCountry && productCountry === localCountry) locality = 34;
-  else if (viewerCountry && productCountry === viewerCountry) locality = 28;
+  else if (viewerCountry && productCountry === viewerCountry) locality = 26;
   else if (productCountry) locality = 8;
 
   const variants = safeImageVariants(product?.image_variants);
@@ -453,9 +430,8 @@ const scoreMarketplaceProduct = (
   let quality = 0;
   if (imagesCount >= 1) quality += 12;
   if (imagesCount >= 3) quality += 5;
-  if (safeString(product?.title).length >= 6) quality += 8;
-  if (safeString(product?.description).length >= 20) quality += 10;
   if (safeString(product?.address).length >= 5) quality += 8;
+  if (safeString(product?.description).length >= 20) quality += 8;
   if (safeNumber(product?.main_price, 0) > 0) quality += 8;
   if (safeNumber(product?.quantity, 0) > 0) quality += 4;
 
@@ -467,6 +443,43 @@ const scoreMarketplaceProduct = (
   const randomJitter = seededRand01(seed + hashString(`${product?.id}:${sellerKey}`)) * 6;
 
   return freshness + locality + quality + engagement + randomJitter;
+};
+
+const shuffleCloseScoreBucket = (items: any[], seed: number) => {
+  return [...items]
+    .map((item, index) => ({
+      item,
+      key: seededRand01(seed + index + hashString(String(item?.id || index))),
+    }))
+    .sort((a, b) => a.key - b.key)
+    .map((x) => x.item);
+};
+
+const rotateScoredProducts = (items: any[], seed: number) => {
+  if (!items.length) return items;
+  const buckets: any[][] = [];
+  let current: any[] = [];
+  let previousScore: number | null = null;
+
+  items.forEach((item) => {
+    const score = safeNumber(item?.__score, 0);
+    if (previousScore === null) {
+      current.push(item);
+      previousScore = score;
+      return;
+    }
+
+    if (Math.abs(previousScore - score) <= 6) {
+      current.push(item);
+    } else {
+      buckets.push(shuffleCloseScoreBucket(current, seed + buckets.length));
+      current = [item];
+    }
+    previousScore = score;
+  });
+
+  if (current.length) buckets.push(shuffleCloseScoreBucket(current, seed + buckets.length));
+  return buckets.flat();
 };
 
 const interleaveMarketplacePools = (
@@ -526,7 +539,7 @@ const interleaveMarketplacePools = (
   ] as const;
 
   while (localFresh.length || localOlder.length || worldFresh.length || worldOlder.length) {
-    let pushedInCycle = false;
+    let pushed = false;
 
     for (const slot of pattern) {
       let picked: any = null;
@@ -546,7 +559,7 @@ const interleaveMarketplacePools = (
 
       if (picked) {
         result.push(picked);
-        pushedInCycle = true;
+        pushed = true;
       }
 
       if (!(localFresh.length || localOlder.length || worldFresh.length || worldOlder.length)) {
@@ -554,7 +567,7 @@ const interleaveMarketplacePools = (
       }
     }
 
-    if (!pushedInCycle) break;
+    if (!pushed) break;
   }
 
   return result;
@@ -563,26 +576,53 @@ const interleaveMarketplacePools = (
 const rankMarketplaceProducts = (
   items: Product[],
   currentUser: User | null,
-  selectedCountry: string
+  selectedCountry: string,
+  mode: MarketMode,
+  sessionSeed: number
 ): Product[] => {
   const viewerCountry = detectCountryFromUser(currentUser);
   const localCountry = selectedCountry !== 'all' ? normCountry(selectedCountry) : viewerCountry;
 
-  const daySeed = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
-
   const scored = safeArray<Product>(items)
     .map((product: any) => ({
       ...product,
-      __score: scoreMarketplaceProduct(product, viewerCountry, localCountry, daySeed),
+      __score: scoreMarketplaceProduct(product, viewerCountry, localCountry, sessionSeed),
     }))
-    .sort((a: RankedProduct, b: RankedProduct) => safeNumber(b.__score, 0) - safeNumber(a.__score, 0));
+    .sort((a: any, b: any) => safeNumber(b.__score, 0) - safeNumber(a.__score, 0));
+
+  const rotated = rotateScoredProducts(scored, sessionSeed);
+
+  if (mode === 'local') {
+    return rotated.filter((p: any) => {
+      const pCountry = getProductCountryCode(p);
+      return !!localCountry && !!pCountry && pCountry.toUpperCase() === localCountry.toUpperCase();
+    });
+  }
+
+  if (mode === 'worldwide') {
+    const local: any[] = [];
+    const outside: any[] = [];
+    rotated.forEach((p: any) => {
+      const pCountry = getProductCountryCode(p);
+      if (localCountry && pCountry && pCountry.toUpperCase() === localCountry.toUpperCase()) local.push(p);
+      else outside.push(p);
+    });
+
+    const result: any[] = [];
+    while (local.length || outside.length) {
+      if (local.length) result.push(local.shift());
+      if (local.length) result.push(local.shift());
+      if (outside.length) result.push(outside.shift());
+    }
+    return result;
+  }
 
   const localFresh: any[] = [];
   const localOlder: any[] = [];
   const worldFresh: any[] = [];
   const worldOlder: any[] = [];
 
-  scored.forEach((product: any) => {
+  rotated.forEach((product: any) => {
     const pCountry = getProductCountryCode(product);
     const isLocal =
       localCountry && localCountry !== 'ALL' && pCountry && pCountry.toUpperCase() === localCountry.toUpperCase();
@@ -597,7 +637,7 @@ const rankMarketplaceProducts = (
   return interleaveMarketplacePools(localFresh, localOlder, worldFresh, worldOlder);
 };
 
-// ==================== OSM LOCATION SEARCH COMPONENT ====================
+// ==================== LOCATION SEARCH ====================
 
 interface LocationSearchProps {
   value: string;
@@ -618,7 +658,6 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [searchFailed, setSearchFailed] = useState(false);
   const searchTimeout = useRef<any>(null);
 
   useEffect(() => {
@@ -629,38 +668,30 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
     const trimmed = String(q || '').trim();
     if (trimmed.length < 3) {
       setResults([]);
-      setSearchFailed(false);
       return;
     }
 
     setLoading(true);
-    setSearchFailed(false);
 
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&addressdetails=1&limit=5`
       );
 
-      if (!res.ok) {
-        throw new Error(`Location search failed: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Location search failed: ${res.status}`);
 
       const data = await res.json().catch(() => []);
       setResults(Array.isArray(data) ? data : []);
 
       const typedDetected = detectCountryFromText(trimmed);
-      if (typedDetected && onCountryDetected) {
-        onCountryDetected(typedDetected);
-      }
+      if (typedDetected && onCountryDetected) onCountryDetected(typedDetected);
     } catch (err) {
       console.error('Location search failed', err);
       setResults([]);
-      setSearchFailed(true);
 
       const typedDetected = detectCountryFromText(trimmed);
-      if (typedDetected && onCountryDetected) {
-        onCountryDetected(typedDetected);
-      } else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
+      if (typedDetected && onCountryDetected) onCountryDetected(typedDetected);
+      else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
         onCountryDetected(userFallbackCountry);
       }
     } finally {
@@ -675,9 +706,8 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
     setShowResults(true);
 
     const typedDetected = detectCountryFromText(val);
-    if (typedDetected && onCountryDetected) {
-      onCountryDetected(typedDetected);
-    } else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
+    if (typedDetected && onCountryDetected) onCountryDetected(typedDetected);
+    else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
       onCountryDetected(userFallbackCountry);
     }
 
@@ -689,25 +719,23 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
     <div className="relative w-full">
       <div className="relative">
         <input
-          className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg p-3 text-[#E4E6EB] outline-none focus:border-[#1877F2] text-sm pl-10 pr-10"
-          placeholder="Search city, street or region... or type manually"
+          className="w-full bg-[#F0F2F5] border border-[#DADDE1] rounded-xl p-4 text-[#1C1E21] outline-none focus:border-[#1877F2] text-[15px] pl-11 pr-10"
+          placeholder="Search city, street or region..."
           value={query}
           onChange={handleChange}
           onFocus={() => setShowResults(true)}
-          onBlur={() => {
-            setTimeout(() => setShowResults(false), 180);
-          }}
+          onBlur={() => setTimeout(() => setShowResults(false), 180)}
         />
-        <i className="fas fa-map-marker-alt absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+        <i className="fas fa-map-marker-alt absolute left-4 top-1/2 -translate-y-1/2 text-[#65676B]"></i>
         {loading && <i className="fas fa-spinner fa-spin absolute right-4 top-1/2 -translate-y-1/2 text-[#1877F2]"></i>}
       </div>
 
       {showResults && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-white border border-[#DADDE1] rounded-2xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
           {results.map((res, i) => (
             <div
               key={i}
-              className="p-3 hover:bg-[#3A3B3C] cursor-pointer text-white text-sm border-b border-[#3E4042] last:border-0 transition-colors"
+              className="p-3 hover:bg-[#F0F2F5] cursor-pointer text-[#1C1E21] text-sm border-b border-[#E4E6EB] last:border-0 transition-colors"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 const locationName = String(res?.display_name || '').trim();
@@ -716,28 +744,16 @@ const LocationSearch: React.FC<LocationSearchProps> = ({
                 setShowResults(false);
 
                 const detectedCountryCode = detectCountryFromText(locationName);
-                if (detectedCountryCode && onCountryDetected) {
-                  onCountryDetected(detectedCountryCode);
-                } else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
+                if (detectedCountryCode && onCountryDetected) onCountryDetected(detectedCountryCode);
+                else if (userFallbackCountry && userFallbackCountry !== 'all' && onCountryDetected) {
                   onCountryDetected(userFallbackCountry);
                 }
               }}
             >
-              <i className="fas fa-location-dot mr-2 text-[#B0B3B8]"></i>
+              <i className="fas fa-location-dot mr-2 text-[#65676B]"></i>
               {res.display_name}
             </div>
           ))}
-        </div>
-      )}
-
-      {showResults && !loading && results.length === 0 && query.trim().length >= 3 && (
-        <div className="absolute top-full left-0 right-0 z-[60] mt-2 bg-[#242526] border border-[#3E4042] rounded-xl shadow-2xl overflow-hidden">
-          <div className="p-3 text-sm text-[#B0B3B8]">
-            <i className={`fas ${searchFailed ? 'fa-triangle-exclamation text-[#F7B928]' : 'fa-keyboard'} mr-2`}></i>
-            {searchFailed
-              ? 'Search failed. Your typed location will still be used.'
-              : 'No suggestion found. Your typed location will still be used.'}
-          </div>
         </div>
       )}
     </div>
@@ -806,169 +822,130 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     setActiveImageIndex((prev) => (prev === productImages.length - 1 ? 0 : prev + 1));
   }, [productImages.length]);
 
-  const productCountryCode = getProductCountryCode(product as any) || detectCountryFromText((product as any)?.address || '') || 'US';
+  const productCountryCode =
+    getProductCountryCode(product as any) ||
+    detectCountryFromText((product as any)?.address || '') ||
+    'US';
+
   const countryData = getCountryMetaByCode(productCountryCode);
   const hasDiscount = !!(product as any).discount_price;
   const displayPrice = hasDiscount ? (product as any).discount_price : (product as any).main_price;
 
   return (
-    <div className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-0 md:p-4 animate-fade-in font-sans">
-      <div className="bg-[#242526] w-full max-w-[1100px] md:rounded-2xl overflow-hidden flex flex-col md:flex-row h-full md:h-[90vh] relative shadow-2xl border border-[#3E4042]">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-30 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white transition-colors backdrop-blur-md"
-        >
-          <i className="fas fa-times text-xl"></i>
+    <div className="fixed inset-0 z-[150] bg-white flex flex-col font-sans">
+      <div className="h-14 px-4 flex items-center justify-between border-b border-[#E4E6EB] bg-white">
+        <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center">
+          <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
         </button>
+        <div className="text-[#050505] font-bold text-lg truncate px-3">Marketplace</div>
+        <button
+          onClick={() => onMessage((product as any).seller_id)}
+          className="w-10 h-10 rounded-full bg-[#E7F3FF] text-[#1877F2] flex items-center justify-center"
+        >
+          <i className="fab fa-facebook-messenger text-lg"></i>
+        </button>
+      </div>
 
-        <div className="w-full md:w-[60%] bg-[#18191A] flex flex-col relative border-r border-[#3E4042]">
-          <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-black/20">
+      <div className="flex-1 overflow-y-auto bg-white">
+        <div className="relative bg-[#F0F2F5]">
+          <div className="w-full aspect-square flex items-center justify-center overflow-hidden">
             {productImages.length > 0 ? (
               <img
                 src={mainSrc || productImages[activeImageIndex]?.thumb || ''}
                 alt={(product as any).title}
-                className="max-w-full max-h-full object-contain"
+                className="w-full h-full object-cover"
                 draggable={false}
               />
             ) : (
-              <div className="flex items-center justify-center w-full h-full bg-[#242526]">
-                <i className="fas fa-image text-5xl text-[#3E4042]"></i>
+              <div className="flex items-center justify-center w-full h-full">
+                <i className="fas fa-image text-5xl text-[#BCC0C4]"></i>
               </div>
-            )}
-
-            {productImages.length > 1 && (
-              <>
-                <button
-                  type="button"
-                  className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                  onClick={goPrev}
-                >
-                  <i className="fas fa-chevron-left text-xl"></i>
-                </button>
-                <button
-                  type="button"
-                  className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-black/40 rounded-full text-white flex items-center justify-center hover:bg-black/60 transition-colors"
-                  onClick={goNext}
-                >
-                  <i className="fas fa-chevron-right text-xl"></i>
-                </button>
-              </>
             )}
           </div>
 
           {productImages.length > 1 && (
-            <div className="h-24 bg-[#242526]/50 backdrop-blur-sm flex items-center gap-3 px-4 overflow-x-auto border-t border-[#3E4042] scrollbar-hide">
-              {productImages.map((img, idx) => (
-                <button
-                  type="button"
-                  key={idx}
-                  className={`h-16 min-w-[64px] rounded-lg overflow-hidden cursor-pointer border-2 transition-all flex-shrink-0 ${
-                    activeImageIndex === idx ? 'border-[#1877F2] scale-105 shadow-lg' : 'border-transparent opacity-50 hover:opacity-100'
-                  }`}
-                  onClick={() => setActiveImageIndex(idx)}
-                >
-                  <img
-                    src={img.thumb || img.feed || img.full}
-                    className="h-full w-full object-cover"
-                    alt={`Thumbnail ${idx + 1}`}
-                    draggable={false}
-                    loading="lazy"
-                  />
-                </button>
-              ))}
-            </div>
+            <>
+              <button
+                type="button"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 rounded-full text-white flex items-center justify-center"
+                onClick={goPrev}
+              >
+                <i className="fas fa-chevron-left"></i>
+              </button>
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/40 rounded-full text-white flex items-center justify-center"
+                onClick={goNext}
+              >
+                <i className="fas fa-chevron-right"></i>
+              </button>
+            </>
           )}
         </div>
 
-        <div className="w-full md:w-[40%] flex flex-col h-full bg-[#242526] relative">
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-            <div>
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <img
-                    src={(product as any).seller_avatar}
-                    alt="Seller"
-                    className="w-12 h-12 rounded-full object-cover border-2 border-[#1877F2] flex-shrink-0"
-                  />
-                  <div className="overflow-hidden">
-                    <h4 className="text-[#E4E6EB] font-bold text-lg leading-tight truncate">
-                      {(product as any).seller_name}
-                    </h4>
-                    <p className="text-[#B0B3B8] text-xs truncate">Seller • Active in Marketplace</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <a
-                    href={`tel:${(product as any).phone_number}`}
-                    className="w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#45BD62] text-[#45BD62] hover:text-white flex items-center justify-center transition-all shadow-md no-underline"
-                    title="Call Seller"
-                  >
-                    <i className="fas fa-phone-alt text-lg"></i>
-                  </a>
-                  <button
-                    onClick={() => onMessage((product as any).seller_id)}
-                    className="w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-[#1877F2] text-[#1877F2] hover:text-white flex items-center justify-center transition-all shadow-md"
-                    title="Message Seller"
-                  >
-                    <i className="fab fa-facebook-messenger text-lg"></i>
-                  </button>
-                </div>
-              </div>
+        {productImages.length > 1 && (
+          <div className="px-4 py-3 flex gap-2 overflow-x-auto scrollbar-hide bg-white">
+            {productImages.map((img, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setActiveImageIndex(idx)}
+                className={`h-14 w-14 rounded-xl overflow-hidden border-2 flex-shrink-0 ${
+                  activeImageIndex === idx ? 'border-[#1877F2]' : 'border-transparent'
+                }`}
+              >
+                <img
+                  src={img.thumb || img.feed || img.full}
+                  alt={`Thumbnail ${idx + 1}`}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </button>
+            ))}
+          </div>
+        )}
 
-              <h1 className="text-2xl font-bold text-[#E4E6EB] leading-snug mb-2">
-                {(product as any).title}
-              </h1>
+        <div className="px-4 py-4 bg-white">
+          <div className="text-[#050505] font-bold text-[28px] leading-tight">
+            {formatPriceWithCurrency(displayPrice, productCountryCode)}
+          </div>
 
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <span className="text-[#F02849] font-bold text-3xl">
-                  {formatPriceWithCurrency(displayPrice, productCountryCode)}
-                </span>
-                {hasDiscount && (
-                  <span className="text-[#B0B3B8] text-lg line-through">
-                    {formatPriceWithCurrency((product as any).main_price, productCountryCode)}
-                  </span>
-                )}
-                <span className="text-[#B0B3B8] text-sm ml-auto flex items-center gap-1">
-                  <i className="fas fa-flag"></i> {countryData.name}
-                </span>
-              </div>
+          {hasDiscount && (
+            <div className="text-[#65676B] text-base line-through mt-1">
+              {formatPriceWithCurrency((product as any).main_price, productCountryCode)}
             </div>
+          )}
 
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-[#3A3B3C]/50 rounded-2xl border border-[#3E4042]">
-                <i className="fas fa-location-dot text-[#1877F2] mt-1"></i>
-                <div>
-                  <p className="text-[#E4E6EB] font-bold text-sm">Location</p>
-                  <p className="text-[#B0B3B8] text-sm leading-relaxed">{(product as any).address}</p>
-                </div>
-              </div>
+          <div className="mt-3 flex items-center gap-2 text-[#65676B] text-sm">
+            <i className="fas fa-location-dot"></i>
+            <span>{(product as any).address || countryData.name}</span>
+          </div>
+        </div>
 
-              <div>
-                <h3 className="text-[#E4E6EB] font-bold text-lg mb-2">Description</h3>
-                <p className="text-[#B0B3B8] text-[15px] leading-relaxed whitespace-pre-wrap bg-[#18191A] p-4 rounded-xl border border-[#3E4042]">
-                  {(product as any).description}
-                </p>
-              </div>
+        <div className="bg-white border-t border-[#E4E6EB] px-4 py-4">
+          <div className="flex items-center gap-3">
+            <img
+              src={(product as any).seller_avatar}
+              alt="Seller"
+              className="w-12 h-12 rounded-full object-cover bg-[#F0F2F5]"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[#050505] font-semibold truncate">{(product as any).seller_name}</div>
+              <div className="text-[#65676B] text-sm">Seller</div>
             </div>
+            <a
+              href={`tel:${(product as any).phone_number}`}
+              className="w-10 h-10 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center no-underline"
+            >
+              <i className="fas fa-phone-alt"></i>
+            </a>
+          </div>
+        </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042] text-center">
-                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">
-                  Category
-                </span>
-                <span className="block text-[#E4E6EB] font-bold">
-                  {(MARKETPLACE_CATEGORIES as any[]).find((c) => c.id === (product as any).category)?.name}
-                </span>
-              </div>
-              <div className="bg-[#18191A] p-4 rounded-xl border border-[#3E4042] text-center">
-                <span className="block text-[#B0B3B8] text-[10px] uppercase font-bold tracking-wider mb-1">
-                  Status
-                </span>
-                <span className="block text-[#45BD62] font-bold uppercase text-xs">
-                  {safeNumber((product as any).quantity, 0) > 0 ? 'In Stock' : 'Out of Stock'}
-                </span>
-              </div>
-            </div>
+        <div className="bg-white border-t border-[#E4E6EB] px-4 py-4">
+          <div className="text-[#050505] font-semibold mb-2">Description</div>
+          <div className="text-[#1C1E21] whitespace-pre-wrap leading-relaxed">
+            {(product as any).description}
           </div>
         </div>
       </div>
@@ -976,7 +953,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   );
 };
 
-// ==================== PAGE ====================
+// ==================== MAIN PAGE ====================
 
 interface MarketplacePageProps {
   currentUser: User | null;
@@ -995,10 +972,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
 }) => {
   const [selectedCountry, setSelectedCountry] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [marketMode, setMarketMode] = useState<MarketMode>('for_you');
   const [showSellModal, setShowSellModal] = useState(false);
 
-  // Form state
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [desc, setDesc] = useState('');
@@ -1010,13 +986,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const [images, setImages] = useState<{ id: number; data: string; file: File }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Country / currency state
   const [userCountry, setUserCountry] = useState<string>('all');
   const [detectedCountry, setDetectedCountry] = useState<string>('all');
   const [manualCountry, setManualCountry] = useState<string>('all');
   const [currencyLabel, setCurrencyLabel] = useState<string>('$');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionSeedRef = useRef<number>(Date.now() + Math.floor(Math.random() * 100000));
 
   useEffect(() => {
     if (currentUser) {
@@ -1088,9 +1064,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const removeImage = (id: number) => {
     setImages((prev) => {
       const imageToRemove = prev.find((img) => img.id === id);
-      if (imageToRemove) {
-        URL.revokeObjectURL(imageToRemove.data);
-      }
+      if (imageToRemove) URL.revokeObjectURL(imageToRemove.data);
       return prev.filter((img) => img.id !== id);
     });
   };
@@ -1166,25 +1140,19 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       const pCountry = getProductCountryCode(p);
       const sel = normCountry(selectedCountry);
 
-      if (selectedCountry !== 'all') {
-        if (pCountry !== sel) return false;
-      }
-
+      if (selectedCountry !== 'all' && pCountry !== sel) return false;
       if (selectedCategory !== 'all' && String(p.category) !== String(selectedCategory)) return false;
-
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const inTitle = safeString(p.title).toLowerCase().includes(q);
-        const inDesc = safeString(p.description).toLowerCase().includes(q);
-        const inAddress = safeString(p.address).toLowerCase().includes(q);
-        if (!inTitle && !inDesc && !inAddress) return false;
-      }
-
       return true;
     });
 
-    return rankMarketplaceProducts(base, currentUser, selectedCountry);
-  }, [products, selectedCountry, selectedCategory, searchQuery, currentUser]);
+    return rankMarketplaceProducts(
+      base,
+      currentUser,
+      selectedCountry,
+      marketMode,
+      sessionSeedRef.current
+    );
+  }, [products, selectedCountry, selectedCategory, currentUser, marketMode]);
 
   useEffect(() => {
     const items = filteredProducts.slice(0, 24);
@@ -1192,9 +1160,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       const variants = safeImageVariants(product?.image_variants);
       const legacy = safeImages(product?.images);
       const cover = variants[0]?.feed || variants[0]?.thumb || legacy[0] || '';
-      if (cover) {
-        void warmMarketplaceImage(cover);
-      }
+      if (cover) void warmMarketplaceImage(cover);
       variants.forEach((v) => {
         void warmMarketplaceImage(v.thumb);
         void warmMarketplaceImage(v.feed);
@@ -1207,65 +1173,87 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     (MARKETPLACE_COUNTRIES as any[]).find((c) => c.code === selectedCountry) || MARKETPLACE_COUNTRIES[0];
 
   return (
-    <div className="min-h-screen bg-[#18191A] font-sans pb-20">
-      <div className="bg-[#242526] sticky top-0 z-50 px-4 py-3 flex items-center justify-between shadow-md border-b border-[#3E4042]">
-        <div className="flex items-center gap-3 cursor-pointer group" onClick={onNavigateHome}>
-          <div className="w-10 h-10 rounded-full bg-[#3A3B3C] flex items-center justify-center group-hover:bg-[#4E4F50] transition-colors">
-            <i className="fas fa-arrow-left text-[#E4E6EB]"></i>
+    <div className="min-h-screen bg-white font-sans pb-20 overflow-x-hidden">
+      {/* Top header */}
+      <div className="sticky top-0 z-40 bg-white border-b border-[#E4E6EB]">
+        <div className="h-14 px-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={onNavigateHome}
+              className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center flex-shrink-0"
+            >
+              <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
+            </button>
+            <h1 className="text-[20px] font-bold text-[#050505] truncate">Marketplace</h1>
           </div>
-          <h1 className="text-xl font-bold text-[#E4E6EB]">Marketplace</h1>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              className="w-10 h-10 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center"
+              aria-label="Search"
+            >
+              <i className="fas fa-search text-lg"></i>
+            </button>
+
+            <button
+              onClick={() => {
+                const countryList = ['all', ...(MARKETPLACE_COUNTRIES as any[]).filter((c) => c.id !== 'all').map((c) => c.code)];
+                const currentIndex = countryList.indexOf(selectedCountry);
+                const nextIndex = (currentIndex + 1) % countryList.length;
+                setSelectedCountry(countryList[nextIndex]);
+              }}
+              className="h-10 min-w-[44px] px-3 rounded-full bg-[#F0F2F5] text-[#050505] flex items-center justify-center"
+              aria-label="Country filter"
+            >
+              <span className="text-lg">{(activeCountry as any).flag || '🌍'}</span>
+            </button>
+
+            <button
+              onClick={handleSellClick}
+              className="h-10 px-4 rounded-full bg-[#1877F2] text-white font-semibold text-sm"
+            >
+              Sell
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div
-            className="bg-[#3A3B3C] px-3 py-1.5 rounded-full flex items-center gap-2 cursor-pointer hover:bg-[#4E4F50] transition-colors"
-            onClick={() => {
-              const countryList = ['all', ...(MARKETPLACE_COUNTRIES as any[]).filter((c) => c.id !== 'all').map((c) => c.code)];
-              const currentIndex = countryList.indexOf(selectedCountry);
-              const nextIndex = (currentIndex + 1) % countryList.length;
-              setSelectedCountry(countryList[nextIndex]);
-            }}
-          >
-            <span className="text-lg">{(activeCountry as any).flag}</span>
-            <span className="text-sm font-bold text-[#E4E6EB]">
-              {(activeCountry as any).code === 'all'
-                ? 'Worldwide'
-                : `${(activeCountry as any).name} (${getCurrencyLabelForCountry((activeCountry as any).code)})`}
-            </span>
-            <i className="fas fa-chevron-down text-[#B0B3B8] text-[10px]"></i>
+        {/* Mode switch */}
+        <div className="px-3 pb-3">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+            {[
+              { id: 'for_you', label: 'For You' },
+              { id: 'local', label: 'Local' },
+              { id: 'worldwide', label: 'Worldwide' },
+            ].map((item) => {
+              const active = marketMode === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setMarketMode(item.id as MarketMode)}
+                  className={`px-4 h-9 rounded-full whitespace-nowrap text-sm font-semibold transition-colors ${
+                    active ? 'bg-[#E7F3FF] text-[#1877F2]' : 'bg-[#F0F2F5] text-[#050505]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
-
-          <button
-            onClick={handleSellClick}
-            className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-5 py-2 rounded-full font-bold text-sm transition-all shadow-lg active:scale-95 flex items-center gap-2"
-          >
-            <i className="fas fa-plus"></i> Sell
-          </button>
         </div>
       </div>
 
-      <div className="sticky top-[64px] z-40 bg-[#18191A]/80 backdrop-blur-xl pt-3 pb-3 border-b border-[#3E4042]/50 px-4 space-y-4">
-        <div className="max-w-[1200px] mx-auto flex flex-col md:flex-row gap-3">
-          <div className="flex-1 bg-[#242526] rounded-xl flex items-center px-4 py-3 border border-[#3E4042] focus-within:border-[#1877F2] transition-colors">
-            <i className="fas fa-search text-[#B0B3B8] mr-3"></i>
-            <input
-              type="text"
-              placeholder="What are you looking for?"
-              className="bg-transparent text-[#E4E6EB] outline-none flex-1 text-[15px] placeholder-[#B0B3B8]"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+      {/* Sticky categories row */}
+      <div className="sticky top-[104px] z-30 bg-white border-b border-[#E4E6EB]">
+        <div className="px-3 py-2 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-2 min-w-max">
             {(MARKETPLACE_CATEGORIES as any[]).map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-5 py-2 rounded-xl font-bold whitespace-nowrap text-sm transition-all border ${
+                className={`px-4 h-9 rounded-full whitespace-nowrap text-sm font-semibold transition-colors ${
                   selectedCategory === cat.id
-                    ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-lg shadow-blue-500/20'
-                    : 'bg-[#242526] text-[#B0B3B8] border-[#3E4042] hover:bg-[#3A3B3C]'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'bg-[#F0F2F5] text-[#050505]'
                 }`}
               >
                 {cat.name}
@@ -1275,188 +1263,107 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
         </div>
       </div>
 
-      <div className="max-w-[1400px] mx-auto px-4 mt-6">
-        {currentUser && userCountry !== 'all' && selectedCountry === 'all' && (
-          <div className="mb-6 p-4 bg-[#263951] rounded-2xl border border-[#2D88FF]/30 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-[#1877F2]/20 flex items-center justify-center text-[#1877F2]">
-                <i className="fas fa-globe-africa text-xl"></i>
-              </div>
-              <div>
-                <h3 className="text-[#E4E6EB] font-bold">Local Marketplace Available</h3>
-                <p className="text-[#B0B3B8] text-sm">
-                  We detected you're in{' '}
-                  <span className="text-[#1877F2] font-semibold">
-                    {(MARKETPLACE_COUNTRIES as any[]).find((c) => c.code === userCountry)?.name || 'your region'}
-                  </span>
-                  . Switch to see local products first.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setSelectedCountry(userCountry)}
-              className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
-            >
-              Show Local ({getCurrencyLabelForCountry(userCountry)})
-            </button>
-          </div>
-        )}
-
+      {/* Grid */}
+      <div className="px-[2px] pt-[2px]">
         {filteredProducts.length > 0 ? (
-          <>
-            <div className="mb-4 text-sm text-[#B0B3B8] flex flex-wrap gap-3">
-              <span>
-                Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}{' '}
-                {selectedCountry !== 'all' ? `in ${(activeCountry as any).name}` : 'with local-first ranking'}
-              </span>
-              <span className="text-[#8AB4F8]">Fresh products in 7 days are prioritized</span>
-            </div>
+          <div className="grid grid-cols-2 gap-[2px]">
+            {filteredProducts.map((product: any) => {
+              const productVariants = safeImageVariants(product.image_variants);
+              const legacyImages = safeImages(product.images);
+              const cover =
+                productVariants[0]?.feed ||
+                productVariants[0]?.thumb ||
+                legacyImages[0] ||
+                'https://via.placeholder.com/600x600?text=No+Image';
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {filteredProducts.map((product: any) => {
-                const productVariants = safeImageVariants(product.image_variants);
-                const legacyImages = safeImages(product.images);
-                const cover =
-                  productVariants[0]?.feed ||
-                  productVariants[0]?.thumb ||
-                  legacyImages[0] ||
-                  'https://via.placeholder.com/600x600?text=No+Image';
+              const productCountryCode = getProductCountryCode(product) || 'US';
+              const displayPrice = product.discount_price || product.main_price;
 
-                const productCountryCode = getProductCountryCode(product) || 'US';
-                const pCountry = getCountryMetaByCode(productCountryCode);
-                const flag = pCountry.flag;
-                const hasDiscount = !!product.discount_price;
-                const displayPrice = hasDiscount ? product.discount_price : product.main_price;
+              return (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => onViewProduct(product)}
+                  className="relative aspect-[0.86] bg-[#F0F2F5] overflow-hidden text-left"
+                >
+                  <img
+                    src={cover}
+                    alt={product.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
 
-                return (
-                  <div
-                    key={product.id}
-                    className="bg-[#242526] rounded-2xl overflow-hidden cursor-pointer hover:shadow-2xl hover:-translate-y-1 transition-all border border-[#3E4042] flex flex-col group"
-                    onClick={() => onViewProduct(product)}
-                  >
-                    <div className="relative aspect-square overflow-hidden bg-[#18191A]">
-                      <img
-                        src={cover}
-                        alt={product.title}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        loading="lazy"
-                        decoding="async"
-                      />
-
-                      <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase flex items-center gap-1">
-                        <span>{flag}</span>
-                        <span className="truncate max-w-[90px]">
-                          {product.address ? String(product.address).split(',')[0] : 'No Location'}
-                        </span>
-                      </div>
-
-                      {isFreshProduct(product) && (
-                        <div className="absolute top-3 right-3 bg-[#1877F2]/90 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold text-white uppercase">
-                          New
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-3 flex-1 flex flex-col">
-                      <h3 className="text-[#E4E6EB] font-bold text-sm line-clamp-2 mb-2 min-h-[40px]">
-                        {product.title}
-                      </h3>
-
-                      <div className="mt-auto">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <span className="text-[#F02849] font-black text-base block truncate">
-                              {formatPriceWithCurrency(displayPrice, productCountryCode)}
-                            </span>
-                            {hasDiscount && (
-                              <span className="text-[#B0B3B8] text-xs line-through">
-                                {formatPriceWithCurrency(product.main_price, productCountryCode)}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="w-8 h-8 rounded-lg bg-[#3A3B3C] group-hover:bg-[#1877F2] flex items-center justify-center text-[#B0B3B8] group-hover:text-white transition-colors flex-shrink-0">
-                            <i className="fas fa-chevron-right text-xs"></i>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/75 via-black/20 to-transparent">
+                    <div className="text-white font-bold text-[15px] leading-tight drop-shadow">
+                      {formatPriceWithCurrency(displayPrice, productCountryCode)}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </>
+
+                  {isFreshProduct(product) && (
+                    <div className="absolute top-2 right-2 bg-[#1877F2] text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                      New
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="w-24 h-24 bg-[#242526] rounded-full flex items-center justify-center mb-6 border border-[#3E4042]">
-              <i className="fas fa-store-slash text-4xl text-[#3E4042]"></i>
+          <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+            <div className="w-20 h-20 bg-[#F0F2F5] rounded-full flex items-center justify-center mb-5">
+              <i className="fas fa-store-slash text-3xl text-[#BCC0C4]"></i>
             </div>
-
-            <h3 className="text-[#E4E6EB] font-bold text-xl mb-2">
-              {selectedCountry !== 'all' ? `No items found in ${(activeCountry as any).name}` : 'No items found'}
-            </h3>
-
-            <p className="text-[#B0B3B8] max-w-xs mb-8">
-              {selectedCountry !== 'all'
-                ? 'Try switching to worldwide view or adjusting your search.'
-                : 'Try adjusting your search or create a listing.'}
+            <h3 className="text-[#050505] font-bold text-xl mb-2">No items found</h3>
+            <p className="text-[#65676B] max-w-xs mb-6">
+              Try changing your category or market view.
             </p>
-
             <button
               onClick={() => {
                 setSelectedCountry('all');
                 setSelectedCategory('all');
-                setSearchQuery('');
+                setMarketMode('for_you');
               }}
-              className="px-8 py-3 bg-[#3A3B3C] text-[#E4E6EB] rounded-xl font-bold hover:bg-[#4E4F50] transition-colors mb-4"
+              className="px-6 py-3 bg-[#1877F2] text-white rounded-xl font-semibold"
             >
-              Clear all filters
+              Reset
             </button>
-
-            {selectedCountry !== 'all' && (
-              <button
-                onClick={() => setSelectedCountry('all')}
-                className="px-8 py-3 bg-[#1877F2] text-white rounded-xl font-bold hover:bg-[#166FE5] transition-colors"
-              >
-                View Worldwide
-              </button>
-            )}
           </div>
         )}
       </div>
 
+      {/* Create listing panel */}
       {showSellModal && (
-        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-          <div className="bg-[#242526] w-full max-w-[760px] rounded-3xl border border-[#3E4042] flex flex-col max-h-[90vh] shadow-2xl animate-slide-up">
-            <div className="p-6 border-b border-[#3E4042] flex justify-between items-center bg-[#1C1D1E] rounded-t-3xl">
-              <div>
-                <h2 className="text-2xl font-bold text-[#E4E6EB]">Create Listing</h2>
-                <p className="text-[#B0B3B8] text-sm">
-                  Sell to your local community with proper currency formatting
-                </p>
-              </div>
-              <button
-                onClick={() => setShowSellModal(false)}
-                className="w-10 h-10 rounded-full bg-[#3A3B3C] hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center transition-all"
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
+        <div className="fixed inset-0 z-[120] bg-white flex flex-col">
+          <div className="h-14 px-3 flex items-center justify-between border-b border-[#E4E6EB] bg-white">
+            <button
+              onClick={() => setShowSellModal(false)}
+              className="w-10 h-10 rounded-full hover:bg-[#F0F2F5] flex items-center justify-center"
+            >
+              <i className="fas fa-arrow-left text-[#050505] text-xl"></i>
+            </button>
+            <div className="text-[#050505] font-bold text-[20px]">New listing</div>
+            <button
+              onClick={handleSubmit as any}
+              disabled={isUploading}
+              className={`text-[17px] font-semibold ${isUploading ? 'text-[#BCC0C4]' : 'text-[#1877F2]'}`}
+            >
+              Publish
+            </button>
+          </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-              <div>
-                <label className="block text-[#E4E6EB] font-bold mb-3 flex items-center gap-2">
-                  <i className="fas fa-images text-[#1877F2]"></i> Product Photos (Max 10)
-                </label>
+          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto bg-white">
+            <div className="px-4 py-4 space-y-6">
+              {/* Photos */}
+              <section>
+                <div className="text-[#050505] font-semibold text-[17px] mb-3">Photos</div>
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-[#3E4042] bg-[#18191A] hover:bg-[#242526] hover:border-[#1877F2] rounded-2xl p-10 text-center cursor-pointer transition-all group"
+                  className="bg-[#F0F2F5] rounded-2xl border border-[#E4E6EB] p-5 text-center cursor-pointer"
                 >
-                  <i className="fas fa-cloud-upload-alt text-5xl text-[#3E4042] group-hover:text-[#1877F2] mb-4 transition-colors"></i>
-                  <p className="text-[#E4E6EB] font-bold">Click to upload high-quality images</p>
-                  <p className="text-[#B0B3B8] text-xs mt-1">Upload at least one clear photo of your item</p>
+                  <i className="fas fa-images text-3xl text-[#65676B] mb-3"></i>
+                  <div className="text-[#050505] font-medium">Add photos</div>
                 </div>
-
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -1467,17 +1374,14 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                 />
 
                 {images.length > 0 && (
-                  <div className="grid grid-cols-5 gap-3 mt-6">
+                  <div className="grid grid-cols-4 gap-2 mt-3">
                     {images.map((img) => (
-                      <div
-                        key={img.id}
-                        className="relative aspect-square rounded-xl overflow-hidden border border-[#3E4042] group shadow-sm"
-                      >
+                      <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden">
                         <img src={img.data} alt="" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => removeImage(img.id)}
-                          className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-6 h-6 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 hover:bg-red-500 transition-all"
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white text-[10px] flex items-center justify-center"
                         >
                           <i className="fas fa-times"></i>
                         </button>
@@ -1485,215 +1389,153 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
                     ))}
                   </div>
                 )}
-              </div>
+              </section>
 
-              <div className="space-y-4">
-                <label className="block text-[#E4E6EB] font-bold flex items-center gap-2">
-                  <i className="fas fa-tag text-[#1877F2]"></i> Basic Information
-                </label>
+              {/* Category */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Category</label>
+                <select
+                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  required
+                >
+                  <option value="">Select</option>
+                  {(MARKETPLACE_CATEGORIES as any[]).filter((c) => c.id !== 'all').map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </section>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Title */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">What are you selling?</label>
+                <input
+                  type="text"
+                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                />
+              </section>
+
+              {/* Price */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Price</label>
+                <div className="flex rounded-xl overflow-hidden border border-[#E4E6EB] bg-[#F0F2F5]">
+                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#050505] font-semibold border-r border-[#E4E6EB]">
+                    {currencyLabel}
+                  </div>
                   <input
                     type="text"
-                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2] transition-colors"
-                    placeholder="Product Name *"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
+                    className="flex-1 h-12 px-4 bg-transparent text-[#050505] outline-none"
+                    value={formatPriceInputForDisplay(mainPriceRaw, effectiveListingCountry)}
+                    onChange={(e) => setMainPriceRaw(sanitizePriceInput(e.target.value, effectiveListingCountry))}
                     required
                   />
-
-                  <select
-                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2] transition-colors"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    required
-                  >
-                    <option value="">Select Category *</option>
-                    {(MARKETPLACE_CATEGORIES as any[]).filter((c) => c.id !== 'all').map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
-              </div>
+              </section>
 
-              <div className="space-y-4">
-                <label className="block text-[#E4E6EB] font-bold flex items-center gap-2">
-                  <i className="fas fa-location-dot text-[#1877F2]"></i> Location & Contact
-                </label>
-
-                <div className="mb-2 flex items-center gap-2 text-sm text-[#B0B3B8]">
-                  <i className="fas fa-info-circle text-[#1877F2]"></i>
-                  <span>Location search is optional. Manual typing is always accepted.</span>
+              {/* Discount */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Discount price</label>
+                <div className="flex rounded-xl overflow-hidden border border-[#E4E6EB] bg-[#F0F2F5]">
+                  <div className="min-w-[72px] px-4 flex items-center justify-center text-[#050505] font-semibold border-r border-[#E4E6EB]">
+                    {currencyLabel}
+                  </div>
+                  <input
+                    type="text"
+                    inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
+                    className="flex-1 h-12 px-4 bg-transparent text-[#050505] outline-none"
+                    value={formatPriceInputForDisplay(discountPriceRaw, effectiveListingCountry)}
+                    onChange={(e) => setDiscountPriceRaw(sanitizePriceInput(e.target.value, effectiveListingCountry))}
+                  />
                 </div>
+              </section>
 
+              {/* Location */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Location</label>
                 <LocationSearch
                   value={address}
                   onChangeText={setAddress}
                   onSelect={setAddress}
                   userFallbackCountry={userCountry}
-                  onCountryDetected={(countryCode) => {
-                    setDetectedCountry(countryCode || 'all');
-                  }}
+                  onCountryDetected={(countryCode) => setDetectedCountry(countryCode || 'all')}
                 />
+              </section>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <select
-                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2] transition-colors"
-                    value={manualCountry}
-                    onChange={(e) => setManualCountry(e.target.value)}
-                  >
-                    <option value="all">Auto detect country</option>
-                    {(MARKETPLACE_COUNTRIES as any[])
-                      .filter((c) => c.id !== 'all')
-                      .map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.flag} {c.name}
-                        </option>
-                      ))}
-                  </select>
+              {/* Manual country */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Country</label>
+                <select
+                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  value={manualCountry}
+                  onChange={(e) => setManualCountry(e.target.value)}
+                >
+                  <option value="all">Auto detect</option>
+                  {(MARKETPLACE_COUNTRIES as any[])
+                    .filter((c) => c.id !== 'all')
+                    .map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+              </section>
 
-                  <input
-                    type="tel"
-                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
-                    placeholder="WhatsApp / Phone Number *"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-[#E4E6EB] font-bold flex items-center gap-2">
-                  <i className="fas fa-money-bill-wave text-[#1877F2]"></i> Price
-                </label>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex rounded-xl overflow-hidden border border-[#3E4042] focus-within:border-[#1877F2] bg-[#3A3B3C]">
-                      <div className="min-w-[72px] px-4 flex items-center justify-center bg-[#2A2B2C] text-[#E4E6EB] font-bold border-r border-[#3E4042]">
-                        {currencyLabel}
-                      </div>
-                      <input
-                        type="text"
-                        inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
-                        className="flex-1 bg-transparent p-4 text-[#E4E6EB] outline-none"
-                        placeholder="Main Price *"
-                        value={formatPriceInputForDisplay(mainPriceRaw, effectiveListingCountry)}
-                        onChange={(e) => {
-                          const raw = sanitizePriceInput(e.target.value, effectiveListingCountry);
-                          setMainPriceRaw(raw);
-                        }}
-                        required
-                      />
-                    </div>
-                    <p className="text-xs text-[#B0B3B8] mt-2">
-                      Example: {currencyLabel} {formatPriceValue(10000, effectiveListingCountry)}
-                    </p>
-                  </div>
-
-                  <div>
-                    <div className="flex rounded-xl overflow-hidden border border-[#3E4042] focus-within:border-[#1877F2] bg-[#3A3B3C]">
-                      <div className="min-w-[72px] px-4 flex items-center justify-center bg-[#2A2B2C] text-[#E4E6EB] font-bold border-r border-[#3E4042]">
-                        {currencyLabel}
-                      </div>
-                      <input
-                        type="text"
-                        inputMode={getCurrencyDecimals(effectiveListingCountry) === 0 ? 'numeric' : 'decimal'}
-                        className="flex-1 bg-transparent p-4 text-[#E4E6EB] outline-none"
-                        placeholder="Discount Price"
-                        value={formatPriceInputForDisplay(discountPriceRaw, effectiveListingCountry)}
-                        onChange={(e) => {
-                          const raw = sanitizePriceInput(e.target.value, effectiveListingCountry);
-                          setDiscountPriceRaw(raw);
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-[#B0B3B8] mt-2">Optional discounted price</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="number"
-                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-xl p-4 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
-                    placeholder="Quantity"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    min={1}
-                  />
-
-                  <div className="bg-[#1C1D1E] p-4 rounded-xl border border-[#3E4042] text-sm text-[#B0B3B8]">
-                    <div className="flex items-center gap-2 mb-2">
-                      <i className="fas fa-circle-info text-[#1877F2]"></i>
-                      <span className="text-[#E4E6EB] font-bold">Currency source</span>
-                    </div>
-                    <p>
-                      Current listing currency:{' '}
-                      <span className="text-[#E4E6EB] font-semibold">
-                        {getCurrencyLabelForCountry(effectiveListingCountry)}
-                      </span>{' '}
-                      ({getCountryMetaByCode(effectiveListingCountry).name})
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-[#E4E6EB] font-bold flex items-center gap-2">
-                  <i className="fas fa-align-left text-[#1877F2]"></i> Professional Description
-                </label>
-
+              {/* Description */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Description</label>
                 <textarea
-                  className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-2xl p-5 text-[#E4E6EB] outline-none focus:border-[#1877F2] h-48 resize-none transition-colors"
-                  placeholder="Provide detailed information about your product, condition, features, and why people should buy it... *"
+                  className="w-full min-h-[140px] px-4 py-3 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none resize-none"
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
                   required
-                ></textarea>
-              </div>
+                />
+              </section>
 
-              <div className="bg-[#1C1D1E] p-4 rounded-xl border border-[#3E4042]">
-                <div className="flex items-center gap-3 mb-2">
-                  <i className="fas fa-map-marked-alt text-[#45BD62]"></i>
-                  <span className="text-[#E4E6EB] font-bold">Location Resolution</span>
-                </div>
-                <p className="text-[#B0B3B8] text-sm leading-relaxed">
-                  The listing accepts your typed location even if search suggestions fail. Country and currency are resolved
-                  from manual selection, typed text, or your profile location.
-                </p>
-                <p className="text-[#B0B3B8] text-sm mt-2">
-                  Current resolved market:{' '}
-                  <span className="text-[#1877F2] font-semibold">
-                    {getCountryMetaByCode(effectiveListingCountry).name}
-                  </span>{' '}
-                  with currency{' '}
-                  <span className="font-bold">{getCurrencyLabelForCountry(effectiveListingCountry)}</span>
-                </p>
-              </div>
+              {/* Availability */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Availability</label>
+                <select
+                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                >
+                  <option value="1">List as In Stock</option>
+                  <option value="0">Out of Stock</option>
+                </select>
+              </section>
 
-              <button
-                type="submit"
-                disabled={isUploading}
-                className={`w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-5 rounded-2xl font-bold text-lg shadow-xl shadow-blue-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 ${
-                  isUploading ? 'opacity-70 cursor-not-allowed' : ''
-                }`}
-              >
-                {isUploading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-check-circle"></i> Publish Professional Listing
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
+              {/* Phone */}
+              <section>
+                <label className="block text-[#65676B] text-[15px] mb-2">Phone</label>
+                <input
+                  type="tel"
+                  className="w-full h-12 px-4 rounded-xl bg-[#F0F2F5] border border-[#E4E6EB] text-[#050505] outline-none"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                />
+              </section>
+
+              <div className="pt-2 pb-6">
+                <button
+                  type="submit"
+                  disabled={isUploading}
+                  className={`w-full h-12 rounded-xl font-bold text-white ${
+                    isUploading ? 'bg-[#A0C5F8]' : 'bg-[#1877F2]'
+                  }`}
+                >
+                  {isUploading ? 'Uploading...' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
     </div>
