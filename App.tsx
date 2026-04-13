@@ -7897,8 +7897,8 @@ return (
       showBackButton={view !== 'home'}
       onBack={goBack}
       currentView={view}
-  onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
-  isChatsListOpen={isChatsListOpen}
+      onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
+      isChatsListOpen={isChatsListOpen}
       badgeCounts={badgeCounts}
     />
 
