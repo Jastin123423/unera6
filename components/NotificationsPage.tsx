@@ -6,20 +6,31 @@ interface Props {
   users: User[];
   onBack?: () => void;
   onProfileClick: (id: number) => void;
-
-  // ✅ open the actual thing the notification is about
   onOpenNotification?: (notification: Notification) => void;
-
   onMarkAllAsRead?: () => Promise<any> | void;
   onDeleteNotification?: (notificationId: number) => Promise<any> | void;
-
   simulateApi?: boolean;
   stickyHeader?: boolean;
 }
 
 const AVATAR_SIZE = 56;
-const INITIAL_EARLIER_COUNT = 10; // can make 15
+const INITIAL_EARLIER_COUNT = 10;
 const LOAD_MORE_COUNT = 10;
+
+const safeText = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
+
+const safeNumber = (v: any, fallback = 0) => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const getNotificationTime = (n: any) => {
+  const updated = n?.updated_at ? new Date(n.updated_at).getTime() : NaN;
+  if (Number.isFinite(updated)) return updated;
+  const created = n?.created_at ? new Date(n.created_at).getTime() : NaN;
+  if (Number.isFinite(created)) return created;
+  return 0;
+};
 
 const formatTimestamp = (iso?: string) => {
   if (!iso) return "";
@@ -49,18 +60,11 @@ const formatTimestamp = (iso?: string) => {
   return `${month} ${dayNum} at ${hour12}:${minutes}${ampm}`;
 };
 
-const safeText = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
-
-const safeNumber = (v: any, fallback = 0) => {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
 const getNotificationIcon = (n: Notification) => {
   const type = safeText((n as any).type).toLowerCase();
   const entityType = safeText((n as any).entity_type).toLowerCase();
 
-  if (type.includes("like") || type.includes("reaction")) {
+  if (type.includes("like") || type.includes("react") || type.includes("reaction")) {
     return { icon: "fas fa-heart", bg: "#E91E63" };
   }
 
@@ -89,6 +93,66 @@ const getNotificationIcon = (n: Notification) => {
   }
 
   return { icon: "fas fa-bell", bg: "#1877F2" };
+};
+
+const buildNotificationMessage = (n: Notification, actorName: string) => {
+  const type = safeText((n as any).type).toLowerCase();
+  const entityType = safeText((n as any).entity_type).toLowerCase();
+  const rawMessage = safeText((n as any).message);
+  const actorsCount = Math.max(1, safeNumber((n as any).actors_count, 1));
+  const othersCount = Math.max(0, actorsCount - 1);
+
+  const targetLabel =
+    entityType === "post"
+      ? "your post"
+      : entityType === "reel"
+      ? "your reel"
+      : entityType === "product"
+      ? "your product"
+      : entityType === "group_post"
+      ? "your group post"
+      : entityType === "event"
+      ? "your event"
+      : "you";
+
+  if (type.includes("react") || type.includes("like") || type.includes("reaction")) {
+    return othersCount > 0
+      ? `and ${othersCount} others reacted to ${targetLabel}`
+      : `reacted to ${targetLabel}`;
+  }
+
+  if (type.includes("comment")) {
+    return othersCount > 0
+      ? `and ${othersCount} others commented on ${targetLabel}`
+      : `commented on ${targetLabel}`;
+  }
+
+  if (type.includes("reply")) {
+    return othersCount > 0
+      ? `and ${othersCount} others replied to your comment`
+      : `replied to your comment`;
+  }
+
+  if (type.includes("follow")) {
+    return othersCount > 0
+      ? `and ${othersCount} others followed you`
+      : `followed you`;
+  }
+
+  if (type.includes("share")) {
+    return othersCount > 0
+      ? `and ${othersCount} others shared ${targetLabel}`
+      : `shared ${targetLabel}`;
+  }
+
+  if (rawMessage) {
+    if (othersCount > 0) return `${rawMessage} with ${othersCount} others`;
+    return rawMessage;
+  }
+
+  return othersCount > 0
+    ? `and ${othersCount} others interacted with you`
+    : "interacted with you";
 };
 
 export const NotificationsPage: React.FC<Props> = ({
@@ -149,8 +213,8 @@ export const NotificationsPage: React.FC<Props> = ({
 
   const sortedNotifications = useMemo(() => {
     return [...localNotifications].sort((a, b) => {
-      const ta = new Date((a as any).created_at || 0).getTime();
-      const tb = new Date((b as any).created_at || 0).getTime();
+      const ta = getNotificationTime(a);
+      const tb = getNotificationTime(b);
       if (tb !== ta) return tb - ta;
       return safeNumber((b as any).id, 0) - safeNumber((a as any).id, 0);
     });
@@ -164,12 +228,9 @@ export const NotificationsPage: React.FC<Props> = ({
     const earlierN: Notification[] = [];
 
     sortedNotifications.forEach((n) => {
-      const created = new Date((n as any).created_at || 0).getTime();
-      if (Number.isFinite(created) && now - created <= threshold) {
-        newN.push(n);
-      } else {
-        earlierN.push(n);
-      }
+      const t = getNotificationTime(n);
+      if (Number.isFinite(t) && now - t <= threshold) newN.push(n);
+      else earlierN.push(n);
     });
 
     return { newNotifications: newN, earlierNotifications: earlierN };
@@ -270,7 +331,6 @@ export const NotificationsPage: React.FC<Props> = ({
   const renderRow = (n: Notification) => {
     const actor = getUser((n as any).actor_id);
     const actorName = safeText(actor?.name, "Someone");
-    const message = safeText((n as any).message, "interacted with you");
     const avatar = safeText(
       actor?.profile_image_url,
       "https://via.placeholder.com/100?text=User"
@@ -278,6 +338,8 @@ export const NotificationsPage: React.FC<Props> = ({
     const isUnread = !safeNumber((n as any).is_read, 0);
     const notificationId = safeNumber((n as any).id, 0);
     const iconMeta = getNotificationIcon(n);
+    const bodyText = buildNotificationMessage(n, actorName);
+    const displayTime = safeText((n as any).updated_at) || safeText((n as any).created_at);
 
     return (
       <div
@@ -378,7 +440,7 @@ export const NotificationsPage: React.FC<Props> = ({
                 color: "#D0D7DE",
               }}
             >
-              {message}
+              {bodyText}
             </span>
           </div>
 
@@ -398,7 +460,7 @@ export const NotificationsPage: React.FC<Props> = ({
                 fontWeight: isUnread ? 700 : 500,
               }}
             >
-              {formatTimestamp((n as any).created_at)}
+              {formatTimestamp(displayTime)}
             </span>
 
             {isUnread && (
