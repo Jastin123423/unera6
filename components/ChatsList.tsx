@@ -252,10 +252,11 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   };
 
   return (
-    // 🔥 FIX: Changed from h-full to flex-1 for proper parent flex cooperation
-    <div className="w-full flex-1 min-h-0 bg-[#18191A] font-sans flex flex-col relative">
+    // 🔥 FIX 1: Back to fixed inset-0 overlay mode
+    <div className="fixed inset-0 z-[150] bg-[#18191A] font-sans flex flex-col">
       
-      <div className="bg-[#242526] flex-1 min-h-0 flex flex-col overflow-hidden">
+      {/* 🔥 FIX 2: Removed min-h-0, kept flex-1 */}
+      <div className="bg-[#242526] flex-1 flex flex-col overflow-hidden">
         
         {/* Sticky header */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042] bg-[#242526]">
@@ -332,7 +333,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         )}
 
         {/* Scrollable conversation area */}
-        <div className="flex-1 min-h-0 overflow-y-auto bg-[#242526]">
+        <div className="flex-1 overflow-y-auto bg-[#242526]">
           {errorText ? (
             <div className="px-3 py-3 text-[#ff6b6b] text-sm border-b border-[#3E4042]">
               {errorText}
@@ -397,20 +398,20 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         </div>
       </div>
 
-      {/* 🔥 FIX: Only render plus button if onNewChat is provided */}
+      {/* 🔥 FIX 3: Fixed plus button with higher z-index */}
       {onNewChat !== undefined && (
         <button
           onClick={() => setShowNewMessage(true)}
-          className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
+          className="fixed bottom-6 right-6 z-[160] w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
           aria-label="New chat"
         >
           <i className="fas fa-plus text-xl" />
         </button>
       )}
 
-      {/* New Message Sheet/Modal */}
+      {/* 🔥 FIX 4: Fixed New Message modal with higher z-index */}
       {showNewMessage && (
-        <div className="absolute inset-0 z-30 bg-[#242526] flex flex-col">
+        <div className="fixed inset-0 z-[170] bg-[#242526] flex flex-col">
           {/* Sticky header with search */}
           <div className="sticky top-0 z-10 bg-[#242526] border-b border-[#3E4042] px-3 py-3">
             <div className="flex items-center gap-3 mb-3">
@@ -444,7 +445,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
 
           {/* Scrollable user list */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {filteredFollowing.map((u: any) => (
               <button
                 key={u.id}
