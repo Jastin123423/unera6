@@ -8763,17 +8763,18 @@ return (
     )}
 
     {isChatsListOpen && currentUser && (
-      <ChatsList
-        currentUser={currentUser}
-        onOpenChat={handleOpenChat}
-        onOpenRequests={() => {
-          console.log('Open message requests');
-        }}
-        onNewChat={() => {
-          console.log('Create new chat');
-        }}
-      />
-    )}
+  <ChatsList
+    currentUser={currentUser}
+    onOpenChat={handleOpenChat}
+    onClose={handleCloseChatsList}
+    onOpenRequests={() => {
+      console.log('Open message requests');
+    }}
+    onNewChat={() => {
+      console.log('Create new chat');
+    }}
+  />
+)}
       {showAdAnalytics && adAnalyticsId && (
         <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
           <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
