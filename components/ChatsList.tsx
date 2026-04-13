@@ -160,7 +160,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   const [errorText, setErrorText] = useState<string>("");
   const [following, setFollowing] = useState<User[]>([]);
   
-  // 🔥 NEW: New message modal state
+  // New message modal state
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [newMessageQuery, setNewMessageQuery] = useState('');
 
@@ -231,7 +231,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
 
   const totalUnread = useMemo(() => rows.reduce((sum, r) => sum + safeNum(r.unread_count, 0), 0), [rows]);
 
-  // 🔥 Filtered following for search
+  // Filtered following for search
   const filteredFollowing = useMemo(() => {
     const q = safeStr(newMessageQuery).trim().toLowerCase();
     if (!q) return following;
@@ -252,21 +252,17 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   };
 
   return (
-    // 🔥 1. Changed from fixed inset-0 to flex container inside Layout
-    <div className="w-full h-full min-h-0 bg-[#18191A] font-sans flex flex-col relative">
+    // 🔥 FIX: Changed from h-full to flex-1 for proper parent flex cooperation
+    <div className="w-full flex-1 min-h-0 bg-[#18191A] font-sans flex flex-col relative">
       
-      {/* 🔥 2. Removed extra top Messages bar - DELETED */}
-
-      {/* 🔥 3. Changed to flex-1 min-h-0 flex flex-col */}
       <div className="bg-[#242526] flex-1 min-h-0 flex flex-col overflow-hidden">
         
-        {/* 🔥 4. Made header sticky */}
+        {/* Sticky header */}
         <div className="sticky top-0 z-20 px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042] bg-[#242526]">
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
-              // 🔥 5. Simplified back button - only uses onClose
               onClick={() => {
                 if (onClose) onClose();
               }}
@@ -335,7 +331,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
         )}
 
-        {/* 🔥 6. Changed to flex-1 min-h-0 for proper scrolling */}
+        {/* Scrollable conversation area */}
         <div className="flex-1 min-h-0 overflow-y-auto bg-[#242526]">
           {errorText ? (
             <div className="px-3 py-3 text-[#ff6b6b] text-sm border-b border-[#3E4042]">
@@ -401,17 +397,18 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         </div>
       </div>
 
-      {/* 🔥 7. Changed from fixed to absolute for ChatsList page */}
-      <button
-        // 🔥 8. Opens New Message modal instead of onNewChat
-        onClick={() => setShowNewMessage(true)}
-        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
-        aria-label="New chat"
-      >
-        <i className="fas fa-plus text-xl" />
-      </button>
+      {/* 🔥 FIX: Only render plus button if onNewChat is provided */}
+      {onNewChat !== undefined && (
+        <button
+          onClick={() => setShowNewMessage(true)}
+          className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
+          aria-label="New chat"
+        >
+          <i className="fas fa-plus text-xl" />
+        </button>
+      )}
 
-      {/* 🔥 NEW: New Message Sheet/Modal */}
+      {/* New Message Sheet/Modal */}
       {showNewMessage && (
         <div className="absolute inset-0 z-30 bg-[#242526] flex flex-col">
           {/* Sticky header with search */}
