@@ -7952,7 +7952,78 @@ const markAllNotificationsAsRead = useCallback(async () => {
     setLoginError('Failed to mark notifications as read');
   }
 }, [currentUser]);
-          
+
+    //=======NOTIFICATION TARGET ===          
+   const openNotificationTarget = useCallback((notification: any) => {
+  const entityType = String(notification?.entity_type || "").toLowerCase();
+  const entityId = notification?.entity_id;
+  const actorId = Number(notification?.actor_id || 0);
+  const type = String(notification?.type || "").toLowerCase();
+
+  // Mark this notification as read
+  const markAsRead = async () => {
+    try {
+      await fetch(`/api/notifications/${notification.id}/read`, {
+        method: 'POST',
+        headers: {
+          ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+        },
+      });
+      setNotifications(prev =>
+        prev.map(n =>
+          Number(n.id) === Number(notification.id) ? { ...n, is_read: 1 } : n
+        )
+      );
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  };
+
+  // Handle different entity types
+  if (entityType === "post" && entityId) {
+    markAsRead();
+    openPost(Number(entityId));
+    return;
+  }
+
+  if (entityType === "reel" && entityId) {
+    markAsRead();
+    openReel(Number(entityId));
+    return;
+  }
+
+  if (entityType === "product" && entityId) {
+    markAsRead();
+    openProduct(entityId);
+    return;
+  }
+
+  if (entityType === "group_post" && entityId) {
+    markAsRead();
+    openGroupPost(entityId);
+    return;
+  }
+
+  if (entityType === "event" && entityId) {
+    markAsRead();
+    openEvent(entityId);
+    return;
+  }
+
+  // Follow notifications or fallback to profile
+  if (type === "follow" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Fallback to actor's profile
+  if (actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+}, [currentUser, openPost, openReel, openProduct, openGroupPost, openEvent, openProfile]);
 // ============================================================================
 // ✅ RENDER
 // ============================================================================
