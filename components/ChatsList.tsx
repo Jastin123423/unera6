@@ -117,15 +117,13 @@ type ChatsListProps = {
   onClose?: () => void;
   onOpenRequests?: () => void;
   onNewChat?: () => void;
-  // Navigation handlers
   onOpenHome?: () => void;
   onOpenMarketplace?: () => void;
-  // Notification counts
   feedNotificationCount?: number;
   messageNotificationCount?: number;
 };
 
-// Add CSS for hiding scrollbar
+// Scrollbar hide styles
 const scrollbarHideStyles = `
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
@@ -136,7 +134,6 @@ const scrollbarHideStyles = `
   }
 `;
 
-// Inject styles
 if (typeof document !== 'undefined') {
   const styleId = 'chatslist-scrollbar-styles';
   if (!document.getElementById(styleId)) {
@@ -161,9 +158,11 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   const [rows, setRows] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
-  
-  // 🔥 NEW: Following users state for top row
   const [following, setFollowing] = useState<User[]>([]);
+  
+  // 🔥 NEW: New message modal state
+  const [showNewMessage, setShowNewMessage] = useState(false);
+  const [newMessageQuery, setNewMessageQuery] = useState('');
 
   const currentUserId = safeNum((currentUser as any)?.id, 0);
 
@@ -187,7 +186,6 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           }))
         : [];
 
-      // sort newest first
       arr.sort((a, b) => {
         const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
         const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
@@ -204,7 +202,6 @@ export const ChatsList: React.FC<ChatsListProps> = ({
     }
   }, [currentUserId]);
 
-  // 🔥 NEW: Fetch following users for top row
   const fetchFollowing = useCallback(async () => {
     if (!currentUserId) return;
     try {
@@ -222,18 +219,26 @@ export const ChatsList: React.FC<ChatsListProps> = ({
       setFollowing(users);
     } catch (e) {
       console.error("Failed to fetch following:", e);
-      // Silently fail - the row just won't show extra users
     }
   }, [currentUserId]);
 
   useEffect(() => {
     fetchConversations();
-    fetchFollowing(); // 🔥 Fetch following users
+    fetchFollowing();
     const t = window.setInterval(fetchConversations, 5000);
     return () => window.clearInterval(t);
   }, [fetchConversations, fetchFollowing]);
 
   const totalUnread = useMemo(() => rows.reduce((sum, r) => sum + safeNum(r.unread_count, 0), 0), [rows]);
+
+  // 🔥 Filtered following for search
+  const filteredFollowing = useMemo(() => {
+    const q = safeStr(newMessageQuery).trim().toLowerCase();
+    if (!q) return following;
+    return following.filter((u: any) => 
+      safeStr(u?.name).toLowerCase().includes(q)
+    );
+  }, [following, newMessageQuery]);
 
   const openRow = (r: ConversationRow) => {
     const recipient = {
@@ -247,26 +252,23 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[150] bg-[#18191A] font-sans">
-      {/* Top bar */}
-      <div className="h-14 px-3 flex items-center bg-[#242526] border-b border-[#3E4042]">
-        <div className="text-[22px] font-extrabold text-[#E4E6EB]">Messages</div>
-      </div>
+    // 🔥 1. Changed from fixed inset-0 to flex container inside Layout
+    <div className="w-full h-full min-h-0 bg-[#18191A] font-sans flex flex-col relative">
+      
+      {/* 🔥 2. Removed extra top Messages bar - DELETED */}
 
-      {/* Main card */}
-      <div className="bg-[#242526] h-[calc(100%-56px)] overflow-hidden">
-        {/* Header with back button */}
-        <div className="px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042]">
+      {/* 🔥 3. Changed to flex-1 min-h-0 flex flex-col */}
+      <div className="bg-[#242526] flex-1 min-h-0 flex flex-col overflow-hidden">
+        
+        {/* 🔥 4. Made header sticky */}
+        <div className="sticky top-0 z-20 px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042] bg-[#242526]">
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+              // 🔥 5. Simplified back button - only uses onClose
               onClick={() => {
-                if (onClose) {
-                  onClose();
-                } else {
-                  window.history.back();
-                }
+                if (onClose) onClose();
               }}
               aria-label="Back"
             >
@@ -276,7 +278,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
         </div>
 
-        {/* 🔥 NEW: Top horizontal users (Facebook style) */}
+        {/* Top horizontal users (Facebook style) */}
         <div className="px-3 py-3 border-b border-[#3E4042] bg-[#242526]">
           <div className="flex gap-3 overflow-x-auto scrollbar-hide">
             {/* Your note (self) */}
@@ -319,7 +321,7 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
         </div>
 
-        {/* 🔥 NEW: Message Requests section */}
+        {/* Message Requests section */}
         {onOpenRequests && (
           <div 
             className="mx-3 my-2 p-3 bg-[#3A3B3C] rounded-xl flex items-center justify-between cursor-pointer hover:bg-[#4E4F50] transition-colors"
@@ -333,8 +335,8 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
         )}
 
-        {/* Content */}
-        <div className="overflow-y-auto h-[calc(100%-140px)] bg-[#242526]">
+        {/* 🔥 6. Changed to flex-1 min-h-0 for proper scrolling */}
+        <div className="flex-1 min-h-0 overflow-y-auto bg-[#242526]">
           {errorText ? (
             <div className="px-3 py-3 text-[#ff6b6b] text-sm border-b border-[#3E4042]">
               {errorText}
@@ -399,15 +401,80 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         </div>
       </div>
 
-      {/* 🔥 NEW: Floating + button */}
-      {onNewChat && (
-        <button
-          onClick={onNewChat}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
-          aria-label="New chat"
-        >
-          <i className="fas fa-plus text-xl" />
-        </button>
+      {/* 🔥 7. Changed from fixed to absolute for ChatsList page */}
+      <button
+        // 🔥 8. Opens New Message modal instead of onNewChat
+        onClick={() => setShowNewMessage(true)}
+        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
+        aria-label="New chat"
+      >
+        <i className="fas fa-plus text-xl" />
+      </button>
+
+      {/* 🔥 NEW: New Message Sheet/Modal */}
+      {showNewMessage && (
+        <div className="absolute inset-0 z-30 bg-[#242526] flex flex-col">
+          {/* Sticky header with search */}
+          <div className="sticky top-0 z-10 bg-[#242526] border-b border-[#3E4042] px-3 py-3">
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+                onClick={() => {
+                  setShowNewMessage(false);
+                  setNewMessageQuery('');
+                }}
+                aria-label="Back"
+              >
+                <i className="fas fa-arrow-left text-[18px] text-[#E4E6EB]" />
+              </button>
+              <div className="text-[22px] font-extrabold text-[#E4E6EB] leading-none">
+                New message
+              </div>
+            </div>
+            
+            {/* Search input */}
+            <div className="relative">
+              <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-[#B0B3B8]"></i>
+              <input
+                type="text"
+                value={newMessageQuery}
+                onChange={(e) => setNewMessageQuery(e.target.value)}
+                placeholder="Type a name"
+                className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-full py-3 pl-11 pr-4 text-[#E4E6EB] outline-none focus:border-[#1877F2]"
+              />
+            </div>
+          </div>
+
+          {/* Scrollable user list */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {filteredFollowing.map((u: any) => (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => {
+                  setShowNewMessage(false);
+                  setNewMessageQuery('');
+                  onOpenChat(u);
+                }}
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-[#3A3B3C] transition-colors text-left"
+              >
+                <Avatar src={u.profile_image_url} name={u.name} size={52} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[#E4E6EB] font-semibold text-[17px] truncate">
+                    {u.name}
+                  </div>
+                </div>
+              </button>
+            ))}
+            
+            {filteredFollowing.length === 0 && (
+              <div className="text-center text-[#B0B3B8] text-sm py-10">
+                No people found
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
