@@ -168,9 +168,17 @@ interface HeaderProps {
   activeTab: string;
   onNavigate: (view: string) => void;
   setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
-  // ✅ NEW PROPS FOR MESSAGES BUTTON
   onOpenChatsList?: () => void;
   isChatsListOpen?: boolean;
+  // ✅ ADDED: Badge counts for navigation items
+  badgeCounts?: {
+    home?: number;
+    music?: number;
+    messages?: number;
+    reels?: number;
+    notifications?: number;
+    marketplace?: number;
+  };
 }
 
 // ==================== HEADER COMPONENT ====================
@@ -193,6 +201,7 @@ export const Header: React.FC<HeaderProps> = ({
   setNotifications,
   onOpenChatsList,
   isChatsListOpen,
+  badgeCounts, // ✅ ACCEPTED
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -207,6 +216,13 @@ export const Header: React.FC<HeaderProps> = ({
   const presenceTimer = useRef<number | null>(null);
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  // ✅ ADDED: Badge formatter helper
+  const formatBadge = (value?: number) => {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n > 15 ? '15+' : String(n);
+  };
 
   useEffect(() => {
     if (!currentUser) return;
@@ -306,22 +322,19 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchResults(scoredUsers);
   };
 
-  // ✅ UPDATED: Messages handler - works like self-profile message button
+  // Messages handler
   const goToMessages = () => {
     if (!currentUser) {
       onLoginClick();
       return;
     }
-    // Close search overlay if open
     setShowSearchOverlay(false);
     setSearchQuery('');
     setSearchResults([]);
-    // If chats list opener exists, open it
     if (onOpenChatsList) {
       onOpenChatsList();
       return;
     }
-    // Fallback to navigate to messages page
     onNavigate('messages');
   };
 
@@ -349,6 +362,7 @@ export const Header: React.FC<HeaderProps> = ({
     </div>
   );
 
+  // ✅ UPDATED: navItems with badge counts from badgeCounts prop
   const navItems = [
     {
       id: 'home',
@@ -357,6 +371,7 @@ export const Header: React.FC<HeaderProps> = ({
       onClick: onHomeClick,
       active: activeTab === 'home',
       activeColor: '#1877F2',
+      badge: Number(badgeCounts?.home || 0),
     },
     {
       id: 'music',
@@ -365,15 +380,16 @@ export const Header: React.FC<HeaderProps> = ({
       onClick: goToMusic,
       active: activeTab === 'music',
       activeColor: '#0055FF',
+      badge: Number(badgeCounts?.music || 0),
     },
     {
       id: 'messages',
       icon: 'fab fa-facebook-messenger',
       label: 'Messages',
       onClick: goToMessages,
-      // ✅ Active when chats list is open OR activeTab is messages
       active: activeTab === 'messages' || !!isChatsListOpen,
       activeColor: '#1877F2',
+      badge: Number(badgeCounts?.messages || 0),
     },
     {
       id: 'reels',
@@ -382,6 +398,7 @@ export const Header: React.FC<HeaderProps> = ({
       onClick: onReelsClick,
       active: activeTab === 'reels',
       activeColor: '#E41E3F',
+      badge: Number(badgeCounts?.reels || 0),
     },
     {
       id: 'notifications',
@@ -390,7 +407,7 @@ export const Header: React.FC<HeaderProps> = ({
       onClick: goToNotifications,
       active: activeTab === 'notifications',
       activeColor: '#E41E3F',
-      badge: unreadCount,
+      badge: Number(badgeCounts?.notifications ?? unreadCount ?? 0),
     },
     {
       id: 'marketplace',
@@ -399,6 +416,7 @@ export const Header: React.FC<HeaderProps> = ({
       onClick: onMarketplaceClick,
       active: activeTab === 'marketplace',
       activeColor: '#1877F2',
+      badge: Number(badgeCounts?.marketplace || 0),
     },
   ];
 
@@ -468,9 +486,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <i className={`${item.icon} text-[22px] sm:text-[24px]`}></i>
               </div>
 
-              {item.badge && item.badge > 0 && (
+              {/* ✅ UPDATED: Badge render with formatBadge helper */}
+              {Number(item.badge || 0) > 0 && (
                 <span className="absolute top-1.5 right-[18%] sm:right-[24%] bg-[#E41E3F] text-white text-[11px] font-bold px-1.5 py-[1px] rounded-full min-w-[18px] text-center leading-tight">
-                  {item.badge > 9 ? '9+' : item.badge}
+                  {formatBadge(item.badge)}
                 </span>
               )}
             </button>
