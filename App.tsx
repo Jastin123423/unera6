@@ -1976,6 +1976,14 @@ const [showStoryComments, setShowStoryComments] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
   const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+  const [badgeCounts, setBadgeCounts] = useState({
+  home: 0,
+  music: 0,
+  messages: 0,
+  reels: 0,
+  notifications: 0,
+  marketplace: 0,
+});
 
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
