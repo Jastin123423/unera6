@@ -7861,6 +7861,44 @@ const editPost = useCallback(
   [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
 );
 
+// Add this with your other navigation functions
+const openPost = useCallback((postId: number) => {
+  // Find the post in your posts state
+  const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+  if (post) {
+    // Open comments sheet for this post
+    handleOpenComments(post);
+  } else {
+    // If post not found, try to fetch it or just navigate home
+    navigateTo('home');
+  }
+}, [posts, profilePosts, handleOpenComments, navigateTo]);
+
+const openReel = useCallback((reelId: number) => {
+  setSelectedReelId(reelId);
+  navigateTo('reels');
+}, [navigateTo]);
+
+const openProduct = useCallback((productId: string | number) => {
+  const product = products.find(p => Number(p.id) === Number(productId));
+  if (product) {
+    setActiveProduct(product);
+    navigateTo('marketplace');
+  }
+}, [products, navigateTo]);
+
+const openGroupPost = useCallback((postId: string | number) => {
+  // Navigate to groups and highlight the specific post
+  navigateTo('groups');
+  // You can add a selectedPostId state if needed
+}, [navigateTo]);
+
+const openEvent = useCallback((eventId: string | number) => {
+  setActiveEventId(Number(eventId));
+  navigateTo('events');
+}, [navigateTo]);          
+
+          
 // ============================================================================
 // ✅ RENDER
 // ============================================================================
