@@ -7898,7 +7898,29 @@ const openEvent = useCallback((eventId: string | number) => {
   navigateTo('events');
 }, [navigateTo]);          
 
-          
+   //====NOTIFICATION DELETE ===     
+const deleteNotification = useCallback(async (notificationId: number) => {
+  const token = localStorage.getItem("unera_token");
+  try {
+    const res = await fetch(`/api/notifications?id=${notificationId}`, {
+      method: "DELETE",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+      },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || "Failed to delete notification");
+    }
+    setNotifications((prev) =>
+      Array.isArray(prev) ? prev.filter((n: any) => Number(n.id) !== Number(notificationId)) : prev
+    );
+  } catch (error) {
+    console.error('Failed to delete notification:', error);
+    setLoginError('Failed to delete notification');
+  }
+}, [currentUser]);
 // ============================================================================
 // ✅ RENDER
 // ============================================================================
