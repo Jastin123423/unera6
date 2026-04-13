@@ -8361,15 +8361,18 @@ return (
             }}
           />
         )}
-
-        {view === 'notifications' && (
-          <NotificationsPage
-            notifications={notifications}
-            users={users}
-            onBack={() => navigateTo('home')}
-            onProfileClick={(id)=>openProfile(id)}
-          />
-        )}
+  {view === 'notifications' && (
+  <NotificationsPage
+    notifications={notifications}
+    users={users}
+    onBack={() => navigateTo('home')}
+    onProfileClick={(id) => openProfile(id)}
+    onOpenNotification={openNotificationTarget}
+    onDeleteNotification={deleteNotification}
+    onMarkAllAsRead={markAllNotificationsAsRead}
+    stickyHeader
+  />
+)}  
 
         {view === 'ads' && currentUser && (
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
