@@ -2069,7 +2069,31 @@ const [showStoryComments, setShowStoryComments] = useState(false);
   const [loginError, setLoginError] = useState('');
 
   const unreadNotifications = notifications.filter(n => !n.is_read).length;
+   useEffect(() => {
+  const unreadMessages = chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0);
+  const newReels = reels.filter(r => {
+    const hoursOld = (Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const newMusic = songs.filter(s => {
+    const hoursOld = (Date.now() - new Date(s.created_at || s.release_date || 0).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const marketplaceActivity = products.filter(p => p.has_new_activity).length;
+  const newHomePosts = posts.filter(p => {
+    const hoursOld = (Date.now() - new Date(p.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
 
+  setBadgeCounts({
+    home: newHomePosts,
+    music: newMusic,
+    messages: unreadMessages,
+    reels: newReels,
+    notifications: unreadNotifications,
+    marketplace: marketplaceActivity,
+  });
+}, [chats, reels, songs, products, posts, unreadNotifications]);
   // ============================================================================
   // ✅ MUSIC REACTION/COMMENT/SHARE STATE (NEW)
   // ============================================================================
