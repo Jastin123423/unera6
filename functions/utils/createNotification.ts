@@ -4,49 +4,142 @@ export async function createNotification(
   actor_id: number,
   type: string,
   entity_type: string,
-  entity_id: number,
-  group_key: string
+  entity_id: number | string,
+  group_key: string,
+  message?: string | null
 ) {
+  try {
+    if (!env?.DB) return;
+    if (!recipient_id || !actor_id || !type) return;
+    if (recipient_id === actor_id) return;
 
-  if (recipient_id === actor_id) return;
+    const entityIdValue = entity_id != null ? String(entity_id) : null;
+    const cleanGroupKey = typeof group_key === "string" ? group_key.trim() : "";
+    const cleanMessage =
+      typeof message === "string" && message.trim() ? message.trim() : null;
 
-  const existing = await env.DB.prepare(`
-    SELECT id, actors_count
-    FROM notifications
-    WHERE recipient_id = ?
-    AND group_key = ?
-    AND created_at > datetime('now','-24 hours')
-    LIMIT 1
-  `)
-    .bind(recipient_id, group_key)
-    .first();
+    if (!cleanGroupKey) {
+      await env.DB.prepare(`
+        INSERT INTO notifications
+        (
+          recipient_id,
+          actor_id,
+          type,
+          entity_type,
+          entity_id,
+          group_key,
+          message,
+          is_read,
+          actors_count,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)
+      `)
+        .bind(
+          recipient_id,
+          actor_id,
+          type,
+          entity_type || null,
+          entityIdValue,
+          null,
+          cleanMessage
+        )
+        .run();
 
-  if (existing) {
+      return;
+    }
+
+    // Find recent grouped notification for same target
+    const existing = await env.DB.prepare(`
+      SELECT id, actor_id, actors_count
+      FROM notifications
+      WHERE recipient_id = ?
+        AND group_key = ?
+        AND created_at > datetime('now', '-24 hours')
+      ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+      LIMIT 1
+    `)
+      .bind(recipient_id, cleanGroupKey)
+      .first<{
+        id: number;
+        actor_id: number;
+        actors_count: number | null;
+      }>();
+
+    if (!existing) {
+      await env.DB.prepare(`
+        INSERT INTO notifications
+        (
+          recipient_id,
+          actor_id,
+          type,
+          entity_type,
+          entity_id,
+          group_key,
+          message,
+          is_read,
+          actors_count,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)
+      `)
+        .bind(
+          recipient_id,
+          actor_id,
+          type,
+          entity_type || null,
+          entityIdValue,
+          cleanGroupKey,
+          cleanMessage
+        )
+        .run();
+
+      return;
+    }
+
+    // Avoid inflating actors_count if this same actor already triggered
+    // a recent notification in this same group window.
+    const sameActorRecent = await env.DB.prepare(`
+      SELECT id
+      FROM notifications
+      WHERE recipient_id = ?
+        AND group_key = ?
+        AND actor_id = ?
+        AND created_at > datetime('now', '-24 hours')
+      LIMIT 1
+    `)
+      .bind(recipient_id, cleanGroupKey, actor_id)
+      .first();
+
+    if (sameActorRecent) {
+      await env.DB.prepare(`
+        UPDATE notifications
+        SET
+          actor_id = ?,
+          message = COALESCE(?, message),
+          is_read = 0,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `)
+        .bind(actor_id, cleanMessage, existing.id)
+        .run();
+
+      return;
+    }
 
     await env.DB.prepare(`
       UPDATE notifications
-      SET actors_count = actors_count + 1,
-          created_at = CURRENT_TIMESTAMP
+      SET
+        actor_id = ?,
+        message = COALESCE(?, message),
+        is_read = 0,
+        actors_count = COALESCE(actors_count, 1) + 1,
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `)
-      .bind(existing.id)
+      .bind(actor_id, cleanMessage, existing.id)
       .run();
-
-  } else {
-
-    await env.DB.prepare(`
-      INSERT INTO notifications
-      (recipient_id, actor_id, type, entity_type, entity_id, group_key)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
-      .bind(
-        recipient_id,
-        actor_id,
-        type,
-        entity_type,
-        entity_id,
-        group_key
-      )
-      .run();
+  } catch (error) {
+    console.error("createNotification failed:", error);
   }
 }
