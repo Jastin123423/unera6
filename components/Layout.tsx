@@ -150,6 +150,7 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   );
 };
 
+// ==================== HEADER PROPS INTERFACE ====================
 interface HeaderProps {
   onHomeClick: () => void;
   onProfileClick: (id: number) => void;
@@ -167,8 +168,12 @@ interface HeaderProps {
   activeTab: string;
   onNavigate: (view: string) => void;
   setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>;
+  // ✅ NEW PROPS FOR MESSAGES BUTTON
+  onOpenChatsList?: () => void;
+  isChatsListOpen?: boolean;
 }
 
+// ==================== HEADER COMPONENT ====================
 export const Header: React.FC<HeaderProps> = ({
   onHomeClick,
   onProfileClick,
@@ -186,6 +191,8 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onNavigate,
   setNotifications,
+  onOpenChatsList,
+  isChatsListOpen,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -299,7 +306,22 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchResults(scoredUsers);
   };
 
+  // ✅ UPDATED: Messages handler - works like self-profile message button
   const goToMessages = () => {
+    if (!currentUser) {
+      onLoginClick();
+      return;
+    }
+    // Close search overlay if open
+    setShowSearchOverlay(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    // If chats list opener exists, open it
+    if (onOpenChatsList) {
+      onOpenChatsList();
+      return;
+    }
+    // Fallback to navigate to messages page
     onNavigate('messages');
   };
 
@@ -349,7 +371,8 @@ export const Header: React.FC<HeaderProps> = ({
       icon: 'fab fa-facebook-messenger',
       label: 'Messages',
       onClick: goToMessages,
-      active: activeTab === 'messages',
+      // ✅ Active when chats list is open OR activeTab is messages
+      active: activeTab === 'messages' || !!isChatsListOpen,
       activeColor: '#1877F2',
     },
     {
@@ -602,6 +625,7 @@ export const Header: React.FC<HeaderProps> = ({
   );
 };
 
+// ==================== SIDEBAR COMPONENT ====================
 interface SidebarProps {
   currentUser: User;
   onProfileClick: (id: number) => void;
@@ -666,6 +690,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 };
 
+// ==================== RIGHT SIDEBAR COMPONENT ====================
 export const RightSidebar: React.FC<{
   contacts: User[];
   onProfileClick: (id: number) => void;
