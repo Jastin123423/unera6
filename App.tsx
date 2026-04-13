@@ -1978,6 +1978,8 @@ const [showStoryComments, setShowStoryComments] = useState(false);
   const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
 
 // ======== NOTIFICATION COUNT 
+const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+
 const [badgeCounts, setBadgeCounts] = useState({
   home: 0,
   music: 0,
@@ -1986,6 +1988,11 @@ const [badgeCounts, setBadgeCounts] = useState({
   notifications: 0,
   marketplace: 0,
 });
+
+// ... rest of your code ...
+
+// FIND THIS LINE (it's somewhere after your state declarations)
+const unreadNotifications = notifications.filter(n => !n.is_read).length;
 
 useEffect(() => {
   const unreadMessages = chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0);
@@ -2012,8 +2019,6 @@ useEffect(() => {
     marketplace: marketplaceActivity,
   });
 }, [chats, reels, songs, products, posts, unreadNotifications]);
-
-
     
 
   // Navigation history state
