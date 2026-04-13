@@ -7867,6 +7867,7 @@ return (
       currentView={view}
   onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
   isChatsListOpen={isChatsListOpen}
+      badgeCounts={badgeCounts}
     />
 
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
