@@ -45,13 +45,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     let results: any[] = [];
 
-    // First try with presence table join
     try {
       const withPresence = await env.DB.prepare(
         `
         SELECT
           u.id,
           u.name,
+          u.username,
           u.profile_image_url,
           CASE
             WHEN p.user_id IS NOT NULL THEN 1
@@ -74,12 +74,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       results = Array.isArray(withPresence.results) ? withPresence.results : [];
     } catch (presenceError) {
-      // Fallback if presence table does not exist
       const withoutPresence = await env.DB.prepare(
         `
         SELECT
           u.id,
           u.name,
+          u.username,
           u.profile_image_url,
           0 AS is_online,
           NULL AS last_seen,
@@ -100,7 +100,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const cleaned = results.map((row: any) => ({
       id: Number(row?.id || 0),
-      name: String(row?.name || "User"),
+      name:
+        String(row?.name || "").trim() ||
+        String(row?.username || "").trim() ||
+        "User",
       profile_image_url: row?.profile_image_url ? String(row.profile_image_url) : null,
       is_online: Number(row?.is_online || 0),
       last_seen: row?.last_seen ? String(row.last_seen) : null,
