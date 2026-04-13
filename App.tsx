@@ -7865,22 +7865,23 @@ return (
       showBackButton={view !== 'home'}
       onBack={goBack}
       currentView={view}
-      onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
-      isChatsListOpen={isChatsListOpen}
+  onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
+  isChatsListOpen={isChatsListOpen}
     />
 
-    {/* 🔥 FIX: Main content area with flex-1 and min-h-0 */}
-    <div className="flex-1 min-h-0 overflow-hidden">
-      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative h-full">
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
-            <Sidebar
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onReelsClick={() => navigateTo('reels')}
-              onMarketplaceClick={() => navigateTo('marketplace')}
-              onGroupsClick={() => navigateTo('groups')}
-            />
+    <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+          <Sidebar
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReelsClick={() => navigateTo('reels')}
+            onMarketplaceClick={() => navigateTo('marketplace')}
+            onGroupsClick={() => navigateTo('groups')}
+          />
+        </div>
+      )}
+
       <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
         <input
           ref={reelVideoInputRef}
