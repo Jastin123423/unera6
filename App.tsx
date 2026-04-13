@@ -7908,7 +7908,6 @@ return (
       currentView={view}
       onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
       isChatsListOpen={isChatsListOpen}
-      badgeCounts={badgeCounts}
         }}
     />
 
