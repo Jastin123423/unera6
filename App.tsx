@@ -1977,6 +1977,45 @@ const [showStoryComments, setShowStoryComments] = useState(false);
   const [view, setView] = useState<View>('home');
   const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
 
+// ======== NOTIFICATION COUNT 
+const [badgeCounts, setBadgeCounts] = useState({
+  home: 0,
+  music: 0,
+  messages: 0,
+  reels: 0,
+  notifications: 0,
+  marketplace: 0,
+});
+
+useEffect(() => {
+  const unreadMessages = chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0);
+  const newReels = reels.filter(r => {
+    const hoursOld = (Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const newMusic = songs.filter(s => {
+    const hoursOld = (Date.now() - new Date(s.created_at || s.release_date || 0).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const marketplaceActivity = products.filter(p => p.has_new_activity).length;
+  const newHomePosts = posts.filter(p => {
+    const hoursOld = (Date.now() - new Date(p.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+
+  setBadgeCounts({
+    home: newHomePosts,
+    music: newMusic,
+    messages: unreadMessages,
+    reels: newReels,
+    notifications: unreadNotifications,
+    marketplace: marketplaceActivity,
+  });
+}, [chats, reels, songs, products, posts, unreadNotifications]);
+
+
+    
+
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
 
