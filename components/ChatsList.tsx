@@ -16,18 +16,15 @@ const apiFetch = async (url: string, options: RequestInit = {}, userId?: number)
   };
 
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  // TEMP while backend uses header auth
   if (userId) headers["x-user-id"] = String(userId);
 
   const res = await fetch(url, { ...options, headers });
 
-  // IMPORTANT: prevent “blank app” from uncaught JSON parse errors
   const text = await res.text();
   let data: any = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    // If server returns HTML, show it in error to debug quickly
     throw new Error(`Non-JSON response (${res.status}). First 80 chars: ${text.slice(0, 80)}`);
   }
 
@@ -128,6 +125,28 @@ type ChatsListProps = {
   messageNotificationCount?: number;
 };
 
+// Add CSS for hiding scrollbar
+const scrollbarHideStyles = `
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+`;
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const styleId = 'chatslist-scrollbar-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = scrollbarHideStyles;
+    document.head.appendChild(style);
+  }
+}
+
 export const ChatsList: React.FC<ChatsListProps> = ({ 
   currentUser, 
   onOpenChat, 
@@ -142,6 +161,9 @@ export const ChatsList: React.FC<ChatsListProps> = ({
   const [rows, setRows] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  
+  // 🔥 NEW: Following users state for top row
+  const [following, setFollowing] = useState<User[]>([]);
 
   const currentUserId = safeNum((currentUser as any)?.id, 0);
 
@@ -182,21 +204,42 @@ export const ChatsList: React.FC<ChatsListProps> = ({
     }
   }, [currentUserId]);
 
+  // 🔥 NEW: Fetch following users for top row
+  const fetchFollowing = useCallback(async () => {
+    if (!currentUserId) return;
+    try {
+      const data = await apiFetch("/api/messages/following", {}, currentUserId);
+      const users: User[] = Array.isArray(data)
+        ? data.map((u: any) => ({
+            id: safeNum(u?.id, 0),
+            name: safeStr(u?.name || "User"),
+            profile_image_url: safeStr(u?.profile_image_url) || safeStr(u?.profile_image_url_) || null,
+            profile_image_url_: safeStr(u?.profile_image_url) || safeStr(u?.profile_image_url_) || null,
+            is_online: safeNum(u?.is_online, 0) === 1,
+            last_seen: u?.last_seen ? safeStr(u.last_seen) : null,
+          }))
+        : [];
+      setFollowing(users);
+    } catch (e) {
+      console.error("Failed to fetch following:", e);
+      // Silently fail - the row just won't show extra users
+    }
+  }, [currentUserId]);
+
   useEffect(() => {
     fetchConversations();
+    fetchFollowing(); // 🔥 Fetch following users
     const t = window.setInterval(fetchConversations, 5000);
     return () => window.clearInterval(t);
-  }, [fetchConversations]);
+  }, [fetchConversations, fetchFollowing]);
 
   const totalUnread = useMemo(() => rows.reduce((sum, r) => sum + safeNum(r.unread_count, 0), 0), [rows]);
 
   const openRow = (r: ConversationRow) => {
-    // IMPORTANT: Don’t create fake full User objects (it can crash other places).
     const recipient = {
       id: r.other_user_id,
       name: r.other_name,
       profile_image_url: r.other_profile_image_url,
-      profile_image_url: r.other_profile_image_url, // keep both keys for compatibility if your app uses either
       profile_image_url_: r.other_profile_image_url,
     } as any as User;
 
@@ -205,25 +248,23 @@ export const ChatsList: React.FC<ChatsListProps> = ({
 
   return (
     <div className="fixed inset-0 z-[150] bg-[#18191A] font-sans">
-      {/* Top bar - REMOVED Buy Data button, only showing title */}
+      {/* Top bar */}
       <div className="h-14 px-3 flex items-center bg-[#242526] border-b border-[#3E4042]">
         <div className="text-[22px] font-extrabold text-[#E4E6EB]">Messages</div>
       </div>
 
       {/* Main card */}
       <div className="bg-[#242526] h-[calc(100%-56px)] overflow-hidden">
-        {/* Header with back button only */}
+        {/* Header with back button */}
         <div className="px-3 pt-3 pb-2 flex items-center border-b border-[#3E4042]">
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
               onClick={() => {
-                // Call onClose to go back to previous page (homepage)
                 if (onClose) {
                   onClose();
                 } else {
-                  // Fallback: try to navigate back in history
                   window.history.back();
                 }
               }}
@@ -235,8 +276,65 @@ export const ChatsList: React.FC<ChatsListProps> = ({
           </div>
         </div>
 
+        {/* 🔥 NEW: Top horizontal users (Facebook style) */}
+        <div className="px-3 py-3 border-b border-[#3E4042] bg-[#242526]">
+          <div className="flex gap-3 overflow-x-auto scrollbar-hide">
+            {/* Your note (self) */}
+            <div className="flex flex-col items-center min-w-[60px]">
+              <div className="relative">
+                <Avatar 
+                  src={currentUser.profile_image_url} 
+                  name={currentUser.name} 
+                  size={52} 
+                />
+                <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#31A24C] rounded-full border-2 border-[#242526]" />
+              </div>
+              <span className="text-[12px] text-[#E4E6EB] mt-1 truncate w-[60px] text-center">
+                You
+              </span>
+            </div>
+
+            {/* Following users */}
+            {following.map((u) => (
+              <div 
+                key={u.id} 
+                onClick={() => onOpenChat(u)} 
+                className="flex flex-col items-center min-w-[60px] cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                <div className="relative">
+                  <Avatar 
+                    src={u.profile_image_url} 
+                    name={u.name} 
+                    size={52} 
+                  />
+                  {(u as any).is_online && (
+                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#31A24C] rounded-full border-2 border-[#242526]" />
+                  )}
+                </div>
+                <span className="text-[12px] text-[#E4E6EB] mt-1 truncate w-[60px] text-center">
+                  {u.name.split(' ')[0]}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 🔥 NEW: Message Requests section */}
+        {onOpenRequests && (
+          <div 
+            className="mx-3 my-2 p-3 bg-[#3A3B3C] rounded-xl flex items-center justify-between cursor-pointer hover:bg-[#4E4F50] transition-colors"
+            onClick={onOpenRequests}
+          >
+            <div className="flex items-center gap-2">
+              <i className="fas fa-user-clock text-[#E4E6EB]" />
+              <span className="text-[#E4E6EB] font-semibold">Message requests</span>
+            </div>
+            <span className="text-[#1877F2] font-bold text-sm">9+</span>
+          </div>
+        )}
+
         {/* Content */}
-        <div className="overflow-y-auto h-[calc(100%-64px)] bg-[#242526]">
+        <div className="overflow-y-auto h-[calc(100%-140px)] bg-[#242526]">
           {errorText ? (
             <div className="px-3 py-3 text-[#ff6b6b] text-sm border-b border-[#3E4042]">
               {errorText}
@@ -301,17 +399,16 @@ export const ChatsList: React.FC<ChatsListProps> = ({
         </div>
       </div>
 
-      {/* REMOVED: Floating + button completely */}
-
-      {/* Optional requests button (if you wire it later) */}
-      {onOpenRequests ? (
+      {/* 🔥 NEW: Floating + button */}
+      {onNewChat && (
         <button
-          type="button"
-          onClick={() => onOpenRequests()}
-          className="hidden"
-          aria-label="Requests"
-        />
-      ) : null}
+          onClick={onNewChat}
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-[#1877F2] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 hover:bg-[#166FE5]"
+          aria-label="New chat"
+        >
+          <i className="fas fa-plus text-xl" />
+        </button>
+      )}
     </div>
   );
 };
