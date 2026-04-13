@@ -7921,6 +7921,38 @@ const deleteNotification = useCallback(async (notificationId: number) => {
     setLoginError('Failed to delete notification');
   }
 }, [currentUser]);
+          
+//=======MARK AS READ NOTIFICATION ===
+          
+const markAllNotificationsAsRead = useCallback(async () => {
+  const token = localStorage.getItem("unera_token");
+  try {
+    const res = await fetch(`/api/notifications`, {
+      method: "PATCH",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+        'Content-Type': 'application/json',
+      },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || "Failed to mark notifications as read");
+    }
+    setNotifications((prev) =>
+      Array.isArray(prev)
+        ? prev.map((n: any) => ({
+            ...n,
+            is_read: 1,
+          }))
+        : prev
+    );
+  } catch (error) {
+    console.error('Failed to mark notifications as read:', error);
+    setLoginError('Failed to mark notifications as read');
+  }
+}, [currentUser]);
+          
 // ============================================================================
 // ✅ RENDER
 // ============================================================================
