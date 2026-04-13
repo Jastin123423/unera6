@@ -7865,6 +7865,8 @@ return (
       showBackButton={view !== 'home'}
       onBack={goBack}
       currentView={view}
+  onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
+  isChatsListOpen={isChatsListOpen}
     />
 
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
