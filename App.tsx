@@ -7908,17 +7908,21 @@ return (
       currentView={view}
       onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
       isChatsListOpen={isChatsListOpen}
-      // ✅ ADDED: Badge counts for navigation items
-      badgeCounts={{
-        home: 0,           // Replace with actual count (e.g., unread home feed items)
-        music: 0,          // Replace with actual count (e.g., new music notifications)
-        messages: 0,       // Replace with actual count (e.g., unread message count)
-        reels: 0,          // Replace with actual count (e.g., new reels from followed users)
-        notifications: unreadNotifications, // Already have this from notifications
-        marketplace: 0,    // Replace with actual count (e.g., new product messages/orders)
-      }}
+      badgeCounts={badgeCounts}
     />
 
+    <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+          <Sidebar
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReelsClick={() => navigateTo('reels')}
+            onMarketplaceClick={() => navigateTo('marketplace')}
+            onGroupsClick={() => navigateTo('groups')}
+          />
+        </div>
+      )}
     <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
       {currentUser && (
         <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
