@@ -1,243 +1,269 @@
-import type { PagesFunction } from '@cloudflare/workers-types';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Notification, User } from "../types";
 
-type Env = { DB: D1Database };
+interface Props {
+  notifications: Notification[];
+  users: User[];
 
-const cors = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id',
-};
+  onBack?: () => void;
+  onProfileClick: (id: number) => void;
 
-const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      ...cors,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
+  // 🔥 NEW: content navigation
+  onOpenEntity?: (n: Notification) => void;
 
-export const onRequestOptions: PagesFunction<Env> = async () =>
-  new Response(null, { status: 204, headers: cors });
+  onMarkAllAsRead?: () => Promise<any> | void;
+}
 
-const safeNumber = (v: any, fallback = 0) => {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
+const AVATAR_SIZE = 56;
+const INITIAL_COUNT = 10;
+const LOAD_MORE = 10;
 
-const safeText = (v: any, fallback = '') => {
-  if (typeof v !== 'string') return fallback;
-  return v.trim();
-};
+export const NotificationsPage: React.FC<Props> = ({
+  notifications,
+  users,
+  onBack,
+  onProfileClick,
+  onOpenEntity,
+  onMarkAllAsRead,
+}) => {
 
-/* ==============================
-   GET NOTIFICATIONS
-   Query params:
-   - limit=number
-   - offset=number
-================================*/
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
-  try {
-    const userId = safeNumber(request.headers.get('x-user-id'));
-    if (!userId) return json({ success: false, error: 'Missing user id' }, 400);
+  const getUser = (id: number) => users.find(u => u.id === id);
 
-    const url = new URL(request.url);
-    const limit = Math.min(Math.max(safeNumber(url.searchParams.get('limit'), 15), 1), 100);
-    const offset = Math.max(safeNumber(url.searchParams.get('offset'), 0), 0);
+  const [items, setItems] = useState<Notification[]>(notifications);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_COUNT);
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
 
-    const { results } = await env.DB.prepare(`
-      SELECT
-        id,
-        recipient_id,
-        actor_id,
-        type,
-        entity_type,
-        entity_id,
-        parent_id,
-        group_key,
-        message,
-        is_read,
-        created_at
-      FROM notifications
-      WHERE recipient_id = ?
-      ORDER BY datetime(created_at) DESC, id DESC
-      LIMIT ?
-      OFFSET ?
-    `)
-      .bind(userId, limit, offset)
-      .all();
+  const listRef = useRef<HTMLDivElement>(null);
 
-    const totalRow = await env.DB.prepare(`
-      SELECT COUNT(*) as total
-      FROM notifications
-      WHERE recipient_id = ?
-    `)
-      .bind(userId)
-      .first<{ total: number | string }>();
+  useEffect(() => {
+    setItems(notifications);
+  }, [notifications]);
 
-    const unreadRow = await env.DB.prepare(`
-      SELECT COUNT(*) as unread
-      FROM notifications
-      WHERE recipient_id = ? AND COALESCE(is_read, 0) = 0
-    `)
-      .bind(userId)
-      .first<{ unread: number | string }>();
+  /* =========================
+     SPLIT NEW / EARLIER
+  ========================= */
+  const { newItems, earlierItems } = useMemo(() => {
+    const now = Date.now();
+    const threshold = 48 * 60 * 60 * 1000;
 
-    return json({
-      success: true,
-      data: Array.isArray(results) ? results : [],
-      pagination: {
-        limit,
-        offset,
-        total: safeNumber(totalRow?.total, 0),
-        has_more: offset + limit < safeNumber(totalRow?.total, 0),
-      },
-      unread_count: safeNumber(unreadRow?.unread, 0),
+    const n: Notification[] = [];
+    const e: Notification[] = [];
+
+    items.forEach(i => {
+      const t = new Date(i.created_at).getTime();
+      if (now - t <= threshold) n.push(i);
+      else e.push(i);
     });
-  } catch (error) {
-    console.error('GET /api/notifications error:', error);
-    return json({ success: false, error: 'Failed to load notifications' }, 500);
-  }
-};
 
-/* ==============================
-   CREATE NOTIFICATION
-   Body:
-   {
-     recipient_id,
-     actor_id,
-     type,
-     entity_type?,
-     entity_id?,
-     parent_id?,
-     group_key?,
-     message?
-   }
-================================*/
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  try {
-    const body = await request.json<any>().catch(() => null);
-    if (!body || typeof body !== 'object') {
-      return json({ success: false, error: 'Invalid JSON body' }, 400);
+    return { newItems: n, earlierItems: e };
+  }, [items]);
+
+  const visibleEarlier = earlierItems.slice(0, visibleCount);
+
+  /* =========================
+     DELETE
+  ========================= */
+  const deleteNotification = async (id: number) => {
+    // optimistic UI
+    setItems(prev => prev.filter(n => n.id !== id));
+
+    try {
+      await fetch(`/api/notifications?id=${id}`, {
+        method: "DELETE",
+        headers: {
+          "x-user-id": String(localStorage.getItem("user_id") || "")
+        }
+      });
+    } catch (e) {
+      console.error("Delete failed", e);
     }
+  };
 
-    const recipient_id = safeNumber(body.recipient_id);
-    const actor_id = safeNumber(body.actor_id);
-    const type = safeText(body.type);
-    const entity_type = safeText(body.entity_type) || null;
-    const entity_id = body.entity_id != null ? String(body.entity_id).trim() : null;
-    const parent_id = body.parent_id != null ? String(body.parent_id).trim() : null;
-    const group_key = body.group_key != null ? String(body.group_key).trim() : null;
-    const message = safeText(body.message) || null;
+  /* =========================
+     LOAD MORE (NO JUMP)
+  ========================= */
+  const handleLoadMore = () => {
+    const scrollY = window.scrollY;
 
-    if (!recipient_id || !actor_id || !type) {
-      return json(
-        { success: false, error: 'recipient_id, actor_id and type are required' },
-        400
-      );
-    }
+    setVisibleCount(prev => prev + LOAD_MORE);
 
-    if (recipient_id === actor_id) {
-      return json({ success: true, skipped: true, reason: 'self_notification_blocked' });
-    }
-
-    const result = await env.DB.prepare(`
-      INSERT INTO notifications
-      (
-        recipient_id,
-        actor_id,
-        type,
-        entity_type,
-        entity_id,
-        parent_id,
-        group_key,
-        message
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-      .bind(
-        recipient_id,
-        actor_id,
-        type,
-        entity_type,
-        entity_id,
-        parent_id,
-        group_key,
-        message
-      )
-      .run();
-
-    return json({
-      success: true,
-      id: result.meta?.last_row_id ?? null,
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
     });
-  } catch (error) {
-    console.error('POST /api/notifications error:', error);
-    return json({ success: false, error: 'Failed to create notification' }, 500);
-  }
-};
+  };
 
-/* ==============================
-   MARK ALL AS READ
-   PATCH /api/notifications
-================================*/
-export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
-  try {
-    const userId = safeNumber(request.headers.get('x-user-id'));
-    if (!userId) return json({ success: false, error: 'Missing user id' }, 400);
-
-    await env.DB.prepare(`
-      UPDATE notifications
-      SET is_read = 1
-      WHERE recipient_id = ? AND COALESCE(is_read, 0) = 0
-    `)
-      .bind(userId)
-      .run();
-
-    return json({ success: true });
-  } catch (error) {
-    console.error('PATCH /api/notifications error:', error);
-    return json({ success: false, error: 'Failed to mark notifications as read' }, 500);
-  }
-};
-
-/* ==============================
-   DELETE ONE NOTIFICATION
-   DELETE /api/notifications?id=123
-================================*/
-export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
-  try {
-    const userId = safeNumber(request.headers.get('x-user-id'));
-    if (!userId) return json({ success: false, error: 'Missing user id' }, 400);
-
-    const url = new URL(request.url);
-    const id = safeNumber(url.searchParams.get('id'));
-    if (!id) return json({ success: false, error: 'Missing notification id' }, 400);
-
-    const existing = await env.DB.prepare(`
-      SELECT id
-      FROM notifications
-      WHERE id = ? AND recipient_id = ?
-      LIMIT 1
-    `)
-      .bind(id, userId)
-      .first();
-
-    if (!existing) {
-      return json({ success: false, error: 'Notification not found' }, 404);
+  /* =========================
+     CLICK HANDLERS
+  ========================= */
+  const handleContentClick = (n: Notification) => {
+    if (onOpenEntity) {
+      onOpenEntity(n);
     }
+  };
 
-    await env.DB.prepare(`
-      DELETE FROM notifications
-      WHERE id = ? AND recipient_id = ?
-    `)
-      .bind(id, userId)
-      .run();
+  /* =========================
+     ROW
+  ========================= */
+  const renderRow = (n: Notification) => {
+    const user = getUser(n.actor_id);
 
-    return json({ success: true, deleted_id: id });
-  } catch (error) {
-    console.error('DELETE /api/notifications error:', error);
-    return json({ success: false, error: 'Failed to delete notification' }, 500);
-  }
+    return (
+      <div
+        key={n.id}
+        style={{
+          display: "flex",
+          gap: 12,
+          padding: "10px 16px",
+          cursor: "pointer",
+          background: !n.is_read ? "rgba(24,119,242,0.12)" : "transparent",
+          borderBottom: "1px solid rgba(255,255,255,0.05)"
+        }}
+      >
+        {/* AVATAR */}
+        <img
+          src={user?.profile_image_url}
+          style={{
+            width: AVATAR_SIZE,
+            height: AVATAR_SIZE,
+            borderRadius: "50%",
+            objectFit: "cover"
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onProfileClick(user?.id || 0);
+          }}
+        />
+
+        {/* TEXT */}
+        <div style={{ flex: 1 }} onClick={() => handleContentClick(n)}>
+          <div style={{ fontSize: 15, color: "#fff" }}>
+            <span
+              style={{ fontWeight: 700 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onProfileClick(user?.id || 0);
+              }}
+            >
+              {user?.name || "Someone"}
+            </span>{" "}
+            <span style={{ color: "#ccc" }}>
+              {n.message}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 13, color: "#1877F2", marginTop: 4 }}>
+            {new Date(n.created_at).toLocaleString()}
+          </div>
+        </div>
+
+        {/* MENU */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpenId(prev => prev === n.id ? null : n.id);
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#aaa",
+              cursor: "pointer"
+            }}
+          >
+            ⋯
+          </button>
+
+          {menuOpenId === n.id && (
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: 24,
+                background: "#1c1c1c",
+                borderRadius: 8,
+                padding: 6,
+                minWidth: 140,
+                boxShadow: "0 8px 20px rgba(0,0,0,0.4)"
+              }}
+            >
+              <div
+                onClick={() => deleteNotification(n.id)}
+                style={{
+                  padding: "8px 10px",
+                  cursor: "pointer",
+                  color: "#ff4d4f"
+                }}
+              >
+                Delete notification
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div
+      ref={listRef}
+      style={{
+        background: "#0f0f0f",
+        color: "#fff",
+        minHeight: "100vh"
+      }}
+    >
+      {/* HEADER */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        padding: 16,
+        borderBottom: "1px solid rgba(255,255,255,0.08)"
+      }}>
+        {onBack && (
+          <button onClick={onBack} style={{ marginRight: 10 }}>
+            ←
+          </button>
+        )}
+
+        <h2 style={{ fontSize: 24, fontWeight: 800 }}>Notifications</h2>
+      </div>
+
+      {/* NEW */}
+      {newItems.length > 0 && (
+        <>
+          <div style={{ padding: "12px 16px", fontWeight: 700 }}>New</div>
+          {newItems.map(renderRow)}
+        </>
+      )}
+
+      {/* EARLIER */}
+      {visibleEarlier.length > 0 && (
+        <>
+          <div style={{ padding: "12px 16px", fontWeight: 700 }}>
+            Earlier
+          </div>
+
+          {visibleEarlier.map(renderRow)}
+
+          {visibleEarlier.length < earlierItems.length && (
+            <div style={{ padding: 16 }}>
+              <button
+                onClick={handleLoadMore}
+                style={{
+                  width: "100%",
+                  padding: 12,
+                  background: "#2a2a2a",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff"
+                }}
+              >
+                See previous notifications
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 };
