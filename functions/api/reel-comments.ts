@@ -1,4 +1,5 @@
 import type { PagesFunction } from '@cloudflare/workers-types';
+import { createNotification } from '../../utils/createNotification';
 
 type Env = { DB: D1Database };
 
@@ -57,7 +58,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     if (text.length > 2000) return json({ success: false, error: 'Comment is too long' }, 400);
 
     const reel = await env.DB.prepare(
-      `SELECT id FROM reels WHERE id = ? LIMIT 1`
+      `SELECT id, user_id FROM reels WHERE id = ? LIMIT 1`
     ).bind(reel_id).first();
 
     if (!reel) return json({ success: false, error: 'Reel not found' }, 404);
@@ -68,13 +69,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!user) return json({ success: false, error: 'User not found' }, 404);
 
+    let parentComment: any = null;
+
     if (parent_comment_id) {
-      const parent = await env.DB.prepare(
-        `SELECT id, reel_id FROM reel_comments WHERE id = ? LIMIT 1`
+      parentComment = await env.DB.prepare(
+        `SELECT id, reel_id, user_id FROM reel_comments WHERE id = ? LIMIT 1`
       ).bind(parent_comment_id).first();
 
-      if (!parent) return json({ success: false, error: 'Parent comment not found' }, 404);
-      if (toNum((parent as any).reel_id, 0) !== reel_id) {
+      if (!parentComment) return json({ success: false, error: 'Parent comment not found' }, 404);
+      if (toNum((parentComment as any).reel_id, 0) !== reel_id) {
         return json({ success: false, error: 'Parent comment does not belong to this reel' }, 400);
       }
     }
@@ -113,6 +116,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     )
       .bind(comment_id)
       .first();
+
+    const reelOwnerId = toNum((reel as any)?.user_id, 0);
+
+    if (parent_comment_id && parentComment) {
+      const parentOwnerId = toNum((parentComment as any)?.user_id, 0);
+
+      await createNotification(
+        env,
+        parentOwnerId,
+        user_id,
+        'reply',
+        'comment',
+        parent_comment_id,
+        `reel_comment:${parent_comment_id}:reply`,
+        'replied in Discuss'
+      );
+    } else {
+      await createNotification(
+        env,
+        reelOwnerId,
+        user_id,
+        'discuss',
+        'reel',
+        reel_id,
+        `reel:${reel_id}:discuss`,
+        'discussed your reel'
+      );
+    }
 
     return json({
       success: true,
