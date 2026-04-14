@@ -610,29 +610,127 @@ export interface Reel {
 // =========================
 // NOTIFICATIONS
 // =========================
+
+export type NotificationType =
+  | "like"
+  | "react"
+  | "reaction"
+  | "comment"
+  | "reply"
+  | "follow"
+  | "share"
+  | "mention"
+  | "tag"
+  | "birthday"
+  | "event"
+  | "system"
+  | "friend_request"
+  | "friend_accept"
+  | "group_invite"
+  | "group_request"
+  | "group_approved"
+  | "group_declined"
+  | "group_post"
+  | "group_comment"
+  | "group_reply"
+  | "reel_like"
+  | "reel_comment"
+  | "story_reaction"
+  | "story_reply"
+  | "marketplace"
+  | "product_like"
+  | "product_comment"
+  | "product_interest"
+  | "order"
+  | "payment"
+  | "security"
+  | "admin"
+  | "warning"
+  | "info";
+
+export type NotificationEntityType =
+  | "post"
+  | "comment"
+  | "reply"
+  | "reel"
+  | "story"
+  | "product"
+  | "group"
+  | "group_post"
+  | "group_comment"
+  | "event"
+  | "profile"
+  | "page"
+  | "message"
+  | "order"
+  | "payment"
+  | "system"
+  | "";
+
+export interface NotificationActorRef {
+  id: number;
+  name?: string;
+  username?: string;
+  profile_image_url?: string;
+  is_verified?: boolean;
+}
+
 export interface Notification {
   id: number;
-  user_id: number;
-  sender_id: number;
-  type:
-    | 'like'
-    | 'comment'
-    | 'follow'
-    | 'share'
-    | 'birthday'
-    | 'reaction'
-    | 'event'
-    | 'system'
-    | 'mention';
-  content: string;
+
+  // who receives it / who triggered it
+  recipient_id: number;
+  actor_id: number;
+
+  // main action
+  type: NotificationType;
+
+  // what object the notification is about
+  entity_type?: NotificationEntityType | null;
+  entity_id?: string | number | null;
+
+  // optional relationship targets
+  parent_id?: string | number | null;
+  group_key?: string | null;
+
+  // display / aggregation
+  message?: string | null;
+  actors_json?: string | null;
+  actors_count?: number | null;
+
+  // state / dates
+  is_read: number | boolean;
+  created_at: string;
+  updated_at?: string | null;
+
+  // optional enriched frontend fields
+  actor?: NotificationActorRef | null;
+  actors?: NotificationActorRef[];
+
+  // convenience aliases for older parts of app
+  createdAt?: string;
+  updatedAt?: string;
+  isRead?: boolean;
+
+  // legacy compatibility aliases
+  user_id?: number;        // old alias for recipient_id
+  sender_id?: number;      // old alias for actor_id
+  content?: string;        // old alias for message
+
+  // direct entity shortcuts for older code
   post_id?: number;
   reel_id?: number;
-  created_at: string;
-  is_read: boolean;
+  product_id?: string | number;
+  comment_id?: string | number;
+  group_id?: string | number;
+  event_id?: string | number;
+  profile_id?: number;
 
-  // aliases
-  createdAt?: string;
-  isRead?: boolean;
+  // optional UI helpers
+  image_url?: string | null;
+  thumbnail_url?: string | null;
+  link?: string | null;
+  metadata?: Record<string, any> | null;
 }
 // =========================
 // MESSAGING (FULLY COMPATIBLE WITH Chat.tsx)
