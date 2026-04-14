@@ -1,11 +1,12 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
+import { createNotification } from "../../../utils/createNotification";
 
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -30,12 +31,26 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const storyId = toInt(params.id, 0);
+    const storyId = toInt((params as any)?.id, 0);
     const body = await request.json().catch(() => ({} as any));
-    const userId = toInt(body.user_id, 0);
+
+    const headerUserId = toInt(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toInt(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
 
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
     if (!userId) return json({ success: false, error: "user_id is required" }, 400);
+
+    const story = await env.DB.prepare(
+      `SELECT id, user_id
+       FROM stories
+       WHERE id = ?
+       LIMIT 1`
+    ).bind(storyId).first();
+
+    if (!story) {
+      return json({ success: false, error: "Story not found" }, 404);
+    }
 
     await env.DB.prepare(
       `
@@ -44,8 +59,23 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       `
     ).bind(storyId, userId).run();
 
+    const storyOwnerId = toInt((story as any)?.user_id, 0);
+
+    await createNotification(
+      env,
+      storyOwnerId,
+      userId,
+      "share",
+      "story",
+      storyId,
+      `story:${storyId}:share`,
+      "shared your story"
+    );
+
     const countRow = await env.DB.prepare(
-      `SELECT COUNT(*) as shares_count FROM story_shares WHERE story_id = ?`
+      `SELECT COUNT(*) as shares_count
+       FROM story_shares
+       WHERE story_id = ?`
     ).bind(storyId).first();
 
     return json({
