@@ -8658,9 +8658,9 @@ return (
             }}
           />
         )}
-  {view === 'notifications' && (
+ {view === 'notifications' && (
   <NotificationsPage
-    notifications={notifications}
+    notifications={enrichedNotifications}
     users={users}
     onBack={() => navigateTo('home')}
     onProfileClick={(id) => openProfile(id)}
@@ -8669,7 +8669,7 @@ return (
     onMarkAllAsRead={markAllNotificationsAsRead}
     stickyHeader
   />
-)}  
+)}
 
         {view === 'ads' && currentUser && (
           <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
