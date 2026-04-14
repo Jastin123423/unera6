@@ -7954,9 +7954,11 @@ const markAllNotificationsAsRead = useCallback(async () => {
 }, [currentUser]);
 
     //=======NOTIFICATION TARGET ===          
-   const openNotificationTarget = useCallback((notification: any) => {
-  const entityType = String(notification?.entity_type || "").toLowerCase();
-  const entityId = notification?.entity_id;
+ 
+ const openNotificationTarget = useCallback((notification: any) => {
+  // Use target_type and target_id from enriched notification (priority)
+  const targetType = String(notification?.target_type || notification?.entity_type || "").toLowerCase();
+  const targetId = Number(notification?.target_id ?? notification?.entity_id ?? 0);
   const actorId = Number(notification?.actor_id || 0);
   const type = String(notification?.type || "").toLowerCase();
 
@@ -7979,51 +7981,183 @@ const markAllNotificationsAsRead = useCallback(async () => {
     }
   };
 
-  // Handle different entity types
-  if (entityType === "post" && entityId) {
+  // ============================================================================
+  // ✅ ROUTE BY target_type + target_id (NOT entity_id only!)
+  // ============================================================================
+  
+  // Handle POST
+  if ((targetType === "post" || targetType === "discuss") && targetId) {
     markAsRead();
-    openPost(Number(entityId));
+    openPost(targetId);
     return;
   }
 
-  if (entityType === "reel" && entityId) {
+  // Handle REEL
+  if (targetType === "reel" && targetId) {
     markAsRead();
-    openReel(Number(entityId));
+    openReel(targetId);
     return;
   }
 
-  if (entityType === "product" && entityId) {
+  // Handle STORY
+  if (targetType === "story" && targetId) {
     markAsRead();
-    openProduct(entityId);
+    const story = stories.find(s => Number(s.id) === targetId);
+    if (story) {
+      openStoryViewer(story);
+    } else {
+      // Fallback to profile if story not found
+      openProfile(actorId);
+    }
     return;
   }
 
-  if (entityType === "group_post" && entityId) {
+  // Handle SONG
+  if (targetType === "song" && targetId) {
     markAsRead();
-    openGroupPost(entityId);
+    navigateTo('music');
+    const song = songs.find(s => Number(s.id) === targetId);
+    if (song) {
+      onPlayTrack(song as any);
+    } else {
+      openProfile(actorId);
+    }
     return;
   }
 
-  if (entityType === "event" && entityId) {
+  // Handle PODCAST
+  if (targetType === "podcast" && targetId) {
     markAsRead();
-    openEvent(entityId);
+    navigateTo('music');
+    // Find podcast episode and play
+    const podcast = songs.find(s => Number(s.id) === targetId && s.type === 'podcast');
+    if (podcast) {
+      onPlayTrack(podcast as any);
+    } else {
+      openProfile(actorId);
+    }
     return;
   }
 
-  // Follow notifications or fallback to profile
+  // Handle PRODUCT
+  if (targetType === "product" && targetId) {
+    markAsRead();
+    openProduct(targetId);
+    return;
+  }
+
+  // Handle EVENT
+  if (targetType === "event" && targetId) {
+    markAsRead();
+    openEvent(targetId);
+    return;
+  }
+
+  // Handle GROUP POST
+  if (targetType === "group_post" && targetId) {
+    markAsRead();
+    openGroupPost(targetId);
+    return;
+  }
+
+  // Handle GROUP (join/invite)
+  if (targetType === "group" && targetId) {
+    markAsRead();
+    navigateTo('groups');
+    // Optionally highlight the specific group
+    return;
+  }
+
+  // Handle FOLLOW
   if (type === "follow" && actorId) {
     markAsRead();
     openProfile(actorId);
     return;
   }
 
-  // Fallback to actor's profile
+  // Handle MENTION
+  if (type === "mention" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Handle TAG
+  if (type === "tag" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Handle REACTION
+  if ((type === "react" || type === "reaction" || type === "like") && targetId) {
+    markAsRead();
+    // For reactions, open the target content
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "story") {
+      const story = stories.find(s => Number(s.id) === targetId);
+      if (story) openStoryViewer(story);
+    } else if (targetType === "song") {
+      navigateTo('music');
+      const song = songs.find(s => Number(s.id) === targetId);
+      if (song) onPlayTrack(song as any);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else if (targetType === "product") {
+      openProduct(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle SHARE
+  if (type === "share" && targetId) {
+    markAsRead();
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle DISCUSS/COMMENT/REPLY
+  if ((type === "discuss" || type === "comment" || type === "reply") && targetId) {
+    markAsRead();
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else if (targetType === "group_post") {
+      openGroupPost(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Fallback to actor's profile if nothing else matches
   if (actorId) {
     markAsRead();
     openProfile(actorId);
     return;
   }
-}, [currentUser, openPost, openReel, openProduct, openGroupPost, openEvent, openProfile]);
+  
+  // Last resort: just mark as read and close
+  markAsRead();
+}, [currentUser, openPost, openReel, openProduct, openGroupPost, openEvent, openProfile, openStoryViewer, navigateTo, onPlayTrack, songs, stories]);         
+
+  
 // ============================================================================
 // ✅ RENDER
 // ============================================================================
