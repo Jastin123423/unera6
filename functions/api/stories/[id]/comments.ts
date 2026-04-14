@@ -1,11 +1,12 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
+import { createNotification } from "../../../utils/createNotification";
 
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -32,7 +33,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const storyId = toInt(params.id, 0);
+    const storyId = toInt((params as any)?.id, 0);
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
 
     const { results } = await env.DB.prepare(
@@ -71,16 +72,46 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const storyId = toInt(params.id, 0);
+    const storyId = toInt((params as any)?.id, 0);
     const body = await request.json().catch(() => ({} as any));
 
-    const userId = toInt(body.user_id, 0);
+    const headerUserId = toInt(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toInt(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
+
     const parentId = body.parent_id == null ? null : toInt(body.parent_id, 0);
     const content = toStr(body.content, "").trim();
 
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
     if (!userId) return json({ success: false, error: "user_id is required" }, 400);
     if (!content) return json({ success: false, error: "content is required" }, 400);
+
+    const story = await env.DB.prepare(
+      `SELECT id, user_id FROM stories WHERE id = ? LIMIT 1`
+    ).bind(storyId).first();
+
+    if (!story) {
+      return json({ success: false, error: "Story not found" }, 404);
+    }
+
+    let parentComment: any = null;
+
+    if (parentId) {
+      parentComment = await env.DB.prepare(
+        `SELECT id, story_id, user_id
+         FROM story_comments
+         WHERE id = ? AND is_deleted = 0
+         LIMIT 1`
+      ).bind(parentId).first();
+
+      if (!parentComment) {
+        return json({ success: false, error: "Parent comment not found" }, 404);
+      }
+
+      if (toInt((parentComment as any).story_id, 0) !== storyId) {
+        return json({ success: false, error: "Parent comment does not belong to this story" }, 400);
+      }
+    }
 
     const result = await env.DB.prepare(
       `
@@ -113,6 +144,34 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       `
     ).bind(commentId).first();
 
+    const storyOwnerId = toInt((story as any)?.user_id, 0);
+
+    if (parentId && parentComment) {
+      const parentOwnerId = toInt((parentComment as any)?.user_id, 0);
+
+      await createNotification(
+        env,
+        parentOwnerId,
+        userId,
+        "reply",
+        "comment",
+        parentId,
+        `story_comment:${parentId}:reply`,
+        "replied in Discuss"
+      );
+    } else {
+      await createNotification(
+        env,
+        storyOwnerId,
+        userId,
+        "discuss",
+        "story",
+        storyId,
+        `story:${storyId}:discuss`,
+        "discussed your story"
+      );
+    }
+
     return json({ success: true, comment }, 201);
   } catch (err: any) {
     return json(
@@ -126,11 +185,14 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const storyId = toInt(params.id, 0);
+    const storyId = toInt((params as any)?.id, 0);
     const body = await request.json().catch(() => ({} as any));
 
+    const headerUserId = toInt(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toInt(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
+
     const commentId = toInt(body.comment_id, 0);
-    const userId = toInt(body.user_id, 0);
     const content = toStr(body.content, "").trim();
 
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
@@ -168,11 +230,14 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, params
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const storyId = toInt(params.id, 0);
+    const storyId = toInt((params as any)?.id, 0);
     const body = await request.json().catch(() => ({} as any));
 
+    const headerUserId = toInt(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toInt(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
+
     const commentId = toInt(body.comment_id, 0);
-    const userId = toInt(body.user_id, 0);
 
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
     if (!commentId) return json({ success: false, error: "comment_id is required" }, 400);
