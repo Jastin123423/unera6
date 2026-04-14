@@ -13,12 +13,13 @@ interface Props {
   stickyHeader?: boolean;
 }
 
-const AVATAR_SIZE = 56;
-const STACK_AVATAR_SIZE = 24;
+const AVATAR_SIZE = 64;
+const STACK_AVATAR_SIZE = 28;
 const INITIAL_EARLIER_COUNT = 10;
 const LOAD_MORE_COUNT = 10;
 
 const safeText = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
+
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -60,12 +61,18 @@ const formatTimestamp = (iso?: string | null) => {
   return `${month} ${dayNum} at ${hour12}:${minutes}${ampm}`;
 };
 
+const toWords = (text: string, limit = 10) => {
+  const clean = safeText(text).replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const words = clean.split(" ");
+  if (words.length <= limit) return clean;
+  return `${words.slice(0, limit).join(" ")}...`;
+};
+
 const parseActorsJson = (value: any): number[] => {
   if (!value) return [];
   if (Array.isArray(value)) {
-    return value
-      .map((x) => safeNumber(x, 0))
-      .filter((x) => x > 0);
+    return value.map((x) => safeNumber(x, 0)).filter((x) => x > 0);
   }
 
   if (typeof value === "string") {
@@ -103,58 +110,40 @@ const getStackActorIds = (n: Notification): number[] => {
 
 const getReactionEmoji = (n: Notification) => {
   const type = safeText(n.type).toLowerCase();
+  const reactionType = safeText((n as any).reaction_type).toLowerCase();
   const rawMessage = safeText(n.message).toLowerCase();
 
-  if (
-    rawMessage.includes("love") ||
-    rawMessage.includes("heart")
-  ) return "❤️";
+  const source = `${reactionType} ${rawMessage} ${type}`;
 
-  if (
-    rawMessage.includes("haha") ||
-    rawMessage.includes("laugh")
-  ) return "😂";
-
-  if (
-    rawMessage.includes("wow")
-  ) return "😮";
-
-  if (
-    rawMessage.includes("sad")
-  ) return "😢";
-
-  if (
-    rawMessage.includes("angry")
-  ) return "😡";
-
-  if (
-    rawMessage.includes("fire")
-  ) return "🔥";
-
-  if (
-    rawMessage.includes("party")
-  ) return "🎉";
-
-  if (
-    rawMessage.includes("clap")
-  ) return "👏";
-
-  if (
-    rawMessage.includes("like") ||
-    rawMessage.includes("react") ||
-    rawMessage.includes("reaction")
-  ) return "👍";
-
-  if (
-    type === "react" ||
-    type === "reaction" ||
-    type === "like"
-  ) return "👍";
+  if (source.includes("love") || source.includes("heart")) return "❤️";
+  if (source.includes("haha") || source.includes("laugh")) return "😂";
+  if (source.includes("wow")) return "😮";
+  if (source.includes("sad")) return "😢";
+  if (source.includes("angry")) return "😡";
+  if (source.includes("fire")) return "🔥";
+  if (source.includes("party")) return "🎉";
+  if (source.includes("clap")) return "👏";
+  if (source.includes("like") || source.includes("react") || source.includes("reaction")) return "👍";
 
   return "";
 };
 
-const getNotificationIcon = (n: Notification) => {
+const getReactionEmojiCluster = (n: Notification): string[] => {
+  const primary = getReactionEmoji(n);
+  if (!primary) return [];
+
+  const lower = `${safeText((n as any).reaction_type).toLowerCase()} ${safeText(n.message).toLowerCase()}`;
+
+  if (lower.includes("love") && lower.includes("fire")) return ["❤️", "🔥", "👍"];
+  if (lower.includes("love")) return ["❤️", "👍"];
+  if (lower.includes("haha")) return ["😂", "👍"];
+  if (lower.includes("fire")) return ["🔥", "👍"];
+  if (lower.includes("wow")) return ["😮", "👍"];
+
+  return [primary];
+};
+
+const getNotificationBadge = (n: Notification) => {
   const type = safeText(n.type).toLowerCase();
   const entityType = safeText(n.entity_type || "").toLowerCase();
   const reactionEmoji = getReactionEmoji(n);
@@ -194,12 +183,13 @@ const getNotificationIcon = (n: Notification) => {
   return { kind: "icon" as const, value: "fas fa-bell", bg: "#1877F2" };
 };
 
-const buildNotificationMessage = (n: Notification) => {
+const buildNotificationMessageParts = (n: Notification) => {
   const type = safeText(n.type).toLowerCase();
   const entityType = safeText(n.entity_type || "").toLowerCase();
   const rawMessage = safeText(n.message || "");
   const actorsCount = Math.max(1, safeNumber(n.actors_count, 1));
   const othersCount = Math.max(0, actorsCount - 1);
+  const reactionType = safeText((n as any).reaction_type).toLowerCase();
 
   const targetLabel =
     entityType === "post"
@@ -216,69 +206,126 @@ const buildNotificationMessage = (n: Notification) => {
       ? "your Discuss"
       : entityType === "story"
       ? "your story"
-      : "you";
+      : "your content";
 
-  const withOthers = (single: string, plural: string) =>
-    othersCount > 0 ? `and ${othersCount} others ${plural}` : single;
+  const othersText = othersCount > 0 ? ` and ${othersCount} others` : "";
+
+  const reactionVerb = (() => {
+    const source = `${reactionType} ${rawMessage}`.toLowerCase();
+    if (source.includes("love")) return "loved";
+    if (source.includes("haha") || source.includes("laugh")) return "laughed at";
+    if (source.includes("wow")) return "were amazed by";
+    if (source.includes("sad")) return "felt sad about";
+    if (source.includes("angry")) return "felt angry about";
+    if (source.includes("fire")) return "fired up";
+    if (source.includes("party")) return "celebrated";
+    if (source.includes("clap")) return "applauded";
+    return "reacted to";
+  })();
 
   if (type === "react" || type === "reaction" || type === "like") {
-    return withOthers(`reacted to ${targetLabel}`, `reacted to ${targetLabel}`);
+    return {
+      middle: `${othersText} ${reactionVerb} ${targetLabel}`.trim(),
+      cta: "See reactions.",
+    };
   }
 
   if (type === "discuss" || type === "comment") {
-    return withOthers(`discussed ${targetLabel}`, `discussed ${targetLabel}`);
+    return {
+      middle: `${othersText} discussed ${targetLabel}`.trim(),
+      cta: othersCount > 0 ? "Join their Discuss." : "Join the Discuss.",
+    };
   }
 
   if (type === "reply") {
-    return withOthers(`replied in Discuss`, `replied in Discuss`);
+    return {
+      middle: `${othersText} replied in Discuss`.trim(),
+      cta: "Join the conversation.",
+    };
   }
 
   if (type === "share") {
-    return withOthers(`shared ${targetLabel}`, `shared ${targetLabel}`);
+    return {
+      middle: `${othersText} shared ${targetLabel}`.trim(),
+      cta: "View shares.",
+    };
   }
 
   if (type === "follow") {
-    return withOthers(`followed you`, `followed you`);
+    return {
+      middle: `${othersText} followed you`.trim(),
+      cta: othersCount > 0 ? "View profiles." : "View profile.",
+    };
   }
 
   if (type === "mention") {
-    return withOthers(`mentioned you`, `mentioned you`);
+    return {
+      middle: `${othersText} mentioned you`.trim(),
+      cta: "See mention.",
+    };
   }
 
   if (type === "tag") {
-    return withOthers(`tagged you`, `tagged you`);
+    return {
+      middle: `${othersText} tagged you`.trim(),
+      cta: "Open now.",
+    };
   }
 
   if (type === "birthday") {
-    return rawMessage || "has a birthday today. Wish them a happy birthday!";
+    return {
+      middle: rawMessage || "has a birthday today",
+      cta: "Wish them now.",
+    };
   }
 
   if (type === "event") {
-    return rawMessage || "invited you to an event";
+    return {
+      middle: rawMessage || "invited you to an event",
+      cta: "View details.",
+    };
   }
 
   if (type === "group_invite") {
-    return rawMessage || "invited you to a group";
+    return {
+      middle: rawMessage || "invited you to a group",
+      cta: "View invitation.",
+    };
   }
 
   if (type === "group_request") {
-    return rawMessage || "requested to join your group";
+    return {
+      middle: rawMessage || "requested to join your group",
+      cta: "Review request.",
+    };
   }
 
   if (type === "group_approved") {
-    return rawMessage || "approved your group request";
+    return {
+      middle: rawMessage || "approved your group request",
+      cta: "Open group.",
+    };
   }
 
   if (type === "group_declined") {
-    return rawMessage || "declined your group request";
+    return {
+      middle: rawMessage || "declined your group request",
+      cta: "See details.",
+    };
   }
 
   if (type === "group_post") {
-    return rawMessage || "posted in your group";
+    return {
+      middle: rawMessage || "posted in your group",
+      cta: "Join the Discuss.",
+    };
   }
 
   if (type === "product_interest" || type === "marketplace") {
-    return rawMessage || `showed interest in ${targetLabel}`;
+    return {
+      middle: rawMessage || `showed interest in ${targetLabel}`,
+      cta: "View details.",
+    };
   }
 
   if (
@@ -288,10 +335,16 @@ const buildNotificationMessage = (n: Notification) => {
     type === "warning" ||
     type === "info"
   ) {
-    return rawMessage || "sent you an update";
+    return {
+      middle: rawMessage || "sent you an update",
+      cta: "",
+    };
   }
 
-  return rawMessage || "interacted with you";
+  return {
+    middle: rawMessage || "interacted with you",
+    cta: "",
+  };
 };
 
 const NotificationStackedAvatars: React.FC<{
@@ -300,20 +353,22 @@ const NotificationStackedAvatars: React.FC<{
   onProfileClick: (id: number) => void;
 }> = ({ notification, users, onProfileClick }) => {
   const actorIds = getStackActorIds(notification);
+  const totalCount = Math.max(1, safeNumber(notification.actors_count, 1));
 
   const actors = actorIds
     .map((id) => users.find((u) => u.id === id))
     .filter(Boolean) as User[];
 
-  if (actors.length <= 1) return null;
+  if (actors.length <= 1 && totalCount <= 1) return null;
+
+  const extra = Math.max(0, totalCount - actors.length);
 
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        marginTop: 7,
-        marginLeft: 0,
+        marginTop: 8,
       }}
     >
       {actors.map((user, index) => (
@@ -331,11 +386,11 @@ const NotificationStackedAvatars: React.FC<{
             borderRadius: "50%",
             overflow: "hidden",
             border: "2px solid #121212",
-            marginLeft: index === 0 ? 0 : -8,
+            marginLeft: index === 0 ? 0 : -9,
             padding: 0,
             background: "#2A2D31",
             cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.28)",
           }}
         >
           <img
@@ -349,6 +404,53 @@ const NotificationStackedAvatars: React.FC<{
             }}
           />
         </button>
+      ))}
+
+      {extra > 0 && (
+        <div
+          style={{
+            marginLeft: actors.length > 0 ? -9 : 0,
+            minWidth: 30,
+            height: STACK_AVATAR_SIZE,
+            borderRadius: 999,
+            padding: "0 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#232B36",
+            border: "2px solid #121212",
+            color: "#C9D1D9",
+            fontSize: 11,
+            fontWeight: 800,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.28)",
+          }}
+        >
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const NotificationReactionCluster: React.FC<{ notification: Notification }> = ({ notification }) => {
+  const emojis = getReactionEmojiCluster(notification);
+  if (emojis.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        padding: "3px 6px",
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.05)",
+      }}
+    >
+      {emojis.slice(0, 3).map((emoji, i) => (
+        <span key={`${emoji}-${i}`} style={{ fontSize: 13, lineHeight: 1 }}>
+          {emoji}
+        </span>
       ))}
     </div>
   );
@@ -451,12 +553,7 @@ export const NotificationsPage: React.FC<Props> = ({
     if (isProcessing || unreadCount === 0) return;
 
     const snapshot = localNotifications.map((n) => ({ ...n }));
-    setLocalNotifications((prev) =>
-      prev.map((n) => ({
-        ...n,
-        is_read: 1,
-      }))
-    );
+    setLocalNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
     setIsProcessing(true);
 
     try {
@@ -494,7 +591,6 @@ export const NotificationsPage: React.FC<Props> = ({
     const snapshot = localNotifications;
     setDeletingId(notificationId);
     setMenuOpenId(null);
-
     setLocalNotifications((prev) => prev.filter((n) => safeNumber(n.id, 0) !== notificationId));
 
     try {
@@ -530,17 +626,17 @@ export const NotificationsPage: React.FC<Props> = ({
   const renderRow = (n: Notification) => {
     const actor = getUser(n.actor_id);
     const actorName = safeText(actor?.name, "Someone");
-    const avatar = safeText(
-      actor?.profile_image_url,
-      "https://via.placeholder.com/100?text=User"
-    );
+    const avatar = safeText(actor?.profile_image_url, "https://via.placeholder.com/100?text=User");
     const isUnread = !safeNumber(n.is_read, 0);
     const notificationId = safeNumber(n.id, 0);
-    const iconMeta = getNotificationIcon(n);
-    const bodyText = buildNotificationMessage(n);
+    const badge = getNotificationBadge(n);
     const displayTime = safeText(n.updated_at) || safeText(n.created_at);
-    const actorsCount = Math.max(1, safeNumber(n.actors_count, 1));
-    const hasStack = getStackActorIds(n).length > 1;
+    const previewText = toWords(
+      safeText((n as any).preview_text || (n as any).content_preview || (n as any).preview_title || ""),
+      10
+    );
+    const messageParts = buildNotificationMessageParts(n);
+    const hasStack = getStackActorIds(n).length > 1 || safeNumber(n.actors_count, 1) > 1;
 
     return (
       <div
@@ -549,15 +645,22 @@ export const NotificationsPage: React.FC<Props> = ({
         style={{
           display: "flex",
           alignItems: "flex-start",
-          gap: 12,
-          padding: "10px 16px",
-          background: isUnread ? "rgba(24,119,242,0.10)" : "transparent",
+          gap: 14,
+          padding: "14px 16px",
+          background: isUnread ? "linear-gradient(90deg, rgba(24,119,242,0.13) 0%, rgba(24,119,242,0.05) 42%, rgba(0,0,0,0) 100%)" : "transparent",
           borderBottom: "1px solid rgba(255,255,255,0.05)",
+          borderLeft: isUnread ? "3px solid rgba(78,161,255,0.9)" : "3px solid transparent",
           fontFamily: "'Roboto', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif",
+          transform: "translateZ(0)",
         }}
       >
         <div
-          style={{ flexShrink: 0, position: "relative", cursor: "pointer" }}
+          style={{
+            flexShrink: 0,
+            position: "relative",
+            cursor: "pointer",
+            filter: isUnread ? "drop-shadow(0 4px 14px rgba(24,119,242,0.12))" : "none",
+          }}
           onClick={(e) => {
             e.stopPropagation();
             onProfileClick(actor?.id || 0);
@@ -573,41 +676,33 @@ export const NotificationsPage: React.FC<Props> = ({
               objectFit: "cover",
               background: "#2A2D31",
               display: "block",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.24)",
             }}
           />
 
           <div
             style={{
               position: "absolute",
-              right: -2,
-              bottom: -2,
-              minWidth: 22,
-              height: 22,
+              right: -3,
+              bottom: -3,
+              minWidth: 24,
+              height: 24,
               borderRadius: "50%",
-              background: iconMeta.bg,
+              background: badge.bg,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               border: "2px solid #121212",
               boxSizing: "border-box",
-              padding: iconMeta.kind === "emoji" ? "0 5px" : 0,
+              padding: badge.kind === "emoji" ? "0 5px" : 0,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
           >
-            {iconMeta.kind === "emoji" ? (
-              <span
-                style={{
-                  fontSize: 11,
-                  lineHeight: 1,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {iconMeta.value}
-              </span>
+            {badge.kind === "emoji" ? (
+              <span style={{ fontSize: 12, lineHeight: 1 }}>{badge.value}</span>
             ) : (
               <i
-                className={iconMeta.value}
+                className={badge.value}
                 style={{
                   fontSize: 10,
                   color: "#FFFFFF",
@@ -630,8 +725,8 @@ export const NotificationsPage: React.FC<Props> = ({
               }
             }}
             style={{
-              fontSize: 15,
-              lineHeight: 1.3,
+              fontSize: 16.5,
+              lineHeight: 1.34,
               color: "#F5F7FA",
               wordBreak: "break-word",
               cursor: "pointer",
@@ -643,21 +738,47 @@ export const NotificationsPage: React.FC<Props> = ({
                 onProfileClick(actor?.id || 0);
               }}
               style={{
-                fontWeight: 700,
+                fontWeight: 800,
                 cursor: "pointer",
                 color: "#FFFFFF",
+                letterSpacing: "-0.01em",
               }}
             >
               {actorName}
-            </span>{" "}
+            </span>
+
+            {safeNumber(n.actors_count, 1) > 1 && (
+              <span
+                style={{
+                  fontWeight: 800,
+                  color: "#FFFFFF",
+                }}
+              >
+                {messageParts.middle.startsWith(" and") ? "" : ""}
+              </span>
+            )}
+
             <span
               style={{
-                fontWeight: 400,
-                color: "#D0D7DE",
+                fontWeight: 500,
+                color: "#E3E8EF",
               }}
             >
-              {bodyText}
+              {" "}
+              {messageParts.middle}
             </span>
+
+            {messageParts.cta && (
+              <span
+                style={{
+                  fontWeight: 800,
+                  color: "#63AEFF",
+                }}
+              >
+                {" "}
+                {messageParts.cta}
+              </span>
+            )}
           </div>
 
           {hasStack && (
@@ -668,62 +789,65 @@ export const NotificationsPage: React.FC<Props> = ({
             />
           )}
 
-          {!hasStack && actorsCount > 1 && (
+          {previewText && (
             <div
+              onClick={() => handleOpenNotification(n)}
               style={{
-                marginTop: 7,
-                fontSize: 12.5,
-                color: "#9AA4AF",
-                fontWeight: 600,
+                marginTop: 9,
+                display: "inline-flex",
+                alignItems: "center",
+                maxWidth: "100%",
+                background: "rgba(255,255,255,0.045)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 14,
+                padding: "10px 12px",
+                color: "#AAB6C2",
+                fontSize: 13.5,
+                lineHeight: 1.35,
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+                backdropFilter: "blur(8px)",
+                cursor: "pointer",
               }}
             >
-              {actorsCount} people
+              <span style={{ marginRight: 6, color: "#778394" }}>“</span>
+              <span>{previewText}</span>
+              <span style={{ marginLeft: 2, color: "#778394" }}>”</span>
             </div>
           )}
 
           <div
             style={{
-              marginTop: hasStack || actorsCount > 1 ? 7 : 5,
+              marginTop: previewText ? 9 : hasStack ? 9 : 7,
               display: "flex",
               alignItems: "center",
-              gap: 6,
+              gap: 8,
               flexWrap: "wrap",
             }}
           >
             <span
               style={{
-                fontSize: 12.5,
+                fontSize: 13,
                 lineHeight: 1.2,
-                color: isUnread ? "#4EA1FF" : "#8B98A5",
+                color: isUnread ? "#69B2FF" : "#8B98A5",
                 fontWeight: isUnread ? 700 : 500,
               }}
             >
               {formatTimestamp(displayTime)}
             </span>
 
-            {getReactionEmoji(n) && (
-              <span
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1,
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
-              >
-                {getReactionEmoji(n)}
-              </span>
-            )}
+            <NotificationReactionCluster notification={n} />
 
             {isUnread && (
               <span
                 aria-hidden
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 9,
+                  height: 9,
                   borderRadius: "50%",
                   background: "#1877F2",
                   display: "inline-block",
                   flexShrink: 0,
+                  boxShadow: "0 0 0 4px rgba(24,119,242,0.12)",
                 }}
               />
             )}
@@ -747,17 +871,21 @@ export const NotificationsPage: React.FC<Props> = ({
             aria-label="Notification menu"
             style={{
               border: "none",
-              background: "transparent",
+              background: "rgba(255,255,255,0.03)",
               color: "#9AA4AF",
               cursor: "pointer",
-              padding: 6,
-              marginTop: 1,
+              padding: 0,
+              marginTop: 2,
               borderRadius: 999,
-              width: 32,
-              height: 32,
+              width: 34,
+              height: 34,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backdropFilter: "blur(8px)",
             }}
           >
-            <i className="fas fa-ellipsis-h" style={{ fontSize: 16 }} />
+            <i className="fas fa-ellipsis-h" style={{ fontSize: 15 }} />
           </button>
 
           {menuOpenId === notificationId && (
@@ -765,14 +893,15 @@ export const NotificationsPage: React.FC<Props> = ({
               style={{
                 position: "absolute",
                 right: 0,
-                top: 34,
-                minWidth: 180,
-                background: "#1B1E22",
+                top: 38,
+                minWidth: 190,
+                background: "rgba(27,30,34,0.98)",
                 border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 12,
-                boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+                borderRadius: 14,
+                boxShadow: "0 14px 36px rgba(0,0,0,0.42)",
                 overflow: "hidden",
                 zIndex: 100,
+                backdropFilter: "blur(14px)",
               }}
             >
               <button
@@ -786,13 +915,13 @@ export const NotificationsPage: React.FC<Props> = ({
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  padding: "12px 14px",
+                  padding: "13px 14px",
                   border: "none",
                   background: "transparent",
-                  color: "#FF6B6B",
+                  color: "#FF7878",
                   cursor: deletingId === notificationId ? "not-allowed" : "pointer",
                   fontSize: 14,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   textAlign: "left",
                   opacity: deletingId === notificationId ? 0.6 : 1,
                 }}
@@ -807,6 +936,9 @@ export const NotificationsPage: React.FC<Props> = ({
     );
   };
 
+  const newCount = newNotifications.length;
+  const earlierCount = earlierNotifications.length;
+
   return (
     <section
       className="w-full max-w-3xl mx-auto"
@@ -820,17 +952,18 @@ export const NotificationsPage: React.FC<Props> = ({
       <div
         className={stickyHeader ? "sticky top-0 z-10" : ""}
         style={{
-          background: "rgba(18,18,18,0.96)",
-          backdropFilter: stickyHeader ? "blur(10px)" : undefined,
+          background: "rgba(18,18,18,0.88)",
+          backdropFilter: "blur(16px)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: stickyHeader ? "0 10px 26px rgba(0,0,0,0.18)" : "none",
         }}
       >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 10,
-            padding: "14px 16px 12px",
+            gap: 12,
+            padding: "16px 16px 13px",
           }}
         >
           {onBack && (
@@ -838,14 +971,15 @@ export const NotificationsPage: React.FC<Props> = ({
               onClick={onBack}
               aria-label="Back"
               style={{
-                width: 38,
-                height: 38,
+                width: 40,
+                height: 40,
                 borderRadius: "50%",
                 border: "none",
-                background: "#23262B",
+                background: "rgba(255,255,255,0.06)",
                 color: "#FFFFFF",
                 cursor: "pointer",
                 flexShrink: 0,
+                boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
               }}
             >
               <i className="fas fa-arrow-left" style={{ fontSize: 18 }} />
@@ -856,10 +990,11 @@ export const NotificationsPage: React.FC<Props> = ({
             <h2
               style={{
                 margin: 0,
-                fontSize: 27,
-                lineHeight: 1.1,
+                fontSize: 29,
+                lineHeight: 1.05,
                 fontWeight: 800,
                 color: "#FFFFFF",
+                letterSpacing: "-0.02em",
               }}
             >
               Notifications
@@ -872,18 +1007,19 @@ export const NotificationsPage: React.FC<Props> = ({
             aria-label="Mark all as read"
             title="Mark all as read"
             style={{
-              minWidth: 40,
-              height: 40,
+              minWidth: 42,
+              height: 42,
               borderRadius: 999,
               border: "none",
-              background: "#23262B",
+              background: "rgba(255,255,255,0.06)",
               color: "#FFFFFF",
               cursor: isProcessing || unreadCount === 0 ? "not-allowed" : "pointer",
               opacity: isProcessing || unreadCount === 0 ? 0.55 : 1,
               flexShrink: 0,
-              padding: "0 12px",
-              fontWeight: 700,
+              padding: "0 13px",
+              fontWeight: 800,
               fontSize: 13,
+              boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
             }}
           >
             <i className="fas fa-check" style={{ fontSize: 15 }} />
@@ -896,13 +1032,33 @@ export const NotificationsPage: React.FC<Props> = ({
           <div>
             <div
               style={{
-                padding: "14px 16px 8px",
-                fontSize: 17,
-                fontWeight: 800,
-                color: "#FFFFFF",
+                padding: "16px 16px 8px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              New
+              <div
+                style={{
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: "#FFFFFF",
+                }}
+              >
+                New
+              </div>
+              <div
+                style={{
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  background: "rgba(24,119,242,0.16)",
+                  color: "#7CC0FF",
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {newCount}
+              </div>
             </div>
             <div>{newNotifications.map(renderRow)}</div>
           </div>
@@ -912,30 +1068,53 @@ export const NotificationsPage: React.FC<Props> = ({
           <div>
             <div
               style={{
-                padding: "14px 16px 8px",
-                fontSize: 17,
-                fontWeight: 800,
-                color: "#FFFFFF",
+                padding: "16px 16px 8px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              Earlier
+              <div
+                style={{
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: "#FFFFFF",
+                }}
+              >
+                Earlier
+              </div>
+              <div
+                style={{
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#A8B3BF",
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {earlierCount}
+              </div>
             </div>
+
             <div>{visibleEarlierNotifications.map(renderRow)}</div>
 
             {hasMoreEarlier && (
-              <div style={{ padding: "12px 16px 20px" }}>
+              <div style={{ padding: "14px 16px 22px" }}>
                 <button
                   onClick={handleLoadMoreEarlier}
                   style={{
                     width: "100%",
-                    height: 44,
-                    border: "none",
-                    borderRadius: 12,
-                    background: "#23262B",
+                    height: 48,
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,0.04)",
                     color: "#FFFFFF",
                     fontSize: 15,
-                    fontWeight: 700,
+                    fontWeight: 800,
                     cursor: "pointer",
+                    backdropFilter: "blur(10px)",
+                    boxShadow: "0 8px 20px rgba(0,0,0,0.14)",
                   }}
                 >
                   See previous notifications
@@ -948,10 +1127,10 @@ export const NotificationsPage: React.FC<Props> = ({
         {localNotifications.length === 0 && (
           <div
             style={{
-              padding: "32px 16px",
+              padding: "40px 16px",
               textAlign: "center",
               color: "#9AA4AF",
-              fontSize: 15,
+              fontSize: 16,
             }}
           >
             No notifications yet
@@ -968,11 +1147,11 @@ export const NotificationsPage: React.FC<Props> = ({
             transform: "translateX(-50%)",
             background: toast.type === "error" ? "#B00020" : "#1E7E34",
             color: "#FFFFFF",
-            borderRadius: 10,
-            padding: "10px 14px",
+            borderRadius: 12,
+            padding: "11px 15px",
             fontSize: 14,
-            fontWeight: 500,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+            fontWeight: 600,
+            boxShadow: "0 10px 26px rgba(0,0,0,0.3)",
             zIndex: 9999,
           }}
         >
