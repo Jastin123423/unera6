@@ -1,7 +1,8 @@
 import type { PagesFunction } from '@cloudflare/workers-types';
-import { createNotification } from "../../utils/createNotification";
+import { createNotification } from "../utils/createNotification";
 
 type Env = { DB: D1Database };
+
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
