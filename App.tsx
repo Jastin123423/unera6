@@ -1192,6 +1192,141 @@ const normalizeProduct = (p: any) => {
   } as any;
 };
 
+// ============================================================================
+// ✅ NOTIFICATION ENRICHMENT HELPERS
+// ============================================================================
+
+const getFirstMediaPreview = (item: any): string => {
+  if (!item) return "";
+  if (typeof item.image === "string" && item.image) return item.image;
+  if (typeof item.image_url === "string" && item.image_url) return item.image_url;
+  if (typeof item.thumbnail === "string" && item.thumbnail) return item.thumbnail;
+  if (typeof item.thumbnail_url === "string" && item.thumbnail_url) return item.thumbnail_url;
+  if (typeof item.cover_url === "string" && item.cover_url) return item.cover_url;
+  if (typeof item.poster_url === "string" && item.poster_url) return item.poster_url;
+  if (typeof item.preview_image === "string" && item.preview_image) return item.preview_image;
+  
+  const mediaMeta = (item as any).media_meta;
+  if (typeof mediaMeta === "string") {
+    try {
+      const parsed = JSON.parse(mediaMeta);
+      if (Array.isArray(parsed) && parsed[0]) {
+        return parsed[0].thumb || parsed[0].feed || parsed[0].full || "";
+      }
+    } catch {}
+  }
+  if (Array.isArray(mediaMeta) && mediaMeta[0]) {
+    return mediaMeta[0].thumb || mediaMeta[0].feed || mediaMeta[0].full || "";
+  }
+  return "";
+};
+
+const getContentPreviewText = (item: any, kind: string): string => {
+  if (!item) return "";
+  if (kind === "post" || kind === "group_post") {
+    return String(item.content || "").trim();
+  }
+  if (kind === "reel") {
+    return String(item.caption || item.content || "").trim();
+  }
+  if (kind === "story") {
+    return String(item.caption || item.content || "").trim();
+  }
+  if (kind === "song") {
+    return String(item.title || item.description || item.caption || "").trim();
+  }
+  if (kind === "podcast") {
+    return String(item.title || item.description || "").trim();
+  }
+  if (kind === "event") {
+    return String(item.title || item.description || "").trim();
+  }
+  if (kind === "product") {
+    return String(item.name || item.description || "").trim();
+  }
+  return "";
+};
+
+const enrichNotification = (
+  n: any,
+  ctx: {
+    posts: PostType[];
+    reels: Reel[];
+    stories: Story[];
+    songs: Song[];
+    podcasts: any[];
+    products: Product[];
+    events: Event[];
+    groupPosts: any[];
+  }
+): any => {
+  const entityType = String(n?.entity_type || "").toLowerCase();
+  const entityId = Number(n?.entity_id || 0);
+  
+  let target_type = entityType;
+  let target_id = entityId;
+  let preview_text = "";
+  let preview_image = "";
+  
+  if (entityType === "post") {
+    const item = ctx.posts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "post");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "post";
+    target_id = entityId;
+  } else if (entityType === "reel") {
+    const item = ctx.reels.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "reel");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "reel";
+    target_id = entityId;
+  } else if (entityType === "story") {
+    const item = ctx.stories.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "story");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "story";
+    target_id = entityId;
+  } else if (entityType === "song") {
+    const item = ctx.songs.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "song");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "song";
+    target_id = entityId;
+  } else if (entityType === "podcast") {
+    const item = ctx.podcasts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "podcast");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "podcast";
+    target_id = entityId;
+  } else if (entityType === "product") {
+    const item = ctx.products.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "product");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "product";
+    target_id = entityId;
+  } else if (entityType === "event") {
+    const item = ctx.events.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "event");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "event";
+    target_id = entityId;
+  } else if (entityType === "group_post") {
+    const item = ctx.groupPosts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "group_post");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "group_post";
+    target_id = entityId;
+  }
+  
+  return {
+    ...n,
+    target_type,
+    target_id,
+    preview_text,
+    preview_image,
+  };
+};
+    
 // ==================== GROUP POST IMAGE BUNDLE HELPERS ====================
 
 const canvasToBlob = (
