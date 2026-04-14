@@ -143,9 +143,10 @@ const getReactionEmojiCluster = (n: Notification): string[] => {
   return [primary];
 };
 
+// UPDATED: New badge function with song, podcast, story, event support
 const getNotificationBadge = (n: Notification) => {
   const type = safeText(n.type).toLowerCase();
-  const entityType = safeText(n.entity_type || "").toLowerCase();
+  const entityType = safeText(n.entity_type || (n as any).target_type || "").toLowerCase();
   const reactionEmoji = getReactionEmoji(n);
 
   if (reactionEmoji) {
@@ -168,7 +169,23 @@ const getNotificationBadge = (n: Notification) => {
     return { kind: "emoji" as const, value: "🎂", bg: "#1D1F24" };
   }
 
-  if (entityType === "group_post" || type.includes("group")) {
+  if (entityType === "song") {
+    return { kind: "icon" as const, value: "fas fa-music", bg: "#8B5CF6" };
+  }
+
+  if (entityType === "podcast") {
+    return { kind: "icon" as const, value: "fas fa-microphone", bg: "#F59E0B" };
+  }
+
+  if (entityType === "story") {
+    return { kind: "icon" as const, value: "fas fa-bolt", bg: "#EC4899" };
+  }
+
+  if (entityType === "event" || type === "event") {
+    return { kind: "icon" as const, value: "fas fa-calendar-alt", bg: "#10B981" };
+  }
+
+  if (entityType === "group_post" || entityType === "group" || type.includes("group")) {
     return { kind: "icon" as const, value: "fas fa-users", bg: "#8E24AA" };
   }
 
@@ -183,32 +200,29 @@ const getNotificationBadge = (n: Notification) => {
   return { kind: "icon" as const, value: "fas fa-bell", bg: "#1877F2" };
 };
 
+// UPDATED: New message builder with full content type support
 const buildNotificationMessageParts = (n: Notification) => {
   const type = safeText(n.type).toLowerCase();
-  const entityType = safeText(n.entity_type || "").toLowerCase();
-  const rawMessage = safeText(n.message || "");
-  const actorsCount = Math.max(1, safeNumber(n.actors_count, 1));
+  const entityType = safeText(n.entity_type || (n as any).target_type || "").toLowerCase();
+  const rawMessage = safeText(n.message || "").trim();
+  const actorsCount = Math.max(1, safeNumber((n as any).actors_count, 1));
   const othersCount = Math.max(0, actorsCount - 1);
   const reactionType = safeText((n as any).reaction_type).toLowerCase();
-
-  const targetLabel =
-    entityType === "post"
-      ? "your post"
-      : entityType === "reel"
-      ? "your reel"
-      : entityType === "product"
-      ? "your product"
-      : entityType === "group_post"
-      ? "your group post"
-      : entityType === "event"
-      ? "your event"
-      : entityType === "comment"
-      ? "your Discuss"
-      : entityType === "story"
-      ? "your story"
-      : "your content";
-
   const othersText = othersCount > 0 ? ` and ${othersCount} others` : "";
+
+  const targetLabel = 
+    entityType === "post" ? "your post" :
+    entityType === "reel" ? "your reel" :
+    entityType === "story" ? "your story" :
+    entityType === "song" ? "your song" :
+    entityType === "podcast" ? "your podcast" :
+    entityType === "product" ? "your product" :
+    entityType === "group_post" ? "your group post" :
+    entityType === "event" ? "your event" :
+    entityType === "comment" ? "your Discuss" :
+    entityType === "group" ? "your group" :
+    entityType === "profile" ? "you" :
+    "your content";
 
   const reactionVerb = (() => {
     const source = `${reactionType} ${rawMessage}`.toLowerCase();
@@ -220,6 +234,11 @@ const buildNotificationMessageParts = (n: Notification) => {
     if (source.includes("fire")) return "fired up";
     if (source.includes("party")) return "celebrated";
     if (source.includes("clap")) return "applauded";
+    if (source.includes("star")) return "starred";
+    if (source.includes("heart-eyes") || source.includes("heart_eyes")) return "reacted heart-eyes to";
+    if (source.includes("rocket")) return "rocketed";
+    if (source.includes("trophy")) return "awarded";
+    if (source.includes("crown")) return "crowned";
     return "reacted to";
   })();
 
@@ -254,21 +273,7 @@ const buildNotificationMessageParts = (n: Notification) => {
   if (type === "follow") {
     return {
       middle: `${othersText} followed you`.trim(),
-      cta: othersCount > 0 ? "View profiles." : "View profile.",
-    };
-  }
-
-  if (type === "mention") {
-    return {
-      middle: `${othersText} mentioned you`.trim(),
-      cta: "See mention.",
-    };
-  }
-
-  if (type === "tag") {
-    return {
-      middle: `${othersText} tagged you`.trim(),
-      cta: "Open now.",
+      cta: "Keep creating great content.",
     };
   }
 
@@ -280,9 +285,36 @@ const buildNotificationMessageParts = (n: Notification) => {
   }
 
   if (type === "event") {
+    const lower = rawMessage.toLowerCase();
+    if (lower.includes("is going to your event")) {
+      return {
+        middle: `${othersText} is going to your event`.trim(),
+        cta: "View event.",
+      };
+    }
+    if (lower.includes("is interested in your event")) {
+      return {
+        middle: `${othersText} is interested in your event`.trim(),
+        cta: "View event.",
+      };
+    }
     return {
-      middle: rawMessage || "invited you to an event",
+      middle: rawMessage || "interacted with your event",
       cta: "View details.",
+    };
+  }
+
+  if (type === "group_request") {
+    const lower = rawMessage.toLowerCase();
+    if (lower.includes("joined your group")) {
+      return {
+        middle: `${othersText} joined your group`.trim(),
+        cta: "Open group.",
+      };
+    }
+    return {
+      middle: rawMessage || "requested to join your group",
+      cta: "Review request.",
     };
   }
 
@@ -290,13 +322,6 @@ const buildNotificationMessageParts = (n: Notification) => {
     return {
       middle: rawMessage || "invited you to a group",
       cta: "View invitation.",
-    };
-  }
-
-  if (type === "group_request") {
-    return {
-      middle: rawMessage || "requested to join your group",
-      cta: "Review request.",
     };
   }
 
@@ -318,6 +343,20 @@ const buildNotificationMessageParts = (n: Notification) => {
     return {
       middle: rawMessage || "posted in your group",
       cta: "Join the Discuss.",
+    };
+  }
+
+  if (type === "mention") {
+    return {
+      middle: `${othersText} mentioned you`.trim(),
+      cta: "See mention.",
+    };
+  }
+
+  if (type === "tag") {
+    return {
+      middle: `${othersText} tagged you`.trim(),
+      cta: "Open now.",
     };
   }
 
@@ -346,6 +385,13 @@ const buildNotificationMessageParts = (n: Notification) => {
     cta: "",
   };
 };
+
+// NEW: Helper functions for target routing
+const getNotificationTargetType = (n: Notification) => 
+  safeText((n as any).target_type || n.entity_type || "").toLowerCase();
+
+const getNotificationTargetId = (n: Notification) => 
+  safeNumber((n as any).target_id ?? (n as any).entity_id, 0);
 
 const NotificationStackedAvatars: React.FC<{
   notification: Notification;
@@ -613,9 +659,22 @@ export const NotificationsPage: React.FC<Props> = ({
     }
   };
 
+  // UPDATED: New open handler with target_type + target_id routing
   const handleOpenNotification = (n: Notification) => {
     if (onOpenNotification) {
       onOpenNotification(n);
+      return;
+    }
+
+    const targetType = getNotificationTargetType(n);
+    const targetId = getNotificationTargetId(n);
+
+    if (targetType && targetId) {
+      // local fallback only if parent didn't pass routing handler
+      // since this component itself cannot open feed/reel/story/song/etc
+      // fallback to actor profile when no parent routing exists
+      const actorId = safeNumber(n.actor_id, 0);
+      if (actorId) onProfileClick(actorId);
       return;
     }
 
@@ -635,6 +694,8 @@ export const NotificationsPage: React.FC<Props> = ({
       safeText((n as any).preview_text || (n as any).content_preview || (n as any).preview_title || ""),
       10
     );
+    // NEW: Preview image support
+    const previewImage = safeText((n as any).preview_image || "");
     const messageParts = buildNotificationMessageParts(n);
     const hasStack = getStackActorIds(n).length > 1 || safeNumber(n.actors_count, 1) > 1;
 
@@ -789,13 +850,15 @@ export const NotificationsPage: React.FC<Props> = ({
             />
           )}
 
-          {previewText && (
+          {/* UPDATED: Preview block with image support */}
+          {(previewText || previewImage) && (
             <div
               onClick={() => handleOpenNotification(n)}
               style={{
                 marginTop: 9,
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
+                gap: 10,
                 maxWidth: "100%",
                 background: "rgba(255,255,255,0.045)",
                 border: "1px solid rgba(255,255,255,0.06)",
@@ -809,15 +872,33 @@ export const NotificationsPage: React.FC<Props> = ({
                 cursor: "pointer",
               }}
             >
-              <span style={{ marginRight: 6, color: "#778394" }}>“</span>
-              <span>{previewText}</span>
-              <span style={{ marginLeft: 2, color: "#778394" }}>”</span>
+              {previewImage && (
+                <img
+                  src={previewImage}
+                  alt="preview"
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 10,
+                    objectFit: "cover",
+                    flexShrink: 0,
+                    background: "#1B1E22",
+                  }}
+                />
+              )}
+              {previewText && (
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ marginRight: 6, color: "#778394" }}>“</span>
+                  <span>{previewText}</span>
+                  <span style={{ marginLeft: 2, color: "#778394" }}>”</span>
+                </div>
+              )}
             </div>
           )}
 
           <div
             style={{
-              marginTop: previewText ? 9 : hasStack ? 9 : 7,
+              marginTop: previewText || previewImage ? 9 : hasStack ? 9 : 7,
               display: "flex",
               alignItems: "center",
               gap: 8,
