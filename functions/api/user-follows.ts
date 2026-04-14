@@ -6,7 +6,7 @@ type Env = { DB: D1Database };
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,DELETE,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -17,10 +17,81 @@ const toNum = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const countRecentContent = async (db: D1Database, userId: number) => {
+  const [postsRow, reelsRow, storiesRow, songsRow, podcastsRow, groupPostsRow] =
+    await Promise.all([
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM posts
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM reels
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM stories
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM songs
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM podcasts
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+
+      db.prepare(
+        `SELECT COUNT(*) as c
+         FROM group_posts
+         WHERE user_id = ?
+           AND created_at > datetime('now','-1 day')`
+      )
+        .bind(userId)
+        .first(),
+    ]);
+
+  return (
+    toNum((postsRow as any)?.c, 0) +
+    toNum((reelsRow as any)?.c, 0) +
+    toNum((storiesRow as any)?.c, 0) +
+    toNum((songsRow as any)?.c, 0) +
+    toNum((podcastsRow as any)?.c, 0) +
+    toNum((groupPostsRow as any)?.c, 0)
+  );
+};
+
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
-    const follower_id = toNum(body.follower_id, 0);
+
+    const headerUserId = toNum(request.headers.get("x-user-id"), 0);
+    const bodyFollowerId = toNum(body.follower_id, 0);
+    const follower_id = headerUserId || bodyFollowerId || 0;
     const following_id = toNum(body.following_id, 0);
 
     if (!follower_id || !following_id) {
@@ -40,11 +111,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     // Ensure users exist
     const follower = await env.DB.prepare(
       `SELECT id FROM users WHERE id = ? LIMIT 1`
-    ).bind(follower_id).first();
+    )
+      .bind(follower_id)
+      .first();
 
     const following = await env.DB.prepare(
       `SELECT id FROM users WHERE id = ? LIMIT 1`
-    ).bind(following_id).first();
+    )
+      .bind(following_id)
+      .first();
 
     if (!follower || !following) {
       return Response.json(
@@ -74,9 +149,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
        UNERA FOLLOW GROWTH RULE
        - under 1000 followers => no limit
        - 1000+ followers:
-         - 0 posts in last 24h => block
-         - 1-5 posts => 200 follows/day
-         - 6+ posts => 500 follows/day
+         - 0 recent content => block
+         - 1-5 recent content items => 200 follows/day
+         - 6+ recent content items => 500 follows/day
 
        NOTE:
        UNERA creates both directions, so one follow action
@@ -94,18 +169,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const followerCount = toNum((followerCountRow as any)?.c, 0);
 
     if (followerCount >= 1000) {
-      const postsRow = await env.DB.prepare(
-        `SELECT COUNT(*) as c
-         FROM posts
-         WHERE user_id = ?
-           AND created_at > datetime('now','-1 day')`
-      )
-        .bind(follower_id)
-        .first();
+      const contentToday = await countRecentContent(env.DB, follower_id);
 
-      const postsToday = toNum((postsRow as any)?.c, 0);
-
-      if (postsToday <= 0) {
+      if (contentToday <= 0) {
         return Response.json(
           { error: "Create a post to follow more people." },
           { status: 429, headers: cors }
@@ -124,7 +190,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const rawFollowsToday = toNum((followsRow as any)?.c, 0);
       const followsToday = Math.floor(rawFollowsToday / 2);
 
-      const dailyLimit = postsToday > 5 ? 500 : 200;
+      const dailyLimit = contentToday > 5 ? 500 : 200;
 
       if (followsToday >= dailyLimit) {
         return Response.json(
@@ -136,11 +202,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     // ✅ UNERA RULE: create BOTH directions (A->B and B->A)
     const stmt1 = env.DB.prepare(
-      `INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?)`
+      `INSERT OR IGNORE INTO user_follows (follower_id, following_id)
+       VALUES (?, ?)`
     ).bind(follower_id, following_id);
 
     const stmt2 = env.DB.prepare(
-      `INSERT OR IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?)`
+      `INSERT OR IGNORE INTO user_follows (follower_id, following_id)
+       VALUES (?, ?)`
     ).bind(following_id, follower_id);
 
     await env.DB.batch([stmt1, stmt2]);
@@ -176,7 +244,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
-    const follower_id = toNum(url.searchParams.get("follower_id"), 0);
+
+    const headerUserId = toNum(request.headers.get("x-user-id"), 0);
+    const queryFollowerId = toNum(url.searchParams.get("follower_id"), 0);
+    const follower_id = headerUserId || queryFollowerId || 0;
     const following_id = toNum(url.searchParams.get("following_id"), 0);
 
     if (!follower_id || !following_id) {
