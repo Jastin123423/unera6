@@ -2094,6 +2094,22 @@ const [showStoryComments, setShowStoryComments] = useState(false);
     marketplace: marketplaceActivity,
   });
 }, [chats, reels, songs, products, posts, unreadNotifications]);
+
+    //=====NOTIFICATION DECLARATIONS ===
+const enrichedNotifications = useMemo(() => {
+  return (Array.isArray(notifications) ? notifications : []).map((n) =>
+    enrichNotification(n, {
+      posts: Array.isArray(posts) ? posts : [],
+      reels: Array.isArray(reels) ? reels : [],
+      stories: Array.isArray(stories) ? stories : [],
+      songs: Array.isArray(songs) ? songs : [],
+      podcasts: [],
+      products: Array.isArray(products) ? products : [],
+      events: Array.isArray(events) ? events : [],
+      groupPosts: [],
+    })
+  );
+}, [notifications, posts, reels, stories, songs, products, events]);
   // ============================================================================
   // ✅ MUSIC REACTION/COMMENT/SHARE STATE (NEW)
   // ============================================================================
