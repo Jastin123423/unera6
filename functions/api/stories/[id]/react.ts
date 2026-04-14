@@ -1,12 +1,12 @@
-// functions/api/stories/[id]/react.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
+import { createNotification } from "../../../utils/createNotification";
 
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
 export const onRequestOptions: PagesFunction = async () =>
@@ -23,19 +23,36 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-// ✅ You can add more any time
+const normalizeReaction = (v: any) => String(v ?? "").trim().toLowerCase();
+
 const ALLOWED_REACTIONS = new Set([
-  "like",   // 👍
-  "fire",   // 🔥
-  "love",   // ❤️ / ♥
-  "heart_eyes", // 😍
-  "couple", // 💏
-  "devil",  // 👿
-  "angry",  // 😡
-  "wow",    // 😮
-  "haha",   // 😂
-  "sad",    // 😢
+  "like",
+  "fire",
+  "love",
+  "heart_eyes",
+  "couple",
+  "devil",
+  "angry",
+  "wow",
+  "haha",
+  "sad",
 ]);
+
+const buildReactionMessage = (reaction: string) => {
+  const r = normalizeReaction(reaction);
+
+  if (r === "love") return "loved your story";
+  if (r === "heart_eyes") return "reacted heart-eyes to your story";
+  if (r === "couple") return "reacted with couple love to your story";
+  if (r === "devil") return "reacted devilishly to your story";
+  if (r === "fire") return "fired up your story";
+  if (r === "angry") return "felt angry about your story";
+  if (r === "wow") return "reacted wow to your story";
+  if (r === "haha") return "laughed at your story";
+  if (r === "sad") return "felt sad about your story";
+
+  return "reacted to your story";
+};
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
   try {
@@ -45,11 +62,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     if (!storyId) return json({ success: false, error: "Invalid story id" }, 400);
 
     const body = await request.json().catch(() => ({} as any));
-    const userId = toInt(body.user_id, 0);
-    const reaction = String(body.reaction ?? "").trim(); // e.g. "fire"
+    const headerUserId = toInt(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toInt(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
+
+    const reaction = normalizeReaction(body.reaction ?? "");
     if (!userId) return json({ success: false, error: "user_id is required" }, 400);
 
-    // If reaction is missing -> treat as old toggle-like behavior using "like"
     const chosen = reaction || "like";
     if (!ALLOWED_REACTIONS.has(chosen)) {
       return json(
@@ -58,11 +77,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       );
     }
 
-    // Ensure story exists
-    const exists = await env.DB.prepare(`SELECT id FROM stories WHERE id = ? LIMIT 1`)
+    // Ensure story exists and get owner
+    const story = await env.DB.prepare(
+      `SELECT id, user_id FROM stories WHERE id = ? LIMIT 1`
+    )
       .bind(storyId)
       .first();
-    if (!exists?.id) return json({ success: false, error: "Story not found" }, 404);
+
+    if (!story?.id) return json({ success: false, error: "Story not found" }, 404);
+
+    const storyOwnerId = toInt((story as any)?.user_id, 0);
 
     // Current reaction (if any)
     const existing = await env.DB.prepare(
@@ -74,8 +98,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     let my_reaction: string | null = null;
     let changed = false;
 
-    if (existing?.id) {
-      const prev = String((existing as any).reaction ?? "").trim();
+    if ((existing as any)?.id) {
+      const prev = normalizeReaction((existing as any)?.reaction ?? "");
 
       if (prev === chosen) {
         // same reaction again => remove (toggle off)
@@ -111,13 +135,26 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       changed = true;
     }
 
+    // Notify only when reaction is active
+    if (my_reaction) {
+      await createNotification(
+        env,
+        storyOwnerId,
+        userId,
+        "react",
+        "story",
+        storyId,
+        `story:${storyId}:react`,
+        buildReactionMessage(my_reaction)
+      );
+    }
+
     const totalRow = await env.DB.prepare(
       `SELECT COUNT(*) as reactions_count FROM story_reactions WHERE story_id = ?`
     )
       .bind(storyId)
       .first();
 
-    // Breakdown counts by reaction (handy for UI)
     const { results: breakdown } = await env.DB.prepare(
       `SELECT reaction, COUNT(*) as count
          FROM story_reactions
