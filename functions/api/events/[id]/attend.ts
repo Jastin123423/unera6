@@ -1,12 +1,12 @@
-// functions/api/events/[id]/attend.ts
 import type { PagesFunction } from "@cloudflare/workers-types";
+import { createNotification } from "../../../utils/createNotification";
 
 type Env = { DB: D1Database };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id",
 };
 
 const json = (data: any, status = 200) =>
@@ -15,6 +15,11 @@ const json = (data: any, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
+const toNum = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -22,33 +27,56 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   try {
     if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
 
-    const eventId = Number((params as any).id);
+    const eventId = toNum((params as any)?.id, 0);
     if (!eventId) return json({ success: false, error: "Invalid event id" }, 400);
 
     const body = await request.json().catch(() => ({} as any));
-    const userId = Number(body.user_id ?? 0);
+    const headerUserId = toNum(request.headers.get("x-user-id"), 0);
+    const bodyUserId = toNum(body.user_id, 0);
+    const userId = headerUserId || bodyUserId || 0;
+
     if (!userId) return json({ success: false, error: "user_id missing" }, 400);
 
-    const action = String(body.action ?? "attend"); // "attend" | "remove"
+    const action = String(body.action ?? "attend").trim().toLowerCase(); // attend | remove
+
+    const event = await env.DB.prepare(
+      `SELECT id, user_id
+       FROM events
+       WHERE id = ?
+       LIMIT 1`
+    ).bind(eventId).first();
+
+    if (!event) {
+      return json({ success: false, error: "Event not found" }, 404);
+    }
+
+    const eventOwnerId = toNum((event as any)?.user_id, 0);
 
     if (action === "remove") {
-      // remove going
       await env.DB.prepare(
         `DELETE FROM event_attendees WHERE event_id=? AND user_id=?`
       ).bind(eventId, userId).run();
     } else {
-      // going => insert (idempotent)
       await env.DB.prepare(
         `INSERT OR IGNORE INTO event_attendees (event_id, user_id) VALUES (?, ?)`
       ).bind(eventId, userId).run();
 
-      // if going, remove interested
       await env.DB.prepare(
         `DELETE FROM event_interested WHERE event_id=? AND user_id=?`
       ).bind(eventId, userId).run();
+
+      await createNotification(
+        env,
+        eventOwnerId,
+        userId,
+        "event",
+        "event",
+        eventId,
+        `event:${eventId}:going`,
+        "is going to your event"
+      );
     }
 
-    // ✅ counts
     const attending = await env.DB.prepare(
       `SELECT COUNT(*) as c FROM event_attendees WHERE event_id=?`
     ).bind(eventId).first<any>();
@@ -57,7 +85,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       `SELECT COUNT(*) as c FROM event_interested WHERE event_id=?`
     ).bind(eventId).first<any>();
 
-    // ✅ my status (after operation)
     const amGoing = await env.DB.prepare(
       `SELECT 1 as ok FROM event_attendees WHERE event_id=? AND user_id=? LIMIT 1`
     ).bind(eventId, userId).first<any>();
