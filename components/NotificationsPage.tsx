@@ -14,25 +14,25 @@ interface Props {
 }
 
 const AVATAR_SIZE = 56;
+const STACK_AVATAR_SIZE = 24;
 const INITIAL_EARLIER_COUNT = 10;
 const LOAD_MORE_COUNT = 10;
 
 const safeText = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
-
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
 
-const getNotificationTime = (n: any) => {
-  const updated = n?.updated_at ? new Date(n.updated_at).getTime() : NaN;
+const getNotificationTime = (n: Notification) => {
+  const updated = n.updated_at ? new Date(n.updated_at).getTime() : NaN;
   if (Number.isFinite(updated)) return updated;
-  const created = n?.created_at ? new Date(n.created_at).getTime() : NaN;
+  const created = n.created_at ? new Date(n.created_at).getTime() : NaN;
   if (Number.isFinite(created)) return created;
   return 0;
 };
 
-const formatTimestamp = (iso?: string) => {
+const formatTimestamp = (iso?: string | null) => {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -60,46 +60,145 @@ const formatTimestamp = (iso?: string) => {
   return `${month} ${dayNum} at ${hour12}:${minutes}${ampm}`;
 };
 
-const getNotificationIcon = (n: Notification) => {
-  const type = safeText((n as any).type).toLowerCase();
-  const entityType = safeText((n as any).entity_type).toLowerCase();
-
-  if (type.includes("like") || type.includes("react") || type.includes("reaction")) {
-    return { icon: "fas fa-heart", bg: "#E91E63" };
+const parseActorsJson = (value: any): number[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((x) => safeNumber(x, 0))
+      .filter((x) => x > 0);
   }
 
-  if (type.includes("comment") || type.includes("reply")) {
-    return { icon: "fas fa-comment", bg: "#1877F2" };
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((x) => {
+            if (typeof x === "object" && x !== null) return safeNumber((x as any).id, 0);
+            return safeNumber(x, 0);
+          })
+          .filter((x) => x > 0);
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const getStackActorIds = (n: Notification): number[] => {
+  const ids = parseActorsJson(n.actors_json);
+  const latestActorId = safeNumber(n.actor_id, 0);
+
+  const ordered = [latestActorId, ...ids].filter((x) => x > 0);
+  const deduped: number[] = [];
+
+  ordered.forEach((id) => {
+    if (!deduped.includes(id)) deduped.push(id);
+  });
+
+  return deduped.slice(0, 3);
+};
+
+const getReactionEmoji = (n: Notification) => {
+  const type = safeText(n.type).toLowerCase();
+  const rawMessage = safeText(n.message).toLowerCase();
+
+  if (
+    rawMessage.includes("love") ||
+    rawMessage.includes("heart")
+  ) return "❤️";
+
+  if (
+    rawMessage.includes("haha") ||
+    rawMessage.includes("laugh")
+  ) return "😂";
+
+  if (
+    rawMessage.includes("wow")
+  ) return "😮";
+
+  if (
+    rawMessage.includes("sad")
+  ) return "😢";
+
+  if (
+    rawMessage.includes("angry")
+  ) return "😡";
+
+  if (
+    rawMessage.includes("fire")
+  ) return "🔥";
+
+  if (
+    rawMessage.includes("party")
+  ) return "🎉";
+
+  if (
+    rawMessage.includes("clap")
+  ) return "👏";
+
+  if (
+    rawMessage.includes("like") ||
+    rawMessage.includes("react") ||
+    rawMessage.includes("reaction")
+  ) return "👍";
+
+  if (
+    type === "react" ||
+    type === "reaction" ||
+    type === "like"
+  ) return "👍";
+
+  return "";
+};
+
+const getNotificationIcon = (n: Notification) => {
+  const type = safeText(n.type).toLowerCase();
+  const entityType = safeText(n.entity_type || "").toLowerCase();
+  const reactionEmoji = getReactionEmoji(n);
+
+  if (reactionEmoji) {
+    return { kind: "emoji" as const, value: reactionEmoji, bg: "#1D1F24" };
+  }
+
+  if (type.includes("discuss") || type.includes("comment") || type.includes("reply")) {
+    return { kind: "icon" as const, value: "fas fa-comment", bg: "#1877F2" };
   }
 
   if (type.includes("follow")) {
-    return { icon: "fas fa-user-plus", bg: "#42A5F5" };
+    return { kind: "icon" as const, value: "fas fa-user-plus", bg: "#42A5F5" };
   }
 
   if (type.includes("share")) {
-    return { icon: "fas fa-share", bg: "#43A047" };
+    return { kind: "icon" as const, value: "fas fa-share", bg: "#43A047" };
   }
 
-  if (entityType === "group_post") {
-    return { icon: "fas fa-users", bg: "#8E24AA" };
+  if (type.includes("birthday")) {
+    return { kind: "emoji" as const, value: "🎂", bg: "#1D1F24" };
   }
 
-  if (entityType === "product") {
-    return { icon: "fas fa-shopping-bag", bg: "#FB8C00" };
+  if (entityType === "group_post" || type.includes("group")) {
+    return { kind: "icon" as const, value: "fas fa-users", bg: "#8E24AA" };
+  }
+
+  if (entityType === "product" || type.includes("product") || type.includes("marketplace")) {
+    return { kind: "icon" as const, value: "fas fa-shopping-bag", bg: "#FB8C00" };
   }
 
   if (entityType === "reel") {
-    return { icon: "fas fa-play", bg: "#FF5252" };
+    return { kind: "icon" as const, value: "fas fa-play", bg: "#FF5252" };
   }
 
-  return { icon: "fas fa-bell", bg: "#1877F2" };
+  return { kind: "icon" as const, value: "fas fa-bell", bg: "#1877F2" };
 };
 
-const buildNotificationMessage = (n: Notification, actorName: string) => {
-  const type = safeText((n as any).type).toLowerCase();
-  const entityType = safeText((n as any).entity_type).toLowerCase();
-  const rawMessage = safeText((n as any).message);
-  const actorsCount = Math.max(1, safeNumber((n as any).actors_count, 1));
+const buildNotificationMessage = (n: Notification) => {
+  const type = safeText(n.type).toLowerCase();
+  const entityType = safeText(n.entity_type || "").toLowerCase();
+  const rawMessage = safeText(n.message || "");
+  const actorsCount = Math.max(1, safeNumber(n.actors_count, 1));
   const othersCount = Math.max(0, actorsCount - 1);
 
   const targetLabel =
@@ -113,46 +212,146 @@ const buildNotificationMessage = (n: Notification, actorName: string) => {
       ? "your group post"
       : entityType === "event"
       ? "your event"
+      : entityType === "comment"
+      ? "your Discuss"
+      : entityType === "story"
+      ? "your story"
       : "you";
 
-  if (type.includes("react") || type.includes("like") || type.includes("reaction")) {
-    return othersCount > 0
-      ? `and ${othersCount} others reacted to ${targetLabel}`
-      : `reacted to ${targetLabel}`;
+  const withOthers = (single: string, plural: string) =>
+    othersCount > 0 ? `and ${othersCount} others ${plural}` : single;
+
+  if (type === "react" || type === "reaction" || type === "like") {
+    return withOthers(`reacted to ${targetLabel}`, `reacted to ${targetLabel}`);
   }
 
-  if (type.includes("comment")) {
-    return othersCount > 0
-      ? `and ${othersCount} others commented on ${targetLabel}`
-      : `commented on ${targetLabel}`;
+  if (type === "discuss" || type === "comment") {
+    return withOthers(`discussed ${targetLabel}`, `discussed ${targetLabel}`);
   }
 
-  if (type.includes("reply")) {
-    return othersCount > 0
-      ? `and ${othersCount} others replied to your comment`
-      : `replied to your comment`;
+  if (type === "reply") {
+    return withOthers(`replied in Discuss`, `replied in Discuss`);
   }
 
-  if (type.includes("follow")) {
-    return othersCount > 0
-      ? `and ${othersCount} others followed you`
-      : `followed you`;
+  if (type === "share") {
+    return withOthers(`shared ${targetLabel}`, `shared ${targetLabel}`);
   }
 
-  if (type.includes("share")) {
-    return othersCount > 0
-      ? `and ${othersCount} others shared ${targetLabel}`
-      : `shared ${targetLabel}`;
+  if (type === "follow") {
+    return withOthers(`followed you`, `followed you`);
   }
 
-  if (rawMessage) {
-    if (othersCount > 0) return `${rawMessage} with ${othersCount} others`;
-    return rawMessage;
+  if (type === "mention") {
+    return withOthers(`mentioned you`, `mentioned you`);
   }
 
-  return othersCount > 0
-    ? `and ${othersCount} others interacted with you`
-    : "interacted with you";
+  if (type === "tag") {
+    return withOthers(`tagged you`, `tagged you`);
+  }
+
+  if (type === "birthday") {
+    return rawMessage || "has a birthday today. Wish them a happy birthday!";
+  }
+
+  if (type === "event") {
+    return rawMessage || "invited you to an event";
+  }
+
+  if (type === "group_invite") {
+    return rawMessage || "invited you to a group";
+  }
+
+  if (type === "group_request") {
+    return rawMessage || "requested to join your group";
+  }
+
+  if (type === "group_approved") {
+    return rawMessage || "approved your group request";
+  }
+
+  if (type === "group_declined") {
+    return rawMessage || "declined your group request";
+  }
+
+  if (type === "group_post") {
+    return rawMessage || "posted in your group";
+  }
+
+  if (type === "product_interest" || type === "marketplace") {
+    return rawMessage || `showed interest in ${targetLabel}`;
+  }
+
+  if (
+    type === "system" ||
+    type === "admin" ||
+    type === "security" ||
+    type === "warning" ||
+    type === "info"
+  ) {
+    return rawMessage || "sent you an update";
+  }
+
+  return rawMessage || "interacted with you";
+};
+
+const NotificationStackedAvatars: React.FC<{
+  notification: Notification;
+  users: User[];
+  onProfileClick: (id: number) => void;
+}> = ({ notification, users, onProfileClick }) => {
+  const actorIds = getStackActorIds(notification);
+
+  const actors = actorIds
+    .map((id) => users.find((u) => u.id === id))
+    .filter(Boolean) as User[];
+
+  if (actors.length <= 1) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        marginTop: 7,
+        marginLeft: 0,
+      }}
+    >
+      {actors.map((user, index) => (
+        <button
+          key={user.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            onProfileClick(user.id);
+          }}
+          aria-label={user.name || `User ${user.id}`}
+          title={user.name || ""}
+          style={{
+            width: STACK_AVATAR_SIZE,
+            height: STACK_AVATAR_SIZE,
+            borderRadius: "50%",
+            overflow: "hidden",
+            border: "2px solid #121212",
+            marginLeft: index === 0 ? 0 : -8,
+            padding: 0,
+            background: "#2A2D31",
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+          }}
+        >
+          <img
+            src={safeText(user.profile_image_url, "https://via.placeholder.com/100?text=User")}
+            alt={user.name || "User"}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        </button>
+      ))}
+    </div>
+  );
 };
 
 export const NotificationsPage: React.FC<Props> = ({
@@ -207,7 +406,7 @@ export const NotificationsPage: React.FC<Props> = ({
   }, [menuOpenId]);
 
   const unreadCount = useMemo(
-    () => localNotifications.filter((n) => !safeNumber((n as any).is_read, 0)).length,
+    () => localNotifications.filter((n) => !safeNumber(n.is_read, 0)).length,
     [localNotifications]
   );
 
@@ -216,7 +415,7 @@ export const NotificationsPage: React.FC<Props> = ({
       const ta = getNotificationTime(a);
       const tb = getNotificationTime(b);
       if (tb !== ta) return tb - ta;
-      return safeNumber((b as any).id, 0) - safeNumber((a as any).id, 0);
+      return safeNumber(b.id, 0) - safeNumber(a.id, 0);
     });
   }, [localNotifications]);
 
@@ -296,7 +495,7 @@ export const NotificationsPage: React.FC<Props> = ({
     setDeletingId(notificationId);
     setMenuOpenId(null);
 
-    setLocalNotifications((prev) => prev.filter((n) => safeNumber((n as any).id, 0) !== notificationId));
+    setLocalNotifications((prev) => prev.filter((n) => safeNumber(n.id, 0) !== notificationId));
 
     try {
       if (onDeleteNotification) {
@@ -324,22 +523,24 @@ export const NotificationsPage: React.FC<Props> = ({
       return;
     }
 
-    const actorId = safeNumber((n as any).actor_id, 0);
+    const actorId = safeNumber(n.actor_id, 0);
     if (actorId) onProfileClick(actorId);
   };
 
   const renderRow = (n: Notification) => {
-    const actor = getUser((n as any).actor_id);
+    const actor = getUser(n.actor_id);
     const actorName = safeText(actor?.name, "Someone");
     const avatar = safeText(
       actor?.profile_image_url,
       "https://via.placeholder.com/100?text=User"
     );
-    const isUnread = !safeNumber((n as any).is_read, 0);
-    const notificationId = safeNumber((n as any).id, 0);
+    const isUnread = !safeNumber(n.is_read, 0);
+    const notificationId = safeNumber(n.id, 0);
     const iconMeta = getNotificationIcon(n);
-    const bodyText = buildNotificationMessage(n, actorName);
-    const displayTime = safeText((n as any).updated_at) || safeText((n as any).created_at);
+    const bodyText = buildNotificationMessage(n);
+    const displayTime = safeText(n.updated_at) || safeText(n.created_at);
+    const actorsCount = Math.max(1, safeNumber(n.actors_count, 1));
+    const hasStack = getStackActorIds(n).length > 1;
 
     return (
       <div
@@ -380,7 +581,7 @@ export const NotificationsPage: React.FC<Props> = ({
               position: "absolute",
               right: -2,
               bottom: -2,
-              width: 22,
+              minWidth: 22,
               height: 22,
               borderRadius: "50%",
               background: iconMeta.bg,
@@ -389,16 +590,31 @@ export const NotificationsPage: React.FC<Props> = ({
               justifyContent: "center",
               border: "2px solid #121212",
               boxSizing: "border-box",
+              padding: iconMeta.kind === "emoji" ? "0 5px" : 0,
             }}
           >
-            <i
-              className={iconMeta.icon}
-              style={{
-                fontSize: 10,
-                color: "#FFFFFF",
-                lineHeight: 1,
-              }}
-            />
+            {iconMeta.kind === "emoji" ? (
+              <span
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {iconMeta.value}
+              </span>
+            ) : (
+              <i
+                className={iconMeta.value}
+                style={{
+                  fontSize: 10,
+                  color: "#FFFFFF",
+                  lineHeight: 1,
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -444,12 +660,34 @@ export const NotificationsPage: React.FC<Props> = ({
             </span>
           </div>
 
+          {hasStack && (
+            <NotificationStackedAvatars
+              notification={n}
+              users={users}
+              onProfileClick={onProfileClick}
+            />
+          )}
+
+          {!hasStack && actorsCount > 1 && (
+            <div
+              style={{
+                marginTop: 7,
+                fontSize: 12.5,
+                color: "#9AA4AF",
+                fontWeight: 600,
+              }}
+            >
+              {actorsCount} people
+            </div>
+          )}
+
           <div
             style={{
-              marginTop: 5,
+              marginTop: hasStack || actorsCount > 1 ? 7 : 5,
               display: "flex",
               alignItems: "center",
               gap: 6,
+              flexWrap: "wrap",
             }}
           >
             <span
@@ -462,6 +700,19 @@ export const NotificationsPage: React.FC<Props> = ({
             >
               {formatTimestamp(displayTime)}
             </span>
+
+            {getReactionEmoji(n) && (
+              <span
+                style={{
+                  fontSize: 13,
+                  lineHeight: 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                {getReactionEmoji(n)}
+              </span>
+            )}
 
             {isUnread && (
               <span
