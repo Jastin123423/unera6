@@ -1,4 +1,5 @@
 import type { PagesFunction } from '@cloudflare/workers-types';
+import { createNotification } from '../../../utils/createNotification';
 
 type Env = { DB: D1Database };
 
@@ -147,6 +148,30 @@ const fetchReactionList = async (
   return Array.isArray(res.results) ? res.results.map(mapReactionRow) : [];
 };
 
+const buildReactionMessage = (reactionType: string) => {
+  const rt = normalizeReactionType(reactionType);
+
+  if (rt === 'love') return 'loved your reel';
+  if (rt === 'haha') return 'laughed at your reel';
+  if (rt === 'wow') return 'reacted wow to your reel';
+  if (rt === 'sad') return 'felt sad about your reel';
+  if (rt === 'angry') return 'felt angry about your reel';
+  if (rt === 'fire') return 'fired up your reel';
+  if (rt === 'party') return 'celebrated your reel';
+  if (rt === 'clap') return 'applauded your reel';
+  if (rt === 'star') return 'starred your reel';
+  if (rt === 'thinking') return 'reacted thoughtfully to your reel';
+  if (rt === 'crying') return 'cried over your reel';
+  if (rt === 'heart_eyes') return 'reacted heart-eyes to your reel';
+  if (rt === 'kiss') return 'kissed your reel';
+  if (rt === 'sunglasses') return 'reacted cool to your reel';
+  if (rt === 'rocket') return 'rocketed your reel';
+  if (rt === 'trophy') return 'awarded your reel';
+  if (rt === 'crown') return 'crowned your reel';
+
+  return 'reacted to your reel';
+};
+
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
@@ -217,7 +242,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     }
 
     const reel = await env.DB
-      .prepare(`SELECT id FROM reels WHERE id = ? LIMIT 1`)
+      .prepare(`SELECT id, user_id FROM reels WHERE id = ? LIMIT 1`)
       .bind(reel_id)
       .first();
 
@@ -233,6 +258,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     if (!user) {
       return json({ success: false, error: 'User not found' }, 404);
     }
+
+    const reelOwnerId = toNum((reel as any)?.user_id, 0);
 
     const existing = await env.DB
       .prepare(
@@ -285,6 +312,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
       reacted = true;
       finalType = type;
+    }
+
+    if (reacted && finalType && reelOwnerId && reelOwnerId !== user_id) {
+      await createNotification(
+        env,
+        reelOwnerId,
+        user_id,
+        'react',
+        'reel',
+        reel_id,
+        `reel:${reel_id}:react`,
+        buildReactionMessage(finalType)
+      );
     }
 
     const reactions_count = await fetchReactionCount(env.DB, reel_id);
