@@ -30,46 +30,35 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
         </feMerge>
       </filter>
     </defs>
-
-    {/* soft glow */}
     <circle cx="32" cy="32" r="18" fill="url(#uneraSparkGrad)" opacity="0.14" />
-
-    {/* spark rays */}
     <g stroke="url(#uneraSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#uneraSparkGlow)">
       <line x1="32" y1="10" x2="32" y2="18" />
       <line x1="32" y1="46" x2="32" y2="54" />
       <line x1="10" y1="32" x2="18" y2="32" />
       <line x1="46" y1="32" x2="54" y2="32" />
-
       <line x1="17" y1="17" x2="22.8" y2="22.8" />
       <line x1="41.2" y1="41.2" x2="47" y2="47" />
       <line x1="47" y1="17" x2="41.2" y2="22.8" />
       <line x1="22.8" y1="41.2" x2="17" y2="47" />
     </g>
-
-    {/* center dot */}
     <circle cx="32" cy="32" r="6.2" fill="url(#uneraSparkGrad)" />
   </svg>
 );
 
-// ✅ Discuss icon - chat + signal style, colored with UNERA blue
+// ✅ Discuss icon - chat + signal style
 const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#1877F2" }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
-      {/* bubble */}
       <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
-      {/* dots */}
       <circle cx="27" cy="30" r="2.2" />
       <circle cx="33" cy="30" r="2.2" />
       <circle cx="39" cy="30" r="2.2" />
-      {/* signal arcs */}
       <path d="M48 18c3 2 5 5 6 9" />
       <path d="M44 22c2 1 3 3 4 6" />
     </g>
   </svg>
 );
 
-// ✅ Add fmtCount helper locally
 const fmtCount = (n: number) => {
   const num = Number(n || 0);
   if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + "M";
@@ -77,7 +66,6 @@ const fmtCount = (n: number) => {
   return String(num);
 };
 
-// ✅ SAFETY HELPERS
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 const safeNumber = (v: any, fallback = 0) => {
   const n = typeof v === 'number' ? v : Number(v);
@@ -86,10 +74,8 @@ const safeNumber = (v: any, fallback = 0) => {
 const safeString = (v: any, fallback = '') => (typeof v === 'string' ? v : String(v || ''));
 const safeBoolean = (v: any, fallback = false) => (typeof v === 'boolean' ? v : !!v);
 
-// ✅ Add GroupCategory type
-type GroupCategory = 'general' | 'recruitment' | 'buy_sell' | 'music_drama';
+type GroupCategory = 'general' | 'recruitment' | 'buy_sell';
 
-// ✅ Category configuration
 interface CategoryOption {
   id: GroupCategory;
   label: string;
@@ -127,19 +113,9 @@ const GROUP_CATEGORIES: CategoryOption[] = [
     previewIcon: 'fas fa-tag',
     color: '#F7B928',
     features: ['Item listings', 'Price tags', 'Location filtering', 'Sold/Pending status']
-  },
-  {
-    id: 'music_drama',
-    label: 'Music & Drama',
-    description: 'Share music, videos, movie series, and performances',
-    icon: 'fas fa-music',
-    previewIcon: 'fas fa-film',
-    color: '#F3425F',
-    features: ['Video player', 'Music playback', 'Series episodes', 'Performance showcase']
   }
 ];
 
-// Currency options for Buy/Sell
 const CURRENCY_OPTIONS = [
   { code: 'TSh', symbol: 'TSh', name: 'Tanzanian Shilling' },
   { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
@@ -152,92 +128,58 @@ const CURRENCY_OPTIONS = [
   { code: 'GHS', symbol: 'GH₵', name: 'Ghanaian Cedi' },
 ];
 
-// ✅ LOCAL IMPLEMENTATION: getPostMediaList (enhanced version from Feed.tsx)
 type NormalizedMedia = { url: string; kind: 'image' | 'video' };
 
 const getPostMediaList = (post: any): NormalizedMedia[] => {
   const out: NormalizedMedia[] = [];
 
-  // Parse media_urls if it's a string (JSON)
   let mediaUrls: string[] = [];
   if (post?.media_urls) {
-    if (Array.isArray(post.media_urls)) {
-      mediaUrls = post.media_urls;
-    } else if (typeof post.media_urls === 'string') {
-      try {
-        const parsed = JSON.parse(post.media_urls);
-        mediaUrls = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        mediaUrls = [];
-      }
+    if (Array.isArray(post.media_urls)) mediaUrls = post.media_urls;
+    else if (typeof post.media_urls === 'string') {
+      try { const parsed = JSON.parse(post.media_urls); mediaUrls = Array.isArray(parsed) ? parsed : []; } catch { mediaUrls = []; }
     }
   }
 
-  // Parse images if it's a string (JSON)
   let images: string[] = [];
   if (post?.images) {
-    if (Array.isArray(post.images)) {
-      images = post.images;
-    } else if (typeof post.images === 'string') {
-      try {
-        const parsed = JSON.parse(post.images);
-        images = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        images = [];
-      }
+    if (Array.isArray(post.images)) images = post.images;
+    else if (typeof post.images === 'string') {
+      try { const parsed = JSON.parse(post.images); images = Array.isArray(parsed) ? parsed : []; } catch { images = []; }
     }
   }
 
-  // 1) arrays: media_urls, images
   const arrUrls: any[] = mediaUrls.length ? mediaUrls : images;
-
   for (const u of arrUrls) {
     const url = String(u || '').trim();
     if (!url) continue;
     out.push({ url, kind: 'image' });
   }
 
-  // 2) array of objects: media: [{url,type}]
   const arrMedia: any[] = Array.isArray(post?.media) ? post.media : [];
   for (const m of arrMedia) {
     const url = String(m?.url || m?.media_url || '').trim();
     if (!url) continue;
-
     const type = String(m?.type || m?.media_type || '').toLowerCase();
     const clean = url.split('?')[0].split('#')[0];
     const ext = clean.split('.').pop()?.toLowerCase() || '';
-
-    const isVideo =
-      type.startsWith('video') ||
-      ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-
+    const isVideo = type.startsWith('video') || ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
     out.push({ url, kind: isVideo ? 'video' : 'image' });
   }
 
-  // 3) fallback to single media_url if present (only if no list)
   if (out.length === 0) {
     const single = String(post?.media_url || '').trim();
     if (single) {
       const mediaTypeRaw = String(post?.media_type || '').toLowerCase();
       const ext = single.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || '';
-      
-      const isVideo =
-        mediaTypeRaw.startsWith('video') ||
-        ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
-      
-      if (isVideo) {
-        out.push({ url: single, kind: 'video' });
-      } else {
-        out.push({ url: single, kind: 'image' });
-      }
+      const isVideo = mediaTypeRaw.startsWith('video') || ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', '3gp'].includes(ext);
+      out.push({ url: single, kind: isVideo ? 'video' : 'image' });
     }
   }
 
-  // keep only valid
   return out.filter((x) => x.url);
 };
 
-// ✅ LOCAL IMPLEMENTATION: ExpandableRichText (from Feed.tsx)
 const ExpandableRichText: React.FC<{
   text: string;
   users?: User[];
@@ -247,42 +189,18 @@ const ExpandableRichText: React.FC<{
   fontSizePx?: number;
   onSeeMore?: () => void;
   forceExpanded?: boolean;
-}> = ({
-  text = '',
-  users = [],
-  onProfileClick,
-  onHashtagClick,
-  maxWords = 25,
-  fontSizePx = 21,
-  onSeeMore,
-  forceExpanded = false,
-}) => {
+}> = ({ text = '', users = [], onProfileClick, onHashtagClick, maxWords = 25, fontSizePx = 21, onSeeMore, forceExpanded = false }) => {
   const [expanded, setExpanded] = useState(false);
   const safeText = safeString(text);
   const words = safeText.trim().split(/\s+/).filter(Boolean);
   const isLong = words.length > maxWords;
-
   const showAll = forceExpanded || expanded || !isLong;
   const shownText = showAll ? safeText : words.slice(0, maxWords).join(' ') + '…';
-
   return (
     <div style={{ fontSize: `${fontSizePx}px` }} className="text-[#E4E6EB] leading-relaxed whitespace-pre-wrap">
-      <RichText
-        text={shownText}
-        users={users}
-        onProfileClick={onProfileClick}
-        onHashtagClick={onHashtagClick}
-      />
-
+      <RichText text={shownText} users={users} onProfileClick={onProfileClick} onHashtagClick={onHashtagClick} />
       {isLong && !forceExpanded && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          className="ml-2 font-bold text-[#1877F2] hover:underline"
-        >
+        <button type="button" onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }} className="ml-2 font-bold text-[#1877F2] hover:underline">
           {expanded ? 'See less' : 'See more'}
         </button>
       )}
@@ -290,45 +208,14 @@ const ExpandableRichText: React.FC<{
   );
 };
 
-// ✅ LOCAL IMPLEMENTATION: MediaGrid (enhanced version from Feed.tsx)
-const MediaGrid: React.FC<{
-  media: { url: string; kind?: string }[];
-  onOpen: (url: string, index: number) => void;
-}> = ({ media = [], onOpen }) => {
+const MediaGrid: React.FC<{ media: { url: string; kind?: string }[]; onOpen: (url: string, index: number) => void; }> = ({ media = [], onOpen }) => {
   const total = media.length;
   const show = total <= 4 ? media : media.slice(0, 4);
   const extra = total - 4;
 
-  const Tile = ({
-    url,
-    index,
-    className,
-    showOverlay,
-  }: {
-    url: string;
-    index: number;
-    className: string;
-    showOverlay?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(url, index);
-      }}
-      className={`relative overflow-hidden ${className}`}
-      style={{ borderRadius: 0 }}
-    >
-      <img
-        src={url}
-        alt=""
-        loading="lazy"
-        className="w-full h-full object-cover"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
-        }}
-      />
-
+  const Tile = ({ url, index, className, showOverlay }: { url: string; index: number; className: string; showOverlay?: boolean }) => (
+    <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(url, index); }} className={`relative overflow-hidden ${className}`} style={{ borderRadius: 0 }}>
+      <img src={url} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
       {showOverlay && extra > 0 && (
         <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
           <span className="text-white font-black text-3xl">+{extra}</span>
@@ -338,29 +225,15 @@ const MediaGrid: React.FC<{
   );
 
   if (total === 0) return null;
-
   if (total === 1) {
     return (
       <div className="w-full bg-black">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(show[0].url, 0);
-          }}
-          className="w-full block"
-        >
-          <img
-            src={show[0].url}
-            alt=""
-            loading="lazy"
-            className="w-full h-auto max-h-[650px] object-contain"
-          />
+        <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(show[0].url, 0); }} className="w-full block">
+          <img src={show[0].url} alt="" loading="lazy" className="w-full h-auto max-h-[650px] object-contain" />
         </button>
       </div>
     );
   }
-
   if (total === 2) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
@@ -369,7 +242,6 @@ const MediaGrid: React.FC<{
       </div>
     );
   }
-
   if (total === 3) {
     return (
       <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
@@ -381,23 +253,16 @@ const MediaGrid: React.FC<{
       </div>
     );
   }
-
   return (
     <div className="w-full grid grid-cols-2 gap-[2px] bg-black">
       <Tile url={show[0].url} index={0} className="h-[260px] w-full" />
       <Tile url={show[1].url} index={1} className="h-[260px] w-full" />
       <Tile url={show[2].url} index={2} className="h-[260px] w-full" />
-      <Tile
-        url={show[3].url}
-        index={3}
-        className="h-[260px] w-full"
-        showOverlay={extra > 0}
-      />
+      <Tile url={show[3].url} index={3} className="h-[260px] w-full" showOverlay={extra > 0} />
     </div>
   );
 };
 
-// ✅ LOCAL IMPLEMENTATION: GalleryViewer (from Feed.tsx) - UPDATED with Discuss
 const GalleryViewer: React.FC<{
   isOpen: boolean;
   urls: string[];
@@ -413,22 +278,7 @@ const GalleryViewer: React.FC<{
   onOpenComments: () => void;
   onShare: () => void;
   onOpenReactions?: () => void;
-}> = ({ 
-  isOpen, 
-  urls, 
-  startIndex, 
-  onClose,
-  postId,
-  currentUser,
-  reactionCount,
-  commentCount,
-  shareCount,
-  myReaction,
-  onReact,
-  onOpenComments,
-  onShare,
-  onOpenReactions
-}) => {
+}> = ({ isOpen, urls, startIndex, onClose, postId, currentUser, reactionCount, commentCount, shareCount, myReaction, onReact, onOpenComments, onShare, onOpenReactions }) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
 
@@ -436,17 +286,13 @@ const GalleryViewer: React.FC<{
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
     setCurrentIndex(startIndex);
-
     requestAnimationFrame(() => {
       const el = scrollerRef.current;
       if (!el) return;
       const w = el.clientWidth || window.innerWidth;
       el.scrollTo({ left: startIndex * w, behavior: 'instant' as any });
     });
-
-    return () => {
-      document.body.style.overflow = '';
-    };
+    return () => { document.body.style.overflow = ''; };
   }, [isOpen, startIndex]);
 
   const handleScroll = () => {
@@ -455,9 +301,7 @@ const GalleryViewer: React.FC<{
     const scrollLeft = el.scrollLeft;
     const width = el.clientWidth || window.innerWidth;
     const newIndex = Math.round(scrollLeft / width);
-    if (newIndex !== currentIndex) {
-      setCurrentIndex(newIndex);
-    }
+    if (newIndex !== currentIndex) setCurrentIndex(newIndex);
   };
 
   const formatCount = (count: number): string => {
@@ -483,138 +327,59 @@ const GalleryViewer: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] bg-black flex flex-col"
-      onClick={(e) => {
-        e.stopPropagation();
-      }}
-    >
-      {/* Header */}
-      <div
-        className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-white text-sm font-semibold">
-          {currentIndex + 1}/{urls.length}
-        </div>
-        <button
-          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
-          onClick={onClose}
-          aria-label="Close"
-        >
+    <div className="fixed inset-0 z-[9999] bg-black flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-3 bg-black/40" onClick={(e) => e.stopPropagation()}>
+        <div className="text-white text-sm font-semibold">{currentIndex + 1}/{urls.length}</div>
+        <button className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center" onClick={onClose} aria-label="Close">
           <i className="fas fa-times text-white text-lg"></i>
         </button>
       </div>
-
-      {/* Images */}
-      <div
-        ref={scrollerRef}
-        className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-        onClick={(e) => e.stopPropagation()}
-        onScroll={handleScroll}
-      >
+      <div ref={scrollerRef} className="flex-1 w-full overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scroll-smooth" style={{ WebkitOverflowScrolling: 'touch' }} onClick={(e) => e.stopPropagation()} onScroll={handleScroll}>
         {urls.map((url, i) => (
-          <div
-            key={url + i}
-            className="min-w-full h-full snap-center flex items-center justify-center bg-black"
-          >
-            <img
-              src={url}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-              draggable={false}
-              onClick={(e) => e.stopPropagation()}
-            />
+          <div key={url + i} className="min-w-full h-full snap-center flex items-center justify-center bg-black">
+            <img src={url} alt="" className="max-w-full max-h-full object-contain" draggable={false} onClick={(e) => e.stopPropagation()} />
           </div>
         ))}
       </div>
-
-      {/* Action Buttons - Fixed at bottom */}
-      <div 
-        className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Facebook-style reactions summary row */}
+      <div className="bg-black/80 backdrop-blur-sm border-t border-white/10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
         {reactionCount > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onOpenReactions) onOpenReactions();
-            }}
-            className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#3A3B3C] rounded-lg mb-2 transition-colors"
-          >
+          <button onClick={(e) => { e.stopPropagation(); if (onOpenReactions) onOpenReactions(); }} className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#3A3B3C] rounded-lg mb-2 transition-colors">
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex items-center gap-1">
                 <span className="text-[18px]">{reactionEmoji("love")}</span>
                 <span className="-ml-1 text-[18px]">{reactionEmoji("like")}</span>
               </div>
-              <span className="text-[15px] text-[#B0B3B8] font-medium">
-                {fmtCount(reactionCount)}
-              </span>
+              <span className="text-[15px] text-[#B0B3B8] font-medium">{fmtCount(reactionCount)}</span>
             </div>
             <i className="fas fa-chevron-right text-[#B0B3B8] text-[12px]" />
           </button>
         )}
-
-        {/* Totals row */}
         <div className="flex items-center justify-between text-[#B0B3B8] text-sm mb-2 px-2">
           <div className="flex items-center gap-2">
             {reactionCount > 0 && (
-              <span 
-                className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2"
-                onClick={onOpenReactions}
-              >
+              <span className="text-[#E4E6EB] font-bold cursor-pointer hover:underline flex items-center gap-2" onClick={onOpenReactions}>
                 <div className="flex -space-x-2">
-                  {Array.from(new Set([myReaction, 'like', 'love']))
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((t, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]"
-                      >
-                        {reactionEmoji(t as string)}
-                      </span>
-                    ))}
+                  {Array.from(new Set([myReaction, 'like', 'love'])).filter(Boolean).slice(0, 2).map((t, i) => (
+                    <span key={i} className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-black flex items-center justify-center text-[14px]">
+                      {reactionEmoji(t as string)}
+                    </span>
+                  ))}
                 </div>
               </span>
             )}
           </div>
           <div className="flex gap-3">
-            <span 
-              className="hover:underline cursor-pointer" 
-              onClick={onOpenComments}
-            >
-              {formatCount(commentCount)} Discussions
-            </span>
-            {shareCount > 0 && (
-              <span className="hover:underline cursor-pointer" onClick={onShare}>
-                {formatCount(shareCount)} Shares
-              </span>
-            )}
+            <span className="hover:underline cursor-pointer" onClick={onOpenComments}>{formatCount(commentCount)} Discussions</span>
+            {shareCount > 0 && (<span className="hover:underline cursor-pointer" onClick={onShare}>{formatCount(shareCount)} Shares</span>)}
           </div>
         </div>
-
-        {/* Actions row */}
         <div className="flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={myReaction}
-            reactionCount={reactionCount}
-            onReact={onReact}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
-            onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}
-          >
+          <ReactionButton currentUserReactions={myReaction} reactionCount={reactionCount} onReact={onReact} isGuest={!currentUser} />
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]" onClick={() => (currentUser ? onOpenComments() : alert("Login first"))}>
             <DiscussSignalIcon size={26} color="#1877F2" />
             <span className="text-[17px] font-medium">Discuss</span>
           </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]"
-            onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}
-          >
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors text-[#B0B3B8]" onClick={() => (currentUser ? onShare() : alert("Please login to share posts."))}>
             <i className="fas fa-share text-[20px]"></i>
             <span className="text-[17px] font-medium">Share</span>
           </button>
@@ -632,13 +397,7 @@ interface GroupSettingsModalProps {
   onDeleteGroup: () => void;
 }
 
-const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
-  group,
-  onClose,
-  onUpdate,
-  isAdmin,
-  onDeleteGroup,
-}) => {
+const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({ group, onClose, onUpdate, isAdmin, onDeleteGroup }) => {
   const [name, setName] = useState(group.name || '');
   const [desc, setDesc] = useState(group.description || '');
   const [postingAllowed, setPostingAllowed] = useState(group.member_posting_allowed ?? true);
@@ -649,12 +408,7 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
     setSaving(true);
     try {
       await onUpdate({ name: name.trim(), description: desc.trim(), member_posting_allowed: postingAllowed });
-    } catch (error) {
-      console.error('Failed to update group settings:', error);
-    } finally {
-      setSaving(false);
-      onClose();
-    }
+    } catch (error) { console.error('Failed to update group settings:', error); } finally { setSaving(false); onClose(); }
   };
 
   return (
@@ -662,76 +416,25 @@ const GroupSettingsModal: React.FC<GroupSettingsModalProps> = ({
       <div className="bg-[#1e1e1e] w-full max-w-[500px] rounded-xl border border-[#333] shadow-2xl flex flex-col animate-slide-up">
         <div className="p-4 border-b border-[#333] flex justify-between items-center">
           <h3 className="text-xl font-bold text-[#e4e6eb]">Group Settings</h3>
-          <div
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#2d2d2d] hover:bg-[#3a3a3a] flex items-center justify-center cursor-pointer transition-colors"
-          >
-            <i className="fas fa-times text-[#b0b3b8]"></i>
-          </div>
+          <div onClick={onClose} className="w-8 h-8 rounded-full bg-[#2d2d2d] hover:bg-[#3a3a3a] flex items-center justify-center cursor-pointer transition-colors"><i className="fas fa-times text-[#b0b3b8]"></i></div>
         </div>
-
         <div className="p-4 space-y-4">
-          <div>
-            <label className="block text-[#b0b3b8] text-sm font-bold mb-1">Group Name</label>
-            <input
-              type="text"
-              className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none"
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-[#b0b3b8] text-sm font-bold mb-1">Description</label>
-            <textarea
-              className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none h-24 resize-none"
-              value={desc}
-              onChange={e => setDesc(e.target.value)}
-            />
-          </div>
-
+          <div><label className="block text-[#b0b3b8] text-sm font-bold mb-1">Group Name</label><input type="text" className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none" value={name} onChange={e => setName(e.target.value)} /></div>
+          <div><label className="block text-[#b0b3b8] text-sm font-bold mb-1">Description</label><textarea className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none h-24 resize-none" value={desc} onChange={e => setDesc(e.target.value)} /></div>
           <div className="flex items-center justify-between p-3 bg-[#2d2d2d] rounded-lg border border-[#333]">
-            <div>
-              <div className="text-[#e4e6eb] font-bold">Member Posting</div>
-              <div className="text-[#b0b3b8] text-xs">Allow members to post in the group</div>
-            </div>
-            <div
-              className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${postingAllowed ? 'bg-[#1877f2]' : 'bg-gray-600'}`}
-              onClick={() => setPostingAllowed(!postingAllowed)}
-            >
-              <div
-                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${postingAllowed ? 'left-7' : 'left-1'}`}
-              ></div>
+            <div><div className="text-[#e4e6eb] font-bold">Member Posting</div><div className="text-[#b0b3b8] text-xs">Allow members to post in the group</div></div>
+            <div className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${postingAllowed ? 'bg-[#1877f2]' : 'bg-gray-600'}`} onClick={() => setPostingAllowed(!postingAllowed)}>
+              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${postingAllowed ? 'left-7' : 'left-1'}`}></div>
             </div>
           </div>
-
-          <button
-            onClick={handleSave}
-            disabled={saving || !name.trim()}
-            className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-
-          {isAdmin && (
-            <div className="border-t border-red-500/20 pt-4 mt-4">
-              <button
-                onClick={onDeleteGroup}
-                className="w-full bg-red-500/10 text-red-500 font-bold py-2.5 rounded-lg transition-all hover:bg-red-500 hover:text-white border border-red-500/20"
-              >
-                Delete Community
-              </button>
-            </div>
-          )}
+          <button onClick={handleSave} disabled={saving || !name.trim()} className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{saving ? 'Saving...' : 'Save Changes'}</button>
+          {isAdmin && (<div className="border-t border-red-500/20 pt-4 mt-4"><button onClick={onDeleteGroup} className="w-full bg-red-500/10 text-red-500 font-bold py-2.5 rounded-lg transition-all hover:bg-red-500 hover:text-white border border-red-500/20">Delete Community</button></div>)}
         </div>
       </div>
     </div>
   );
 };
 
-/**
- * Group Event Card Component
- */
 const GroupEventCard: React.FC<{
   event: Event;
   group: Group;
@@ -741,89 +444,29 @@ const GroupEventCard: React.FC<{
 }> = ({ event, group, currentUser, onRSVP, onProfileClick }) => {
   const [rsvpStatus, setRsvpStatus] = useState<string>(event.user_rsvp_status || '');
   const [loading, setLoading] = useState(false);
-
   const eventDate = new Date(event.start_time || event.date || '');
-  const formattedDate = eventDate.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const formattedDate = eventDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const handleRSVP = async (status: string) => {
     if (!currentUser || !onRSVP) return;
     setLoading(true);
-    try {
-      await onRSVP(event.id, status);
-      setRsvpStatus(status);
-    } catch (error) {
-      console.error('Failed to RSVP:', error);
-    } finally {
-      setLoading(false);
-    }
+    try { await onRSVP(event.id, status); setRsvpStatus(status); } catch (error) { console.error('Failed to RSVP:', error); } finally { setLoading(false); }
   };
 
   return (
     <div className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:shadow-lg transition-all">
-      {event.cover_image && (
-        <div className="h-40 overflow-hidden">
-          <img 
-            src={event.cover_image} 
-            alt={event.title}
-            className="w-full h-full object-cover"
-          />
-        </div>
-      )}
+      {event.cover_image && (<div className="h-40 overflow-hidden"><img src={event.cover_image} alt={event.title} className="w-full h-full object-cover" /></div>)}
       <div className="p-4">
         <h4 className="text-[#e4e6eb] font-bold text-lg mb-2">{event.title}</h4>
         <p className="text-[#b0b3b8] text-sm mb-3 line-clamp-2">{event.description}</p>
-        
         <div className="space-y-2 mb-4">
-          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
-            <i className="fas fa-calendar text-[#1877f2] w-5"></i>
-            <span>{formattedDate}</span>
-          </div>
-          {event.location && (
-            <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
-              <i className="fas fa-map-marker-alt text-[#1877f2] w-5"></i>
-              <span>{event.location}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm">
-            <i className="fas fa-users text-[#1877f2] w-5"></i>
-            <span>{event.attendees?.length || 0} attending</span>
-          </div>
+          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm"><i className="fas fa-calendar text-[#1877f2] w-5"></i><span>{formattedDate}</span></div>
+          {event.location && (<div className="flex items-center gap-2 text-[#b0b3b8] text-sm"><i className="fas fa-map-marker-alt text-[#1877f2] w-5"></i><span>{event.location}</span></div>)}
+          <div className="flex items-center gap-2 text-[#b0b3b8] text-sm"><i className="fas fa-users text-[#1877f2] w-5"></i><span>{event.attendees?.length || 0} attending</span></div>
         </div>
-
         {currentUser && onRSVP && (
           <div className="flex gap-2">
-            {rsvpStatus === 'going' ? (
-              <button
-                onClick={() => handleRSVP('not_going')}
-                disabled={loading}
-                className="flex-1 bg-[#45BD62] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3aa34f] transition-colors disabled:opacity-50"
-              >
-                <i className="fas fa-check mr-2"></i>Going
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => handleRSVP('going')}
-                  disabled={loading}
-                  className="flex-1 bg-[#1877f2] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#166fe5] transition-colors disabled:opacity-50"
-                >
-                  Going
-                </button>
-                <button
-                  onClick={() => handleRSVP('interested')}
-                  disabled={loading}
-                  className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3a3a3a] transition-colors disabled:opacity-50"
-                >
-                  Interested
-                </button>
-              </>
-            )}
+            {rsvpStatus === 'going' ? (<button onClick={() => handleRSVP('not_going')} disabled={loading} className="flex-1 bg-[#45BD62] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3aa34f] transition-colors disabled:opacity-50"><i className="fas fa-check mr-2"></i>Going</button>) : (<><button onClick={() => handleRSVP('going')} disabled={loading} className="flex-1 bg-[#1877f2] text-white px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#166fe5] transition-colors disabled:opacity-50">Going</button><button onClick={() => handleRSVP('interested')} disabled={loading} className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] px-3 py-2 rounded-lg font-bold text-sm hover:bg-[#3a3a3a] transition-colors disabled:opacity-50">Interested</button></>)}
           </div>
         )}
       </div>
@@ -831,7 +474,6 @@ const GroupEventCard: React.FC<{
   );
 };
 
-// Post Actions Menu Component - Three dots menu for edit/delete
 const PostActionsMenu: React.FC<{
   post: PostType;
   currentUser: User | null;
@@ -845,16 +487,10 @@ const PostActionsMenu: React.FC<{
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.content || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
+    const handleClickOutside = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
@@ -862,64 +498,25 @@ const PostActionsMenu: React.FC<{
   const handleEdit = async () => {
     if (!onEdit || !editText.trim()) return;
     setIsSubmitting(true);
-    try {
-      await onEdit(post.id, editText.trim());
-      setIsEditing(false);
-      onClose();
-    } catch (error) {
-      console.error('Failed to edit post:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    try { await onEdit(post.id, editText.trim()); setIsEditing(false); onClose(); } catch (error) { console.error('Failed to edit post:', error); } finally { setIsSubmitting(false); }
   };
 
   const handleDelete = async () => {
     if (!onDelete) return;
-    if (window.confirm('Are you sure you want to delete this post?')) {
-      try {
-        await onDelete(post.id);
-        onClose();
-      } catch (error) {
-        console.error('Failed to delete post:', error);
-      }
-    }
+    if (window.confirm('Are you sure you want to delete this post?')) { try { await onDelete(post.id); onClose(); } catch (error) { console.error('Failed to delete post:', error); } }
   };
 
   const handleReport = async () => {
     if (!onReport) return;
-    try {
-      await onReport(post.id);
-      alert('Post reported to group admins');
-      onClose();
-    } catch (error) {
-      console.error('Failed to report post:', error);
-    }
+    try { await onReport(post.id); alert('Post reported to group admins'); onClose(); } catch (error) { console.error('Failed to report post:', error); }
   };
 
   if (isEditing) {
     return (
       <div className="absolute right-0 top-8 z-50 w-80 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] p-4" ref={menuRef}>
         <h4 className="text-[#e4e6eb] font-bold mb-3">Edit Post</h4>
-        <textarea
-          className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-3 text-[#e4e6eb] resize-none h-24 outline-none"
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-        />
-        <div className="flex justify-end gap-2 mt-3">
-          <button
-            onClick={() => setIsEditing(false)}
-            className="px-4 py-2 text-[#b0b3b8] hover:bg-[#2d2d2d] rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleEdit}
-            disabled={isSubmitting || !editText.trim()}
-            className="px-4 py-2 bg-[#1877f2] text-white rounded-lg hover:bg-[#166fe5] transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+        <textarea className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-3 text-[#e4e6eb] resize-none h-24 outline-none" value={editText} onChange={(e) => setEditText(e.target.value)} />
+        <div className="flex justify-end gap-2 mt-3"><button onClick={() => setIsEditing(false)} className="px-4 py-2 text-[#b0b3b8] hover:bg-[#2d2d2d] rounded-lg transition-colors">Cancel</button><button onClick={handleEdit} disabled={isSubmitting || !editText.trim()} className="px-4 py-2 bg-[#1877f2] text-white rounded-lg hover:bg-[#166fe5] transition-colors disabled:opacity-50">{isSubmitting ? 'Saving...' : 'Save'}</button></div>
       </div>
     );
   }
@@ -927,88 +524,27 @@ const PostActionsMenu: React.FC<{
   return (
     <div className="absolute right-0 top-8 z-50 w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden" ref={menuRef}>
       <div className="py-1">
-        {/* Show Edit/Delete for post author or group admin */}
-        {(isPostAuthor || isGroupAdmin) && (
-          <>
-            {onEdit && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"
-              >
-                <i className="fas fa-edit w-5 text-[#b0b3b8]"></i>
-                <span>Edit Post</span>
-              </button>
-            )}
-            {onDelete && (
-              <button
-                onClick={handleDelete}
-                className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f] transition-colors"
-              >
-                <i className="fas fa-trash w-5 text-[#f3425f]"></i>
-                <span>Delete Post</span>
-              </button>
-            )}
-            <div className="border-t border-[#333] my-1"></div>
-          </>
-        )}
-        
-        {/* Report option for non-authors */}
-        {!isPostAuthor && onReport && (
-          <button
-            onClick={handleReport}
-            className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"
-          >
-            <i className="fas fa-flag w-5 text-[#b0b3b8]"></i>
-            <span>Report Post</span>
-          </button>
-        )}
-
-        <button
-          onClick={onClose}
-          className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#b0b3b8] transition-colors"
-        >
-          <i className="fas fa-times w-5"></i>
-          <span>Close</span>
-        </button>
+        {(isPostAuthor || isGroupAdmin) && (<>{onEdit && (<button onClick={() => setIsEditing(true)} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"><i className="fas fa-edit w-5 text-[#b0b3b8]"></i><span>Edit Post</span></button>)}{onDelete && (<button onClick={handleDelete} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f] transition-colors"><i className="fas fa-trash w-5 text-[#f3425f]"></i><span>Delete Post</span></button>)}<div className="border-t border-[#333] my-1"></div></>)}
+        {!isPostAuthor && onReport && (<button onClick={handleReport} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"><i className="fas fa-flag w-5 text-[#b0b3b8]"></i><span>Report Post</span></button>)}
+        <button onClick={onClose} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#b0b3b8] transition-colors"><i className="fas fa-times w-5"></i><span>Close</span></button>
       </div>
     </div>
   );
 };
 
-// ✅ Enhanced Recruitment Post Component - UPDATED with proper comment counting
-const RecruitmentPost: React.FC<{
-  post: PostType;
-  author: User;
-  currentUser: User | null;
-  users: User[];
-  isGroupAdmin?: boolean;
-  isPlatformAdmin?: boolean;
-  onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
-  onOpenComments: (postId: number) => void;
-  onSharePost: (postId: number, newShareCount: number) => void;
-  onEditPost?: (postId: number, content: string) => Promise<any>;
-  onDeletePost?: (postId: number) => Promise<any>;
-  onReportPost?: (postId: number) => Promise<any>;
-  onApply?: (postId: number, applicationData?: any) => Promise<any>;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
-  onCommentAdded?: () => void; // Add this
-}> = (props) => {
+const RecruitmentPost: React.FC<any> = (props) => {
   const { post, author, currentUser, onApply, onProfileClick, users, onComment, onCommentAdded } = props;
   const [applied, setApplied] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [localReactionCount, setLocalReactionCount] = useState(0);
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof post.comment_count === 'number') return post.comment_count;
     if (typeof (post as any).comments_count === 'number') return (post as any).comments_count;
     if (Array.isArray(post.comments)) return post.comments.length;
     return 0;
   });
-  
   const [shareCount, setShareCount] = useState(0);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -1016,92 +552,42 @@ const RecruitmentPost: React.FC<{
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  // Parse job details from post content or metadata
   const jobTitle = (post as any).job_title || 'Position';
   const company = (post as any).company || '';
   const location = (post as any).location || '';
   const salary = (post as any).salary || '';
   const jobType = (post as any).job_type || 'Full-time';
-  
-  // Parse full address components
   const street = (post as any).street || '';
   const district = (post as any).district || '';
   const region = (post as any).region || '';
   const country = (post as any).country || '';
-  
-  // Format full address - prioritize combined location if available
   const fullAddress = location || [street, district, region, country].filter(Boolean).join(', ');
-  
-  // Application type and value
   const applicationType = (post as any).application_type || null;
   const applicationValue = (post as any).application_value || '';
-
-  // Expiry date
   const expiryDate = (post as any).expiry_date ? new Date((post as any).expiry_date) : null;
   const now = new Date();
   const isExpired = expiryDate ? expiryDate < now : false;
 
-  // Get media for gallery view
-  const mediaList = useMemo(() => {
-    return getPostMediaList(post);
-  }, [post]);
-
+  const mediaList = useMemo(() => getPostMediaList(post), [post]);
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
-    
-    const likesCount = Number(
-      (post as any).likesCount ?? 
-      (post as any).reactionsCount ?? 
-      (post as any).reactions_count ?? 
-      0
-    );
+    const likesCount = Number((post as any).likesCount ?? (post as any).reactionsCount ?? (post as any).reactions_count ?? 0);
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
-    
-    // Update commentCount from props
-    const newCommentCount = 
-      typeof post.comment_count === 'number' ? post.comment_count :
-      typeof (post as any).comments_count === 'number' ? (post as any).comments_count :
-      Array.isArray(post.comments) ? post.comments.length : 0;
-    
-    if (newCommentCount !== commentCount) {
-      setCommentCount(newCommentCount);
-    }
-    
+    const newCommentCount = typeof post.comment_count === 'number' ? post.comment_count : typeof (post as any).comments_count === 'number' ? (post as any).comments_count : Array.isArray(post.comments) ? post.comments.length : 0;
+    if (newCommentCount !== commentCount) setCommentCount(newCommentCount);
     setShareCount(Number(post.shares ?? post.shares_count ?? 0));
   }, [post.id, post]);
 
   const handleApply = async () => {
-    if (!currentUser) {
-      alert('Please login to apply');
-      return;
-    }
-    
-    if (isExpired) {
-      alert('This job posting has expired');
-      return;
-    }
-    
-    if (applicationType === 'email' && applicationValue) {
-      // Open email client
-      window.location.href = `mailto:${applicationValue}?subject=Application for ${jobTitle} at ${company}`;
-    } else if (applicationType === 'link' && applicationValue) {
-      // Open link in new tab
-      window.open(applicationValue, '_blank', 'noopener,noreferrer');
-    }
-    
-    if (onApply) {
-      try {
-        await onApply(post.id);
-        setApplied(true);
-      } catch (error) {
-        console.error('Failed to apply:', error);
-      }
-    }
+    if (!currentUser) { alert('Please login to apply'); return; }
+    if (isExpired) { alert('This job posting has expired'); return; }
+    if (applicationType === 'email' && applicationValue) { window.location.href = `mailto:${applicationValue}?subject=Application for ${jobTitle} at ${company}`; }
+    else if (applicationType === 'link' && applicationValue) { window.open(applicationValue, '_blank', 'noopener,noreferrer'); }
+    if (onApply) { try { await onApply(post.id); setApplied(true); } catch (error) { console.error('Failed to apply:', error); } }
   };
 
   const isPostAuthor = currentUser?.id === author.id;
@@ -1109,416 +595,104 @@ const RecruitmentPost: React.FC<{
 
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
-    
     const previousMyReaction = localMyReaction;
     const previousReactionCount = localReactionCount;
-
     let newMyReaction: ReactionType | null = type;
     let newReactionCount = previousReactionCount;
-
-    if (!previousMyReaction) {
-      newReactionCount = previousReactionCount + 1;
-    } else if (previousMyReaction === type) {
-      newMyReaction = null;
-      newReactionCount = previousReactionCount - 1;
-    } else {
-      newMyReaction = type;
-      newReactionCount = previousReactionCount;
-    }
-
+    if (!previousMyReaction) newReactionCount = previousReactionCount + 1;
+    else if (previousMyReaction === type) { newMyReaction = null; newReactionCount = previousReactionCount - 1; }
+    else newMyReaction = type;
     setLocalMyReaction(newMyReaction || undefined);
     setLocalReactionCount(newReactionCount);
-
-    try {
-      await props.onLikePost(post.id, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-      setLocalMyReaction(previousMyReaction);
-      setLocalReactionCount(previousReactionCount);
-    }
+    try { await props.onLikePost(post.id, type); } catch (error) { console.error('Failed to like post:', error); setLocalMyReaction(previousMyReaction); setLocalReactionCount(previousReactionCount); }
   };
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
-    if (data?.success) {
-      setShareCount(nextShares);
-      props.onSharePost(post.id, nextShares);
-    }
+    if (data?.success) { setShareCount(nextShares); props.onSharePost(post.id, nextShares); }
     setShowShareSheet(false);
   };
 
-  // ✅ Handle comment added - updates the comment count
-  const handleCommentAdded = () => {
-    setCommentCount(prev => prev + 1);
-    if (onCommentAdded) {
-      onCommentAdded();
-    }
-  };
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
-
+  const handleCommentAdded = () => { setCommentCount(prev => prev + 1); if (onCommentAdded) onCommentAdded(); };
+  const openGallery = (urls: string[], index: number) => { setGalleryUrls(urls); setGalleryIndex(index); setGalleryOpen(true); };
   const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-
   const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-      const em = topReactionEmojis(reactionsArr, 2);
-      return em.length ? em : ['👍'];
-    }
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) { const em = topReactionEmojis(reactionsArr, 2); return em.length ? em : ['👍']; }
     return localReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, localReactionCount]);
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
-
+  const formatCount = (count: number): string => { if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`; else if (count >= 1000) return `${(count / 1000).toFixed(1)}k`; return count.toString(); };
   const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
-
-  // Format expiry date
-  const formatExpiryDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Handle opening comments with the updated comment handler
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
-  };
+  const formatExpiryDate = (date: Date) => date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const handleOpenComments = () => props.onOpenComments(post.id);
 
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-        {/* Header */}
         <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => onProfileClick(author.id)}
-          >
-            <img
-              src={avatarFrom(author)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-            />
+          <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={() => onProfileClick(author.id)}>
+            <img src={avatarFrom(author)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#3E4042]" />
             <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                  {author.name || 'User'}
-                </h4>
-                {author.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{createdAtLabel}</span>
-                <span>•</span>
-                <i className="fas fa-briefcase text-[12px]"></i>
-                <span>Recruitment</span>
-              </div>
+              <div className="flex items-center gap-1 flex-wrap"><h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">{author.name || 'User'}</h4>{author.is_verified && (<i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>)}</div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]"><span>{createdAtLabel}</span><span>•</span><i className="fas fa-briefcase text-[12px]"></i><span>Recruitment</span></div>
             </div>
           </div>
-
-          {/* Three-dots menu */}
           {(canModerate || props.onReportPost) && (
             <div className="relative">
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowActionsMenu(!showActionsMenu);
-                }}
-                aria-label="Post actions"
-              >
-                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-              </button>
-
-              {showActionsMenu && (
-                <PostActionsMenu
-                  post={post}
-                  currentUser={currentUser}
-                  isGroupAdmin={canModerate}
-                  isPostAuthor={isPostAuthor}
-                  onEdit={props.onEditPost}
-                  onDelete={props.onDeletePost}
-                  onReport={props.onReportPost}
-                  onClose={() => setShowActionsMenu(false)}
-                />
-              )}
+              <button className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors" onClick={(e) => { e.stopPropagation(); setShowActionsMenu(!showActionsMenu); }} aria-label="Post actions"><i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i></button>
+              {showActionsMenu && (<PostActionsMenu post={post} currentUser={currentUser} isGroupAdmin={canModerate} isPostAuthor={isPostAuthor} onEdit={props.onEditPost} onDelete={props.onDeletePost} onReport={props.onReportPost} onClose={() => setShowActionsMenu(false)} />)}
             </div>
           )}
         </div>
-
-        {/* Job Badge and Expiry Status */}
         <div className="px-3 md:px-4 pb-2 flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20">
-            <i className="fas fa-briefcase text-[#45BD62] text-xs"></i>
-            <span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span>
-          </div>
-          
-          {isExpired && (
-            <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F3425F]/10 rounded-full border border-[#F3425F]/20">
-              <i className="fas fa-clock text-[#F3425F] text-xs"></i>
-              <span className="text-[#F3425F] text-xs font-bold">EXPIRED</span>
-            </div>
-          )}
-          
-          {expiryDate && !isExpired && (
-            <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F7B928]/10 rounded-full border border-[#F7B928]/20">
-              <i className="fas fa-calendar-alt text-[#F7B928] text-xs"></i>
-              <span className="text-[#F7B928] text-xs">Expires {formatExpiryDate(expiryDate)}</span>
-            </div>
-          )}
+          <div className="inline-flex items-center gap-1 px-3 py-1 bg-[#45BD62]/10 rounded-full border border-[#45BD62]/20"><i className="fas fa-briefcase text-[#45BD62] text-xs"></i><span className="text-[#45BD62] text-xs font-bold">JOB POSTING</span></div>
+          {isExpired && (<div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F3425F]/10 rounded-full border border-[#F3425F]/20"><i className="fas fa-clock text-[#F3425F] text-xs"></i><span className="text-[#F3425F] text-xs font-bold">EXPIRED</span></div>)}
+          {expiryDate && !isExpired && (<div className="inline-flex items-center gap-1 px-3 py-1 bg-[#F7B928]/10 rounded-full border border-[#F7B928]/20"><i className="fas fa-calendar-alt text-[#F7B928] text-xs"></i><span className="text-[#F7B928] text-xs">Expires {formatExpiryDate(expiryDate)}</span></div>)}
         </div>
-
-        {/* Professional Job Details Card */}
         <div className="px-3 md:px-4 pb-3">
           <div className="bg-[#3A3B3C] rounded-lg p-5">
-            {/* Job Title */}
             <h2 className="text-[#E4E6EB] font-bold text-2xl mb-3">{jobTitle}</h2>
-            
-            {/* Company */}
-            {company && (
-              <div className="flex items-center gap-2 text-[#B0B3B8] mb-3">
-                <i className="fas fa-building text-sm w-5 text-[#45BD62]"></i>
-                <span className="text-base font-medium">{company}</span>
-              </div>
-            )}
-            
-            {/* Job Details Grid with Icons */}
+            {company && (<div className="flex items-center gap-2 text-[#B0B3B8] mb-3"><i className="fas fa-building text-sm w-5 text-[#45BD62]"></i><span className="text-base font-medium">{company}</span></div>)}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-              {fullAddress && (
-                <div className="flex items-center gap-2 text-[#B0B3B8]">
-                  <i className="fas fa-map-marker-alt text-sm w-5 text-[#45BD62]"></i>
-                  <span className="text-sm">{fullAddress}</span>
-                </div>
-              )}
-              {jobType && (
-                <div className="flex items-center gap-2 text-[#B0B3B8]">
-                  <i className="fas fa-clock text-sm w-5 text-[#F7B928]"></i>
-                  <span className="text-sm">{jobType}</span>
-                </div>
-              )}
-              {salary && (
-                <div className="flex items-center gap-2 text-[#B0B3B8] col-span-2">
-                  <i className="fas fa-dollar-sign text-sm w-5 text-[#45BD62]"></i>
-                  <span className="text-sm font-medium text-[#45BD62]">{salary}</span>
-                </div>
-              )}
+              {fullAddress && (<div className="flex items-center gap-2 text-[#B0B3B8]"><i className="fas fa-map-marker-alt text-sm w-5 text-[#45BD62]"></i><span className="text-sm">{fullAddress}</span></div>)}
+              {jobType && (<div className="flex items-center gap-2 text-[#B0B3B8]"><i className="fas fa-clock text-sm w-5 text-[#F7B928]"></i><span className="text-sm">{jobType}</span></div>)}
+              {salary && (<div className="flex items-center gap-2 text-[#B0B3B8] col-span-2"><i className="fas fa-dollar-sign text-sm w-5 text-[#45BD62]"></i><span className="text-sm font-medium text-[#45BD62]">{salary}</span></div>)}
             </div>
-
-            {/* Job Description with 20px font and See More/Less - Preserves formatting */}
             {post.content && (
               <div className="mb-4">
                 <div className="text-[#E4E6EB] whitespace-pre-wrap" style={{ fontSize: '20px' }}>
                   {showFullDescription ? post.content : post.content.slice(0, 300)}
-                  {post.content.length > 300 && (
-                    <button
-                      onClick={() => setShowFullDescription(!showFullDescription)}
-                      className="ml-2 text-[#1877F2] font-bold hover:underline"
-                    >
-                      {showFullDescription ? 'See less' : 'See more'}
-                    </button>
-                  )}
+                  {post.content.length > 300 && (<button onClick={() => setShowFullDescription(!showFullDescription)} className="ml-2 text-[#1877F2] font-bold hover:underline">{showFullDescription ? 'See less' : 'See more'}</button>)}
                 </div>
               </div>
             )}
-
-            {/* Images/Video */}
-            {imageMedia.length > 0 && (
-              <div className="mb-4">
-                <MediaGrid
-                  media={imageMedia}
-                  onOpen={(url, index) => {
-                    const urls = imageMedia.map(m => m.url);
-                    openGallery(urls, index);
-                  }}
-                />
-              </div>
-            )}
-
-            {videoMedia.length > 0 && (
-              <div className="mb-4">
-                <video
-                  src={videoMedia[0].url}
-                  className="w-full rounded-lg"
-                  controls
-                  playsInline
-                />
-              </div>
-            )}
-
-            {/* Apply Button - Only show if application type is set and job is not expired */}
-            {applicationType && applicationValue && !isExpired && (
-              <button
-                onClick={handleApply}
-                disabled={applied}
-                className="w-full bg-[#1B74E4] text-white py-3 rounded-lg font-bold text-lg hover:bg-[#1A6ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-              >
-                {applied ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <i className="fas fa-check"></i>
-                    Applied
-                  </span>
-                ) : (
-                  'Apply Now'
-                )}
-              </button>
-            )}
-            
-            {/* Show message if expired */}
-            {isExpired && (
-              <div className="w-full bg-[#F3425F]/10 text-[#F3425F] py-3 rounded-lg font-bold text-lg text-center border border-[#F3425F]/20">
-                This job posting has expired
-              </div>
-            )}
-
-            {/* Show message if no application method */}
-            {!applicationType && !isExpired && (
-              <div className="w-full bg-[#2d2d2d] text-[#B0B3B8] py-3 rounded-lg font-bold text-lg text-center border border-[#3E4042]">
-                No application method provided
-              </div>
-            )}
+            {imageMedia.length > 0 && (<div className="mb-4"><MediaGrid media={imageMedia} onOpen={(url, index) => { const urls = imageMedia.map(m => m.url); openGallery(urls, index); }} /></div>)}
+            {videoMedia.length > 0 && (<div className="mb-4"><video src={videoMedia[0].url} className="w-full rounded-lg" controls playsInline /></div>)}
+            {applicationType && applicationValue && !isExpired && (<button onClick={handleApply} disabled={applied} className="w-full bg-[#1B74E4] text-white py-3 rounded-lg font-bold text-lg hover:bg-[#1A6ED8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md">{applied ? (<span className="flex items-center justify-center gap-2"><i className="fas fa-check"></i>Applied</span>) : 'Apply Now'}</button>)}
+            {isExpired && (<div className="w-full bg-[#F3425F]/10 text-[#F3425F] py-3 rounded-lg font-bold text-lg text-center border border-[#F3425F]/20">This job posting has expired</div>)}
+            {!applicationType && !isExpired && (<div className="w-full bg-[#2d2d2d] text-[#B0B3B8] py-3 rounded-lg font-bold text-lg text-center border border-[#3E4042]">No application method provided</div>)}
           </div>
         </div>
-
-        {/* Reaction summary row - USING commentCount STATE */}
         {(localReactionCount > 0 || commentCount > 0) && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowReactionsSheet(true);
-              }}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
-                  </span>
-                </>
-              )}
+            <button onClick={(e) => { e.stopPropagation(); setShowReactionsSheet(true); }} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              {localReactionCount > 0 && (<><div className="flex -space-x-2">{emojiList.slice(0, 2).map((e, i) => (<span key={i} className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]" style={{ zIndex: 10 - i }}>{e}</span>))}</div><span className="text-[#E4E6EB] font-bold text-[16px]">{formatCount(localReactionCount)}</span></>)}
             </button>
-            
-            <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
-              >
-                {formatCount(commentCount)} Discussions
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
+            <div className="flex gap-4"><span className="hover:underline cursor-pointer" onClick={handleOpenComments}>{formatCount(commentCount)} Discussions</span>{shareCount > 0 && (<span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>{formatCount(shareCount)} Shares</span>)}</div>
           </div>
         )}
-
-        {/* Action buttons */}
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={localMyReaction}
-            reactionCount={localReactionCount}
-            onReact={handleLikeClick}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
-          >
-            <DiscussSignalIcon size={26} color="#1877F2" />
-            <span className="text-[17px] font-medium">Discuss</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share posts.');
-                return;
-              }
-              setShowShareSheet(true);
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
+          <ReactionButton currentUserReactions={localMyReaction} reactionCount={localReactionCount} onReact={handleLikeClick} isGuest={!currentUser} />
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => currentUser ? handleOpenComments() : alert('Login first')}><DiscussSignalIcon size={26} color="#1877F2" /><span className="text-[17px] font-medium">Discuss</span></button>
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => { if (!currentUser) { alert('Please login to share posts.'); return; } setShowShareSheet(true); }}><i className="fas fa-share text-[20px]"></i><span className="text-[17px] font-medium">Share</span></button>
         </div>
       </div>
-
-      <ShareBottomSheet
-        isOpen={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        post={post}
-        currentUser={currentUser}
-        users={users}
-        onShareComplete={handleShareComplete}
-      />
-
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
-      <GalleryViewer
-        isOpen={galleryOpen}
-        urls={galleryUrls}
-        startIndex={galleryIndex}
-        onClose={() => setGalleryOpen(false)}
-        postId={post.id}
-        currentUser={currentUser}
-        reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
-        shareCount={shareCount}
-        myReaction={localMyReaction}
-        onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
-        onShare={() => setShowShareSheet(true)}
-        onOpenReactions={() => setShowReactionsSheet(true)}
-      />
+      <ShareBottomSheet isOpen={showShareSheet} onClose={() => setShowShareSheet(false)} post={post} currentUser={currentUser} users={users} onShareComplete={handleShareComplete} />
+      <GalleryViewer isOpen={galleryOpen} urls={galleryUrls} startIndex={galleryIndex} onClose={() => setGalleryOpen(false)} postId={post.id} currentUser={currentUser} reactionCount={localReactionCount} commentCount={commentCount} shareCount={shareCount} myReaction={localMyReaction} onReact={handleLikeClick} onOpenComments={handleOpenComments} onShare={() => setShowShareSheet(true)} onOpenReactions={() => setShowReactionsSheet(true)} />
     </>
   );
 };
 
-// Enhanced Buy & Sell Post Component - UPDATED with proper comment counting
-const BuySellPost: React.FC<{
-  post: PostType;
-  author: User;
-  currentUser: User | null;
-  users: User[];
-  isGroupAdmin?: boolean;
-  isPlatformAdmin?: boolean;
-  onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
-  onOpenComments: (postId: number) => void;
-  onSharePost: (postId: number, newShareCount: number) => void;
-  onEditPost?: (postId: number, content: string) => Promise<any>;
-  onDeletePost?: (postId: number) => Promise<any>;
-  onReportPost?: (postId: number) => Promise<any>;
-  onMessageSeller?: (userId: number) => void;
-  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
-  onCommentAdded?: () => void; // Add this
-}> = (props) => {
+const BuySellPost: React.FC<any> = (props) => {
   const { post, author, currentUser, onMessageSeller, onMakeOffer, onProfileClick, users, onComment, onCommentAdded } = props;
   const [showOfferModal, setShowOfferModal] = useState(false);
   const [offerAmount, setOfferAmount] = useState('');
@@ -1526,15 +700,12 @@ const BuySellPost: React.FC<{
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [localReactionCount, setLocalReactionCount] = useState(0);
   const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof post.comment_count === 'number') return post.comment_count;
     if (typeof (post as any).comments_count === 'number') return (post as any).comments_count;
     if (Array.isArray(post.comments)) return post.comments.length;
     return 0;
   });
-  
   const [shareCount, setShareCount] = useState(0);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
@@ -1542,53 +713,25 @@ const BuySellPost: React.FC<{
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
-  // Parse item details
   const price = (post as any).price || '0';
   const currency = (post as any).currency || 'USD';
   const condition = (post as any).condition || 'Used - Good';
   const location = (post as any).location || '';
-  const status = (post as any).status || 'available'; // available, pending, sold
+  const status = (post as any).status || 'available';
 
-  // Get currency symbol
-  const getCurrencySymbol = (currencyCode: string) => {
-    const currency = CURRENCY_OPTIONS.find(c => c.code === currencyCode);
-    return currency ? currency.symbol : currencyCode;
-  };
-
-  // Format price with currency - use the exact currency selected by user
+  const getCurrencySymbol = (currencyCode: string) => { const c = CURRENCY_OPTIONS.find(c => c.code === currencyCode); return c ? c.symbol : currencyCode; };
   const formattedPrice = `${getCurrencySymbol(currency)} ${price}`;
-
-  // Get media for gallery view
-  const mediaList = useMemo(() => {
-    return getPostMediaList(post);
-  }, [post]);
-
+  const mediaList = useMemo(() => getPostMediaList(post), [post]);
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
 
-  // Initialize reaction states
   useEffect(() => {
     setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
-    
-    const likesCount = Number(
-      (post as any).likesCount ?? 
-      (post as any).reactionsCount ?? 
-      (post as any).reactions_count ?? 
-      0
-    );
+    const likesCount = Number((post as any).likesCount ?? (post as any).reactionsCount ?? (post as any).reactions_count ?? 0);
     const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
-    
-    // Update commentCount from props
-    const newCommentCount = 
-      typeof post.comment_count === 'number' ? post.comment_count :
-      typeof (post as any).comments_count === 'number' ? (post as any).comments_count :
-      Array.isArray(post.comments) ? post.comments.length : 0;
-    
-    if (newCommentCount !== commentCount) {
-      setCommentCount(newCommentCount);
-    }
-    
+    const newCommentCount = typeof post.comment_count === 'number' ? post.comment_count : typeof (post as any).comments_count === 'number' ? (post as any).comments_count : Array.isArray(post.comments) ? post.comments.length : 0;
+    if (newCommentCount !== commentCount) setCommentCount(newCommentCount);
     setShareCount(Number(post.shares ?? post.shares_count ?? 0));
   }, [post.id, post]);
 
@@ -1596,1342 +739,231 @@ const BuySellPost: React.FC<{
   const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
 
   const handleMakeOffer = async () => {
-    if (!currentUser) {
-      alert('Please login to make an offer');
-      return;
-    }
-    if (!offerAmount || isNaN(Number(offerAmount))) {
-      alert('Please enter a valid amount');
-      return;
-    }
-    if (onMakeOffer) {
-      try {
-        await onMakeOffer(post.id, Number(offerAmount));
-        setOfferSent(true);
-        setShowOfferModal(false);
-      } catch (error) {
-        console.error('Failed to make offer:', error);
-      }
-    }
+    if (!currentUser) { alert('Please login to make an offer'); return; }
+    if (!offerAmount || isNaN(Number(offerAmount))) { alert('Please enter a valid amount'); return; }
+    if (onMakeOffer) { try { await onMakeOffer(post.id, Number(offerAmount)); setOfferSent(true); setShowOfferModal(false); } catch (error) { console.error('Failed to make offer:', error); } }
   };
 
-  const handleMessage = () => {
-    if (!currentUser) {
-      alert('Please login to message seller');
-      return;
-    }
-    if (onMessageSeller) {
-      onMessageSeller(author.id);
-    }
-  };
+  const handleMessage = () => { if (!currentUser) { alert('Please login to message seller'); return; } if (onMessageSeller) onMessageSeller(author.id); };
 
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
-    
     const previousMyReaction = localMyReaction;
     const previousReactionCount = localReactionCount;
-
     let newMyReaction: ReactionType | null = type;
     let newReactionCount = previousReactionCount;
-
-    if (!previousMyReaction) {
-      newReactionCount = previousReactionCount + 1;
-    } else if (previousMyReaction === type) {
-      newMyReaction = null;
-      newReactionCount = previousReactionCount - 1;
-    } else {
-      newMyReaction = type;
-      newReactionCount = previousReactionCount;
-    }
-
+    if (!previousMyReaction) newReactionCount = previousReactionCount + 1;
+    else if (previousMyReaction === type) { newMyReaction = null; newReactionCount = previousReactionCount - 1; }
+    else newMyReaction = type;
     setLocalMyReaction(newMyReaction || undefined);
     setLocalReactionCount(newReactionCount);
-
-    try {
-      await props.onLikePost(post.id, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-      setLocalMyReaction(previousMyReaction);
-      setLocalReactionCount(previousReactionCount);
-    }
+    try { await props.onLikePost(post.id, type); } catch (error) { console.error('Failed to like post:', error); setLocalMyReaction(previousMyReaction); setLocalReactionCount(previousReactionCount); }
   };
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
-    if (data?.success) {
-      setShareCount(nextShares);
-      props.onSharePost(post.id, nextShares);
-    }
+    if (data?.success) { setShareCount(nextShares); props.onSharePost(post.id, nextShares); }
     setShowShareSheet(false);
   };
 
-  // ✅ Handle comment added - updates the comment count
-  const handleCommentAdded = () => {
-    setCommentCount(prev => prev + 1);
-    if (onCommentAdded) {
-      onCommentAdded();
-    }
-  };
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
-
+  const handleCommentAdded = () => { setCommentCount(prev => prev + 1); if (onCommentAdded) onCommentAdded(); };
+  const openGallery = (urls: string[], index: number) => { setGalleryUrls(urls); setGalleryIndex(index); setGalleryOpen(true); };
   const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-
   const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-      const em = topReactionEmojis(reactionsArr, 2);
-      return em.length ? em : ['👍'];
-    }
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) { const em = topReactionEmojis(reactionsArr, 2); return em.length ? em : ['👍']; }
     return localReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, localReactionCount]);
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
-
+  const formatCount = (count: number): string => { if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`; else if (count >= 1000) return `${(count / 1000).toFixed(1)}k`; return count.toString(); };
   const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
-
-  const statusColors = {
-    available: 'bg-[#45BD62]',
-    pending: 'bg-[#F7B928]',
-    sold: 'bg-[#F3425F]'
-  };
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
-  };
+  const statusColors = { available: 'bg-[#45BD62]', pending: 'bg-[#F7B928]', sold: 'bg-[#F3425F]' };
+  const handleOpenComments = () => props.onOpenComments(post.id);
 
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-        {/* Header */}
         <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => onProfileClick(author.id)}
-          >
-            <img
-              src={avatarFrom(author)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-            />
+          <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={() => onProfileClick(author.id)}>
+            <img src={avatarFrom(author)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#3E4042]" />
             <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                  {author.name || 'User'}
-                </h4>
-                {author.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{createdAtLabel}</span>
-                <span>•</span>
-                <i className="fas fa-store text-[12px]"></i>
-                <span>Marketplace</span>
-              </div>
+              <div className="flex items-center gap-1 flex-wrap"><h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">{author.name || 'User'}</h4>{author.is_verified && (<i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>)}</div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]"><span>{createdAtLabel}</span><span>•</span><i className="fas fa-store text-[12px]"></i><span>Marketplace</span></div>
             </div>
           </div>
-
-          {/* Three-dots menu */}
           {(canModerate || props.onReportPost) && (
             <div className="relative">
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowActionsMenu(!showActionsMenu);
-                }}
-                aria-label="Post actions"
-              >
-                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-              </button>
-
-              {showActionsMenu && (
-                <PostActionsMenu
-                  post={post}
-                  currentUser={currentUser}
-                  isGroupAdmin={canModerate}
-                  isPostAuthor={isPostAuthor}
-                  onEdit={props.onEditPost}
-                  onDelete={props.onDeletePost}
-                  onReport={props.onReportPost}
-                  onClose={() => setShowActionsMenu(false)}
-                />
-              )}
+              <button className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors" onClick={(e) => { e.stopPropagation(); setShowActionsMenu(!showActionsMenu); }} aria-label="Post actions"><i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i></button>
+              {showActionsMenu && (<PostActionsMenu post={post} currentUser={currentUser} isGroupAdmin={canModerate} isPostAuthor={isPostAuthor} onEdit={props.onEditPost} onDelete={props.onDeletePost} onReport={props.onReportPost} onClose={() => setShowActionsMenu(false)} />)}
             </div>
           )}
-
-          {/* Status Badge */}
-          <div className={`px-3 py-1 rounded-full ${statusColors[status as keyof typeof statusColors]} text-white text-xs font-bold uppercase`}>
-            {status}
-          </div>
+          <div className={`px-3 py-1 rounded-full ${statusColors[status as keyof typeof statusColors]} text-white text-xs font-bold uppercase`}>{status}</div>
         </div>
-
-        {/* Price Tag with Currency - Shows exact currency user selected */}
-        <div className="px-3 md:px-4 pb-2">
-          <span className="text-[#E4E6EB] font-black text-2xl">{formattedPrice}</span>
-          {condition && (
-            <span className="ml-2 text-[#B0B3B8] text-sm">• {condition}</span>
-          )}
-        </div>
-
-        {/* Location - Always show if available */}
-        {location && (
-          <div className="px-3 md:px-4 pb-2">
-            <div className="flex items-center gap-1 text-[#B0B3B8]">
-              <i className="fas fa-map-marker-alt text-xs text-[#F7B928]"></i>
-              <span className="text-xs">{location}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Images Grid */}
-        {imageMedia.length > 0 && (
-          <MediaGrid
-            media={imageMedia}
-            onOpen={(url, index) => {
-              const urls = imageMedia.map(m => m.url);
-              openGallery(urls, index);
-            }}
-          />
-        )}
-
-        {/* Video */}
-        {videoMedia.length > 0 && (
-          <div className="px-3 md:px-4 mb-3">
-            <video
-              src={videoMedia[0].url}
-              className="w-full rounded-lg"
-              controls
-              playsInline
-            />
-          </div>
-        )}
-
-        {/* Description - optional */}
-        {post.content && (
-          <div className="px-3 md:px-4 py-3">
-            <p className="text-[#E4E6EB] text-base whitespace-pre-wrap">{post.content}</p>
-          </div>
-        )}
-
-        {/* Reaction summary row - USING commentCount STATE */}
+        <div className="px-3 md:px-4 pb-2"><span className="text-[#E4E6EB] font-black text-2xl">{formattedPrice}</span>{condition && (<span className="ml-2 text-[#B0B3B8] text-sm">• {condition}</span>)}</div>
+        {location && (<div className="px-3 md:px-4 pb-2"><div className="flex items-center gap-1 text-[#B0B3B8]"><i className="fas fa-map-marker-alt text-xs text-[#F7B928]"></i><span className="text-xs">{location}</span></div></div>)}
+        {imageMedia.length > 0 && (<MediaGrid media={imageMedia} onOpen={(url, index) => { const urls = imageMedia.map(m => m.url); openGallery(urls, index); }} />)}
+        {videoMedia.length > 0 && (<div className="px-3 md:px-4 mb-3"><video src={videoMedia[0].url} className="w-full rounded-lg" controls playsInline /></div>)}
+        {post.content && (<div className="px-3 md:px-4 py-3"><p className="text-[#E4E6EB] text-base whitespace-pre-wrap">{post.content}</p></div>)}
         {(localReactionCount > 0 || commentCount > 0) && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowReactionsSheet(true);
-              }}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
-                  </span>
-                </>
-              )}
+            <button onClick={(e) => { e.stopPropagation(); setShowReactionsSheet(true); }} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              {localReactionCount > 0 && (<><div className="flex -space-x-2">{emojiList.slice(0, 2).map((e, i) => (<span key={i} className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]" style={{ zIndex: 10 - i }}>{e}</span>))}</div><span className="text-[#E4E6EB] font-bold text-[16px]">{formatCount(localReactionCount)}</span></>)}
             </button>
-            
-            <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
-              >
-                {formatCount(commentCount)} Discussions
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
+            <div className="flex gap-4"><span className="hover:underline cursor-pointer" onClick={handleOpenComments}>{formatCount(commentCount)} Discussions</span>{shareCount > 0 && (<span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>{formatCount(shareCount)} Shares</span>)}</div>
           </div>
         )}
-
-        {/* Action buttons */}
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={localMyReaction}
-            reactionCount={localReactionCount}
-            onReact={handleLikeClick}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
-          >
-            <DiscussSignalIcon size={26} color="#1877F2" />
-            <span className="text-[17px] font-medium">Discuss</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share posts.');
-                return;
-              }
-              setShowShareSheet(true);
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
+          <ReactionButton currentUserReactions={localMyReaction} reactionCount={localReactionCount} onReact={handleLikeClick} isGuest={!currentUser} />
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => currentUser ? handleOpenComments() : alert('Login first')}><DiscussSignalIcon size={26} color="#1877F2" /><span className="text-[17px] font-medium">Discuss</span></button>
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => { if (!currentUser) { alert('Please login to share posts.'); return; } setShowShareSheet(true); }}><i className="fas fa-share text-[20px]"></i><span className="text-[17px] font-medium">Share</span></button>
         </div>
-
-        {/* Marketplace Action Buttons */}
         <div className="px-2 py-3 border-t border-[#3E4042] grid grid-cols-2 gap-2">
-          <button
-            onClick={handleMessage}
-            className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#1877F2] text-white font-bold hover:bg-[#166fe5] transition-colors"
-          >
-            <i className="fas fa-comment"></i>
-            Message
-          </button>
-          <button
-            onClick={() => setShowOfferModal(true)}
-            disabled={status !== 'available' || offerSent}
-            className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#2d2d2d] text-[#E4E6EB] font-bold hover:bg-[#3a3a3a] transition-colors disabled:opacity-50"
-          >
-            <i className="fas fa-tag"></i>
-            {offerSent ? 'Offer Sent' : 'Make Offer'}
-          </button>
+          <button onClick={handleMessage} className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#1877F2] text-white font-bold hover:bg-[#166fe5] transition-colors"><i className="fas fa-comment"></i>Message</button>
+          <button onClick={() => setShowOfferModal(true)} disabled={status !== 'available' || offerSent} className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#2d2d2d] text-[#E4E6EB] font-bold hover:bg-[#3a3a3a] transition-colors disabled:opacity-50"><i className="fas fa-tag"></i>{offerSent ? 'Offer Sent' : 'Make Offer'}</button>
         </div>
       </div>
-
-      {/* Make Offer Modal */}
       {showOfferModal && (
         <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-[#1e1e1e] w-full max-w-[400px] rounded-xl border border-[#333] p-4">
             <h3 className="text-[#e4e6eb] font-bold text-lg mb-4">Make an Offer</h3>
-            <div className="mb-4">
-              <label className="block text-[#b0b3b8] text-sm mb-1">Your offer ({getCurrencySymbol(currency)})</label>
-              <input
-                type="number"
-                value={offerAmount}
-                onChange={(e) => setOfferAmount(e.target.value)}
-                placeholder={`Enter amount (max ${formattedPrice})`}
-                max={price}
-                className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowOfferModal(false)}
-                className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleMakeOffer}
-                disabled={!offerAmount}
-                className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50"
-              >
-                Send Offer
-              </button>
-            </div>
+            <div className="mb-4"><label className="block text-[#b0b3b8] text-sm mb-1">Your offer ({getCurrencySymbol(currency)})</label><input type="number" value={offerAmount} onChange={(e) => setOfferAmount(e.target.value)} placeholder={`Enter amount (max ${formattedPrice})`} max={price} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2.5 text-[#e4e6eb] outline-none" /></div>
+            <div className="flex gap-2"><button onClick={() => setShowOfferModal(false)} className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors">Cancel</button><button onClick={handleMakeOffer} disabled={!offerAmount} className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50">Send Offer</button></div>
           </div>
         </div>
       )}
-
-      <ShareBottomSheet
-        isOpen={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        post={post}
-        currentUser={currentUser}
-        users={users}
-        onShareComplete={handleShareComplete}
-      />
-
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
-      <GalleryViewer
-        isOpen={galleryOpen}
-        urls={galleryUrls}
-        startIndex={galleryIndex}
-        onClose={() => setGalleryOpen(false)}
-        postId={post.id}
-        currentUser={currentUser}
-        reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
-        shareCount={shareCount}
-        myReaction={localMyReaction}
-        onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
-        onShare={() => setShowShareSheet(true)}
-        onOpenReactions={() => setShowReactionsSheet(true)}
-      />
+      <ShareBottomSheet isOpen={showShareSheet} onClose={() => setShowShareSheet(false)} post={post} currentUser={currentUser} users={users} onShareComplete={handleShareComplete} />
+      <GalleryViewer isOpen={galleryOpen} urls={galleryUrls} startIndex={galleryIndex} onClose={() => setGalleryOpen(false)} postId={post.id} currentUser={currentUser} reactionCount={localReactionCount} commentCount={commentCount} shareCount={shareCount} myReaction={localMyReaction} onReact={handleLikeClick} onOpenComments={handleOpenComments} onShare={() => setShowShareSheet(true)} onOpenReactions={() => setShowReactionsSheet(true)} />
     </>
   );
 };
 
-// Music & Drama Post Component - UPDATED with proper comment counting
-const MusicDramaPost: React.FC<{
-  post: PostType;
-  author: User;
-  currentUser: User | null;
-  users: User[];
-  isGroupAdmin?: boolean;
-  isPlatformAdmin?: boolean;
-  onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
-  onOpenComments: (postId: number) => void;
-  onSharePost: (postId: number, newShareCount: number) => void;
-  onEditPost?: (postId: number, content: string) => Promise<any>;
-  onDeletePost?: (postId: number) => Promise<any>;
-  onReportPost?: (postId: number) => Promise<any>;
-  onPlayVideo?: (postId: number, url: string) => void;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
-  onCommentAdded?: () => void; // Add this
-}> = (props) => {
-  const { post, author, onPlayVideo, onProfileClick, users, currentUser, onComment, onCommentAdded } = props;
-  const [isPlaying, setIsPlaying] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const [localReactionCount, setLocalReactionCount] = useState(0);
-  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>();
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
-  const [commentCount, setCommentCount] = useState(() => {
-    if (typeof post.comment_count === 'number') return post.comment_count;
-    if (typeof (post as any).comments_count === 'number') return (post as any).comments_count;
-    if (Array.isArray(post.comments)) return post.comments.length;
-    return 0;
-  });
-  
-  const [shareCount, setShareCount] = useState(0);
-  const [showShareSheet, setShowShareSheet] = useState(false);
-  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-
-  // Get media list
-  const mediaList = useMemo(() => {
-    return getPostMediaList(post);
-  }, [post]);
-
-  // Find first video
-  const videoMedia = mediaList.find(m => m.kind === 'video');
-  const imageMedia = mediaList.filter(m => m.kind === 'image');
-
-  // Parse metadata
-  const duration = (post as any).duration || '';
-  const artist = (post as any).artist || '';
-  const episode = (post as any).episode || '';
-  const series = (post as any).series || '';
-
-  // Initialize reaction states
-  useEffect(() => {
-    setLocalMyReaction((post as any).myReaction ?? (post as any).my_reaction ?? null);
-    
-    const likesCount = Number(
-      (post as any).likesCount ?? 
-      (post as any).reactionsCount ?? 
-      (post as any).reactions_count ?? 
-      0
-    );
-    const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-    setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
-    
-    // Update commentCount from props
-    const newCommentCount = 
-      typeof post.comment_count === 'number' ? post.comment_count :
-      typeof (post as any).comments_count === 'number' ? (post as any).comments_count :
-      Array.isArray(post.comments) ? post.comments.length : 0;
-    
-    if (newCommentCount !== commentCount) {
-      setCommentCount(newCommentCount);
-    }
-    
-    setShareCount(Number(post.shares ?? post.shares_count ?? 0));
-  }, [post.id, post]);
-
-  const isPostAuthor = currentUser?.id === author.id;
-  const canModerate = Boolean(isPostAuthor || props.isGroupAdmin || props.isPlatformAdmin);
-
-  const handlePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-    if (onPlayVideo) {
-      onPlayVideo(post.id, videoMedia?.url || '');
-    }
-  };
-
-  const handleLikeClick = async (type: ReactionType) => {
-    if (!currentUser) return;
-    
-    const previousMyReaction = localMyReaction;
-    const previousReactionCount = localReactionCount;
-
-    let newMyReaction: ReactionType | null = type;
-    let newReactionCount = previousReactionCount;
-
-    if (!previousMyReaction) {
-      newReactionCount = previousReactionCount + 1;
-    } else if (previousMyReaction === type) {
-      newMyReaction = null;
-      newReactionCount = previousReactionCount - 1;
-    } else {
-      newMyReaction = type;
-      newReactionCount = previousReactionCount;
-    }
-
-    setLocalMyReaction(newMyReaction || undefined);
-    setLocalReactionCount(newReactionCount);
-
-    try {
-      await props.onLikePost(post.id, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-      setLocalMyReaction(previousMyReaction);
-      setLocalReactionCount(previousReactionCount);
-    }
-  };
-
-  const handleShareComplete = (destination: string, data?: any) => {
-    const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
-    if (data?.success) {
-      setShareCount(nextShares);
-      props.onSharePost(post.id, nextShares);
-    }
-    setShowShareSheet(false);
-  };
-
-  // ✅ Handle comment added - updates the comment count
-  const handleCommentAdded = () => {
-    setCommentCount(prev => prev + 1);
-    if (onCommentAdded) {
-      onCommentAdded();
-    }
-  };
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
-
-  const reactionsArr = Array.isArray(post.reactions) ? post.reactions : null;
-
-  const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-      const em = topReactionEmojis(reactionsArr, 2);
-      return em.length ? em : ['👍'];
-    }
-    return localReactionCount > 0 ? ['👍'] : [];
-  }, [reactionsArr, localReactionCount]);
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
-
-  const createdAtLabel = formatRelativeTime(post.created_at || post.createdAt || '');
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    props.onOpenComments(post.id);
-  };
-
-  return (
-    <>
-      <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
-        {/* Header */}
-        <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => onProfileClick(author.id)}
-          >
-            <img
-              src={avatarFrom(author)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-            />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                  {author.name || 'User'}
-                </h4>
-                {author.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{createdAtLabel}</span>
-                <span>•</span>
-                {series ? (
-                  <>
-                    <i className="fas fa-film text-[12px]"></i>
-                    <span>Series • Ep {episode}</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-music text-[12px]"></i>
-                    <span>Music</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Three-dots menu */}
-          {(canModerate || props.onReportPost) && (
-            <div className="relative">
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowActionsMenu(!showActionsMenu);
-                }}
-                aria-label="Post actions"
-              >
-                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-              </button>
-
-              {showActionsMenu && (
-                <PostActionsMenu
-                  post={post}
-                  currentUser={currentUser}
-                  isGroupAdmin={canModerate}
-                  isPostAuthor={isPostAuthor}
-                  onEdit={props.onEditPost}
-                  onDelete={props.onDeletePost}
-                  onReport={props.onReportPost}
-                  onClose={() => setShowActionsMenu(false)}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Artist/Series Info */}
-        {(artist || series) && (
-          <div className="px-3 md:px-4 pb-2">
-            <div className="inline-flex items-center gap-2">
-              {artist && (
-                <span className="text-[#E4E6EB] font-bold">{artist}</span>
-              )}
-              {series && (
-                <>
-                  <span className="text-[#B0B3B8]">•</span>
-                  <span className="text-[#B0B3B8]">{series}</span>
-                  {episode && (
-                    <span className="text-[#B0B3B8]">Episode {episode}</span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Video Player - Prominent */}
-        {videoMedia && (
-          <div className="relative bg-black">
-            <video
-              ref={videoRef}
-              src={videoMedia.url}
-              className="w-full aspect-video"
-              poster={imageMedia[0]?.url}
-              controls={isPlaying}
-              playsInline
-            />
-            
-            {/* Custom Play Button Overlay */}
-            {!isPlaying && (
-              <button
-                onClick={handlePlayPause}
-                className="absolute inset-0 flex items-center justify-center bg-black/40 group"
-              >
-                <div className="w-20 h-20 rounded-full bg-[#F3425F] flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <i className="fas fa-play text-white text-3xl ml-1"></i>
-                </div>
-              </button>
-            )}
-
-            {/* Duration Badge */}
-            {duration && (
-              <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-white text-xs">
-                {duration}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Image Grid (if any) */}
-        {!videoMedia && imageMedia.length > 0 && (
-          <MediaGrid
-            media={imageMedia}
-            onOpen={(url, index) => {
-              const urls = imageMedia.map(m => m.url);
-              openGallery(urls, index);
-            }}
-          />
-        )}
-
-        {/* Description - optional */}
-        {post.content && (
-          <div className="px-3 md:px-4 py-3">
-            <p className="text-[#E4E6EB] text-base whitespace-pre-wrap">{post.content}</p>
-          </div>
-        )}
-
-        {/* Reaction summary row - USING commentCount STATE */}
-        {(localReactionCount > 0 || commentCount > 0) && (
-          <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowReactionsSheet(true);
-              }}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {localReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(localReactionCount)}
-                  </span>
-                </>
-              )}
-            </button>
-            
-            <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
-              >
-                {formatCount(commentCount)} Discussions
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline cursor-pointer" onClick={() => setShowShareSheet(true)}>
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={localMyReaction}
-            reactionCount={localReactionCount}
-            onReact={handleLikeClick}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
-          >
-            <DiscussSignalIcon size={26} color="#1877F2" />
-            <span className="text-[17px] font-medium">Discuss</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share posts.');
-                return;
-              }
-              setShowShareSheet(true);
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
-        </div>
-      </div>
-
-      <ShareBottomSheet
-        isOpen={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        post={post}
-        currentUser={currentUser}
-        users={users}
-        onShareComplete={handleShareComplete}
-      />
-
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
-      <GalleryViewer
-        isOpen={galleryOpen}
-        urls={galleryUrls}
-        startIndex={galleryIndex}
-        onClose={() => setGalleryOpen(false)}
-        postId={post.id}
-        currentUser={currentUser}
-        reactionCount={localReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
-        shareCount={shareCount}
-        myReaction={localMyReaction}
-        onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
-        onShare={() => setShowShareSheet(true)}
-        onOpenReactions={() => setShowReactionsSheet(true)}
-      />
-    </>
-  );
-};
-
-/**
- * GroupPost Component - Now dispatches to category-specific components
- */
-const GroupPost: React.FC<{
-  post: PostType;
-  author: User;
-  currentUser: User | null;
-  users: User[];
-  groupCategory?: GroupCategory;
-  isGroupAdmin?: boolean;
-  isPlatformAdmin?: boolean;
-  onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<any>;
-  onOpenComments: (postId: number) => void;
-  onSharePost: (postId: number, newShareCount: number) => void;
-  onEditPost?: (postId: number, content: string) => Promise<any>;
-  onDeletePost?: (postId: number) => Promise<any>;
-  onReportPost?: (postId: number) => Promise<any>;
-  onViewImage?: (url: string, index?: number) => void;
-  onVideoClick?: (post: PostType) => void;
-  onHashtagClick?: (tag: string) => void;
-  onFollow?: (userId: number) => Promise<any>;
-  checkIsFollowing?: (userId: number) => boolean;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
-  onCommentAdded?: () => void; // Add this
-  // Category-specific handlers
-  onApply?: (postId: number, applicationData?: any) => Promise<any>;
-  onMessageSeller?: (userId: number) => void;
-  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
-  onPlayVideo?: (postId: number, url: string) => void;
-}> = (props) => {
-  const { groupCategory = 'general' } = props;
-
-  // Dispatch to category-specific component based on group category
-  switch (groupCategory) {
-    case 'recruitment':
-      return <RecruitmentPost {...props} />;
-    case 'buy_sell':
-      return <BuySellPost {...props} />;
-    case 'music_drama':
-      return <MusicDramaPost {...props} />;
-    case 'general':
-    default:
-      return <GeneralGroupPost {...props} />;
-  }
-};
-
-// Original GroupPost implementation renamed to GeneralGroupPost - UPDATED with proper comment counting
 const GeneralGroupPost: React.FC<any> = ({
-  post,
-  author,
-  currentUser,
-  users = [],
-  isGroupAdmin = false,
-  isPlatformAdmin = false,
-  onProfileClick,
-  onLikePost,
-  onOpenComments,
-  onSharePost,
-  onEditPost,
-  onDeletePost,
-  onReportPost,
-  onViewImage,
-  onVideoClick,
-  onHashtagClick,
-  onFollow,
-  checkIsFollowing,
-  onComment,
-  onCommentAdded, // Add this
+  post, author, currentUser, users = [], isGroupAdmin = false, isPlatformAdmin = false, onProfileClick, onLikePost, onOpenComments, onSharePost, onEditPost, onDeletePost, onReportPost, onViewImage, onVideoClick, onHashtagClick, onFollow, checkIsFollowing, onComment, onCommentAdded,
 }) => {
   const p: any = post as any;
   const a: any = author as any;
-
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  
-  // THIS IS THE KEY - commentCount state that will be used by BOTH post card AND GalleryViewer
   const [commentCount, setCommentCount] = useState(() => {
     if (typeof p.comment_count === 'number') return p.comment_count;
     if (typeof p.comments_count === 'number') return p.comments_count;
     if (Array.isArray(p.comments)) return p.comments.length;
     return 0;
   });
-
-  const [shareCount, setShareCount] = useState(() => {
-    return Number(p.shares ?? p.shares_count ?? 0);
-  });
-
+  const [shareCount, setShareCount] = useState(() => Number(p.shares ?? p.shares_count ?? 0));
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [showReactionsSheet, setShowReactionsSheet] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [galleryIndex, setGalleryIndex] = useState(0);
-
-  // Local state for immediate reaction updates
-  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>(
-    (p as any).myReaction ?? (p as any).my_reaction ?? null
-  );
+  const [localMyReaction, setLocalMyReaction] = useState<ReactionType | undefined>((p as any).myReaction ?? (p as any).my_reaction ?? null);
   const [localReactionCount, setLocalReactionCount] = useState(() => {
-    const likesCount = Number(
-      (p as any).likesCount ?? 
-      (p as any).reactionsCount ?? 
-      (p as any).reactions_count ?? 
-      0
-    );
+    const likesCount = Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0);
     const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
     return likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0;
   });
 
-  // Sync with props when they change
   useEffect(() => {
     setLocalMyReaction((p as any).myReaction ?? (p as any).my_reaction ?? null);
-    
-    const likesCount = Number(
-      (p as any).likesCount ?? 
-      (p as any).reactionsCount ?? 
-      (p as any).reactions_count ?? 
-      0
-    );
+    const likesCount = Number((p as any).likesCount ?? (p as any).reactionsCount ?? (p as any).reactions_count ?? 0);
     const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
     setLocalReactionCount(likesCount > 0 ? likesCount : reactionsArr ? reactionsArr.length : 0);
-    
-    // Update commentCount from props
-    const newCommentCount = 
-      typeof p.comment_count === 'number' ? p.comment_count :
-      typeof p.comments_count === 'number' ? p.comments_count :
-      Array.isArray(p.comments) ? p.comments.length : 0;
-    
-    if (newCommentCount !== commentCount) {
-      setCommentCount(newCommentCount);
-    }
+    const newCommentCount = typeof p.comment_count === 'number' ? p.comment_count : typeof p.comments_count === 'number' ? p.comments_count : Array.isArray(p.comments) ? p.comments.length : 0;
+    if (newCommentCount !== commentCount) setCommentCount(newCommentCount);
   }, [p.id, (p as any).myReaction, (p as any).my_reaction, (p as any).likesCount, (p as any).reactionsCount, (p as any).reactions_count]);
 
   const reactionsArr = Array.isArray(p.reactions) ? p.reactions : null;
-  
   const finalMyReaction = localMyReaction;
   const finalReactionCount = localReactionCount;
-
   const createdAtLabel = formatRelativeTime(p.created_at || p.createdAt || '');
   const postId = Number(p.id ?? p.post_id ?? 0);
-
   const isPostAuthor = currentUser?.id === author.id;
   const canModerate = Boolean(isPostAuthor || isGroupAdmin || isPlatformAdmin);
-
-  // Get media list for multiple images
-  const mediaList = useMemo(() => {
-    return getPostMediaList(p);
-  }, [p]);
-
+  const mediaList = useMemo(() => getPostMediaList(p), [p]);
   const imageMedia = mediaList.filter(m => m.kind === 'image');
   const videoMedia = mediaList.filter(m => m.kind === 'video');
-
-  // Facebook-style reaction emojis
   const emojiList = useMemo(() => {
-    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) {
-      const em = topReactionEmojis(reactionsArr, 2);
-      return em.length ? em : ['👍'];
-    }
+    if (Array.isArray(reactionsArr) && reactionsArr.length > 0) { const em = topReactionEmojis(reactionsArr, 2); return em.length ? em : ['👍']; }
     return finalReactionCount > 0 ? ['👍'] : [];
   }, [reactionsArr, finalReactionCount]);
-
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return `${(count / 1000000).toFixed(1)}M`;
-    } else if (count >= 1000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return count.toString();
-  };
+  const formatCount = (count: number): string => { if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`; else if (count >= 1000) return `${(count / 1000).toFixed(1)}k`; return count.toString(); };
 
   const handleLikeClick = async (type: ReactionType) => {
     if (!currentUser) return;
-    
     const previousMyReaction = finalMyReaction;
     const previousReactionCount = finalReactionCount;
-
     let newMyReaction: ReactionType | null = type;
     let newReactionCount = previousReactionCount;
-
-    if (!previousMyReaction) {
-      newReactionCount = previousReactionCount + 1;
-    } else if (previousMyReaction === type) {
-      newMyReaction = null;
-      newReactionCount = previousReactionCount - 1;
-    } else {
-      newMyReaction = type;
-      newReactionCount = previousReactionCount;
-    }
-
+    if (!previousMyReaction) newReactionCount = previousReactionCount + 1;
+    else if (previousMyReaction === type) { newMyReaction = null; newReactionCount = previousReactionCount - 1; }
+    else newMyReaction = type;
     setLocalMyReaction(newMyReaction || undefined);
     setLocalReactionCount(newReactionCount);
-
-    try {
-      await onLikePost(postId, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-      setLocalMyReaction(previousMyReaction);
-      setLocalReactionCount(previousReactionCount);
-    }
+    try { await onLikePost(postId, type); } catch (error) { console.error('Failed to like post:', error); setLocalMyReaction(previousMyReaction); setLocalReactionCount(previousReactionCount); }
   };
 
   const handleShareComplete = (destination: string, data?: any) => {
     const nextShares = Number(data?.shares ?? data?.share_count ?? shareCount + 1);
-    if (data?.success) {
-      setShareCount(nextShares);
-      onSharePost(postId, nextShares);
-    }
+    if (data?.success) { setShareCount(nextShares); onSharePost(postId, nextShares); }
     setShowShareSheet(false);
   };
 
-  // ✅ Handle comment added - updates the comment count
-  const handleCommentAdded = () => {
-    setCommentCount(prev => prev + 1);
-    if (onCommentAdded) {
-      onCommentAdded();
-    }
-  };
-
-  const handleSeeMore = () => {
-    onOpenComments(postId);
-  };
-
-  const openGallery = (urls: string[], index: number) => {
-    setGalleryUrls(urls);
-    setGalleryIndex(index);
-    setGalleryOpen(true);
-  };
-
-  // Handle opening comments
-  const handleOpenComments = () => {
-    onOpenComments(postId);
-  };
+  const handleCommentAdded = () => { setCommentCount(prev => prev + 1); if (onCommentAdded) onCommentAdded(); };
+  const handleSeeMore = () => onOpenComments(postId);
+  const openGallery = (urls: string[], index: number) => { setGalleryUrls(urls); setGalleryIndex(index); setGalleryOpen(true); };
+  const handleOpenComments = () => onOpenComments(postId);
 
   return (
     <>
       <div className="bg-[#242526] rounded-xl shadow-sm mb-4 animate-fade-in border border-[#3E4042] overflow-hidden">
         <div className="p-3 md:p-4 flex items-center justify-between">
-          <div
-            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
-            onClick={() => onProfileClick(a.id)}
-          >
-            <img
-              src={avatarFrom(a)}
-              alt=""
-              className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
-            />
+          <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={() => onProfileClick(a.id)}>
+            <img src={avatarFrom(a)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#3E4042]" />
             <div className="min-w-0">
-              <div className="flex items-center gap-1 flex-wrap">
-                <h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">
-                  {a.name || 'User'}
-                </h4>
-                {a.is_verified && (
-                  <i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]">
-                <span>{createdAtLabel}</span>
-                <span>•</span>
-                <i className="fas fa-users text-[12px]"></i>
-                <span>Group Post</span>
-              </div>
+              <div className="flex items-center gap-1 flex-wrap"><h4 className="font-bold text-[#E4E6EB] text-[18.5px] hover:underline truncate">{a.name || 'User'}</h4>{a.is_verified && (<i className="fas fa-check-circle text-[#1877F2] text-[13px]"></i>)}</div>
+              <div className="flex items-center gap-1.5 text-[#B0B3B8] text-[13px]"><span>{createdAtLabel}</span><span>•</span><i className="fas fa-users text-[12px]"></i><span>Group Post</span></div>
             </div>
           </div>
-
-          {/* Three-dots menu button */}
           {(canModerate || onReportPost) && (
             <div className="relative">
-              <button
-                className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowActionsMenu(!showActionsMenu);
-                }}
-                aria-label="Post actions"
-              >
-                <i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i>
-              </button>
-
-              {showActionsMenu && (
-                <PostActionsMenu
-                  post={post}
-                  currentUser={currentUser}
-                  isGroupAdmin={canModerate}
-                  isPostAuthor={isPostAuthor}
-                  onEdit={onEditPost}
-                  onDelete={onDeletePost}
-                  onReport={onReportPost}
-                  onClose={() => setShowActionsMenu(false)}
-                />
-              )}
+              <button className="w-9 h-9 hover:bg-[#3A3B3C] rounded-full flex items-center justify-center transition-colors" onClick={(e) => { e.stopPropagation(); setShowActionsMenu(!showActionsMenu); }} aria-label="Post actions"><i className="fas fa-ellipsis-h text-[#B0B3B8] text-xl"></i></button>
+              {showActionsMenu && (<PostActionsMenu post={post} currentUser={currentUser} isGroupAdmin={canModerate} isPostAuthor={isPostAuthor} onEdit={onEditPost} onDelete={onDeletePost} onReport={onReportPost} onClose={() => setShowActionsMenu(false)} />)}
             </div>
           )}
         </div>
-
-        {p.content && (
-          <div className="px-3 md:px-4 pb-2">
-            <ExpandableRichText
-              text={String(p.content)}
-              users={users}
-              onProfileClick={onProfileClick}
-              onHashtagClick={onHashtagClick}
-              maxWords={25}
-              fontSizePx={21}
-              onSeeMore={handleSeeMore}
-            />
-          </div>
-        )}
-
-        {/* Images Grid - Enhanced with multi-image support */}
-        {imageMedia.length > 0 && (
-          <MediaGrid
-            media={imageMedia.map((m) => ({ url: m.url }))}
-            onOpen={(url, index) => {
-              const urls = imageMedia.map((m) => m.url);
-              openGallery(urls, index);
-            }}
-          />
-        )}
-
-        {/* Video */}
-        {videoMedia.length > 0 && (
-          <div
-            className="cursor-pointer relative h-[500px] bg-black"
-            onClick={() => onVideoClick?.(post)}
-          >
-            <video
-              src={videoMedia[0].url}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              playsInline
-              muted
-              onError={(e) => {
-                console.error('Failed to load video:', videoMedia[0].url);
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <i className="fas fa-play text-white text-4xl opacity-50"></i>
-            </div>
-          </div>
-        )}
-
-        {/* Reaction summary row - USING commentCount STATE */}
+        {p.content && (<div className="px-3 md:px-4 pb-2"><ExpandableRichText text={String(p.content)} users={users} onProfileClick={onProfileClick} onHashtagClick={onHashtagClick} maxWords={25} fontSizePx={21} onSeeMore={handleSeeMore} /></div>)}
+        {imageMedia.length > 0 && (<MediaGrid media={imageMedia.map((m) => ({ url: m.url }))} onOpen={(url, index) => { const urls = imageMedia.map((m) => m.url); openGallery(urls, index); }} />)}
+        {videoMedia.length > 0 && (<div className="cursor-pointer relative h-[500px] bg-black" onClick={() => onVideoClick?.(post)}><video src={videoMedia[0].url} className="w-full h-full object-cover" preload="metadata" playsInline muted onError={(e) => { console.error('Failed to load video:', videoMedia[0].url); e.currentTarget.style.display = 'none'; }} /><div className="absolute inset-0 flex items-center justify-center"><i className="fas fa-play text-white text-4xl opacity-50"></i></div></div>)}
         {(finalReactionCount > 0 || commentCount > 0) && (
           <div className="px-3 md:px-4 py-2 flex items-center justify-between text-[#B0B3B8] text-[14px] border-t border-[#3E4042]">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowReactionsSheet(true);
-              }}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {finalReactionCount > 0 && (
-                <>
-                  <div className="flex -space-x-2">
-                    {emojiList.slice(0, 2).map((e, i) => (
-                      <span
-                        key={i}
-                        className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]"
-                        style={{ zIndex: 10 - i }}
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[#E4E6EB] font-bold text-[16px]">
-                    {formatCount(finalReactionCount)}
-                  </span>
-                </>
-              )}
+            <button onClick={(e) => { e.stopPropagation(); setShowReactionsSheet(true); }} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+              {finalReactionCount > 0 && (<><div className="flex -space-x-2">{emojiList.slice(0, 2).map((e, i) => (<span key={i} className="w-[22px] h-[22px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[14px]" style={{ zIndex: 10 - i }}>{e}</span>))}</div><span className="text-[#E4E6EB] font-bold text-[16px]">{formatCount(finalReactionCount)}</span></>)}
             </button>
-            
-            <div className="flex gap-4">
-              {/* THIS NOW USES THE SAME commentCount STATE AS GALLERYVIEWER */}
-              <span
-                className="hover:underline cursor-pointer"
-                onClick={handleOpenComments}
-              >
-                {formatCount(commentCount)} Discussions
-              </span>
-              {shareCount > 0 && (
-                <span className="hover:underline">
-                  {formatCount(shareCount)} Shares
-                </span>
-              )}
-            </div>
+            <div className="flex gap-4"><span className="hover:underline cursor-pointer" onClick={handleOpenComments}>{formatCount(commentCount)} Discussions</span>{shareCount > 0 && (<span className="hover:underline">{formatCount(shareCount)} Shares</span>)}</div>
           </div>
         )}
-
-        {/* Action buttons */}
         <div className="px-2 py-1 border-t border-[#3E4042] flex items-center justify-between">
-          <ReactionButton
-            currentUserReactions={finalMyReaction}
-            reactionCount={finalReactionCount}
-            onReact={handleLikeClick}
-            isGuest={!currentUser}
-          />
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => currentUser ? handleOpenComments() : alert('Login first')}
-          >
-            <DiscussSignalIcon size={26} color="#1877F2" />
-            <span className="text-[17px] font-medium">Discuss</span>
-          </button>
-          <button
-            className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-            onClick={() => {
-              if (!currentUser) {
-                alert('Please login to share posts.');
-                return;
-              }
-              setShowShareSheet(true);
-            }}
-          >
-            <i className="fas fa-share text-[20px]"></i>
-            <span className="text-[17px] font-medium">Share</span>
-          </button>
+          <ReactionButton currentUserReactions={finalMyReaction} reactionCount={finalReactionCount} onReact={handleLikeClick} isGuest={!currentUser} />
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => currentUser ? handleOpenComments() : alert('Login first')}><DiscussSignalIcon size={26} color="#1877F2" /><span className="text-[17px] font-medium">Discuss</span></button>
+          <button className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]" onClick={() => { if (!currentUser) { alert('Please login to share posts.'); return; } setShowShareSheet(true); }}><i className="fas fa-share text-[20px]"></i><span className="text-[17px] font-medium">Share</span></button>
         </div>
       </div>
-
-      <ShareBottomSheet
-        isOpen={showShareSheet}
-        onClose={() => setShowShareSheet(false)}
-        post={p}
-        currentUser={currentUser}
-        users={users}
-        onShareComplete={handleShareComplete}
-      />
-
-      {/* Gallery Viewer - RECEIVES commentCount STATE */}
-      <GalleryViewer
-        isOpen={galleryOpen}
-        urls={galleryUrls}
-        startIndex={galleryIndex}
-        onClose={() => setGalleryOpen(false)}
-        postId={postId}
-        currentUser={currentUser}
-        reactionCount={finalReactionCount}
-        commentCount={commentCount}  // ← USING THE SAME STATE
-        shareCount={shareCount}
-        myReaction={finalMyReaction}
-        onReact={handleLikeClick}
-        onOpenComments={handleOpenComments}
-        onShare={() => setShowShareSheet(true)}
-        onOpenReactions={() => setShowReactionsSheet(true)}
-      />
+      <ShareBottomSheet isOpen={showShareSheet} onClose={() => setShowShareSheet(false)} post={p} currentUser={currentUser} users={users} onShareComplete={handleShareComplete} />
+      <GalleryViewer isOpen={galleryOpen} urls={galleryUrls} startIndex={galleryIndex} onClose={() => setGalleryOpen(false)} postId={postId} currentUser={currentUser} reactionCount={finalReactionCount} commentCount={commentCount} shareCount={shareCount} myReaction={finalMyReaction} onReact={handleLikeClick} onOpenComments={handleOpenComments} onShare={() => setShowShareSheet(true)} onOpenReactions={() => setShowReactionsSheet(true)} />
     </>
   );
 };
 
-interface GroupsPageProps {
-  currentUser: User | null;
-  groups: Group[];
-  users: User[];
+const GroupPost: React.FC<any> = (props) => {
+  const { groupCategory = 'general' } = props;
+  switch (groupCategory) {
+    case 'recruitment': return <RecruitmentPost {...props} />;
+    case 'buy_sell': return <BuySellPost {...props} />;
+    default: return <GeneralGroupPost {...props} />;
+  }
+};
 
-  // Group management functions
-  onCreateGroup: (group: Partial<Group>) => Promise<any>;
-  onJoinGroup: (groupId: number) => Promise<any>;
-  onLeaveGroup: (groupId: number) => Promise<any>;
-  onDeleteGroup: (groupId: number) => Promise<any>;
-
-  // Group content functions
-  onUpdateGroupImage: (groupId: number, type: 'cover' | 'profile', file: File) => Promise<any>;
-  onPostToGroup: (groupId: number, content: string, files?: File[], metadata?: any) => Promise<any>;
-  onCreateGroupEvent: (groupId: number, event: Partial<Event>) => Promise<any>;
-  onInviteToGroup: (groupId: number, userIds: number[]) => Promise<any>;
-
-  // Interaction functions
-  onProfileClick: (id: number) => void;
-  onLikePost: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
-  onSharePost: (postId: number, newShareCount: number) => void;
-  onDeleteGroupPost: (groupId: number, postId: number) => Promise<any>;
-  onEditGroupPost?: (postId: number, content: string) => Promise<any>;
-  onReportGroupPost?: (postId: number) => Promise<any>;
-  onRemoveMember: (groupId: number, memberId: number) => Promise<any>;
-  onUpdateGroupSettings: (groupId: number, settings: Partial<Group>) => Promise<any>;
-
-  // Event RSVP function
-  onEventRSVP?: (eventId: number, status: string) => Promise<any>;
-
-  // Optional functions
-  fetchGroupPosts?: (groupId: number) => Promise<any[]>;
-  fetchGroupDetails?: (groupId: number) => Promise<{ group: Group; members: any[]; events?: Event[] }>;
-  fetchGroupEvents?: (groupId: number) => Promise<Event[]>;
-  fetchComments?: (postId: number) => Promise<any[]>;
-  onComment?: (postId: number, text: string, parent_comment_id?: number | null) => Promise<any>;
-  onLikeComment?: (commentId: number) => Promise<any>;
-
-  // Other props
-  initialGroupId?: string | null;
-  onPlayAudioTrack?: (track: any) => void;
-  onFollow?: (userId: number) => Promise<any>;
-  checkIsFollowing?: (userId: number) => boolean;
-  onHashtagClick?: (tag: string) => void;
-  onViewImage?: (url: string) => void;
-  onVideoClick?: (post: PostType) => void;
-  
-  // Category-specific handlers
-  onApplyToJob?: (postId: number, applicationData?: any) => Promise<any>;
-  onMessageSeller?: (userId: number) => void;
-  onMakeOffer?: (postId: number, amount: number) => Promise<any>;
-  onPlayVideo?: (postId: number, url: string) => void;
-}
-
-/**
- * Normalize group data for UI safety - UPDATED to include category
- */
 function normalizeGroup(raw: any): Group {
-  const members =
-    raw?.members === undefined || raw?.members === null
-      ? undefined
-      : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
-
+  const members = raw?.members === undefined || raw?.members === null ? undefined : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
-
   return {
     ...raw,
     id: Number(raw?.id ?? raw?.groupId ?? 0),
@@ -2951,62 +983,25 @@ function normalizeGroup(raw: any): Group {
   } as Group;
 }
 
-/**
- * Normalize post data for UI safety - UPDATED to include all recruitment and buy/sell fields
- */
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
   const mediaType = post?.media_type ?? post?.mediaType ?? null;
-  
   let mediaUrls: string[] = [];
   if (post?.media_urls) {
-    if (Array.isArray(post.media_urls)) {
-      mediaUrls = post.media_urls;
-    } else if (typeof post.media_urls === 'string') {
-      try {
-        const parsed = JSON.parse(post.media_urls);
-        mediaUrls = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        mediaUrls = [];
-      }
-    }
+    if (Array.isArray(post.media_urls)) mediaUrls = post.media_urls;
+    else if (typeof post.media_urls === 'string') { try { const parsed = JSON.parse(post.media_urls); mediaUrls = Array.isArray(parsed) ? parsed : []; } catch { mediaUrls = []; } }
   }
-  
   let images: string[] = [];
   if (post?.images) {
-    if (Array.isArray(post.images)) {
-      images = post.images;
-    } else if (typeof post.images === 'string') {
-      try {
-        const parsed = JSON.parse(post.images);
-        images = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        images = [];
-      }
-    }
+    if (Array.isArray(post.images)) images = post.images;
+    else if (typeof post.images === 'string') { try { const parsed = JSON.parse(post.images); images = Array.isArray(parsed) ? parsed : []; } catch { images = []; } }
   }
-
   let mediaTypes: string[] = [];
   if (post?.media_types) {
-    if (Array.isArray(post.media_types)) {
-      mediaTypes = post.media_types;
-    } else if (typeof post.media_types === 'string') {
-      try {
-        const parsed = JSON.parse(post.media_types);
-        mediaTypes = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        mediaTypes = [];
-      }
-    }
+    if (Array.isArray(post.media_types)) mediaTypes = post.media_types;
+    else if (typeof post.media_types === 'string') { try { const parsed = JSON.parse(post.media_types); mediaTypes = Array.isArray(parsed) ? parsed : []; } catch { mediaTypes = []; } }
   }
-
-  // Ensure comment_count is preserved - check both comment_count and comments_count
-  const commentCount = 
-    typeof post?.comment_count === 'number' ? post.comment_count :
-    typeof post?.comments_count === 'number' ? post.comments_count :
-    Array.isArray(post?.comments) ? post.comments.length :
-    0;
-
+  const commentCount = typeof post?.comment_count === 'number' ? post.comment_count : typeof post?.comments_count === 'number' ? post.comments_count : Array.isArray(post?.comments) ? post.comments.length : 0;
   return {
     ...post,
     id: Number(post?.id ?? post?.post_id ?? 0),
@@ -3027,10 +1022,8 @@ function normalizePost(post: any): PostType {
     groupId: post?.groupId ? Number(post.groupId) : null,
     my_reaction: post?.my_reaction ?? null,
     reactions_count: Number(post?.reactions_count ?? post?.likesCount ?? 0),
-    comment_count: commentCount, // Explicitly set this
-    comments_count: commentCount, // Also set comments_count for compatibility
-    
-    // Category-specific fields - Map directly from backend
+    comment_count: commentCount,
+    comments_count: commentCount,
     price: post?.price,
     currency: post?.currency || 'USD',
     condition: post?.condition,
@@ -3047,19 +1040,11 @@ function normalizePost(post: any): PostType {
     application_type: post?.application_type,
     application_value: post?.application_value,
     expiry_date: post?.expiry_date,
-    artist: post?.artist,
-    series: post?.series,
-    episode: post?.episode,
-    duration: post?.duration,
   } as any;
 }
 
-/**
- * Normalize event data for UI safety
- */
 function normalizeEvent(event: any): Event {
   const groupId = event?.group_id ?? event?.groupId ?? null;
-
   return {
     ...event,
     id: Number(event?.id ?? 0),
@@ -3083,2089 +1068,103 @@ const CategorySelectionModal: React.FC<{
   onSelect: (category: GroupCategory) => void;
 }> = ({ isOpen, onClose, onSelect }) => {
   const [selectedId, setSelectedId] = useState<GroupCategory | null>(null);
-
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-[#1e1e1e] w-full max-w-[600px] rounded-xl border border-[#333] shadow-2xl overflow-hidden animate-slide-up">
         <div className="p-4 border-b border-[#333] flex justify-between items-center">
           <h3 className="text-xl font-bold text-[#e4e6eb]">Choose Group Category</h3>
-          <div
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#2d2d2d] flex items-center justify-center cursor-pointer hover:bg-[#3a3a3a] transition-colors"
-          >
-            <i className="fas fa-times text-[#b0b3b8]"></i>
-          </div>
+          <div onClick={onClose} className="w-8 h-8 rounded-full bg-[#2d2d2d] flex items-center justify-center cursor-pointer hover:bg-[#3a3a3a] transition-colors"><i className="fas fa-times text-[#b0b3b8]"></i></div>
         </div>
-
         <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
           {GROUP_CATEGORIES.map((category) => (
-            <button
-              key={category.id}
-              onClick={() => setSelectedId(category.id)}
-              className={`w-full p-4 rounded-xl border-2 transition-all ${
-                selectedId === category.id
-                  ? 'border-[#1877f2] bg-[#1877f2]/10'
-                  : 'border-[#333] hover:border-[#4a4a4a] bg-[#2d2d2d]'
-              }`}
-            >
+            <button key={category.id} onClick={() => setSelectedId(category.id)} className={`w-full p-4 rounded-xl border-2 transition-all ${selectedId === category.id ? 'border-[#1877f2] bg-[#1877f2]/10' : 'border-[#333] hover:border-[#4a4a4a] bg-[#2d2d2d]'}`}>
               <div className="flex items-start gap-4">
-                <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-                  style={{ backgroundColor: `${category.color}20`, color: category.color }}
-                >
-                  <i className={category.icon}></i>
-                </div>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl" style={{ backgroundColor: `${category.color}20`, color: category.color }}><i className={category.icon}></i></div>
                 <div className="flex-1 text-left">
                   <h4 className="text-[#e4e6eb] font-bold text-lg mb-1">{category.label}</h4>
                   <p className="text-[#b0b3b8] text-sm mb-2">{category.description}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {category.features.map((feature, i) => (
-                      <span
-                        key={i}
-                        className="px-2 py-1 bg-[#3a3a3a] rounded-full text-xs text-[#b0b3b8]"
-                      >
-                        {feature}
-                      </span>
-                    ))}
-                  </div>
+                  <div className="flex flex-wrap gap-2">{category.features.map((feature, i) => (<span key={i} className="px-2 py-1 bg-[#3a3a3a] rounded-full text-xs text-[#b0b3b8]">{feature}</span>))}</div>
                 </div>
-                {selectedId === category.id && (
-                  <div className="w-6 h-6 rounded-full bg-[#1877f2] flex items-center justify-center">
-                    <i className="fas fa-check text-white text-xs"></i>
-                  </div>
-                )}
+                {selectedId === category.id && (<div className="w-6 h-6 rounded-full bg-[#1877f2] flex items-center justify-center"><i className="fas fa-check text-white text-xs"></i></div>)}
               </div>
             </button>
           ))}
         </div>
-
         <div className="p-4 border-t border-[#333] flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              if (selectedId) {
-                onSelect(selectedId);
-                onClose();
-              }
-            }}
-            disabled={!selectedId}
-            className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50"
-          >
-            Continue
-          </button>
+          <button onClick={onClose} className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors">Cancel</button>
+          <button onClick={() => { if (selectedId) { onSelect(selectedId); onClose(); } }} disabled={!selectedId} className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50">Continue</button>
         </div>
       </div>
     </div>
   );
 };
 
-export const GroupsPage: React.FC<GroupsPageProps> = ({
-  currentUser,
-  groups = [],
-  users = [],
-  onCreateGroup,
-  onJoinGroup,
-  onLeaveGroup,
-  onDeleteGroup,
-  onUpdateGroupImage,
-  onPostToGroup,
-  onCreateGroupEvent,
-  onInviteToGroup,
-  onProfileClick,
-  onLikePost,
-  onSharePost,
-  onDeleteGroupPost,
-  onEditGroupPost,
-  onReportGroupPost,
-  onRemoveMember,
-  onUpdateGroupSettings,
-  onEventRSVP,
-  fetchGroupPosts,
-  fetchGroupDetails,
-  fetchGroupEvents,
-  fetchComments,
-  onComment,
-  onLikeComment,
-  initialGroupId,
-  onPlayAudioTrack,
-  onFollow,
-  checkIsFollowing,
-  onHashtagClick,
-  onViewImage,
-  onVideoClick,
-  onApplyToJob,
-  onMessageSeller,
-  onMakeOffer,
-  onPlayVideo,
-}) => {
-  const [view, setView] = useState<'feed' | 'detail'>('feed');
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-  const [groupTab, setGroupTab] = useState<'Discussion' | 'Events' | 'Members' | 'About'>('Discussion');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showGroupPostModal, setShowGroupPostModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showEventModal, setShowEventModal] = useState(false);
+// Full Page Create Group Modal Component
+const CreateGroupFullPageModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onCreate: (groupData: Partial<Group>) => Promise<void>;
+  selectedCategory: GroupCategory | null;
+}> = ({ isOpen, onClose, onCreate, selectedCategory }) => {
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [type, setType] = useState<'public' | 'private'>('public');
+  const [loading, setLoading] = useState(false);
 
-  // New group creation state
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupDesc, setNewGroupDesc] = useState('');
-  const [newGroupType, setNewGroupType] = useState<'public' | 'private'>('public');
-  const [selectedCategory, setSelectedCategory] = useState<GroupCategory | null>(null);
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+      setDesc('');
+      setType('public');
+    }
+  }, [isOpen]);
 
-  // Full Post View state
-  const [showPostView, setShowPostView] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<PostType | null>(null);
-  const [selectedPostAuthor, setSelectedPostAuthor] = useState<User | null>(null);
-  const [showReactionsSheet, setShowReactionsSheet] = useState(false);
-
-  // Events state
-  const [groupEvents, setGroupEvents] = useState<Event[]>([]);
-  const [loadingEvents, setLoadingEvents] = useState(false);
-  const eventsLoadedRef = useRef<boolean>(false);
-  const activeGroupIdRef = useRef<number | null>(null);
-
-  // Facebook-like tabs for groups feed
-  const [fbTab, setFbTab] = useState<'Your groups' | 'Posts' | 'Discover' | 'Invites'>('Your groups');
-  const [sortOpen, setSortOpen] = useState(false);
-  const [sortMode, setSortMode] = useState<'Most visited' | 'Recently active' | 'Alphabetical'>('Most visited');
-  
-  // Pinned groups state
-  const [pinnedGroups, setPinnedGroups] = useState<Set<number>>(new Set());
-
-  // Group posts state
-  const [groupPosts, setGroupPosts] = useState<PostType[]>([]);
-  const [loadingPosts, setLoadingPosts] = useState(false);
-  const postsLoadedRef = useRef<boolean>(false);
-
-  // Loading states for join/leave
-  const [joining, setJoining] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-
-  const groupCoverInputRef = useRef<HTMLInputElement>(null);
-  const groupProfileInputRef = useRef<HTMLInputElement>(null);
-  const postFileInputRef = useRef<HTMLInputElement>(null);
-
-  const [postContent, setPostContent] = useState('');
-  const [postFiles, setPostFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
-  const [postMetadata, setPostMetadata] = useState<any>({});
-
-  // normalize ALL groups
-  const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
-
-  // ✅ NEW: Function to fetch updated post data
-  const fetchUpdatedPost = useCallback(async (postId: number) => {
-    if (!currentUser) return;
-    
+  const handleSubmit = async () => {
+    if (!name.trim() || !selectedCategory) return;
+    setLoading(true);
     try {
-      const viewerId = currentUser.id;
-      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
-      
-      const token = localStorage.getItem('unera_token');
-      const headers: HeadersInit = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      };
-
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-      
-      if (data && typeof data.comments_count === 'number') {
-        // Update the post in groupPosts state
-        setGroupPosts(prev => prev.map(post => {
-          if (post.id === postId) {
-            return {
-              ...post,
-              comment_count: data.comments_count,
-              comments_count: data.comments_count
-            };
-          }
-          return post;
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to fetch updated post:', error);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!initialGroupId) return;
-    const gid = parseInt(initialGroupId, 10);
-    if (Number.isNaN(gid)) return;
-
-    const group = safeGroups.find(g => g.id === gid);
-    if (group) {
-      setActiveGroupId(group.id);
-      setView('detail');
-      setGroupTab('Discussion');
-    }
-  }, [initialGroupId, safeGroups]);
-
-  const activeGroup = useMemo(
-    () => safeGroups.find(g => g.id === activeGroupId) || null,
-    [safeGroups, activeGroupId]
-  );
-
-  // Update ref when active group changes
-  useEffect(() => {
-    activeGroupIdRef.current = activeGroupId;
-  }, [activeGroupId]);
-
-  // Load group posts - UPDATED to properly handle API response
-  const loadGroupPosts = useCallback(async (force = false) => {
-    if (!activeGroup || !fetchGroupPosts) {
-      setGroupPosts([]);
-      return;
-    }
-    
-    if (postsLoadedRef.current && !force) {
-      return;
-    }
-    
-    setLoadingPosts(true);
-    try {
-      const res = await fetchGroupPosts(activeGroup.id);
-      
-      // Handle different response structures
-      let postsList = [];
-      if (Array.isArray(res)) {
-        postsList = res;
-      } else if (res?.posts && Array.isArray(res.posts)) {
-        postsList = res.posts;
-      } else if (res?.data && Array.isArray(res.data)) {
-        postsList = res.data;
-      } else if (res?.success && Array.isArray(res.posts)) {
-        postsList = res.posts;
-      }
-      
-      const normalizedPosts = postsList.map((p: any) => normalizePost(p));
-      setGroupPosts(normalizedPosts);
-      postsLoadedRef.current = true;
-    } catch (error) {
-      console.error('Failed to load group posts:', error);
-      setGroupPosts([]);
-    } finally {
-      setLoadingPosts(false);
-    }
-  }, [activeGroup, fetchGroupPosts]);
-
-  // Load posts when entering Discussion tab
-  useEffect(() => {
-    if (activeGroup && groupTab === 'Discussion') {
-      loadGroupPosts();
-    }
-  }, [activeGroup, groupTab, loadGroupPosts]);
-
-  // Load group events
-  const loadGroupEvents = useCallback(async (force = false) => {
-    if (!activeGroup || !fetchGroupEvents) {
-      setGroupEvents([]);
-      return;
-    }
-    
-    if (eventsLoadedRef.current && activeGroupIdRef.current === activeGroup.id && !force) {
-      return;
-    }
-    
-    setLoadingEvents(true);
-    try {
-      const res = await fetchGroupEvents(activeGroup.id);
-      const list = Array.isArray(res) ? res : Array.isArray((res as any)?.events) ? (res as any).events : [];
-      setGroupEvents(list.map((e: any) => normalizeEvent(e)));
-      eventsLoadedRef.current = true;
-    } catch (error) {
-      console.error('Failed to load group events:', error);
-      setGroupEvents([]);
-    } finally {
-      setLoadingEvents(false);
-    }
-  }, [activeGroup, fetchGroupEvents]);
-
-  // Load events only when switching to Events tab
-  useEffect(() => {
-    if (activeGroup && groupTab === 'Events') {
-      loadGroupEvents();
-    }
-  }, [activeGroup, groupTab, loadGroupEvents]);
-
-  // Reset loaded flags when active group changes
-  useEffect(() => {
-    postsLoadedRef.current = false;
-    eventsLoadedRef.current = false;
-    setGroupPosts([]);
-    setGroupEvents([]);
-  }, [activeGroupId]);
-
-  // Clean up preview URLs
-  useEffect(() => {
-    const urls = postFiles.map(file => URL.createObjectURL(file));
-    setPreviews(urls);
-    
-    return () => {
-      urls.forEach(url => URL.revokeObjectURL(url));
-    };
-  }, [postFiles]);
-
-  useEffect(() => {
-    if (!showGroupPostModal) {
-      setPostContent('');
-      setPostFiles([]);
-      setPreviews([]);
-      setPostMetadata({});
-      if (postFileInputRef.current) {
-        postFileInputRef.current.value = '';
-      }
-    }
-  }, [showGroupPostModal]);
-
-  // Load pinned groups from localStorage
-  useEffect(() => {
-    try {
-      if (typeof window === 'undefined') return;
-      const saved = window.localStorage.getItem('pinnedGroups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setPinnedGroups(new Set(parsed));
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load pinned groups:', e);
-    }
-  }, []);
-
-  // Save pinned groups to localStorage
-  useEffect(() => {
-    try {
-      if (typeof window === 'undefined') return;
-      if (pinnedGroups.size > 0 || localStorage.getItem('pinnedGroups')) {
-        window.localStorage.setItem('pinnedGroups', JSON.stringify(Array.from(pinnedGroups)));
-      }
-    } catch (e) {
-      console.error('Failed to save pinned groups:', e);
-    }
-  }, [pinnedGroups]);
-
-  const handleGroupClick = (group: Group) => {
-    setActiveGroupId(group.id);
-    setView('detail');
-    setGroupTab('Discussion');
-    window.scrollTo(0, 0);
-  };
-
-  const handleCreateGroupClick = () => {
-    if (!currentUser) {
-      alert('Please login to create a group');
-      return;
-    }
-    // Show category selection first
-    setShowCategoryModal(true);
-  };
-
-  const handleCategorySelect = (category: GroupCategory) => {
-    setSelectedCategory(category);
-    setShowCategoryModal(false);
-    setShowCreateModal(true);
-  };
-
-  const handleCreateSubmit = async () => {
-    if (!newGroupName.trim() || !selectedCategory) return;
-
-    try {
-      await onCreateGroup({
-        name: newGroupName.trim(),
-        description: newGroupDesc.trim(),
-        type: newGroupType,
+      await onCreate({
+        name: name.trim(),
+        description: desc.trim(),
+        type,
         category: selectedCategory,
-        profile_image: `https://ui-avatars.com/api/?name=${encodeURIComponent(newGroupName)}&background=random`,
+        profile_image: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
         cover_image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80',
       });
-
-      setShowCreateModal(false);
-      setNewGroupName('');
-      setNewGroupDesc('');
-      setSelectedCategory(null);
-    } catch (error) {
-      console.error('Failed to create group:', error);
-    }
-  };
-const handlePostSubmit = async () => {
-  if (!activeGroup) return;
-  if (!postContent.trim() && postFiles.length === 0) return;
-
-  let metadata: any = {};
-
-  if (activeGroup.category === 'buy_sell') {
-    metadata = {
-      price: postMetadata.price,
-      currency: postMetadata.currency || 'USD',
-      condition: postMetadata.condition,
-      location: postMetadata.location,
-      status: 'available',
-    };
-  } else if (activeGroup.category === 'recruitment') {
-    metadata = {
-      job_title: postMetadata.job_title,
-      company: postMetadata.company,
-      street: postMetadata.street,
-      district: postMetadata.district,
-      region: postMetadata.region,
-      country: postMetadata.country,
-      location: [
-        postMetadata.street,
-        postMetadata.district,
-        postMetadata.region,
-        postMetadata.country,
-      ].filter(Boolean).join(', '),
-      salary: postMetadata.salary,
-      job_type: postMetadata.job_type,
-      application_type: postMetadata.application_type,
-      application_value: postMetadata.application_value,
-      expiry_date: postMetadata.expiry_date,
-    };
-  } else if (activeGroup.category === 'music_drama') {
-    metadata = {
-      artist: postMetadata.artist,
-      series: postMetadata.series,
-      episode: postMetadata.episode,
-      duration: postMetadata.duration,
-    };
-  }
-
-  try {
-    await onPostToGroup(activeGroup.id, postContent.trim(), postFiles, metadata);
-
-    setShowGroupPostModal(false);
-    setPostContent('');
-    setPostFiles([]);
-    setPreviews([]);
-    setPostMetadata({});
-
-    if (postFileInputRef.current) {
-      postFileInputRef.current.value = '';
-    }
-
-    postsLoadedRef.current = false;
-    loadGroupPosts(true);
-  } catch (error) {
-    console.error('Failed to create group post:', error);
-  }
-};
-
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
-    if (e.target.files && e.target.files[0] && activeGroup) {
-      try {
-        await onUpdateGroupImage(activeGroup.id, type, e.target.files[0]);
-      } catch (error) {
-        console.error('Failed to update group image:', error);
-      }
-    }
+      onClose();
+    } catch (error) { console.error('Failed to create group:', error); } finally { setLoading(false); }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setPostFiles(Array.from(e.target.files));
-    }
-  };
+  if (!isOpen) return null;
 
-  const handleRemoveFile = (index: number) => {
-    setPostFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleCreateEvent = async (eventData: Partial<Event>) => {
-    if (!activeGroup || !currentUser) return;
-    
-    try {
-      await onCreateGroupEvent(activeGroup.id, {
-        ...eventData,
-        created_by: currentUser.id,
-        group_id: activeGroup.id
-      });
-      
-      setShowEventModal(false);
-      
-      if (groupTab === 'Events' && fetchGroupEvents) {
-        eventsLoadedRef.current = false;
-        loadGroupEvents(true);
-      }
-    } catch (error) {
-      console.error('Failed to create event:', error);
-      throw error;
-    }
-  };
-
-  const handleEventRSVP = async (eventId: number, status: string) => {
-    if (!onEventRSVP) return;
-    
-    try {
-      await onEventRSVP(eventId, status);
-      
-      setGroupEvents(prev => prev.map(event => {
-        if (event.id === eventId) {
-          return { 
-            ...event, 
-            user_rsvp_status: status,
-            attendees: status === 'going' 
-              ? [...(event.attendees || []), currentUser?.id]
-              : (event.attendees || []).filter(id => id !== currentUser?.id)
-          } as any;
-        }
-        return event;
-      }));
-    } catch (error) {
-      console.error('Failed to RSVP to event:', error);
-    }
-  };
-
-  const handleJoinGroup = async () => {
-    if (!activeGroup) return;
-    if (!currentUser) {
-      alert('Please login to join groups');
-      return;
-    }
-    if (joining) return;
-
-    setJoining(true);
-    try {
-      await onJoinGroup(activeGroup.id);
-
-      postsLoadedRef.current = false;
-      eventsLoadedRef.current = false;
-      await loadGroupPosts(true);
-      if (groupTab === 'Events') await loadGroupEvents(true);
-      
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-        if (details?.group) {
-          setActiveGroupId(prev => prev);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      alert('Failed to join group. Please try again.');
-    } finally {
-      setJoining(false);
-    }
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!activeGroup) return;
-    if (!currentUser) {
-      alert('Please login to leave groups');
-      return;
-    }
-    if (leaving) return;
-
-    if (!confirm('Are you sure you want to leave this group?')) return;
-
-    setLeaving(true);
-    try {
-      await onLeaveGroup(activeGroup.id);
-
-      setGroupPosts([]);
-      setGroupEvents([]);
-      postsLoadedRef.current = false;
-      eventsLoadedRef.current = false;
-      
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-        if (details?.group) {
-          setActiveGroupId(prev => prev);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      alert('Failed to leave group. Please try again.');
-    } finally {
-      setLeaving(false);
-    }
-  };
-
-  const handleOpenComments = (postId: number) => {
-    const post = groupPosts.find(p => p.id === postId);
-    if (!post) return;
-
-    const author = users.find(u => u.id === post.user_id);
-    if (!author) return;
-
-    // Pass the fetchUpdatedPost function to CommentsSheet via the post object
-    setSelectedPost({
-      ...post,
-      onCommentAdded: () => fetchUpdatedPost(postId)
-    });
-    setSelectedPostAuthor(author);
-    setShowPostView(true);
-  };
-
-  const handleLikePost = async (postId: number, type?: ReactionType) => {
-    if (!currentUser) return;
-    
-    try {
-      await onLikePost(postId, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-    }
-  };
-
-  const handleSharePost = async (postId: number, newShareCount: number) => {
-    try {
-      await onSharePost(postId, newShareCount);
-      
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return { ...post, shares: newShareCount } as any;
-        }
-        return post;
-      }));
-
-      if (selectedPost && selectedPost.id === postId) {
-        setSelectedPost(prev => prev ? { ...prev, shares: newShareCount } as any : null);
-      }
-    } catch (error) {
-      console.error('Failed to share post:', error);
-    }
-  };
-
-  const handleDeletePost = async (postId: number) => {
-    if (!activeGroup) return;
-    if (!confirm('Are you sure you want to delete this post?')) return;
-    
-    try {
-      await onDeleteGroupPost(activeGroup.id, postId);
-      setGroupPosts(prev => prev.filter(post => post.id !== postId));
-      
-      if (selectedPost && selectedPost.id === postId) {
-        setShowPostView(false);
-        setSelectedPost(null);
-      }
-    } catch (error) {
-      console.error('Failed to delete post:', error);
-    }
-  };
-
-  const handleEditPost = async (postId: number, content: string) => {
-    if (!onEditGroupPost) return;
-    
-    try {
-      await onEditGroupPost(postId, content);
-      
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          return { ...post, content } as any;
-        }
-        return post;
-      }));
-
-      if (selectedPost && selectedPost.id === postId) {
-        setSelectedPost(prev => prev ? { ...prev, content } as any : null);
-      }
-    } catch (error) {
-      console.error('Failed to edit post:', error);
-      throw error;
-    }
-  };
-
-  const handleReportPost = async (postId: number) => {
-    if (!onReportGroupPost) return;
-    
-    try {
-      await onReportGroupPost(postId);
-    } catch (error) {
-      console.error('Failed to report post:', error);
-      throw error;
-    }
-  };
-
-  const handleViewImage = (url: string, index?: number) => {
-    if (onViewImage) {
-      onViewImage(url);
-    }
-  };
-
-  const isAdmin = currentUser?.role === 'admin';
-
-  const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPinnedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupId)) {
-        newSet.delete(groupId);
-      } else {
-        newSet.add(groupId);
-      }
-      return newSet;
-    });
-  };
-
-  const computeVisits = (g: Group) => {
-    return Number((g as any)?.visits ?? ((g.posts?.length ?? 0) * 5 + (g.members?.length ?? 0)));
-  };
-
-  const computeLastActive = (g: Group) => {
-    const fromField = Number((g as any)?.lastActiveAt ?? 0);
-    if (fromField) return fromField;
-
-    const newest = (g.posts ?? [])
-      .map((p: any) => new Date(p?.created_at ?? 0).getTime())
-      .filter((t: number) => Number.isFinite(t))
-      .sort((a: number, b: number) => b - a)[0];
-
-    return newest || 0;
-  };
-
-  const formatNewPostsText = (g: Group) => {
-    const count = Number((g as any)?.newPostsCount ?? 0);
-    if (count > 25) return '25+ new posts';
-    if (count > 0) return `${count} new posts`;
-
-    const updated = String((g as any)?.updatedAt ?? '').trim();
-    return updated ? updated : 'Updated recently';
-  };
-
-  const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
-
-  const sortedGroups = useMemo(() => {
-    if (sortMode === 'Alphabetical') {
-      return [...safeGroups].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    }
-    if (sortMode === 'Recently active') {
-      return [...safeGroups].sort((a, b) => computeLastActive(b) - computeLastActive(a));
-    }
-    return [...safeGroups].sort((a, b) => computeVisits(b) - computeVisits(a));
-  }, [safeGroups, sortMode]);
-
-  const getCategoryIcon = (category?: GroupCategory) => {
-    const cat = GROUP_CATEGORIES.find(c => c.id === category);
-    return cat?.icon || 'fas fa-users';
-  };
-
-  const getCategoryColor = (category?: GroupCategory) => {
-    const cat = GROUP_CATEGORIES.find(c => c.id === category);
-    return cat?.color || '#1877F2';
-  };
-
-  // FEED VIEW
-  if (view === 'feed' || !activeGroup) {
-    return (
-      <>
-        <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
-          {/* Top header */}
-          <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
-            <div className="max-w-[900px] mx-auto px-4">
-              <div className="h-14 flex items-center justify-between">
-                <button
-                  className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
-                  onClick={() => {
-                    if (view === 'detail') {
-                      setView('feed');
-                      setActiveGroupId(null);
-                    } else {
-                      window.history.back();
-                    }
-                  }}
-                  aria-label="Back"
-                >
-                  <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
-                </button>
-
-                <div className="text-[20px] font-extrabold text-[#e4e6eb]">Groups</div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
-                    onClick={handleCreateGroupClick}
-                    aria-label="Create"
-                  >
-                    <i className="fas fa-plus text-[18px] text-[#e4e6eb]"></i>
-                  </button>
-
-                  <button
-                    className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
-                    onClick={() => {
-                      const el = document.getElementById('groupsSearchInput');
-                      (el as HTMLInputElement | null)?.focus();
-                    }}
-                    aria-label="Search"
-                  >
-                    <i className="fas fa-search text-[18px] text-[#e4e6eb]"></i>
-                  </button>
-                </div>
-              </div>
-
-              {/* Tabs row */}
-              <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
-                {(['Your groups', 'Posts', 'Discover', 'Invites'] as const).map(tab => {
-                  const active = fbTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => setFbTab(tab)}
-                      className={
-                        active
-                          ? 'px-4 py-2 rounded-full bg-[#1877f2] text-white font-extrabold whitespace-nowrap'
-                          : 'px-2 py-2 text-[#b0b3b8] font-bold whitespace-nowrap hover:text-[#e4e6eb] transition-colors'
-                      }
-                    >
-                      {tab}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Search input */}
-              <div className="pb-3">
-                <div className="relative">
-                  <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
-                  <input
-                    id="groupsSearchInput"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search Groups"
-                    className="w-full bg-[#2d2d2d] rounded-full pl-9 pr-4 py-2.5 outline-none text-[15px] text-[#e4e6eb] placeholder-[#b0b3b8]"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="max-w-[900px] mx-auto">
-            {(() => {
-              const myGroups = currentUser
-                ? safeGroups.filter(g => {
-                    if (g.admin_id === currentUser.id) return true;
-                    if (Array.isArray(g.members)) {
-                      return g.members.includes(currentUser.id);
-                    }
-                    return false;
-                  })
-                : [];
-
-              let list = myGroups.length ? myGroups : safeGroups;
-
-              const pinnedList = list.filter(g => pinnedGroups.has(g.id));
-              const regularList = list.filter(g => !pinnedGroups.has(g.id));
-
-              if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                list = list.filter(g => (g.name || '').toLowerCase().includes(q));
-              }
-
-              if (fbTab === 'Discover') {
-                list = currentUser
-                  ? safeGroups.filter(g => {
-                      if (g.admin_id === currentUser.id) return false;
-                      if (Array.isArray(g.members) && g.members.includes(currentUser.id)) return false;
-                      return true;
-                    })
-                  : safeGroups;
-                if (searchQuery.trim()) {
-                  const q = searchQuery.toLowerCase();
-                  list = list.filter(g => (g.name || '').toLowerCase().includes(q));
-                }
-              }
-              if (fbTab === 'Invites') {
-                list = [];
-              }
-
-              const sortGroups = (groups: Group[]) => {
-                return [...groups].sort((a, b) => {
-                  if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || '');
-                  if (sortMode === 'Recently active') return computeLastActive(b) - computeLastActive(a);
-                  return computeVisits(b) - computeVisits(a);
-                });
-              };
-
-              const sortedPinned = sortGroups(pinnedList);
-              const sortedRegular = sortGroups(regularList);
-
-              const showMostVisitedHeader = fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0);
-
-              return (
-                <div className="px-4">
-                  {showMostVisitedHeader && (
-                    <div className="flex items-center justify-between pt-2 pb-2">
-                      <div className="text-[20px] font-extrabold text-[#e4e6eb]">Most visited</div>
-
-                      <button
-                        onClick={() => setSortOpen(true)}
-                        className="text-[#1877f2] font-bold text-[18px] active:opacity-70 hover:text-[#166fe5] transition-colors"
-                      >
-                        Sort
-                      </button>
-                    </div>
-                  )}
-
-                  {fbTab === 'Your groups' && currentUser && !searchQuery.trim() && (
-                    <button
-                      onClick={handleCreateGroupClick}
-                      className="w-full flex items-center gap-3 py-3 active:opacity-80 hover:bg-[#2d2d2d] rounded-lg transition-colors"
-                    >
-                      <div className="w-12 h-12 rounded-full bg-[#1877f2] flex items-center justify-center">
-                        <i className="fas fa-plus text-white text-[18px]"></i>
-                      </div>
-                      <div className="text-[18px] font-bold text-[#e4e6eb]">Create a group</div>
-                    </button>
-                  )}
-
-                  {fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0) && (
-                    <div className="border-b border-[#333] my-3" />
-                  )}
-
-                  {/* Pinned Groups Section */}
-                  {sortedPinned.length > 0 && (
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 mb-3">
-                        <i className="fas fa-thumbtack text-[#1877f2] text-sm"></i>
-                        <div className="text-[16px] font-bold text-[#e4e6eb]">Pinned Groups</div>
-                      </div>
-                      <div className="space-y-1">
-                        {sortedPinned.map(g => {
-                          const categoryColor = getCategoryColor(g.category);
-                          const categoryIcon = getCategoryIcon(g.category);
-                          
-                          return (
-                            <button
-                              key={g.id}
-                              onClick={() => handleGroupClick(g)}
-                              className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
-                            >
-                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
-                                {g.profile_image ? (
-                                  <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
-                                ) : (
-                                  <span className="text-[#e4e6eb] font-extrabold">
-                                    {(g.name || 'G').slice(0, 1).toUpperCase()}
-                                  </span>
-                                )}
-                                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center">
-                                  <i className="fas fa-thumbtack text-white text-[10px]"></i>
-                                </div>
-                              </div>
-
-                              <div className="flex-1 min-w-0 text-left">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
-                                    {g.name}
-                                  </span>
-                                  <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
-                                </div>
-
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
-                                  />
-                                  <div className="text-[15px] text-[#b0b3b8] truncate">
-                                    {formatNewPostsText(g)}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div 
-                                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
-                                onClick={(e) => togglePinGroup(g.id, e)}
-                              >
-                                <i className="fas fa-thumbtack text-[#1877f2] text-[18px]"></i>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Regular Groups Section */}
-                  {sortedRegular.length > 0 && (
-                    <div className={sortedPinned.length > 0 ? "mt-6" : ""}>
-                      {sortedPinned.length > 0 && (
-                        <div className="text-[16px] font-bold text-[#e4e6eb] mb-3">All Groups</div>
-                      )}
-                      <div className="space-y-1">
-                        {sortedRegular.map(g => {
-                          const categoryColor = getCategoryColor(g.category);
-                          const categoryIcon = getCategoryIcon(g.category);
-                          
-                          return (
-                            <button
-                              key={g.id}
-                              onClick={() => handleGroupClick(g)}
-                              className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
-                            >
-                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
-                                {g.profile_image ? (
-                                  <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
-                                ) : (
-                                  <span className="text-[#e4e6eb] font-extrabold">
-                                    {(g.name || 'G').slice(0, 1).toUpperCase()}
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex-1 min-w-0 text-left">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
-                                    {g.name}
-                                  </span>
-                                  <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
-                                </div>
-
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`}
-                                  />
-                                  <div className="text-[15px] text-[#b0b3b8] truncate">
-                                    {formatNewPostsText(g)}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div 
-                                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100"
-                                onClick={(e) => togglePinGroup(g.id, e)}
-                              >
-                                <i className="far fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors"></i>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Empty State */}
-                  {sortedPinned.length === 0 && sortedRegular.length === 0 && (
-                    <div className="py-16 text-center text-[#b0b3b8]">
-                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">Nothing to show</div>
-                      <div className="text-[15px]">
-                        {fbTab === 'Invites' ? 'No group invites right now.' : 'Try searching for a group.'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Sort Bottom Sheet */}
-          {sortOpen && (
-            <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
-              <div
-                className="w-full bg-[#1e1e1e] rounded-t-2xl p-4 animate-slide-up border-t border-[#333]"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="w-12 h-1 bg-[#333] rounded-full mx-auto mb-4" />
-
-                <div className="text-[18px] font-extrabold text-[#e4e6eb] mb-3">Sort</div>
-
-                {(['Most visited', 'Recently active', 'Alphabetical'] as const).map(opt => (
-                  <button
-                    key={opt}
-                    onClick={() => {
-                      setSortMode(opt);
-                      setSortOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors px-2"
-                  >
-                    <div className="text-[16px] font-bold text-[#e4e6eb]">{opt}</div>
-                    {sortMode === opt ? (
-                      <i className="fas fa-check text-[#1877f2]" />
-                    ) : (
-                      <span />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Category Selection Modal */}
-          <CategorySelectionModal
-            isOpen={showCategoryModal}
-            onClose={() => setShowCategoryModal(false)}
-            onSelect={handleCategorySelect}
-          />
-
-          {/* Create Group modal */}
-          {showCreateModal && selectedCategory && (
-            <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in">
-              <div className="bg-[#1e1e1e] w-full max-w-[500px] rounded-xl border border-[#333] shadow-2xl overflow-hidden animate-slide-up">
-                <div className="p-4 border-b border-[#333] flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-[#e4e6eb]">Create {GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.label} Group</h3>
-                  <div
-                    onClick={() => setShowCreateModal(false)}
-                    className="w-8 h-8 rounded-full bg-[#2d2d2d] flex items-center justify-center cursor-pointer hover:bg-[#3a3a3a] transition-colors"
-                  >
-                    <i className="fas fa-times text-[#b0b3b8]"></i>
-                  </div>
-                </div>
-
-                <div className="p-4 space-y-4">
-                  <div>
-                    <label className="block text-[#b0b3b8] text-sm font-bold mb-1">Name</label>
-                    <input
-                      type="text"
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="Name your group"
-                      value={newGroupName}
-                      onChange={e => setNewGroupName(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[#b0b3b8] text-sm font-bold mb-1">Description</label>
-                    <textarea
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none h-24"
-                      placeholder="What is this group about?"
-                      value={newGroupDesc}
-                      onChange={e => setNewGroupDesc(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[#b0b3b8] text-sm font-bold mb-1">Privacy</label>
-                    <select
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      value={newGroupType}
-                      onChange={e => setNewGroupType(e.target.value as any)}
-                    >
-                      <option value="public">Public</option>
-                      <option value="private">Private</option>
-                    </select>
-                  </div>
-
-                  <div className="bg-[#2d2d2d] p-3 rounded-lg border border-[#333]">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: `${GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.color}20` }}
-                      >
-                        <i className={GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.icon} style={{ color: GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.color }}></i>
-                      </div>
-                      <div>
-                        <div className="text-[#e4e6eb] font-bold">Category: {GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.label}</div>
-                        <div className="text-[#b0b3b8] text-xs">{GROUP_CATEGORIES.find(c => c.id === selectedCategory)?.description}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleCreateSubmit}
-                    disabled={!newGroupName.trim()}
-                    className="w-full bg-[#1877f2] hover:bg-[#166fe5] text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Create Group
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Full Post View */}
-        {showPostView && selectedPost && selectedPostAuthor && currentUser && (
-          <CommentsSheet
-            post={selectedPost}
-            currentUser={currentUser}
-            users={users}
-            onClose={() => {
-              setShowPostView(false);
-              setSelectedPost(null);
-              setSelectedPostAuthor(null);
-            }}
-            onComment={onComment}
-            onLikeComment={onLikeComment}
-            onCommentAdded={selectedPost?.onCommentAdded} // Pass the callback
-            getCommentAuthor={(id) => users.find(u => u.id === id)}
-            onProfileClick={onProfileClick}
-            onHashtagClick={onHashtagClick}
-            onFollow={onFollow}
-            checkIsFollowing={checkIsFollowing}
-          />
-        )}
-      </>
-    );
-  }
-
-  // DETAIL VIEW
-  const isMember = currentUser
-    ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id
-    : false;
-
-  const isGroupAdmin = currentUser && activeGroup.admin_id === currentUser.id;
-  const canManage = Boolean(isGroupAdmin || isAdmin);
-  const canPost = canManage || (activeGroup.member_posting_allowed ?? true);
-
-  const createdDate =
-    activeGroup.created_at && !Number.isNaN(new Date(activeGroup.created_at as any).getTime())
-      ? new Date(activeGroup.created_at as any)
-      : null;
-
-  const categoryInfo = GROUP_CATEGORIES.find(c => c.id === activeGroup.category) || GROUP_CATEGORIES[0];
+  const categoryInfo = GROUP_CATEGORIES.find(c => c.id === selectedCategory);
 
   return (
-    <>
-      <div className="w-full bg-[#121212] min-h-screen pb-10">
-        <div className="bg-[#1e1e1e] border-b border-[#333] shadow-sm mb-4 animate-fade-in">
-          <div className="max-w-[1100px] mx-auto">
-            <div className="h-[200px] md:h-[350px] relative group bg-[#2d2d2d] md:rounded-b-xl overflow-hidden">
-              <img src={activeGroup.cover_image} className="w-full h-full object-cover" alt="Cover" />
-              {canManage && (
-                <div
-                  className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg cursor-pointer hover:bg-black/70 font-bold text-white text-sm flex items-center gap-2 transition-all"
-                  onClick={() => groupCoverInputRef.current?.click()}
-                >
-                  <i className="fas fa-camera"></i> Edit Cover
-                </div>
-              )}
-              <input
-                type="file"
-                ref={groupCoverInputRef}
-                className="hidden"
-                accept="image/*"
-                onChange={e => handleImageChange(e, 'cover')}
-              />
-            </div>
-
-            <div className="px-4 pb-0">
-              <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
-                <div className="relative">
-                  <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
-                    <img src={activeGroup.profile_image} className="w-full h-full object-cover" alt="" />
-                  </div>
-                  {canManage && (
-                    <div
-                      className="absolute bottom-2 right-2 bg-[#2d2d2d] p-2 rounded-full cursor-pointer hover:bg-[#3a3a3a] shadow-md transition-colors"
-                      onClick={() => groupProfileInputRef.current?.click()}
-                    >
-                      <i className="fas fa-camera text-white text-xs"></i>
-                    </div>
-                  )}
-                  <input
-                    type="file"
-                    ref={groupProfileInputRef}
-                    className="hidden"
-                    accept="image/*"
-                    onChange={e => handleImageChange(e, 'profile')}
-                  />
-                </div>
-
-                <div className="flex-1 mt-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h1 className="text-2xl md:text-4xl font-bold text-[#e4e6eb] leading-tight">{activeGroup.name}</h1>
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${categoryInfo.color}20` }}
-                    >
-                      <i className={categoryInfo.icon} style={{ color: categoryInfo.color, fontSize: '16px' }}></i>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-[#b0b3b8] text-sm font-semibold mb-1">
-                    <span style={{ color: categoryInfo.color }} className="font-bold">{categoryInfo.label}</span>
-                    <span>•</span>
-                    <i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xs`}></i>
-                    <span className="capitalize">{activeGroup.type} group</span>
-                    <span>•</span>
-                    <span>{(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)} members</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 mt-4 md:mt-0 w-full md:w-auto">
-                  {isMember ? (
-                    <>
-                      <button
-                        onClick={() => setShowInviteModal(true)}
-                        className="bg-[#1877f2] text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#166fe5] flex-1 md:flex-none transition-all"
-                      >
-                        <i className="fas fa-plus"></i> Invite
-                      </button>
-
-                      <button 
-                        className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all disabled:opacity-50"
-                        onClick={handleLeaveGroup}
-                        disabled={leaving}
-                      >
-                        {leaving ? (
-                          <i className="fas fa-spinner fa-spin mr-2"></i>
-                        ) : (
-                          <i className="fas fa-check mr-2"></i>
-                        )}
-                        {leaving ? 'Leaving...' : 'Joined'}
-                      </button>
-
-                      {canManage && (
-                        <button
-                          onClick={() => setShowSettingsModal(true)}
-                          className="bg-[#2d2d2d] text-[#e4e6eb] px-3 py-2 rounded-lg font-bold hover:bg-[#3a3a3a] transition-all"
-                        >
-                          <i className="fas fa-cog"></i>
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button
-                      onClick={handleJoinGroup}
-                      disabled={joining}
-                      className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {joining ? (
-                        <span className="flex items-center gap-2">
-                          <i className="fas fa-spinner fa-spin"></i>
-                          Joining...
-                        </span>
-                      ) : (
-                        'Join Group'
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t border-[#333] mt-4"></div>
-
-              <div className="flex items-center gap-1 pt-1 overflow-x-auto scrollbar-hide">
-                {(['Discussion', 'Events', 'Members', 'About'] as const).map(tab => (
-                  <div
-                    key={tab}
-                    onClick={() => setGroupTab(tab)}
-                    className={`px-5 py-3 cursor-pointer font-bold text-base border-b-[3px] transition-all whitespace-nowrap ${
-                      groupTab === tab
-                        ? 'text-[#1877f2] border-[#1877f2]'
-                        : 'text-[#b0b3b8] border-transparent hover:bg-[#2d2d2d] rounded-t-lg'
-                    }`}
-                  >
-                    {tab}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+    <div className="fixed inset-0 z-[200] bg-[#121212] flex flex-col animate-fade-in font-sans">
+      <div className="sticky top-0 z-10 bg-[#1e1e1e] border-b border-[#333]">
+        <div className="max-w-[600px] mx-auto px-4 h-16 flex items-center justify-between">
+          <button onClick={onClose} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-colors"><i className="fas fa-arrow-left text-[#e4e6eb] text-xl"></i></button>
+          <h1 className="text-xl font-bold text-[#e4e6eb]">Create {categoryInfo?.label || ''} Group</h1>
+          <button onClick={handleSubmit} disabled={loading || !name.trim()} className="px-4 py-2 bg-[#1877f2] text-white font-bold rounded-lg hover:bg-[#166fe5] transition-colors disabled:opacity-50">{loading ? 'Creating...' : 'Create'}</button>
         </div>
-
-        <div className="max-w-[700px] mx-auto px-0 md:px-4">
-          {/* Discussion Tab - Full width posts */}
-          {groupTab === 'Discussion' && (
-            <div className="animate-fade-in">
-              {isMember && canPost && (
-                <div
-                  className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]"
-                  onClick={() => setShowGroupPostModal(true)}
-                >
-                  <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
-                  <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
-                    <span className="text-[#b0b3b8] text-[17px]">
-                      {activeGroup.category === 'buy_sell' && 'Sell something in '}
-                      {activeGroup.category === 'recruitment' && 'Post a job in '}
-                      {activeGroup.category === 'music_drama' && 'Share music or video in '}
-                      {activeGroup.category === 'general' && 'Post something in '}
-                      {activeGroup.name}...
-                    </span>
-                  </div>
-                  <div className="text-[#45BD62] hover:bg-[#2d2d2d] p-2 rounded-full transition-colors">
-                    <i className="fas fa-images text-xl"></i>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                {activeGroup.type === 'private' && !isMember ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-lock text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-xl mb-2">This Group is Private</h3>
-                    <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members of this community can see the discussions and members.</p>
-                    <button
-                      onClick={handleJoinGroup}
-                      disabled={joining}
-                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {joining ? 'Joining...' : 'Join Group'}
-                    </button>
-                  </div>
-                ) : groupPosts.length > 0 ? (
-                  groupPosts.map((post) => {
-                    const author = users.find(u => u.id === post.user_id) || {
-                      id: post.user_id || 0,
-                      username: 'unknown',
-                      name: 'Unknown User',
-                      profile_image_url: 'https://ui-avatars.com/api/?name=User&background=random',
-                      followers: [],
-                      following: [],
-                      email: '',
-                      is_verified: false,
-                      role: 'user',
-                      is_online: false,
-                      location: '',
-                      bio: '',
-                      created_at: null,
-                    };
-                    
-                    return (
-                      <GroupPost
-                        key={post.id}
-                        post={post}
-                        author={author}
-                        currentUser={currentUser}
-                        users={users}
-                        groupCategory={activeGroup.category}
-                        isGroupAdmin={isGroupAdmin}
-                        isPlatformAdmin={isAdmin}
-                        onProfileClick={onProfileClick}
-                        onLikePost={handleLikePost}
-                        onOpenComments={handleOpenComments}
-                        onSharePost={handleSharePost}
-                        onEditPost={onEditGroupPost ? handleEditPost : undefined}
-                        onDeletePost={onDeleteGroupPost ? handleDeletePost : undefined}
-                        onReportPost={onReportGroupPost ? handleReportPost : undefined}
-                        onViewImage={handleViewImage}
-                        onVideoClick={onVideoClick}
-                        onHashtagClick={onHashtagClick}
-                        onFollow={onFollow}
-                        checkIsFollowing={checkIsFollowing}
-                        onComment={onComment}
-                        onCommentAdded={() => fetchUpdatedPost(post.id)} // Pass the callback
-                        // Category-specific handlers
-                        onApply={onApplyToJob}
-                        onMessageSeller={onMessageSeller}
-                        onMakeOffer={onMakeOffer}
-                        onPlayVideo={onPlayVideo}
-                      />
-                    );
-                  })
-                ) : loadingPosts ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading posts...</h3>
-                  </div>
-                ) : (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-comments text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">No posts yet</h3>
-                    <p className="text-[#b0b3b8] text-sm">Be the first to start a conversation in this group!</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Events Tab */}
-          {groupTab === 'Events' && (
-            <div className="animate-fade-in">
-              {isMember && (
-                <div className="bg-[#1e1e1e] rounded-xl p-4 mb-4 border border-[#333] mx-0">
-                  <button
-                    onClick={() => setShowEventModal(true)}
-                    className="w-full bg-[#1877f2] text-white px-4 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-[#166fe5] transition-all"
-                  >
-                    <i className="fas fa-calendar-plus"></i>
-                    Create Event in {activeGroup.name}
-                  </button>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                {!isMember && activeGroup.type === 'private' ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-lock text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-xl mb-2">Join to See Events</h3>
-                    <p className="text-[#b0b3b8] mb-8 max-w-xs mx-auto">Only members can view and RSVP to events in this group.</p>
-                    <button
-                      onClick={handleJoinGroup}
-                      disabled={joining}
-                      className="bg-[#1877f2] text-white px-10 py-2.5 rounded-lg font-black shadow-lg hover:bg-[#166fe5] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {joining ? 'Joining...' : 'Join Group'}
-                    </button>
-                  </div>
-                ) : groupEvents.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-0">
-                    {groupEvents.map(event => (
-                      <GroupEventCard
-                        key={event.id}
-                        event={event}
-                        group={activeGroup}
-                        currentUser={currentUser}
-                        onRSVP={onEventRSVP ? handleEventRSVP : undefined}
-                        onProfileClick={onProfileClick}
-                      />
-                    ))}
-                  </div>
-                ) : loadingEvents ? (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-spinner fa-spin text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">Loading events...</h3>
-                  </div>
-                ) : (
-                  <div className="bg-[#1e1e1e] rounded-xl p-16 text-center border border-[#333] mx-0 shadow-sm">
-                    <div className="w-16 h-16 bg-[#2d2d2d] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
-                      <i className="fas fa-calendar text-[#b0b3b8] text-2xl"></i>
-                    </div>
-                    <h3 className="text-[#e4e6eb] font-bold text-lg mb-1">No upcoming events</h3>
-                    {isMember ? (
-                      <p className="text-[#b0b3b8] text-sm">Create an event to bring the community together!</p>
-                    ) : (
-                      <p className="text-[#b0b3b8] text-sm">Check back later for events in this group.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* About Tab */}
-          {groupTab === 'About' && (
-            <div className="bg-[#1e1e1e] rounded-xl p-8 border border-[#333] mx-0 shadow-sm animate-fade-in">
-              <h3 className="text-xl font-bold text-[#e4e6eb] mb-4">About this group</h3>
-              <p className="text-[#e4e6eb] text-base mb-8 leading-relaxed">{activeGroup.description}</p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center">
-                    <i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xl text-[#b0b3b8]`}></i>
-                  </div>
-                  <div>
-                    <div className="font-bold">{activeGroup.type === 'public' ? 'Public' : 'Private'}</div>
-                    <div className="text-xs text-[#b0b3b8]">Anyone can see who's in the group and what they post.</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center">
-                    <i className="fas fa-history text-xl text-[#b0b3b8]"></i>
-                  </div>
-                  <div>
-                    <div className="font-bold">History</div>
-                    <div className="text-xs text-[#b0b3b8]">
-                      Created on {createdDate ? createdDate.toLocaleDateString() : 'Recently'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div
-                    className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: `${categoryInfo.color}20` }}
-                  >
-                    <i className={categoryInfo.icon} style={{ color: categoryInfo.color }}></i>
-                  </div>
-                  <div>
-                    <div className="font-bold">Category</div>
-                    <div className="text-xs text-[#b0b3b8]">{categoryInfo.label}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Members Tab */}
-          {groupTab === 'Members' && (
-            <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
-              <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
-                <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}</h3>
-              </div>
-
-              <div className="p-2 space-y-1">
-                {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
-                  const member = users.find(u => u.id === memberId);
-                  if (!member) return null;
-
-                  return (
-                    <div key={memberId} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors">
-                      <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onProfileClick(memberId)}>
-                        <img
-                          src={avatarFrom(member)}
-                          className="w-12 h-12 rounded-xl object-cover border border-[#333]"
-                          alt=""
-                        />
-                        <div className="flex flex-col">
-                          <div className="font-bold text-[#e4e6eb] text-base group-hover:text-[#1877f2] transition-colors">
-                            {member.name}
-                          </div>
-                          {memberId === activeGroup.admin_id && (
-                            <div className="text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full w-fit uppercase tracking-tighter border border-[#1877f2]/20">
-                              Group Admin
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {canManage && memberId !== currentUser?.id && (
-                        <button
-                          onClick={() => onRemoveMember(activeGroup.id, memberId)}
-                          className="text-[#b0b3b8] hover:text-white px-4 py-1.5 bg-[#2d2d2d] hover:bg-red-500/20 rounded font-bold text-sm transition-all border border-transparent hover:border-red-500/30"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Create Post Modal with Category-Specific Fields */}
-        {showGroupPostModal && (
-          <div className="fixed inset-0 z-[150] bg-[#121212] flex flex-col animate-slide-up font-sans">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] bg-[#1e1e1e]">
-              <div className="flex items-center gap-3">
-                <i
-                  className="fas fa-arrow-left text-[#e4e6eb] text-xl cursor-pointer"
-                  onClick={() => setShowGroupPostModal(false)}
-                ></i>
-                <h3 className="text-[#e4e6eb] text-[18px] font-bold">
-                  {activeGroup.category === 'buy_sell' && 'Sell an Item'}
-                  {activeGroup.category === 'recruitment' && 'Post a Job'}
-                  {activeGroup.category === 'music_drama' && 'Share Music/Video'}
-                  {activeGroup.category === 'general' && 'Create Post'}
-                </h3>
-              </div>
-            </div>
-
-            <div className="flex-1 flex flex-col overflow-y-auto">
-              <div className="p-6 flex items-center gap-4">
-                <img
-                  src={avatarFrom(currentUser)}
-                  className="w-14 h-14 rounded-full border-2 border-[#1877f2] object-cover"
-                  alt=""
-                />
-                <div>
-                  <div className="font-black text-[#e4e6eb] text-lg">{currentUser?.name}</div>
-                  <div className="text-[#b0b3b8] text-xs font-bold uppercase tracking-widest">{activeGroup.name}</div>
-                </div>
-              </div>
-
-              {/* Category-Specific Fields */}
-              {activeGroup.category === 'buy_sell' && (
-                <div className="px-6 mb-4 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Price</label>
-                      <div className="flex gap-2">
-                        <select
-                          value={postMetadata.currency || 'USD'}
-                          onChange={(e) => setPostMetadata({ ...postMetadata, currency: e.target.value })}
-                          className="w-24 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        >
-                          {CURRENCY_OPTIONS.map(currency => (
-                            <option key={currency.code} value={currency.code}>
-                              {currency.code}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          value={postMetadata.price || ''}
-                          onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })}
-                          className="flex-1 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                          placeholder="29.99"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Condition</label>
-                      <select
-                        value={postMetadata.condition || 'Used - Good'}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, condition: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      >
-                        <option>New</option>
-                        <option>Like New</option>
-                        <option>Used - Like New</option>
-                        <option>Used - Good</option>
-                        <option>Used - Fair</option>
-                        <option>For Parts/Not Working</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Location</label>
-                    <input
-                      type="text"
-                      value={postMetadata.location || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="City, State"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {activeGroup.category === 'recruitment' && (
-                <div className="px-6 mb-4 space-y-3">
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Job Title</label>
-                    <input
-                      type="text"
-                      value={postMetadata.job_title || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, job_title: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="e.g. Customer Service"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Company</label>
-                    <input
-                      type="text"
-                      value={postMetadata.company || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, company: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="Company name"
-                    />
-                  </div>
-                  
-                  {/* Address Fields */}
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Street Address</label>
-                    <input
-                      type="text"
-                      value={postMetadata.street || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, street: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="Street address"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">District</label>
-                      <input
-                        type="text"
-                        value={postMetadata.district || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, district: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="District"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Region</label>
-                      <input
-                        type="text"
-                        value={postMetadata.region || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, region: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Region/State"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Country</label>
-                    <input
-                      type="text"
-                      value={postMetadata.country || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, country: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="Country"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Job Type</label>
-                      <select
-                        value={postMetadata.job_type || 'Full-time'}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, job_type: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      >
-                        <option>Full-time</option>
-                        <option>Part-time</option>
-                        <option>Contract</option>
-                        <option>Internship</option>
-                        <option>Freelance</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Salary Range</label>
-                      <input
-                        type="text"
-                        value={postMetadata.salary || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, salary: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="e.g. TSh 100,000 - 700,000"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Expiry Date */}
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Expiry Date</label>
-                    <input
-                      type="date"
-                      value={postMetadata.expiry_date || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, expiry_date: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                    />
-                  </div>
-
-                  {/* Application Type */}
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">How should applicants apply?</label>
-                    <div className="flex gap-4 mb-2">
-                      <label className="flex items-center gap-2 text-[#e4e6eb]">
-                        <input
-                          type="radio"
-                          name="applicationType"
-                          value="email"
-                          checked={postMetadata.application_type === 'email'}
-                          onChange={(e) => setPostMetadata({ ...postMetadata, application_type: e.target.value, application_value: '' })}
-                          className="accent-[#1877f2]"
-                        />
-                        <span>Email</span>
-                      </label>
-                      <label className="flex items-center gap-2 text-[#e4e6eb]">
-                        <input
-                          type="radio"
-                          name="applicationType"
-                          value="link"
-                          checked={postMetadata.application_type === 'link'}
-                          onChange={(e) => setPostMetadata({ ...postMetadata, application_type: e.target.value, application_value: '' })}
-                          className="accent-[#1877f2]"
-                        />
-                        <span>External Link</span>
-                      </label>
-                    </div>
-                    
-                    {postMetadata.application_type === 'email' && (
-                      <input
-                        type="email"
-                        value={postMetadata.application_value || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, application_value: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Enter email address for applications"
-                      />
-                    )}
-                    
-                    {postMetadata.application_type === 'link' && (
-                      <input
-                        type="url"
-                        value={postMetadata.application_value || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, application_value: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Enter application link"
-                      />
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeGroup.category === 'music_drama' && (
-                <div className="px-6 mb-4 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Artist/Band</label>
-                      <input
-                        type="text"
-                        value={postMetadata.artist || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, artist: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Artist name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Duration</label>
-                      <input
-                        type="text"
-                        value={postMetadata.duration || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, duration: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="3:45"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[#b0b3b8] text-xs mb-1">Series (optional)</label>
-                    <input
-                      type="text"
-                      value={postMetadata.series || ''}
-                      onChange={(e) => setPostMetadata({ ...postMetadata, series: e.target.value })}
-                      className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                      placeholder="Series name"
-                    />
-                  </div>
-                  {postMetadata.series && (
-                    <div>
-                      <label className="block text-[#b0b3b8] text-xs mb-1">Episode</label>
-                      <input
-                        type="text"
-                        value={postMetadata.episode || ''}
-                        onChange={(e) => setPostMetadata({ ...postMetadata, episode: e.target.value })}
-                        className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"
-                        placeholder="Episode 1"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="p-6 min-h-[200px] flex-1">
-                <textarea
-                  className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight whitespace-pre-wrap"
-                  placeholder={
-                    activeGroup.category === 'buy_sell' ? "Describe what you're selling (optional)..." :
-                    activeGroup.category === 'recruitment' ? "Describe the position and requirements (optional)..." :
-                    activeGroup.category === 'music_drama' ? "Add a description or lyrics (optional)..." :
-                    "Share something with the community..."
-                  }
-                  value={postContent}
-                  onChange={e => setPostContent(e.target.value)}
-                  rows={5}
-                />
-              </div>
-
-              {/* File Previews Grid */}
-              {previews.length > 0 && (
-                <div className="px-6 mb-4">
-                  <div className="grid grid-cols-4 gap-2">
-                    {previews.slice(0, 4).map((preview, index) => (
-                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden group">
-                        <img
-                          src={preview}
-                          alt={`Preview ${index + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          onClick={() => handleRemoveFile(index)}
-                          className="absolute top-1 right-1 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <i className="fas fa-times text-white text-xs"></i>
-                        </button>
-                        {postFiles[index]?.type.startsWith('video/') && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                            <i className="fas fa-play text-white text-2xl"></i>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {previews.length > 4 && (
-                      <div className="aspect-square rounded-lg bg-[#2d2d2d] flex items-center justify-center">
-                        <span className="text-[#e4e6eb] font-bold text-lg">+{previews.length - 4}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
-                <div
-                  className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]"
-                  onClick={() => postFileInputRef.current?.click()}
-                >
-                  <div className="w-10 h-10 bg-[#45BD62]/10 rounded-full flex items-center justify-center text-[#45BD62]">
-                    <i className="fas fa-images text-xl"></i>
-                  </div>
-                  <span className="text-[#e4e6eb] font-black text-lg">
-                    {postFiles.length > 0 ? `${postFiles.length} file(s) selected` : 'Add Photo/Video'}
-                  </span>
-                </div>
-
-                <div
-                  className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]"
-                  onClick={() => {
-                    setShowGroupPostModal(false);
-                    setShowEventModal(true);
-                  }}
-                >
-                  <div className="w-10 h-10 bg-[#F7B928]/10 rounded-full flex items-center justify-center text-[#F7B928]">
-                    <i className="fas fa-calendar-plus text-xl"></i>
-                  </div>
-                  <span className="text-[#e4e6eb] font-black text-lg">Host Group Event</span>
-                </div>
-              </div>
-
-              <div className="p-6 bg-[#1e1e1e]">
-                <button
-                  onClick={handlePostSubmit}
-                  disabled={!postContent.trim() && postFiles.length === 0}
-                  className="w-full bg-[#1877f2] text-white font-black text-xl py-4 rounded-2xl hover:bg-[#166fe5] disabled:opacity-50 transition-all shadow-2xl active:scale-95 disabled:cursor-not-allowed"
-                >
-                  {activeGroup.category === 'buy_sell' ? 'LIST ITEM' :
-                   activeGroup.category === 'recruitment' ? 'POST JOB' :
-                   activeGroup.category === 'music_drama' ? 'SHARE NOW' :
-                   'POST TO FEED'}
-                </button>
-              </div>
-            </div>
-
-            <input
-              type="file"
-              ref={postFileInputRef}
-              className="hidden"
-              accept="image/*,video/*"
-              multiple
-              onChange={handleFileChange}
-            />
-          </div>
-        )}
-
-        {/* Settings Modal */}
-        {showSettingsModal && activeGroup && (
-          <GroupSettingsModal
-            group={activeGroup}
-            onClose={() => setShowSettingsModal(false)}
-            onUpdate={settings => onUpdateGroupSettings(activeGroup.id, settings)}
-            isAdmin={Boolean(isAdmin)}
-            onDeleteGroup={() => {
-              onDeleteGroup(activeGroup.id);
-              setShowSettingsModal(false);
-              setView('feed');
-            }}
-          />
-        )}
-
-        {/* Create Event Modal */}
-        {showEventModal && currentUser && activeGroup && (
-          <CreateEventModal
-            currentUser={currentUser}
-            onClose={() => setShowEventModal(false)}
-            onCreate={(eventData) => handleCreateEvent(eventData)}
-            groupId={activeGroup.id}
-            groupName={activeGroup.name}
-          />
-        )}
       </div>
-
-      {/* Full Post View for Groups */}
-      {showPostView && selectedPost && selectedPostAuthor && currentUser && (
-        <CommentsSheet
-          post={selectedPost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setShowPostView(false);
-            setSelectedPost(null);
-            setSelectedPostAuthor(null);
-          }}
-          onComment={onComment}
-          onLikeComment={onLikeComment}
-          onCommentAdded={selectedPost?.onCommentAdded} // Pass the callback
-          getCommentAuthor={(id) => users.find(u => u.id === id)}
-          onProfileClick={onProfileClick}
-          onHashtagClick={onHashtagClick}
-          onFollow={onFollow}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
-    </>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-[600px] mx-auto p-6 space-y-6">
+          {categoryInfo && (
+            <div className="bg-[#1e1e1e] rounded-xl p-4 border border-[#333]">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${categoryInfo.color}20` }}><i className={categoryInfo.icon} style={{ color: categoryInfo.color, fontSize: '24px' }}></i></div>
+                <div><div className="text-[#e4e6eb] font-bold text-lg">{categoryInfo.label}</div><div className="text-[#b0b3b8] text-sm">{categoryInfo.description}</div></div>
+              </div>
+            </div>
+          )}
+          <div><label className="block text-[#b0b3b8] text-sm font-bold mb-2">Group Name *</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="What's the name of your community?" className="w-full bg-[#2d2d2d] border border-[#333] rounded-xl p-4 text-[#e4e6eb] text-lg outline-none focus:border-[#1877f2] transition-colors" autoFocus /></div>
+          <div><label className="block text-[#b0b3b8] text-sm font-bold mb-2">Description</label><textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Tell people what this group is about..." rows={4} className="w-full bg-[#2d2d2d] border border-[#333] rounded-xl p-4 text-[#e4e6eb] text-base outline-none resize-none focus:border-[#1877f2] transition-colors" /></div>
+          <div><label className="block text-[#b0b3b8] text-sm font-bold mb-2">Privacy</label><div className="grid grid-cols-2 gap-3"><button onClick={() => setType('public')} className={`p-4 rounded-xl border-2 transition-all text-left ${type === 'public' ? 'border-[#1877f2] bg-[#1877f2]/10' : 'border-[#333] bg-[#2d2d2d]'}`}><i className="fas fa-globe text-[#1877f2] text-xl mb-2"></i><div className="text-[#e4e6eb] font-bold">Public</div><div className="text-[#b0b3b8] text-xs">Anyone can see and join</div></button><button onClick={() => setType('private')} className={`p-4 rounded-xl border-2 transition-all text-left ${type === 'private' ? 'border-[#1877f2] bg-[#1877f2]/10' : 'border-[#333] bg-[#2d2d2d]'}`}><i className="fas fa-lock text-[#F7B928] text-xl mb-2"></i><div className="text-[#e4e6eb] font-bold">Private</div><div className="text-[#b0b3b8] text-xs">Members need approval</div></button></div></div>
+          {categoryInfo && (<div className="bg-[#1e1e1e] rounded-xl p-4 border border-[#333]"><div className="text-[#b0b3b8] text-sm font-bold mb-3">What you can post:</div><div className="flex flex-wrap gap-2">{categoryInfo.features.map((feature, i) => (<span key={i} className="px-3 py-1.5 bg-[#2d2d2d] rounded-full text-[#e4e6eb] text-sm"><i className="fas fa-check text-[#45BD62] mr-2 text-xs"></i>{feature}</span>))}</div></div>)}
+        </div>
+      </div>
+    </div>
   );
 };
