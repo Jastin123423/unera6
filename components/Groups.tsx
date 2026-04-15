@@ -13,7 +13,7 @@ import {
 } from './Feed';
 import { CreateEventModal } from './Events';
 
-// ✅ Spark icon (React)
+// ✅ Spark icon (React) - orange/coral gradient
 const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <defs>
@@ -45,7 +45,7 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
   </svg>
 );
 
-// ✅ Discuss icon
+// ✅ Discuss icon - chat + signal style
 const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({ size = 26, color = "#1877F2" }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1168,6 +1168,7 @@ const CreateGroupFullPageModal: React.FC<{
     </div>
   );
 };
+
 export const GroupsPage: React.FC<any> = ({
   currentUser,
   groups = [],
@@ -1195,9 +1196,6 @@ export const GroupsPage: React.FC<any> = ({
   fetchComments,
   onComment,
   onLikeComment,
-  fetchGroupInvites,
-  onAcceptGroupInvite,
-  onDeclineGroupInvite,
   initialGroupId,
   onPlayAudioTrack,
   onFollow,
@@ -1221,11 +1219,6 @@ export const GroupsPage: React.FC<any> = ({
   const [showGroupPostModal, setShowGroupPostModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
-  const [showGroupMenu, setShowGroupMenu] = useState(false);
-  const [inviteSearch, setInviteSearch] = useState('');
-  const [invitingUserIds, setInvitingUserIds] = useState<number[]>([]);
-  const [groupInvites, setGroupInvites] = useState<any[]>([]);
-  const [loadingInvites, setLoadingInvites] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [newGroupType, setNewGroupType] = useState<'public' | 'private'>('public');
@@ -1238,6 +1231,7 @@ export const GroupsPage: React.FC<any> = ({
   const [loadingEvents, setLoadingEvents] = useState(false);
   const eventsLoadedRef = useRef<boolean>(false);
   const activeGroupIdRef = useRef<number | null>(null);
+  // ✅ REMOVED 'Posts' from the tabs - only 3 tabs now
   const [fbTab, setFbTab] = useState<'Your groups' | 'Discover' | 'Invites'>('Your groups');
   const [sortOpen, setSortOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'Most visited' | 'Recently active' | 'Alphabetical'>('Most visited');
@@ -1247,7 +1241,6 @@ export const GroupsPage: React.FC<any> = ({
   const postsLoadedRef = useRef<boolean>(false);
   const [joining, setJoining] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
   const groupCoverInputRef = useRef<HTMLInputElement>(null);
   const groupProfileInputRef = useRef<HTMLInputElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -1255,6 +1248,9 @@ export const GroupsPage: React.FC<any> = ({
   const [postFiles, setPostFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [postMetadata, setPostMetadata] = useState<any>({});
+
+  // ========== MEMOIZED VALUES ==========
+  const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   // ========== HELPER FUNCTIONS ==========
   const seededShuffle = <T,>(items: T[], seed: number) => {
@@ -1302,80 +1298,25 @@ export const GroupsPage: React.FC<any> = ({
     }
   }, [activeGroup, getGroupShareLink]);
 
-  const loadGroupInvites = useCallback(async () => {
-    if (!currentUser || !fetchGroupInvites) {
-      setGroupInvites([]);
-      return;
-    }
-    setLoadingInvites(true);
-    try {
-      const invites = await fetchGroupInvites();
-      setGroupInvites(Array.isArray(invites) ? invites : []);
-    } catch (error) {
-      console.error('Failed to load invites:', error);
-      setGroupInvites([]);
-    } finally {
-      setLoadingInvites(false);
-    }
-  }, [currentUser, fetchGroupInvites]);
-
-  // ========== MEMOIZED VALUES ==========
-  const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
-
-  const activeGroup = useMemo(() => {
-    const base = safeGroups.find(g => g.id === activeGroupId) || null;
-    if (!base) return null;
-    const overrides = groupImageOverrides[base.id] || {};
-    return { ...base, ...overrides };
-  }, [safeGroups, activeGroupId, groupImageOverrides]);
-
-  const inviteableUsers = useMemo(() => {
-    if (!activeGroup || !currentUser) return [];
-    const memberIds = new Set<number>(
-      Array.isArray(activeGroup.members) ? activeGroup.members : []
-    );
-    memberIds.add(Number(activeGroup.admin_id));
-    return (users || []).filter((u: User) => {
-      if (!u?.id) return false;
-      if (Number(u.id) === Number(currentUser.id)) return false;
-      if (memberIds.has(Number(u.id))) return false;
-      const q = inviteSearch.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        String(u.name || '').toLowerCase().includes(q) ||
-        String(u.username || '').toLowerCase().includes(q)
-      );
-    });
-  }, [activeGroup, currentUser, users, inviteSearch]);
-
   // ========== EFFECTS ==========
   useEffect(() => {
     if (!initialGroupId) return;
     const gid = parseInt(initialGroupId, 10);
     if (Number.isNaN(gid)) return;
     const group = safeGroups.find(g => g.id === gid);
-    if (group) {
-      setActiveGroupId(group.id);
-      setView('detail');
-      setGroupTab('Discussion');
+    if (group) { 
+      setActiveGroupId(group.id); 
+      setView('detail'); 
+      setGroupTab('Discussion'); 
     }
   }, [initialGroupId, safeGroups]);
 
-  useEffect(() => {
-    activeGroupIdRef.current = activeGroupId;
-  }, [activeGroupId]);
+  const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
 
-  useEffect(() => {
-    if (fbTab === 'Invites') {
-      loadGroupInvites();
-    }
-  }, [fbTab, loadGroupInvites]);
+  useEffect(() => { activeGroupIdRef.current = activeGroupId; }, [activeGroupId]);
 
   const loadGroupPosts = useCallback(async (force = false) => {
-    if (!activeGroup || !fetchGroupPosts) {
-      setGroupPosts([]);
-      return;
-    }
+    if (!activeGroup || !fetchGroupPosts) { setGroupPosts([]); return; }
     if (postsLoadedRef.current && !force) return;
     setLoadingPosts(true);
     try {
@@ -1388,23 +1329,20 @@ export const GroupsPage: React.FC<any> = ({
       const normalizedPosts = postsList.map((p: any) => normalizePost(p));
       setGroupPosts(normalizedPosts);
       postsLoadedRef.current = true;
-    } catch (error) {
-      console.error('Failed to load group posts:', error);
-      setGroupPosts([]);
-    } finally {
-      setLoadingPosts(false);
+    } catch (error) { 
+      console.error('Failed to load group posts:', error); 
+      setGroupPosts([]); 
+    } finally { 
+      setLoadingPosts(false); 
     }
   }, [activeGroup, fetchGroupPosts]);
 
-  useEffect(() => {
-    if (activeGroup && groupTab === 'Discussion') loadGroupPosts();
+  useEffect(() => { 
+    if (activeGroup && groupTab === 'Discussion') loadGroupPosts(); 
   }, [activeGroup, groupTab, loadGroupPosts]);
 
   const loadGroupEvents = useCallback(async (force = false) => {
-    if (!activeGroup || !fetchGroupEvents) {
-      setGroupEvents([]);
-      return;
-    }
+    if (!activeGroup || !fetchGroupEvents) { setGroupEvents([]); return; }
     if (eventsLoadedRef.current && activeGroupIdRef.current === activeGroup.id && !force) return;
     setLoadingEvents(true);
     try {
@@ -1412,45 +1350,46 @@ export const GroupsPage: React.FC<any> = ({
       const list = Array.isArray(res) ? res : Array.isArray((res as any)?.events) ? (res as any).events : [];
       setGroupEvents(list.map((e: any) => normalizeEvent(e)));
       eventsLoadedRef.current = true;
-    } catch (error) {
-      console.error('Failed to load group events:', error);
-      setGroupEvents([]);
-    } finally {
-      setLoadingEvents(false);
+    } catch (error) { 
+      console.error('Failed to load group events:', error); 
+      setGroupEvents([]); 
+    } finally { 
+      setLoadingEvents(false); 
     }
   }, [activeGroup, fetchGroupEvents]);
 
-  useEffect(() => {
-    if (activeGroup && groupTab === 'Events') loadGroupEvents();
+  useEffect(() => { 
+    if (activeGroup && groupTab === 'Events') loadGroupEvents(); 
   }, [activeGroup, groupTab, loadGroupEvents]);
 
-  useEffect(() => {
-    postsLoadedRef.current = false;
-    eventsLoadedRef.current = false;
-    setGroupPosts([]);
-    setGroupEvents([]);
+  useEffect(() => { 
+    postsLoadedRef.current = false; 
+    eventsLoadedRef.current = false; 
+    setGroupPosts([]); 
+    setGroupEvents([]); 
   }, [activeGroupId]);
 
+  // Clean up preview URLs
   useEffect(() => {
     const urls = postFiles.map(file => URL.createObjectURL(file));
     setPreviews(urls);
-    return () => {
-      urls.forEach(url => URL.revokeObjectURL(url));
-    };
+    return () => { urls.forEach(url => URL.revokeObjectURL(url)); };
   }, [postFiles]);
 
+  // ✅ FIXED: Reset modal state when closed with proper Buy/Sell defaults
   useEffect(() => {
     if (!showGroupPostModal) {
       setPostContent('');
       setPostFiles([]);
       setPreviews([]);
+      // Reset based on category for next open
       if (activeGroup?.category === 'buy_sell') {
-        setPostMetadata({
-          currency: 'USD',
-          condition: 'Used - Good',
-          location: '',
-          price: '',
-          status: 'available'
+        setPostMetadata({ 
+          currency: 'USD', 
+          condition: 'Used - Good', 
+          location: '', 
+          price: '', 
+          status: 'available' 
         });
       } else {
         setPostMetadata({});
@@ -1461,27 +1400,29 @@ export const GroupsPage: React.FC<any> = ({
     }
   }, [showGroupPostModal, activeGroup?.category]);
 
+  // Load pinned groups from localStorage
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
       const saved = window.localStorage.getItem('pinnedGroups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setPinnedGroups(new Set(parsed));
+      if (saved) { 
+        const parsed = JSON.parse(saved); 
+        if (Array.isArray(parsed)) setPinnedGroups(new Set(parsed)); 
       }
-    } catch (e) {
-      console.error('Failed to load pinned groups:', e);
+    } catch (e) { 
+      console.error('Failed to load pinned groups:', e); 
     }
   }, []);
 
+  // Save pinned groups to localStorage
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return;
-      if (pinnedGroups.size > 0 || localStorage.getItem('pinnedGroups')) {
-        window.localStorage.setItem('pinnedGroups', JSON.stringify(Array.from(pinnedGroups)));
+      if (pinnedGroups.size > 0 || localStorage.getItem('pinnedGroups')) { 
+        window.localStorage.setItem('pinnedGroups', JSON.stringify(Array.from(pinnedGroups))); 
       }
-    } catch (e) {
-      console.error('Failed to save pinned groups:', e);
+    } catch (e) { 
+      console.error('Failed to save pinned groups:', e); 
     }
   }, [pinnedGroups]);
 
@@ -1492,37 +1433,37 @@ export const GroupsPage: React.FC<any> = ({
       const viewerId = currentUser.id;
       const url = `/api/posts/${postId}?viewerId=${viewerId}`;
       const token = localStorage.getItem('unera_token');
-      const headers: HeadersInit = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      const headers: HeadersInit = { 
+        'Accept': 'application/json', 
+        'Content-Type': 'application/json', 
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
       };
       const res = await fetch(url, { headers });
       const data = await res.json();
       if (data && typeof data.comments_count === 'number') {
-        setGroupPosts(prev => prev.map(post => {
-          if (post.id === postId) {
-            return { ...post, comment_count: data.comments_count, comments_count: data.comments_count };
-          }
-          return post;
+        setGroupPosts(prev => prev.map(post => { 
+          if (post.id === postId) { 
+            return { ...post, comment_count: data.comments_count, comments_count: data.comments_count }; 
+          } 
+          return post; 
         }));
       }
-    } catch (error) {
-      console.error('Failed to fetch updated post:', error);
+    } catch (error) { 
+      console.error('Failed to fetch updated post:', error); 
     }
   }, [currentUser]);
 
-  const handleGroupClick = (group: Group) => {
-    setActiveGroupId(group.id);
-    setView('detail');
-    setGroupTab('Discussion');
-    window.scrollTo(0, 0);
+  const handleGroupClick = (group: Group) => { 
+    setActiveGroupId(group.id); 
+    setView('detail'); 
+    setGroupTab('Discussion'); 
+    window.scrollTo(0, 0); 
   };
 
   const handleCreateGroupClick = () => {
-    if (!currentUser) {
-      alert('Please login to create a group');
-      return;
+    if (!currentUser) { 
+      alert('Please login to create a group'); 
+      return; 
     }
     setShowCategoryModal(true);
   };
@@ -1548,11 +1489,12 @@ export const GroupsPage: React.FC<any> = ({
       setNewGroupName('');
       setNewGroupDesc('');
       setSelectedCategory(null);
-    } catch (error) {
-      console.error('Failed to create group:', error);
+    } catch (error) { 
+      console.error('Failed to create group:', error); 
     }
   };
 
+  // ✅ FIXED: Submit post handler with proper Buy/Sell metadata
   const handlePostSubmit = async () => {
     if (!activeGroup) return;
     if (!postContent.trim() && postFiles.length === 0) return;
@@ -1590,13 +1532,14 @@ export const GroupsPage: React.FC<any> = ({
       setPostContent('');
       setPostFiles([]);
       setPreviews([]);
+      // ✅ Reset with defaults after submit
       if (activeGroup.category === 'buy_sell') {
-        setPostMetadata({
-          currency: 'USD',
-          condition: 'Used - Good',
-          location: '',
-          price: '',
-          status: 'available'
+        setPostMetadata({ 
+          currency: 'USD', 
+          condition: 'Used - Good', 
+          location: '', 
+          price: '', 
+          status: 'available' 
         });
       } else {
         setPostMetadata({});
@@ -1604,109 +1547,70 @@ export const GroupsPage: React.FC<any> = ({
       if (postFileInputRef.current) postFileInputRef.current.value = '';
       postsLoadedRef.current = false;
       loadGroupPosts(true);
-    } catch (error) {
-      console.error('Failed to create group post:', error);
+    } catch (error) { 
+      console.error('Failed to create group post:', error); 
     }
   };
 
-  const handleImageChange = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-    type: 'cover' | 'profile'
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeGroup) return;
-
-    const previewUrl = URL.createObjectURL(file);
-    setGroupImageOverrides(prev => ({
-      ...prev,
-      [activeGroup.id]: {
-        ...(prev[activeGroup.id] || {}),
-        ...(type === 'cover' ? { cover_image: previewUrl } : { profile_image: previewUrl }),
-      },
-    }));
-
-    try {
-      const result = await onUpdateGroupImage(activeGroup.id, type, file);
-      const finalUrl = typeof result === 'string'
-        ? result
-        : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
-
-      if (finalUrl) {
-        setGroupImageOverrides(prev => ({
-          ...prev,
-          [activeGroup.id]: {
-            ...(prev[activeGroup.id] || {}),
-            ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
-          },
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to update group image:', error);
-      setGroupImageOverrides(prev => {
-        const next = { ...prev };
-        const current = { ...(next[activeGroup.id] || {}) };
-        if (type === 'cover') delete current.cover_image;
-        else delete current.profile_image;
-        next[activeGroup.id] = current;
-        return next;
-      });
-    } finally {
-      e.target.value = '';
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+    if (e.target.files && e.target.files[0] && activeGroup) { 
+      try { 
+        await onUpdateGroupImage(activeGroup.id, type, e.target.files[0]); 
+      } catch (error) { 
+        console.error('Failed to update group image:', error); 
+      } 
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) setPostFiles(Array.from(e.target.files));
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
+    if (e.target.files) setPostFiles(Array.from(e.target.files)); 
   };
-
+  
   const handleRemoveFile = (index: number) => setPostFiles(prev => prev.filter((_, i) => i !== index));
 
   const handleCreateEvent = async (eventData: Partial<Event>) => {
     if (!activeGroup || !currentUser) return;
-    try {
-      await onCreateGroupEvent(activeGroup.id, {
-        ...eventData,
-        created_by: currentUser.id,
-        group_id: activeGroup.id
-      });
-      setShowEventModal(false);
-      if (groupTab === 'Events' && fetchGroupEvents) {
-        eventsLoadedRef.current = false;
-        loadGroupEvents(true);
-      }
-    } catch (error) {
-      console.error('Failed to create event:', error);
-      throw error;
+    try { 
+      await onCreateGroupEvent(activeGroup.id, { 
+        ...eventData, 
+        created_by: currentUser.id, 
+        group_id: activeGroup.id 
+      }); 
+      setShowEventModal(false); 
+      if (groupTab === 'Events' && fetchGroupEvents) { 
+        eventsLoadedRef.current = false; 
+        loadGroupEvents(true); 
+      } 
+    } catch (error) { 
+      console.error('Failed to create event:', error); 
+      throw error; 
     }
   };
 
   const handleEventRSVP = async (eventId: number, status: string) => {
     if (!onEventRSVP) return;
-    try {
-      await onEventRSVP(eventId, status);
-      setGroupEvents(prev => prev.map(event => {
-        if (event.id === eventId) {
-          return {
-            ...event,
-            user_rsvp_status: status,
-            attendees: status === 'going'
+    try { 
+      await onEventRSVP(eventId, status); 
+      setGroupEvents(prev => prev.map(event => { 
+        if (event.id === eventId) { 
+          return { 
+            ...event, 
+            user_rsvp_status: status, 
+            attendees: status === 'going' 
               ? [...(event.attendees || []), currentUser?.id]
-              : (event.attendees || []).filter(id => id !== currentUser?.id)
-          } as any;
-        }
-        return event;
-      }));
-    } catch (error) {
-      console.error('Failed to RSVP to event:', error);
+              : (event.attendees || []).filter(id => id !== currentUser?.id) 
+          } as any; 
+        } 
+        return event; 
+      })); 
+    } catch (error) { 
+      console.error('Failed to RSVP to event:', error); 
     }
   };
 
   const handleJoinGroup = async () => {
     if (!activeGroup) return;
-    if (!currentUser) {
-      alert('Please login to join groups');
-      return;
-    }
+    if (!currentUser) { alert('Please login to join groups'); return; }
     if (joining) return;
     setJoining(true);
     try {
@@ -1715,24 +1619,21 @@ export const GroupsPage: React.FC<any> = ({
       eventsLoadedRef.current = false;
       await loadGroupPosts(true);
       if (groupTab === 'Events') await loadGroupEvents(true);
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-        if (details?.group) setActiveGroupId(prev => prev);
+      if (fetchGroupDetails) { 
+        const details = await fetchGroupDetails(activeGroup.id); 
+        if (details?.group) setActiveGroupId(prev => prev); 
       }
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      alert('Failed to join group. Please try again.');
-    } finally {
-      setJoining(false);
+    } catch (error) { 
+      console.error('Failed to join group:', error); 
+      alert('Failed to join group. Please try again.'); 
+    } finally { 
+      setJoining(false); 
     }
   };
 
   const handleLeaveGroup = async () => {
     if (!activeGroup) return;
-    if (!currentUser) {
-      alert('Please login to leave groups');
-      return;
-    }
+    if (!currentUser) { alert('Please login to leave groups'); return; }
     if (leaving) return;
     if (!confirm('Are you sure you want to leave this group?')) return;
     setLeaving(true);
@@ -1742,29 +1643,15 @@ export const GroupsPage: React.FC<any> = ({
       setGroupEvents([]);
       postsLoadedRef.current = false;
       eventsLoadedRef.current = false;
-      if (fetchGroupDetails) {
-        const details = await fetchGroupDetails(activeGroup.id);
-        if (details?.group) setActiveGroupId(prev => prev);
+      if (fetchGroupDetails) { 
+        const details = await fetchGroupDetails(activeGroup.id); 
+        if (details?.group) setActiveGroupId(prev => prev); 
       }
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      alert('Failed to leave group. Please try again.');
-    } finally {
-      setLeaving(false);
-    }
-  };
-
-  const handleInviteUser = async (userId: number) => {
-    if (!activeGroup || !onInviteToGroup) return;
-    try {
-      setInvitingUserIds(prev => [...prev, userId]);
-      await onInviteToGroup(activeGroup.id, [userId]);
-      alert('Invite sent');
-    } catch (error) {
-      console.error('Failed to invite user:', error);
-      alert('Failed to send invite');
-    } finally {
-      setInvitingUserIds(prev => prev.filter(id => id !== userId));
+    } catch (error) { 
+      console.error('Failed to leave group:', error); 
+      alert('Failed to leave group. Please try again.'); 
+    } finally { 
+      setLeaving(false); 
     }
   };
 
@@ -1778,105 +1665,107 @@ export const GroupsPage: React.FC<any> = ({
     setShowPostView(true);
   };
 
-  const handleLikePost = async (postId: number, type?: ReactionType) => {
-    if (!currentUser) return;
-    try {
-      await onLikePost(postId, type);
-    } catch (error) {
-      console.error('Failed to like post:', error);
-    }
+  const handleLikePost = async (postId: number, type?: ReactionType) => { 
+    if (!currentUser) return; 
+    try { 
+      await onLikePost(postId, type); 
+    } catch (error) { 
+      console.error('Failed to like post:', error); 
+    } 
   };
 
   const handleSharePost = async (postId: number, newShareCount: number) => {
     try {
       await onSharePost(postId, newShareCount);
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) return { ...post, shares: newShareCount } as any;
-        return post;
+      setGroupPosts(prev => prev.map(post => { 
+        if (post.id === postId) return { ...post, shares: newShareCount } as any; 
+        return post; 
       }));
       if (selectedPost && selectedPost.id === postId) {
         setSelectedPost(prev => prev ? { ...prev, shares: newShareCount } as any : null);
       }
-    } catch (error) {
-      console.error('Failed to share post:', error);
+    } catch (error) { 
+      console.error('Failed to share post:', error); 
     }
   };
 
   const handleDeletePost = async (postId: number) => {
     if (!activeGroup) return;
     if (!confirm('Are you sure you want to delete this post?')) return;
-    try {
-      await onDeleteGroupPost(activeGroup.id, postId);
-      setGroupPosts(prev => prev.filter(post => post.id !== postId));
-      if (selectedPost && selectedPost.id === postId) {
-        setShowPostView(false);
-        setSelectedPost(null);
-      }
-    } catch (error) {
-      console.error('Failed to delete post:', error);
+    try { 
+      await onDeleteGroupPost(activeGroup.id, postId); 
+      setGroupPosts(prev => prev.filter(post => post.id !== postId)); 
+      if (selectedPost && selectedPost.id === postId) { 
+        setShowPostView(false); 
+        setSelectedPost(null); 
+      } 
+    } catch (error) { 
+      console.error('Failed to delete post:', error); 
     }
   };
 
   const handleEditPost = async (postId: number, content: string) => {
     if (!onEditGroupPost) return;
-    try {
-      await onEditGroupPost(postId, content);
-      setGroupPosts(prev => prev.map(post => {
-        if (post.id === postId) return { ...post, content } as any;
-        return post;
+    try { 
+      await onEditGroupPost(postId, content); 
+      setGroupPosts(prev => prev.map(post => { 
+        if (post.id === postId) return { ...post, content } as any; 
+        return post; 
       }));
       if (selectedPost && selectedPost.id === postId) {
         setSelectedPost(prev => prev ? { ...prev, content } as any : null);
       }
-    } catch (error) {
-      console.error('Failed to edit post:', error);
-      throw error;
+    } catch (error) { 
+      console.error('Failed to edit post:', error); 
+      throw error; 
     }
   };
 
-  const handleReportPost = async (postId: number) => {
-    if (!onReportGroupPost) return;
-    try {
-      await onReportGroupPost(postId);
-    } catch (error) {
-      console.error('Failed to report post:', error);
-      throw error;
-    }
+  const handleReportPost = async (postId: number) => { 
+    if (!onReportGroupPost) return; 
+    try { 
+      await onReportGroupPost(postId); 
+    } catch (error) { 
+      console.error('Failed to report post:', error); 
+      throw error; 
+    } 
   };
 
-  const handleViewImage = (url: string, index?: number) => {
-    if (onViewImage) onViewImage(url);
+  const handleViewImage = (url: string, index?: number) => { 
+    if (onViewImage) onViewImage(url); 
   };
-
+  
   const isAdmin = currentUser?.role === 'admin';
 
-  const togglePinGroup = (groupId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPinnedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupId)) newSet.delete(groupId);
-      else newSet.add(groupId);
-      return newSet;
-    });
+  const togglePinGroup = (groupId: number, e: React.MouseEvent) => { 
+    e.stopPropagation(); 
+    setPinnedGroups(prev => { 
+      const newSet = new Set(prev); 
+      if (newSet.has(groupId)) newSet.delete(groupId); 
+      else newSet.add(groupId); 
+      return newSet; 
+    }); 
   };
 
   const computeVisits = (g: Group) => Number((g as any)?.visits ?? ((g.posts?.length ?? 0) * 5 + (g.members?.length ?? 0)));
-  const computeLastActive = (g: Group) => {
-    const fromField = Number((g as any)?.lastActiveAt ?? 0);
-    if (fromField) return fromField;
+  const computeLastActive = (g: Group) => { 
+    const fromField = Number((g as any)?.lastActiveAt ?? 0); 
+    if (fromField) return fromField; 
     const newest = (g.posts ?? [])
       .map((p: any) => new Date(p?.created_at ?? 0).getTime())
       .filter((t: number) => Number.isFinite(t))
       .sort((a: number, b: number) => b - a)[0];
-    return newest || 0;
+    return newest || 0; 
   };
-  const formatNewPostsText = (g: Group) => {
-    const count = Number((g as any)?.newPostsCount ?? 0);
-    if (count > 25) return '25+ new posts';
-    if (count > 0) return `${count} new posts`;
-    const updated = String((g as any)?.updatedAt ?? '').trim();
-    return updated ? updated : 'Updated recently';
+  
+  const formatNewPostsText = (g: Group) => { 
+    const count = Number((g as any)?.newPostsCount ?? 0); 
+    if (count > 25) return '25+ new posts'; 
+    if (count > 0) return `${count} new posts`; 
+    const updated = String((g as any)?.updatedAt ?? '').trim(); 
+    return updated ? updated : 'Updated recently'; 
   };
+  
   const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
 
   const sortedGroups = useMemo(() => {
@@ -1885,13 +1774,14 @@ export const GroupsPage: React.FC<any> = ({
     return [...safeGroups].sort((a, b) => computeVisits(b) - computeVisits(a));
   }, [safeGroups, sortMode]);
 
-  const getCategoryIcon = (category?: GroupCategory) => {
-    const cat = GROUP_CATEGORIES.find(c => c.id === category);
-    return cat?.icon || 'fas fa-users';
+  const getCategoryIcon = (category?: GroupCategory) => { 
+    const cat = GROUP_CATEGORIES.find(c => c.id === category); 
+    return cat?.icon || 'fas fa-users'; 
   };
-  const getCategoryColor = (category?: GroupCategory) => {
-    const cat = GROUP_CATEGORIES.find(c => c.id === category);
-    return cat?.color || '#1877F2';
+  
+  const getCategoryColor = (category?: GroupCategory) => { 
+    const cat = GROUP_CATEGORIES.find(c => c.id === category); 
+    return cat?.color || '#1877F2'; 
   };
 
   // ========== FEED VIEW RENDER ==========
@@ -1899,16 +1789,17 @@ export const GroupsPage: React.FC<any> = ({
     return (
       <>
         <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
+          {/* Header */}
           <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
             <div className="max-w-[900px] mx-auto px-4">
               <div className="h-14 flex items-center justify-between">
-                <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => {
-                  if (view === 'detail') {
-                    setView('feed');
-                    setActiveGroupId(null);
-                  } else {
-                    window.history.back();
-                  }
+                <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => { 
+                  if (view === 'detail') { 
+                    setView('feed'); 
+                    setActiveGroupId(null); 
+                  } else { 
+                    window.history.back(); 
+                  } 
                 }} aria-label="Back">
                   <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
                 </button>
@@ -1917,28 +1808,32 @@ export const GroupsPage: React.FC<any> = ({
                   <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={handleCreateGroupClick} aria-label="Create">
                     <i className="fas fa-plus text-[18px] text-[#e4e6eb]"></i>
                   </button>
-                  <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => {
-                    const el = document.getElementById('groupsSearchInput');
-                    (el as HTMLInputElement | null)?.focus();
+                  <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => { 
+                    const el = document.getElementById('groupsSearchInput'); 
+                    (el as HTMLInputElement | null)?.focus(); 
                   }} aria-label="Search">
                     <i className="fas fa-search text-[18px] text-[#e4e6eb]"></i>
                   </button>
                 </div>
               </div>
+              
+              {/* Tabs - ✅ Only 3 tabs now */}
               <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
-                {(['Your groups', 'Discover', 'Invites'] as const).map(tab => {
-                  const active = fbTab === tab;
+                {(['Your groups', 'Discover', 'Invites'] as const).map(tab => { 
+                  const active = fbTab === tab; 
                   return (
                     <button key={tab} onClick={() => setFbTab(tab)} className={
-                      active
-                        ? 'px-4 py-2 rounded-full bg-[#1877f2] text-white font-extrabold whitespace-nowrap'
+                      active 
+                        ? 'px-4 py-2 rounded-full bg-[#1877f2] text-white font-extrabold whitespace-nowrap' 
                         : 'px-2 py-2 text-[#b0b3b8] font-bold whitespace-nowrap hover:text-[#e4e6eb] transition-colors'
                     }>
                       {tab}
                     </button>
-                  );
+                  ); 
                 })}
               </div>
+              
+              {/* Search */}
               <div className="pb-3">
                 <div className="relative">
                   <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
@@ -1947,57 +1842,29 @@ export const GroupsPage: React.FC<any> = ({
               </div>
             </div>
           </div>
+          
+          {/* Content */}
           <div className="max-w-[900px] mx-auto">
             {(() => {
+              // Handle Invites tab separately
               if (fbTab === 'Invites') {
                 return (
                   <div className="px-4">
                     <div className="pt-3 pb-2">
                       <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
                     </div>
-                    {loadingInvites ? (
-                      <div className="py-16 text-center text-[#b0b3b8]">Loading invites...</div>
-                    ) : groupInvites.length > 0 ? (
-                      <div className="space-y-3">
-                        {groupInvites.map((invite: any) => {
-                          const group = normalizeGroup(invite.group || invite);
-                          const inviter = users.find(u => Number(u.id) === Number(invite.inviter_id));
-                          return (
-                            <div key={invite.id || `${group.id}-${invite.inviter_id}`} className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden">
-                              <div className="h-[140px] bg-[#2d2d2d]">
-                                <img src={group.cover_image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80'} className="w-full h-full object-cover" alt="" />
-                              </div>
-                              <div className="p-4">
-                                <div className="flex items-center gap-3 mb-3">
-                                  <img src={group.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(group.name || 'Group')}&background=random`} className="w-14 h-14 rounded-xl object-cover" alt="" />
-                                  <div className="min-w-0">
-                                    <div className="text-[#e4e6eb] font-extrabold text-[18px] truncate">{group.name}</div>
-                                    <div className="text-[#b0b3b8] text-sm">{group.members_count || 0} members</div>
-                                    {inviter && (<div className="text-[#b0b3b8] text-xs mt-1">Invited by {inviter.name || inviter.username}</div>)}
-                                  </div>
-                                </div>
-                                <div className="flex gap-2">
-                                  <button onClick={() => onAcceptGroupInvite?.(invite.id, group.id)} className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5]">Accept</button>
-                                  <button onClick={() => onDeclineGroupInvite?.(invite.id)} className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a]">Delete</button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="py-16 text-center text-[#b0b3b8]">
-                        <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No group invites</div>
-                        <div className="text-[15px]">When people invite you to groups, they will appear here.</div>
-                      </div>
-                    )}
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No group invites</div>
+                      <div className="text-[15px]">When people invite you to groups, they will appear here.</div>
+                    </div>
                   </div>
                 );
               }
 
-              const myGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
-              let list = myGroups.length ? myGroups : safeGroups;
-
+              // Your groups - show only groups user created
+              let list = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
+              
+              // Discover - shuffle groups user is not member of
               if (fbTab === 'Discover') {
                 const base = currentUser ? safeGroups.filter(g => {
                   if (Number(g.admin_id) === Number(currentUser.id)) return false;
@@ -2006,30 +1873,29 @@ export const GroupsPage: React.FC<any> = ({
                 }) : safeGroups;
                 const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
                 list = seededShuffle(base, todaySeed);
-                if (searchQuery.trim()) {
-                  const q = searchQuery.toLowerCase();
-                  list = list.filter(g => (g.name || '').toLowerCase().includes(q));
-                }
-              } else if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                list = list.filter(g => (g.name || '').toLowerCase().includes(q));
               }
-
+              
+              // Apply search filter
+              if (searchQuery.trim()) { 
+                const q = searchQuery.toLowerCase(); 
+                list = list.filter(g => (g.name || '').toLowerCase().includes(q)); 
+              }
+              
               const pinnedList = list.filter(g => pinnedGroups.has(g.id));
               const regularList = list.filter(g => !pinnedGroups.has(g.id));
 
-              const sortGroups = (groups: Group[]) => {
-                return [...groups].sort((a, b) => {
-                  if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || '');
-                  if (sortMode === 'Recently active') return computeLastActive(b) - computeLastActive(a);
-                  return computeVisits(b) - computeVisits(a);
-                });
+              const sortGroups = (groups: Group[]) => { 
+                return [...groups].sort((a, b) => { 
+                  if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || ''); 
+                  if (sortMode === 'Recently active') return computeLastActive(b) - computeLastActive(a); 
+                  return computeVisits(b) - computeVisits(a); 
+                }); 
               };
-
+              
               const sortedPinned = sortGroups(pinnedList);
               const sortedRegular = sortGroups(regularList);
               const showMostVisitedHeader = fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0);
-
+              
               return (
                 <div className="px-4">
                   {showMostVisitedHeader && (
@@ -2038,16 +1904,17 @@ export const GroupsPage: React.FC<any> = ({
                       <button onClick={() => setSortOpen(true)} className="text-[#1877f2] font-bold text-[18px] active:opacity-70 hover:text-[#166fe5] transition-colors">Sort</button>
                     </div>
                   )}
-
+                  
                   {fbTab === 'Your groups' && currentUser && !searchQuery.trim() && (
                     <button onClick={handleCreateGroupClick} className="w-full flex items-center gap-3 py-3 active:opacity-80 hover:bg-[#2d2d2d] rounded-lg transition-colors">
                       <div className="w-12 h-12 rounded-full bg-[#1877f2] flex items-center justify-center"><i className="fas fa-plus text-white text-[18px]"></i></div>
                       <div className="text-[18px] font-bold text-[#e4e6eb]">Create a group</div>
                     </button>
                   )}
-
+                  
                   {fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0) && (<div className="border-b border-[#333] my-3" />)}
-
+                  
+                  {/* Pinned Groups */}
                   {sortedPinned.length > 0 && (
                     <div className="mb-6">
                       <div className="flex items-center gap-2 mb-3"><i className="fas fa-thumbtack text-[#1877f2] text-sm"></i><div className="text-[16px] font-bold text-[#e4e6eb]">Pinned Groups</div></div>
@@ -2072,7 +1939,8 @@ export const GroupsPage: React.FC<any> = ({
                       </div>
                     </div>
                   )}
-
+                  
+                  {/* Regular Groups */}
                   {sortedRegular.length > 0 && (
                     <div className={sortedPinned.length > 0 ? "mt-6" : ""}>
                       {sortedPinned.length > 0 && (<div className="text-[16px] font-bold text-[#e4e6eb] mb-3">All Groups</div>)}
@@ -2096,7 +1964,8 @@ export const GroupsPage: React.FC<any> = ({
                       </div>
                     </div>
                   )}
-
+                  
+                  {/* Empty State */}
                   {sortedPinned.length === 0 && sortedRegular.length === 0 && (
                     <div className="py-16 text-center text-[#b0b3b8]">
                       <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">Nothing to show</div>
@@ -2107,7 +1976,8 @@ export const GroupsPage: React.FC<any> = ({
               );
             })()}
           </div>
-
+          
+          {/* Sort Bottom Sheet */}
           {sortOpen && (
             <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
               <div className="w-full bg-[#1e1e1e] rounded-t-2xl p-4 animate-slide-up border-t border-[#333]" onClick={(e) => e.stopPropagation()}>
@@ -2122,29 +1992,31 @@ export const GroupsPage: React.FC<any> = ({
               </div>
             </div>
           )}
-
+          
+          {/* Modals */}
           <CategorySelectionModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} onSelect={handleCategorySelect} />
           <CreateGroupFullPageModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={onCreateGroup} selectedCategory={selectedCategory} />
         </div>
-
+        
+        {/* Full Post View */}
         {showPostView && selectedPost && selectedPostAuthor && currentUser && (
-          <CommentsSheet
-            post={selectedPost}
-            currentUser={currentUser}
-            users={users}
-            onClose={() => {
-              setShowPostView(false);
-              setSelectedPost(null);
-              setSelectedPostAuthor(null);
-            }}
-            onComment={onComment}
-            onLikeComment={onLikeComment}
-            onCommentAdded={selectedPost?.onCommentAdded}
-            getCommentAuthor={(id) => users.find(u => u.id === id)}
-            onProfileClick={onProfileClick}
-            onHashtagClick={onHashtagClick}
-            onFollow={onFollow}
-            checkIsFollowing={checkIsFollowing}
+          <CommentsSheet 
+            post={selectedPost} 
+            currentUser={currentUser} 
+            users={users} 
+            onClose={() => { 
+              setShowPostView(false); 
+              setSelectedPost(null); 
+              setSelectedPostAuthor(null); 
+            }} 
+            onComment={onComment} 
+            onLikeComment={onLikeComment} 
+            onCommentAdded={selectedPost?.onCommentAdded} 
+            getCommentAuthor={(id) => users.find(u => u.id === id)} 
+            onProfileClick={onProfileClick} 
+            onHashtagClick={onHashtagClick} 
+            onFollow={onFollow} 
+            checkIsFollowing={checkIsFollowing} 
           />
         )}
       </>
@@ -2162,10 +2034,11 @@ export const GroupsPage: React.FC<any> = ({
   return (
     <>
       <div className="w-full bg-[#121212] min-h-screen pb-10">
+        {/* Cover & Header */}
         <div className="bg-[#1e1e1e] border-b border-[#333] shadow-sm mb-4 animate-fade-in">
           <div className="max-w-[1100px] mx-auto">
             <div className="h-[200px] md:h-[350px] relative group bg-[#2d2d2d] md:rounded-b-xl overflow-hidden">
-              <img src={activeGroup.cover_image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80'} className="w-full h-full object-cover" alt="Cover" />
+              <img src={activeGroup.cover_image} className="w-full h-full object-cover" alt="Cover" />
               {canManage && (
                 <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg cursor-pointer hover:bg-black/70 font-bold text-white text-sm flex items-center gap-2 transition-all" onClick={() => groupCoverInputRef.current?.click()}>
                   <i className="fas fa-camera"></i> Edit Cover
@@ -2173,12 +2046,12 @@ export const GroupsPage: React.FC<any> = ({
               )}
               <input type="file" ref={groupCoverInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'cover')} />
             </div>
-
+            
             <div className="px-4 pb-0">
               <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
                 <div className="relative">
                   <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
-                    <img src={activeGroup.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeGroup.name || 'Group')}&background=random`} className="w-full h-full object-cover" alt="" />
+                    <img src={activeGroup.profile_image} className="w-full h-full object-cover" alt="" />
                   </div>
                   {canManage && (
                     <div className="absolute bottom-2 right-2 bg-[#2d2d2d] p-2 rounded-full cursor-pointer hover:bg-[#3a3a3a] shadow-md transition-colors" onClick={() => groupProfileInputRef.current?.click()}>
@@ -2187,7 +2060,7 @@ export const GroupsPage: React.FC<any> = ({
                   )}
                   <input type="file" ref={groupProfileInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'profile')} />
                 </div>
-
+                
                 <div className="flex-1 mt-2">
                   <div className="flex items-center gap-2 mb-1">
                     <h1 className="text-2xl md:text-4xl font-bold text-[#e4e6eb] leading-tight">{activeGroup.name}</h1>
@@ -2204,36 +2077,23 @@ export const GroupsPage: React.FC<any> = ({
                     <span>{(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)} members</span>
                   </div>
                 </div>
-
+                
                 <div className="flex gap-2 mt-4 md:mt-0 w-full md:w-auto">
                   {isMember ? (
-                    <div className="relative">
-                      <button onClick={() => setShowGroupMenu(prev => !prev)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-all">
-                        <i className="fas fa-ellipsis-h text-[#e4e6eb] text-xl"></i>
+                    <>
+                      <button onClick={() => setShowInviteModal(true)} className="bg-[#1877f2] text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#166fe5] flex-1 md:flex-none transition-all">
+                        <i className="fas fa-plus"></i> Invite
                       </button>
-                      {showGroupMenu && (
-                        <div className="absolute right-0 top-12 z-[120] w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
-                          <button onClick={() => { setShowGroupMenu(false); setShowInviteModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                            <i className="fas fa-user-plus w-5 text-[#b0b3b8]"></i>
-                            <span>Invite People</span>
-                          </button>
-                          <button onClick={() => { setShowGroupMenu(false); handleShareGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                            <i className="fas fa-share-alt w-5 text-[#b0b3b8]"></i>
-                            <span>Share Group</span>
-                          </button>
-                          <button onClick={() => { setShowGroupMenu(false); handleLeaveGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f]">
-                            <i className="fas fa-sign-out-alt w-5 text-[#f3425f]"></i>
-                            <span>Leave Group</span>
-                          </button>
-                          {canManage && (
-                            <button onClick={() => { setShowGroupMenu(false); setShowSettingsModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                              <i className="fas fa-cog w-5 text-[#b0b3b8]"></i>
-                              <span>Group Settings</span>
-                            </button>
-                          )}
-                        </div>
+                      <button className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all disabled:opacity-50" onClick={handleLeaveGroup} disabled={leaving}>
+                        {leaving ? (<i className="fas fa-spinner fa-spin mr-2"></i>) : (<i className="fas fa-check mr-2"></i>)}
+                        {leaving ? 'Leaving...' : 'Joined'}
+                      </button>
+                      {canManage && (
+                        <button onClick={() => setShowSettingsModal(true)} className="bg-[#2d2d2d] text-[#e4e6eb] px-3 py-2 rounded-lg font-bold hover:bg-[#3a3a3a] transition-all">
+                          <i className="fas fa-cog"></i>
+                        </button>
                       )}
-                    </div>
+                    </>
                   ) : (
                     <button onClick={handleJoinGroup} disabled={joining} className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                       {joining ? (<span className="flex items-center gap-2"><i className="fas fa-spinner fa-spin"></i>Joining...</span>) : 'Join Group'}
@@ -2241,12 +2101,15 @@ export const GroupsPage: React.FC<any> = ({
                   )}
                 </div>
               </div>
-
+              
               <div className="border-t border-[#333] mt-4"></div>
-
+              
+              {/* Tabs */}
               <div className="flex items-center gap-1 pt-1 overflow-x-auto scrollbar-hide">
                 {(['Discussion', 'Events', 'Members', 'About'] as const).map(tab => (
-                  <div key={tab} onClick={() => setGroupTab(tab)} className={`px-5 py-3 cursor-pointer font-bold text-base border-b-[3px] transition-all whitespace-nowrap ${groupTab === tab ? 'text-[#1877f2] border-[#1877f2]' : 'text-[#b0b3b8] border-transparent hover:bg-[#2d2d2d] rounded-t-lg'}`}>
+                  <div key={tab} onClick={() => setGroupTab(tab)} className={`px-5 py-3 cursor-pointer font-bold text-base border-b-[3px] transition-all whitespace-nowrap ${
+                    groupTab === tab ? 'text-[#1877f2] border-[#1877f2]' : 'text-[#b0b3b8] border-transparent hover:bg-[#2d2d2d] rounded-t-lg'
+                  }`}>
                     {tab}
                   </div>
                 ))}
@@ -2254,18 +2117,21 @@ export const GroupsPage: React.FC<any> = ({
             </div>
           </div>
         </div>
-
+        
+        {/* Content Area */}
         <div className="max-w-[700px] mx-auto px-0 md:px-4">
+          {/* Discussion Tab */}
           {groupTab === 'Discussion' && (
             <div className="animate-fade-in">
               {isMember && canPost && (
-                <div className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]" onClick={() => {
-                  if (activeGroup?.category === 'buy_sell') {
-                    setPostMetadata({ currency: 'USD', condition: 'Used - Good', location: '', price: '', status: 'available' });
-                  } else {
-                    setPostMetadata({});
-                  }
-                  setShowGroupPostModal(true);
+                <div className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]" onClick={() => { 
+                  // ✅ Set defaults when opening modal
+                  if (activeGroup?.category === 'buy_sell') { 
+                    setPostMetadata({ currency: 'USD', condition: 'Used - Good', location: '', price: '', status: 'available' }); 
+                  } else { 
+                    setPostMetadata({}); 
+                  } 
+                  setShowGroupPostModal(true); 
                 }}>
                   <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
                   <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
@@ -2281,7 +2147,7 @@ export const GroupsPage: React.FC<any> = ({
                   </div>
                 </div>
               )}
-
+              
               <div className="space-y-4">
                 {activeGroup.type === 'private' && !isMember ? (
                   <div className="bg-[#1e1e1e] rounded-xl p-12 text-center border border-[#333] mx-0 shadow-sm">
@@ -2361,7 +2227,8 @@ export const GroupsPage: React.FC<any> = ({
               </div>
             </div>
           )}
-
+          
+          {/* Events Tab */}
           {groupTab === 'Events' && (
             <div className="animate-fade-in">
               {isMember && (
@@ -2412,28 +2279,45 @@ export const GroupsPage: React.FC<any> = ({
               </div>
             </div>
           )}
-
+          
+          {/* About Tab */}
           {groupTab === 'About' && (
             <div className="bg-[#1e1e1e] rounded-xl p-8 border border-[#333] mx-0 shadow-sm animate-fade-in">
               <h3 className="text-xl font-bold text-[#e4e6eb] mb-4">About this group</h3>
               <p className="text-[#e4e6eb] text-base mb-8 leading-relaxed">{activeGroup.description}</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center"><i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xl text-[#b0b3b8]`}></i></div>
-                  <div><div className="font-bold">{activeGroup.type === 'public' ? 'Public' : 'Private'}</div><div className="text-xs text-[#b0b3b8]">Anyone can see who's in the group and what they post.</div></div>
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center">
+                    <i className={`fas ${activeGroup.type === 'public' ? 'fa-globe-americas' : 'fa-lock'} text-xl text-[#b0b3b8]`}></i>
+                  </div>
+                  <div>
+                    <div className="font-bold">{activeGroup.type === 'public' ? 'Public' : 'Private'}</div>
+                    <div className="text-xs text-[#b0b3b8]">Anyone can see who's in the group and what they post.</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center"><i className="fas fa-history text-xl text-[#b0b3b8]"></i></div>
-                  <div><div className="font-bold">History</div><div className="text-xs text-[#b0b3b8]">Created on {createdDate ? createdDate.toLocaleDateString() : 'Recently'}</div></div>
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center">
+                    <i className="fas fa-history text-xl text-[#b0b3b8]"></i>
+                  </div>
+                  <div>
+                    <div className="font-bold">History</div>
+                    <div className="text-xs text-[#b0b3b8]">Created on {createdDate ? createdDate.toLocaleDateString() : 'Recently'}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-[#e4e6eb]">
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center" style={{ backgroundColor: `${categoryInfo.color}20` }}><i className={categoryInfo.icon} style={{ color: categoryInfo.color }}></i></div>
-                  <div><div className="font-bold">Category</div><div className="text-xs text-[#b0b3b8]">{categoryInfo.label}</div></div>
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-xl flex items-center justify-center" style={{ backgroundColor: `${categoryInfo.color}20` }}>
+                    <i className={categoryInfo.icon} style={{ color: categoryInfo.color }}></i>
+                  </div>
+                  <div>
+                    <div className="font-bold">Category</div>
+                    <div className="text-xs text-[#b0b3b8]">{categoryInfo.label}</div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
-
+          
+          {/* Members Tab */}
           {groupTab === 'Members' && (
             <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
               <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
@@ -2449,11 +2333,15 @@ export const GroupsPage: React.FC<any> = ({
                         <img src={avatarFrom(member)} className="w-12 h-12 rounded-xl object-cover border border-[#333]" alt="" />
                         <div className="flex flex-col">
                           <div className="font-bold text-[#e4e6eb] text-base group-hover:text-[#1877f2] transition-colors">{member.name}</div>
-                          {memberId === activeGroup.admin_id && (<div className="text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full w-fit uppercase tracking-tighter border border-[#1877f2]/20">Group Admin</div>)}
+                          {memberId === activeGroup.admin_id && (
+                            <div className="text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full w-fit uppercase tracking-tighter border border-[#1877f2]/20">Group Admin</div>
+                          )}
                         </div>
                       </div>
                       {canManage && memberId !== currentUser?.id && (
-                        <button onClick={() => onRemoveMember(activeGroup.id, memberId)} className="text-[#b0b3b8] hover:text-white px-4 py-1.5 bg-[#2d2d2d] hover:bg-red-500/20 rounded font-bold text-sm transition-all border border-transparent hover:border-red-500/30">Remove</button>
+                        <button onClick={() => onRemoveMember(activeGroup.id, memberId)} className="text-[#b0b3b8] hover:text-white px-4 py-1.5 bg-[#2d2d2d] hover:bg-red-500/20 rounded font-bold text-sm transition-all border border-transparent hover:border-red-500/30">
+                          Remove
+                        </button>
                       )}
                     </div>
                   );
@@ -2462,26 +2350,58 @@ export const GroupsPage: React.FC<any> = ({
             </div>
           )}
         </div>
-
+        
         {/* Create Post Modal */}
         {showGroupPostModal && (
           <div className="fixed inset-0 z-[150] bg-[#121212] flex flex-col animate-slide-up font-sans">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] bg-[#1e1e1e]">
-              <div className="flex items-center gap-3"><i className="fas fa-arrow-left text-[#e4e6eb] text-xl cursor-pointer" onClick={() => setShowGroupPostModal(false)}></i><h3 className="text-[#e4e6eb] text-[18px] font-bold">{activeGroup.category === 'buy_sell' && 'Sell an Item'}{activeGroup.category === 'recruitment' && 'Post a Job'}{activeGroup.category === 'general' && 'Create Post'}</h3></div>
+              <div className="flex items-center gap-3">
+                <i className="fas fa-arrow-left text-[#e4e6eb] text-xl cursor-pointer" onClick={() => setShowGroupPostModal(false)}></i>
+                <h3 className="text-[#e4e6eb] text-[18px] font-bold">
+                  {activeGroup.category === 'buy_sell' && 'Sell an Item'}
+                  {activeGroup.category === 'recruitment' && 'Post a Job'}
+                  {activeGroup.category === 'general' && 'Create Post'}
+                </h3>
+              </div>
             </div>
+            
             <div className="flex-1 flex flex-col overflow-y-auto">
-              <div className="p-6 flex items-center gap-4"><img src={avatarFrom(currentUser)} className="w-14 h-14 rounded-full border-2 border-[#1877f2] object-cover" alt="" /><div><div className="font-black text-[#e4e6eb] text-lg">{currentUser?.name}</div><div className="text-[#b0b3b8] text-xs font-bold uppercase tracking-widest">{activeGroup.name}</div></div></div>
-
+              <div className="p-6 flex items-center gap-4">
+                <img src={avatarFrom(currentUser)} className="w-14 h-14 rounded-full border-2 border-[#1877f2] object-cover" alt="" />
+                <div>
+                  <div className="font-black text-[#e4e6eb] text-lg">{currentUser?.name}</div>
+                  <div className="text-[#b0b3b8] text-xs font-bold uppercase tracking-widest">{activeGroup.name}</div>
+                </div>
+              </div>
+              
+              {/* Buy & Sell Fields */}
               {activeGroup.category === 'buy_sell' && (
                 <div className="px-6 mb-4 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-[#b0b3b8] text-xs mb-1">Price</label><div className="flex gap-2"><select value={postMetadata.currency || 'USD'} onChange={(e) => setPostMetadata({ ...postMetadata, currency: e.target.value })} className="w-24 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none">{CURRENCY_OPTIONS.map(currency => (<option key={currency.code} value={currency.code}>{currency.code}</option>))}</select><input type="number" value={postMetadata.price || ''} onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })} className="flex-1 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="29.99" /></div></div>
-                    <div><label className="block text-[#b0b3b8] text-xs mb-1">Condition</label><select value={postMetadata.condition || 'Used - Good'} onChange={(e) => setPostMetadata({ ...postMetadata, condition: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none"><option>New</option><option>Like New</option><option>Used - Like New</option><option>Used - Good</option><option>Used - Fair</option><option>For Parts/Not Working</option></select></div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Price</label>
+                      <div className="flex gap-2">
+                        <select value={postMetadata.currency || 'USD'} onChange={(e) => setPostMetadata({ ...postMetadata, currency: e.target.value })} className="w-24 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none">
+                          {CURRENCY_OPTIONS.map(currency => (<option key={currency.code} value={currency.code}>{currency.code}</option>))}
+                        </select>
+                        <input type="number" value={postMetadata.price || ''} onChange={(e) => setPostMetadata({ ...postMetadata, price: e.target.value })} className="flex-1 bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="29.99" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[#b0b3b8] text-xs mb-1">Condition</label>
+                      <select value={postMetadata.condition || 'Used - Good'} onChange={(e) => setPostMetadata({ ...postMetadata, condition: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none">
+                        <option>New</option><option>Like New</option><option>Used - Like New</option><option>Used - Good</option><option>Used - Fair</option><option>For Parts/Not Working</option>
+                      </select>
+                    </div>
                   </div>
-                  <div><label className="block text-[#b0b3b8] text-xs mb-1">Location</label><input type="text" value={postMetadata.location || ''} onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="City, State" /></div>
+                  <div>
+                    <label className="block text-[#b0b3b8] text-xs mb-1">Location</label>
+                    <input type="text" value={postMetadata.location || ''} onChange={(e) => setPostMetadata({ ...postMetadata, location: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="City, State" />
+                  </div>
                 </div>
               )}
-
+              
+              {/* Recruitment Fields */}
               {activeGroup.category === 'recruitment' && (
                 <div className="px-6 mb-4 space-y-3">
                   <div><label className="block text-[#b0b3b8] text-xs mb-1">Job Title</label><input type="text" value={postMetadata.job_title || ''} onChange={(e) => setPostMetadata({ ...postMetadata, job_title: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="e.g. Customer Service" /></div>
@@ -2496,9 +2416,17 @@ export const GroupsPage: React.FC<any> = ({
                   {postMetadata.application_type === 'link' && (<input type="url" value={postMetadata.application_value || ''} onChange={(e) => setPostMetadata({ ...postMetadata, application_value: e.target.value })} className="w-full bg-[#2d2d2d] border border-[#333] rounded-lg p-2 text-[#e4e6eb] outline-none" placeholder="Enter application link" />)}</div>
                 </div>
               )}
-
-              <div className="p-6 min-h-[200px] flex-1"><textarea className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight whitespace-pre-wrap" placeholder={activeGroup.category === 'buy_sell' ? "Describe what you're selling (optional)..." : activeGroup.category === 'recruitment' ? "Describe the position and requirements (optional)..." : "Share something with the community..."} value={postContent} onChange={e => setPostContent(e.target.value)} rows={5} /></div>
-
+              
+              {/* Text Content */}
+              <div className="p-6 min-h-[200px] flex-1">
+                <textarea className="w-full bg-transparent outline-none text-[#e4e6eb] placeholder-[#b0b3b8] resize-none text-[28px] font-medium leading-tight whitespace-pre-wrap" placeholder={
+                  activeGroup.category === 'buy_sell' ? "Describe what you're selling (optional)..." : 
+                  activeGroup.category === 'recruitment' ? "Describe the position and requirements (optional)..." : 
+                  "Share something with the community..."
+                } value={postContent} onChange={e => setPostContent(e.target.value)} rows={5} />
+              </div>
+              
+              {/* File Previews */}
               {previews.length > 0 && (
                 <div className="px-6 mb-4">
                   <div className="grid grid-cols-4 gap-2">
@@ -2513,7 +2441,8 @@ export const GroupsPage: React.FC<any> = ({
                   </div>
                 </div>
               )}
-
+              
+              {/* Action Buttons */}
               <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
                 <div className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]" onClick={() => postFileInputRef.current?.click()}>
                   <div className="w-10 h-10 bg-[#45BD62]/10 rounded-full flex items-center justify-center text-[#45BD62]"><i className="fas fa-images text-xl"></i></div>
@@ -2524,7 +2453,8 @@ export const GroupsPage: React.FC<any> = ({
                   <span className="text-[#e4e6eb] font-black text-lg">Host Group Event</span>
                 </div>
               </div>
-
+              
+              {/* Submit Button */}
               <div className="p-6 bg-[#1e1e1e]">
                 <button onClick={handlePostSubmit} disabled={!postContent.trim() && postFiles.length === 0} className="w-full bg-[#1877f2] text-white font-black text-xl py-4 rounded-2xl hover:bg-[#166fe5] disabled:opacity-50 transition-all shadow-2xl active:scale-95 disabled:cursor-not-allowed">
                   {activeGroup.category === 'buy_sell' ? 'LIST ITEM' : activeGroup.category === 'recruitment' ? 'POST JOB' : 'POST TO FEED'}
@@ -2534,37 +2464,54 @@ export const GroupsPage: React.FC<any> = ({
             <input type="file" ref={postFileInputRef} className="hidden" accept="image/*,video/*" multiple onChange={handleFileChange} />
           </div>
         )}
-
-        {/* Invite Modal */}
-        {showInviteModal && activeGroup && (
-          <div className="fixed inset-0 z-[210] bg-black/60 flex items-end md:items-center md:justify-center" onClick={() => setShowInviteModal(false)}>
-            <div className="w-full md:max-w-[520px] bg-[#1e1e1e] rounded-t-2xl md:rounded-2xl border border-[#333] max-h-[85vh] overflow-hidden animate-slide-up" onClick={(e) => e.stopPropagation()}>
-              <div className="px-4 py-3 border-b border-[#333] flex items-center justify-between">
-                <div><div className="text-[#e4e6eb] font-bold text-lg">Invite to group</div><div className="text-[#b0b3b8] text-sm">{activeGroup.name}</div></div>
-                <button onClick={() => setShowInviteModal(false)} className="w-9 h-9 rounded-full hover:bg-[#2d2d2d] text-[#e4e6eb]"><i className="fas fa-times"></i></button>
-              </div>
-              <div className="p-4 border-b border-[#333]"><div className="relative"><i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i><input value={inviteSearch} onChange={(e) => setInviteSearch(e.target.value)} placeholder="Search people" className="w-full bg-[#2d2d2d] rounded-full pl-9 pr-4 py-2.5 outline-none text-[15px] text-[#e4e6eb] placeholder-[#b0b3b8]" /></div></div>
-              <div className="overflow-y-auto max-h-[60vh] p-2">
-                {inviteableUsers.length > 0 ? (inviteableUsers.map((user: User) => { const loading = invitingUserIds.includes(user.id); return (<div key={user.id} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors"><div className="flex items-center gap-3 cursor-pointer" onClick={() => onProfileClick?.(user.id)}><img src={avatarFrom(user)} className="w-12 h-12 rounded-full object-cover" alt="" /><div><div className="text-[#e4e6eb] font-bold">{user.name || user.username}</div><div className="text-[#b0b3b8] text-sm">@{user.username || 'user'}</div></div></div><button onClick={() => handleInviteUser(user.id)} disabled={loading} className="bg-[#1877f2] text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-[#166fe5] disabled:opacity-50">{loading ? 'Sending...' : 'Invite'}</button></div>); })) : (<div className="py-12 text-center text-[#b0b3b8]">No users available to invite.</div>)}
-              </div>
-            </div>
-          </div>
-        )}
-
+        
         {/* Settings Modal */}
         {showSettingsModal && activeGroup && (
-          <GroupSettingsModal group={activeGroup} onClose={() => setShowSettingsModal(false)} onUpdate={settings => onUpdateGroupSettings(activeGroup.id, settings)} isAdmin={Boolean(isAdmin)} onDeleteGroup={() => { onDeleteGroup(activeGroup.id); setShowSettingsModal(false); setView('feed'); }} />
+          <GroupSettingsModal 
+            group={activeGroup} 
+            onClose={() => setShowSettingsModal(false)} 
+            onUpdate={settings => onUpdateGroupSettings(activeGroup.id, settings)} 
+            isAdmin={Boolean(isAdmin)} 
+            onDeleteGroup={() => { 
+              onDeleteGroup(activeGroup.id); 
+              setShowSettingsModal(false); 
+              setView('feed'); 
+            }} 
+          />
         )}
-
+        
         {/* Create Event Modal */}
         {showEventModal && currentUser && activeGroup && (
-          <CreateEventModal currentUser={currentUser} onClose={() => setShowEventModal(false)} onCreate={(eventData) => handleCreateEvent(eventData)} groupId={activeGroup.id} groupName={activeGroup.name} />
+          <CreateEventModal 
+            currentUser={currentUser} 
+            onClose={() => setShowEventModal(false)} 
+            onCreate={(eventData) => handleCreateEvent(eventData)} 
+            groupId={activeGroup.id} 
+            groupName={activeGroup.name} 
+          />
         )}
       </div>
-
+      
       {/* Full Post View for Groups */}
       {showPostView && selectedPost && selectedPostAuthor && currentUser && (
-        <CommentsSheet post={selectedPost} currentUser={currentUser} users={users} onClose={() => { setShowPostView(false); setSelectedPost(null); setSelectedPostAuthor(null); }} onComment={onComment} onLikeComment={onLikeComment} onCommentAdded={selectedPost?.onCommentAdded} getCommentAuthor={(id) => users.find(u => u.id === id)} onProfileClick={onProfileClick} onHashtagClick={onHashtagClick} onFollow={onFollow} checkIsFollowing={checkIsFollowing} />
+        <CommentsSheet 
+          post={selectedPost} 
+          currentUser={currentUser} 
+          users={users} 
+          onClose={() => { 
+            setShowPostView(false); 
+            setSelectedPost(null); 
+            setSelectedPostAuthor(null); 
+          }} 
+          onComment={onComment} 
+          onLikeComment={onLikeComment} 
+          onCommentAdded={selectedPost?.onCommentAdded} 
+          getCommentAuthor={(id) => users.find(u => u.id === id)} 
+          onProfileClick={onProfileClick} 
+          onHashtagClick={onHashtagClick} 
+          onFollow={onFollow} 
+          checkIsFollowing={checkIsFollowing} 
+        />
       )}
     </>
   );
