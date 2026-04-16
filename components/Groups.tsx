@@ -1261,6 +1261,7 @@ const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(null);
 const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
 const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
 const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(null);
+    const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
