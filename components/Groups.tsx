@@ -1263,25 +1263,38 @@ const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
   const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
- 
+
+//=====INVITABLE USERS===
   const inviteableUsers = useMemo(() => {
   if (!activeGroup || !currentUser) return [];
+  
   const memberIds = new Set<number>(
     Array.isArray(activeGroup.members) ? activeGroup.members : []
   );
   memberIds.add(Number(activeGroup.admin_id));
+  
+  // Create a set of user IDs that already have pending invites
+  const invitedUserIds = new Set<number>(
+    groupInvites.map(invite => Number(invite.invitee_id))
+  );
+  
   return (users || []).filter((u: User) => {
     if (!u?.id) return false;
     if (Number(u.id) === Number(currentUser.id)) return false;
+    // Exclude members
     if (memberIds.has(Number(u.id))) return false;
+    
     const q = inviteSearch.trim().toLowerCase();
     if (!q) return true;
     return (
       String(u.name || '').toLowerCase().includes(q) ||
       String(u.username || '').toLowerCase().includes(q)
     );
-  });
-}, [activeGroup, currentUser, users, inviteSearch]);
+  }).map(user => ({
+    ...user,
+    isInvited: invitedUserIds.has(Number(user.id))
+  }));
+}, [activeGroup, currentUser, users, inviteSearch, groupInvites]);
 
     
   // ========== HELPER FUNCTIONS ==========
