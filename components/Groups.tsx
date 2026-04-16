@@ -1898,9 +1898,16 @@ export const GroupsPage: React.FC<any> = ({
                 );
               }
 
-              // Your groups - show only groups user created
-              let list = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
-              
+              // Your groups - Split into Created and Joined groups
+let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
+let joinedGroups = currentUser ? safeGroups.filter(g => 
+  !(Number(g.admin_id) === Number(currentUser.id)) && 
+  Array.isArray(g.members) && 
+  g.members.includes(Number(currentUser.id))
+) : [];
+
+// For search filtering
+let list = [...createdGroups, ...joinedGroups];  
               // Discover - shuffle groups user is not member of
               if (fbTab === 'Discover') {
                 const base = currentUser ? safeGroups.filter(g => {
