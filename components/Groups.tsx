@@ -1808,6 +1808,16 @@ useEffect(() => {
     } 
   };
 
+    //=== GROUP ADMIN HANDLERS ===
+
+const canUserPost = useCallback((userId: number) => {
+  if (!activeGroup) return false;
+  if (userId === activeGroup.admin_id) return true; // Admin can always post
+  if (!activeGroup.member_posting_allowed) return false; // Member posting disabled globally
+  const user = users.find(u => u.id === userId);
+  return !(user as any)?.posting_disabled; // Check if user is individually disabled
+}, [activeGroup, users]);
+    
   const handleViewImage = (url: string, index?: number) => { 
     if (onViewImage) onViewImage(url); 
   };
