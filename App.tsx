@@ -6130,7 +6130,7 @@ const updateGroupImage = useCallback(async (
   }
 }, [currentUser]);
 
-const acceptGroupInvite = useCallback(async (inviteId: number, groupId: number) => {
+ const acceptGroupInvite = useCallback(async (inviteId: number, groupId: number) => {
   if (!requireAuth("Accepting group invites")) return;
   if (!currentUser) return;
 
@@ -6143,13 +6143,18 @@ const acceptGroupInvite = useCallback(async (inviteId: number, groupId: number) 
       }),
     });
 
-    await joinGroup(groupId);
+    // Refresh group members to update UI
+    await refreshGroupMembers(groupId);
+    
+    // Refresh other data to update groups list
+    fetchOtherData().catch(() => {});
+    
     return res;
   } catch (error) {
     console.error('Failed to accept group invite:', error);
     throw error;
   }
-}, [currentUser, requireAuth, joinGroup]);
+}, [currentUser, requireAuth, refreshGroupMembers, fetchOtherData]);   
 
 const declineGroupInvite = useCallback(async (inviteId: number) => {
   if (!requireAuth("Declining group invites")) return;
