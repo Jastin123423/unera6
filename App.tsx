@@ -5611,6 +5611,8 @@ const data = await apiFetch('/api/reels', {
     }
   }, []);
 
+//===CREATE GROUP COMMENT===
+            
   const createGroupPostComment = useCallback(async (postId: number, text: string, parent_comment_id?: number | null) => {
     if (!requireAuth("Commenting")) return;
     const meId = Number(currentUser!.id);
@@ -5861,6 +5863,7 @@ const data = await apiFetch('/api/reels', {
       if (metadata.currency) payload.currency = metadata.currency;
       if (metadata.condition) payload.condition = metadata.condition;
       if (metadata.status) payload.status = metadata.status;
+      if (metadata.location !== undefined) payload.location = metadata.location;
 
       if (metadata.artist) payload.artist = metadata.artist;
       if (metadata.series) payload.series = metadata.series;
