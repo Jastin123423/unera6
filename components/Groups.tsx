@@ -1822,250 +1822,411 @@ export const GroupsPage: React.FC<any> = ({
   };
 
   // ========== FEED VIEW RENDER ==========
-  if (view === 'feed' || !activeGroup) {
-    return (
-      <>
-        <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
-          {/* Header */}
-          <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
-            <div className="max-w-[900px] mx-auto px-4">
-              <div className="h-14 flex items-center justify-between">
-                <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => { 
-                  if (view === 'detail') { 
-                    setView('feed'); 
-                    setActiveGroupId(null); 
-                  } else { 
-                    window.history.back(); 
-                  } 
-                }} aria-label="Back">
-                  <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
+if (view === 'feed' || !activeGroup) {
+  return (
+    <>
+      <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
+        {/* Header */}
+        <div className="sticky top-0 z-[50] bg-[#1e1e1e] border-b border-[#333]">
+          <div className="max-w-[900px] mx-auto px-4">
+            <div className="h-14 flex items-center justify-between">
+              <button
+                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
+                onClick={() => {
+                  if (view === 'detail') {
+                    setView('feed');
+                    setActiveGroupId(null);
+                  } else {
+                    window.history.back();
+                  }
+                }}
+                aria-label="Back"
+              >
+                <i className="fas fa-arrow-left text-[18px] text-[#e4e6eb]"></i>
+              </button>
+
+              <div className="text-[20px] font-extrabold text-[#e4e6eb]">Groups</div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
+                  onClick={handleCreateGroupClick}
+                  aria-label="Create"
+                >
+                  <i className="fas fa-plus text-[18px] text-[#e4e6eb]"></i>
                 </button>
-                <div className="text-[20px] font-extrabold text-[#e4e6eb]">Groups</div>
-                <div className="flex items-center gap-2">
-                  <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={handleCreateGroupClick} aria-label="Create">
-                    <i className="fas fa-plus text-[18px] text-[#e4e6eb]"></i>
-                  </button>
-                  <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition" onClick={() => { 
-                    const el = document.getElementById('groupsSearchInput'); 
-                    (el as HTMLInputElement | null)?.focus(); 
-                  }} aria-label="Search">
-                    <i className="fas fa-search text-[18px] text-[#e4e6eb]"></i>
-                  </button>
-                </div>
+
+                <button
+                  className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] active:scale-95 transition"
+                  onClick={() => {
+                    const el = document.getElementById('groupsSearchInput');
+                    (el as HTMLInputElement | null)?.focus();
+                  }}
+                  aria-label="Search"
+                >
+                  <i className="fas fa-search text-[18px] text-[#e4e6eb]"></i>
+                </button>
               </div>
-              
-              {/* Tabs - ✅ Only 3 tabs now */}
-              <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
-                {(['Your groups', 'Discover', 'Invites'] as const).map(tab => { 
-                  const active = fbTab === tab; 
-                  return (
-                    <button key={tab} onClick={() => setFbTab(tab)} className={
-                      active 
-                        ? 'px-4 py-2 rounded-full bg-[#1877f2] text-white font-extrabold whitespace-nowrap' 
+            </div>
+
+            {/* Tabs - Only 3 tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
+              {(['Your groups', 'Discover', 'Invites'] as const).map(tab => {
+                const active = fbTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setFbTab(tab)}
+                    className={
+                      active
+                        ? 'px-4 py-2 rounded-full bg-[#1877f2] text-white font-extrabold whitespace-nowrap'
                         : 'px-2 py-2 text-[#b0b3b8] font-bold whitespace-nowrap hover:text-[#e4e6eb] transition-colors'
-                    }>
-                      {tab}
-                    </button>
-                  ); 
-                })}
-              </div>
-              
-              {/* Search */}
-              <div className="pb-3">
-                <div className="relative">
-                  <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
-                  <input id="groupsSearchInput" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search Groups" className="w-full bg-[#2d2d2d] rounded-full pl-9 pr-4 py-2.5 outline-none text-[15px] text-[#e4e6eb] placeholder-[#b0b3b8]" />
-                </div>
+                    }
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search input */}
+            <div className="pb-3">
+              <div className="relative">
+                <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i>
+                <input
+                  id="groupsSearchInput"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search Groups"
+                  className="w-full bg-[#2d2d2d] rounded-full pl-9 pr-4 py-2.5 outline-none text-[15px] text-[#e4e6eb] placeholder-[#b0b3b8]"
+                />
               </div>
             </div>
           </div>
-          
-          {/* Content */}
-          <div className="max-w-[900px] mx-auto">
-            {(() => {
-              // Handle Invites tab separately
-              if (fbTab === 'Invites') {
-                return (
-                  <div className="px-4">
-                    <div className="pt-3 pb-2">
-                      <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
-                    </div>
-                    <div className="py-16 text-center text-[#b0b3b8]">
-                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No group invites</div>
-                      <div className="text-[15px]">When people invite you to groups, they will appear here.</div>
-                    </div>
-                  </div>
-                );
-              }
+        </div>
 
-              // Your groups - Split into Created and Joined groups
-let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
-let joinedGroups = currentUser ? safeGroups.filter(g => 
-  !(Number(g.admin_id) === Number(currentUser.id)) && 
-  Array.isArray(g.members) && 
-  g.members.includes(Number(currentUser.id))
-) : [];
-
-// For search filtering
-let list = [...createdGroups, ...joinedGroups];  
-              // Discover - shuffle groups user is not member of
-              if (fbTab === 'Discover') {
-                const base = currentUser ? safeGroups.filter(g => {
-                  if (Number(g.admin_id) === Number(currentUser.id)) return false;
-                  if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
-                  return true;
-                }) : safeGroups;
-                const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
-                list = seededShuffle(base, todaySeed);
-              }
-              
-              // Apply search filter
-              if (searchQuery.trim()) { 
-                const q = searchQuery.toLowerCase(); 
-                list = list.filter(g => (g.name || '').toLowerCase().includes(q)); 
-              }
-              
-              const pinnedList = list.filter(g => pinnedGroups.has(g.id));
-              const regularList = list.filter(g => !pinnedGroups.has(g.id));
-
-              const sortGroups = (groups: Group[]) => { 
-                return [...groups].sort((a, b) => { 
-                  if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || ''); 
-                  if (sortMode === 'Recently active') return computeLastActive(b) - computeLastActive(a); 
-                  return computeVisits(b) - computeVisits(a); 
-                }); 
-              };
-              
-              const sortedPinned = sortGroups(pinnedList);
-              const sortedRegular = sortGroups(regularList);
-              const showMostVisitedHeader = fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0);
-              
+        {/* Content */}
+        <div className="max-w-[900px] mx-auto">
+          {(() => {
+            // Handle Invites tab separately
+            if (fbTab === 'Invites') {
               return (
                 <div className="px-4">
-                  {showMostVisitedHeader && (
-                    <div className="flex items-center justify-between pt-2 pb-2">
-                      <div className="text-[20px] font-extrabold text-[#e4e6eb]">Most visited</div>
-                      <button onClick={() => setSortOpen(true)} className="text-[#1877f2] font-bold text-[18px] active:opacity-70 hover:text-[#166fe5] transition-colors">Sort</button>
+                  <div className="pt-3 pb-2">
+                    <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
+                  </div>
+                  <div className="py-16 text-center text-[#b0b3b8]">
+                    <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No group invites</div>
+                    <div className="text-[15px]">When people invite you to groups, they will appear here.</div>
+                  </div>
+                </div>
+              );
+            }
+
+            // Your groups tab - Split into Created and Joined
+            let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
+            let joinedGroups = currentUser ? safeGroups.filter(g => 
+              !(Number(g.admin_id) === Number(currentUser.id)) && 
+              Array.isArray(g.members) && 
+              g.members.includes(Number(currentUser.id))
+            ) : [];
+
+            // Discover tab - shuffle groups user is not member of
+            if (fbTab === 'Discover') {
+              const base = currentUser ? safeGroups.filter(g => {
+                if (Number(g.admin_id) === Number(currentUser.id)) return false;
+                if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
+                return true;
+              }) : safeGroups;
+              const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+              const shuffledList = seededShuffle(base, todaySeed);
+              
+              // For Discover tab, we'll show as a single list
+              return (
+                <div className="px-4">
+                  <div className="pt-3 pb-2">
+                    <div className="text-[20px] font-extrabold text-[#e4e6eb]">Discover Groups</div>
+                  </div>
+                  {shuffledList.length > 0 ? (
+                    <div className="space-y-1">
+                      {shuffledList.map(g => {
+                        const categoryColor = getCategoryColor(g.category);
+                        const categoryIcon = getCategoryIcon(g.category);
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => handleGroupClick(g)}
+                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                          >
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
+                              {g.profile_image ? (
+                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                <span className="text-[#e4e6eb] font-extrabold">
+                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                  {g.name}
+                                </span>
+                                <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <div className="text-[15px] text-[#b0b3b8] truncate">
+                                  {g.members_count || 0} members
+                                </div>
+                              </div>
+                            </div>
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <i className="fas fa-chevron-right text-[#b0b3b8]"></i>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                  
-                  {fbTab === 'Your groups' && currentUser && !searchQuery.trim() && (
-                    <button onClick={handleCreateGroupClick} className="w-full flex items-center gap-3 py-3 active:opacity-80 hover:bg-[#2d2d2d] rounded-lg transition-colors">
-                      <div className="w-12 h-12 rounded-full bg-[#1877f2] flex items-center justify-center"><i className="fas fa-plus text-white text-[18px]"></i></div>
-                      <div className="text-[18px] font-bold text-[#e4e6eb]">Create a group</div>
-                    </button>
-                  )}
-                  
-                  {fbTab === 'Your groups' && (sortedPinned.length > 0 || sortedRegular.length > 0) && (<div className="border-b border-[#333] my-3" />)}
-                  
-                  {/* Pinned Groups */}
-                  {sortedPinned.length > 0 && (
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 mb-3"><i className="fas fa-thumbtack text-[#1877f2] text-sm"></i><div className="text-[16px] font-bold text-[#e4e6eb]">Pinned Groups</div></div>
-                      <div className="space-y-1">
-                        {sortedPinned.map(g => {
-                          const categoryColor = getCategoryColor(g.category);
-                          const categoryIcon = getCategoryIcon(g.category);
-                          return (
-                            <button key={g.id} onClick={() => handleGroupClick(g)} className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group">
-                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
-                                {g.profile_image ? (<img src={g.profile_image} className="w-full h-full object-cover" alt="" />) : (<span className="text-[#e4e6eb] font-extrabold">{(g.name || 'G').slice(0, 1).toUpperCase()}</span>)}
-                                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center"><i className="fas fa-thumbtack text-white text-[10px]"></i></div>
-                              </div>
-                              <div className="flex-1 min-w-0 text-left">
-                                <div className="flex items-center gap-2"><span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">{g.name}</span><i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i></div>
-                                <div className="flex items-center gap-2 mt-0.5"><span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} /><div className="text-[15px] text-[#b0b3b8] truncate">{formatNewPostsText(g)}</div></div>
-                              </div>
-                              <div className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors" onClick={(e) => togglePinGroup(g.id, e)}><i className="fas fa-thumbtack text-[#1877f2] text-[18px]"></i></div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Regular Groups */}
-                  {sortedRegular.length > 0 && (
-                    <div className={sortedPinned.length > 0 ? "mt-6" : ""}>
-                      {sortedPinned.length > 0 && (<div className="text-[16px] font-bold text-[#e4e6eb] mb-3">All Groups</div>)}
-                      <div className="space-y-1">
-                        {sortedRegular.map(g => {
-                          const categoryColor = getCategoryColor(g.category);
-                          const categoryIcon = getCategoryIcon(g.category);
-                          return (
-                            <button key={g.id} onClick={() => handleGroupClick(g)} className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group">
-                              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
-                                {g.profile_image ? (<img src={g.profile_image} className="w-full h-full object-cover" alt="" />) : (<span className="text-[#e4e6eb] font-extrabold">{(g.name || 'G').slice(0, 1).toUpperCase()}</span>)}
-                              </div>
-                              <div className="flex-1 min-w-0 text-left">
-                                <div className="flex items-center gap-2"><span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">{g.name}</span><i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i></div>
-                                <div className="flex items-center gap-2 mt-0.5"><span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} /><div className="text-[15px] text-[#b0b3b8] truncate">{formatNewPostsText(g)}</div></div>
-                              </div>
-                              <div className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100" onClick={(e) => togglePinGroup(g.id, e)}><i className="far fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors"></i></div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Empty State */}
-                  {sortedPinned.length === 0 && sortedRegular.length === 0 && (
+                  ) : (
                     <div className="py-16 text-center text-[#b0b3b8]">
-                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">Nothing to show</div>
-                      <div className="text-[15px]">Try searching for a group.</div>
+                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No groups to discover</div>
+                      <div className="text-[15px]">Check back later for new groups!</div>
                     </div>
                   )}
                 </div>
               );
-            })()}
-          </div>
-          
-          {/* Sort Bottom Sheet */}
-          {sortOpen && (
-            <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
-              <div className="w-full bg-[#1e1e1e] rounded-t-2xl p-4 animate-slide-up border-t border-[#333]" onClick={(e) => e.stopPropagation()}>
-                <div className="w-12 h-1 bg-[#333] rounded-full mx-auto mb-4" />
-                <div className="text-[18px] font-extrabold text-[#e4e6eb] mb-3">Sort</div>
-                {(['Most visited', 'Recently active', 'Alphabetical'] as const).map(opt => (
-                  <button key={opt} onClick={() => { setSortMode(opt); setSortOpen(false); }} className="w-full flex items-center justify-between py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors px-2">
-                    <div className="text-[16px] font-bold text-[#e4e6eb]">{opt}</div>
-                    {sortMode === opt ? (<i className="fas fa-check text-[#1877f2]" />) : (<span />)}
+            }
+
+            // Apply search filter to Your groups
+            if (searchQuery.trim()) {
+              const q = searchQuery.toLowerCase();
+              createdGroups = createdGroups.filter(g => (g.name || '').toLowerCase().includes(q));
+              joinedGroups = joinedGroups.filter(g => (g.name || '').toLowerCase().includes(q));
+            }
+
+            const hasGroups = createdGroups.length > 0 || joinedGroups.length > 0;
+
+            return (
+              <div className="px-4">
+                {/* Sort button */}
+                <div className="flex items-center justify-between pt-2 pb-2">
+                  <div className="text-[20px] font-extrabold text-[#e4e6eb]">Your groups</div>
+                  <button
+                    onClick={() => setSortOpen(true)}
+                    className="text-[#1877f2] font-bold text-[18px] active:opacity-70 hover:text-[#166fe5] transition-colors"
+                  >
+                    Sort
                   </button>
-                ))}
+                </div>
+
+                <div className="border-b border-[#333] my-3" />
+
+                {/* Created by you section */}
+                {createdGroups.length > 0 && (
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <i className="fas fa-user-plus text-[#1877f2] text-sm"></i>
+                      <div className="text-[16px] font-bold text-[#e4e6eb]">Created by you</div>
+                      <span className="text-[13px] text-[#b0b3b8]">({createdGroups.length})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {createdGroups.map(g => {
+                        const categoryColor = getCategoryColor(g.category);
+                        const categoryIcon = getCategoryIcon(g.category);
+                        const isPinned = pinnedGroups.has(g.id);
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => handleGroupClick(g)}
+                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                          >
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
+                              {g.profile_image ? (
+                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                <span className="text-[#e4e6eb] font-extrabold">
+                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
+                              {isPinned && (
+                                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center">
+                                  <i className="fas fa-thumbtack text-white text-[10px]"></i>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                  {g.name}
+                                </span>
+                                <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} />
+                                <div className="text-[15px] text-[#b0b3b8] truncate">
+                                  {formatNewPostsText(g)}
+                                </div>
+                              </div>
+                            </div>
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100"
+                              onClick={(e) => togglePinGroup(g.id, e)}
+                            >
+                              <i className={`${isPinned ? 'fas' : 'far'} fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors`}></i>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Groups you joined section */}
+                {joinedGroups.length > 0 && (
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <i className="fas fa-users text-[#45BD62] text-sm"></i>
+                      <div className="text-[16px] font-bold text-[#e4e6eb]">Groups you joined</div>
+                      <span className="text-[13px] text-[#b0b3b8]">({joinedGroups.length})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {joinedGroups.map(g => {
+                        const categoryColor = getCategoryColor(g.category);
+                        const categoryIcon = getCategoryIcon(g.category);
+                        const isPinned = pinnedGroups.has(g.id);
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => handleGroupClick(g)}
+                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                          >
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0 relative">
+                              {g.profile_image ? (
+                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                <span className="text-[#e4e6eb] font-extrabold">
+                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
+                              {isPinned && (
+                                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#1877f2] rounded-full flex items-center justify-center">
+                                  <i className="fas fa-thumbtack text-white text-[10px]"></i>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                  {g.name}
+                                </span>
+                                <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} />
+                                <div className="text-[15px] text-[#b0b3b8] truncate">
+                                  {formatNewPostsText(g)}
+                                </div>
+                              </div>
+                            </div>
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors opacity-0 group-hover:opacity-100"
+                              onClick={(e) => togglePinGroup(g.id, e)}
+                            >
+                              <i className={`${isPinned ? 'fas' : 'far'} fa-thumbtack text-[#b0b3b8] hover:text-[#1877f2] text-[18px] transition-colors`}></i>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!hasGroups && (
+                  <div className="py-16 text-center text-[#b0b3b8]">
+                    <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No groups yet</div>
+                    <div className="text-[15px]">Create your first group or join existing ones!</div>
+                    <button
+                      onClick={handleCreateGroupClick}
+                      className="mt-4 bg-[#1877f2] text-white px-6 py-2 rounded-lg font-bold hover:bg-[#166fe5] transition-colors"
+                    >
+                      Create a group
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-          
-          {/* Modals */}
-          <CategorySelectionModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} onSelect={handleCategorySelect} />
-          <CreateGroupFullPageModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreate={onCreateGroup} selectedCategory={selectedCategory} />
+            );
+          })()}
         </div>
-        
-        {/* Full Post View */}
-        {showPostView && selectedPost && selectedPostAuthor && currentUser && (
-          <CommentsSheet 
-            post={selectedPost} 
-            currentUser={currentUser} 
-            users={users} 
-            onClose={() => { 
-              setShowPostView(false); 
-              setSelectedPost(null); 
-              setSelectedPostAuthor(null); 
-            }} 
-            onComment={onComment} 
-            onLikeComment={onLikeComment} 
-            onCommentAdded={selectedPost?.onCommentAdded} 
-            getCommentAuthor={(id) => users.find(u => u.id === id)} 
-            onProfileClick={onProfileClick} 
-            onHashtagClick={onHashtagClick} 
-            onFollow={onFollow} 
-            checkIsFollowing={checkIsFollowing} 
-          />
+
+        {/* Sort Bottom Sheet */}
+        {sortOpen && (
+          <div className="fixed inset-0 z-[200] bg-black/60 flex items-end animate-fade-in" onClick={() => setSortOpen(false)}>
+            <div
+              className="w-full bg-[#1e1e1e] rounded-t-2xl p-4 animate-slide-up border-t border-[#333]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-1 bg-[#333] rounded-full mx-auto mb-4" />
+              <div className="text-[18px] font-extrabold text-[#e4e6eb] mb-3">Sort</div>
+              {(['Most visited', 'Recently active', 'Alphabetical'] as const).map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => {
+                    setSortMode(opt);
+                    setSortOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors px-2"
+                >
+                  <div className="text-[16px] font-bold text-[#e4e6eb]">{opt}</div>
+                  {sortMode === opt ? (
+                    <i className="fas fa-check text-[#1877f2]" />
+                  ) : (
+                    <span />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
-      </>
-    );
-  }
+
+        {/* Modals */}
+        <CategorySelectionModal
+          isOpen={showCategoryModal}
+          onClose={() => setShowCategoryModal(false)}
+          onSelect={handleCategorySelect}
+        />
+        <CreateGroupFullPageModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={onCreateGroup}
+          selectedCategory={selectedCategory}
+        />
+      </div>
+
+      {/* Full Post View */}
+      {showPostView && selectedPost && selectedPostAuthor && currentUser && (
+        <CommentsSheet
+          post={selectedPost}
+          currentUser={currentUser}
+          users={users}
+          onClose={() => {
+            setShowPostView(false);
+            setSelectedPost(null);
+            setSelectedPostAuthor(null);
+          }}
+          onComment={onComment}
+          onLikeComment={onLikeComment}
+          onCommentAdded={selectedPost?.onCommentAdded}
+          getCommentAuthor={(id) => users.find(u => u.id === id)}
+          onProfileClick={onProfileClick}
+          onHashtagClick={onHashtagClick}
+          onFollow={onFollow}
+          checkIsFollowing={checkIsFollowing}
+        />
+      )}
+    </>
+  );
+}
 
   // ========== DETAIL VIEW RENDER ==========
   const isMember = currentUser ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id : false;
