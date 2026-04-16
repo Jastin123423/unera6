@@ -952,40 +952,48 @@ export interface Product {
 // =========================
 // GROUPS
 // =========================
+
 export interface GroupPost {
   id: number;
   user_id: number;
   group_id: number;
-
   content: string;
-
   media_url?: string;
   media_type?: string;
-
-  // future-proof multi
   media_urls?: string[];
   media_types?: string[];
-
   background?: string;
-
   reactions: Reaction[];
   comments: Comment[];
-
   shares: number;
   created_at: string;
-
   author_name?: string;
   author_image?: string;
-
   reactions_count?: number;
   my_reaction?: ReactionType | null;
-
-  // aliases
   userId?: number;
   groupId?: number;
   mediaUrl?: string;
   mediaType?: string;
   createdAt?: string;
+  
+  // Category-specific fields
+  price?: number;
+  currency?: string;
+  condition?: string;
+  location?: string;
+  status?: 'available' | 'pending' | 'sold';
+  job_title?: string;
+  company?: string;
+  salary?: string;
+  job_type?: string;
+  street?: string;
+  district?: string;
+  region?: string;
+  country?: string;
+  application_type?: string;
+  application_value?: string;
+  expiry_date?: string;
 }
 
 export interface Group {
@@ -993,29 +1001,65 @@ export interface Group {
   name: string;
   description: string;
   type: 'public' | 'private';
-
+  category: 'general' | 'recruitment' | 'buy_sell';
   profile_image: string;
   cover_image: string;
-
   admin_id: number;
-
   members: number[];
   posts: GroupPost[];
-
   created_at: string;
-
   events?: Event[];
   member_posting_allowed?: boolean;
-  member_count?: number;
-  is_member?: boolean;          // ✅ For membership status
-
-  // aliases
+  member_posting_allowed?: boolean;
+  members_count?: number;
+  is_member?: boolean;
+  newPostsCount?: number;
+  updatedAt?: string;
+  
+  // Aliases for API compatibility
   group_id?: number;
   groupId?: number;
   adminId?: number;
   coverImage?: string;
   profileImage?: string;
   createdAt?: string;
+}
+
+export interface GroupInvite {
+  id: number;
+  group_id: number;
+  inviter_id: number;
+  invitee_id: number;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
+  updated_at: string;
+  group?: Group;
+  inviter?: User;
+  invitee?: User;
+}
+
+export interface GroupMember {
+  group_id: number;
+  user_id: number;
+  role: 'admin' | 'member';
+  joined_at: string;
+  posting_disabled?: boolean;
+}
+
+export interface GroupSuggestion {
+  id: number;
+  admin_id: number;
+  name: string;
+  description: string;
+  type: 'public' | 'private';
+  cover_image?: string;
+  profile_image?: string;
+  created_at?: string;
+  category: string;
+  members_count: number;
+  mutual_count: number;
+  is_member: boolean;
+  score: number;
 }
 
 // =========================
