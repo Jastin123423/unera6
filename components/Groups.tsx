@@ -2723,38 +2723,131 @@ return (
           )}
           
           {/* Members Tab */}
-          {groupTab === 'Members' && (
-            <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
-              <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
-                <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}</h3>
-              </div>
-              <div className="p-2 space-y-1">
-                {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
-                  const member = users.find(u => u.id === memberId);
-                  if (!member) return null;
-                  return (
-                    <div key={memberId} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors">
-                      <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onProfileClick(memberId)}>
-                        <img src={avatarFrom(member)} className="w-12 h-12 rounded-xl object-cover border border-[#333]" alt="" />
-                        <div className="flex flex-col">
-                          <div className="font-bold text-[#e4e6eb] text-base group-hover:text-[#1877f2] transition-colors">{member.name}</div>
-                          {memberId === activeGroup.admin_id && (
-                            <div className="text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full w-fit uppercase tracking-tighter border border-[#1877f2]/20">Group Admin</div>
-                          )}
-                        </div>
-                      </div>
-                      {canManage && memberId !== currentUser?.id && (
-                        <button onClick={() => onRemoveMember(activeGroup.id, memberId)} className="text-[#b0b3b8] hover:text-white px-4 py-1.5 bg-[#2d2d2d] hover:bg-red-500/20 rounded font-bold text-sm transition-all border border-transparent hover:border-red-500/30">
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+        {groupTab === 'Members' && (
+  <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
+    <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
+      <h3 className="text-[#e4e6eb] font-bold text-lg">Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}</h3>
+      {isGroupAdmin && (
+        <p className="text-[#b0b3b8] text-xs mt-1">As admin, you can remove members or restrict their posting</p>
+      )}
+    </div>
+    <div className="p-2 space-y-1">
+      {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
+        const member = users.find(u => u.id === memberId);
+        if (!member) return null;
+        const isAdmin = memberId === activeGroup.admin_id;
+        const isRemoving = removingMemberId === memberId;
+        const isDisabling = disablePostingUserId === memberId;
+        
+        return (
+          <div key={memberId} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors">
+            <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onProfileClick(memberId)}>
+              <img src={avatarFrom(member)} className="w-12 h-12 rounded-xl object-cover border border-[#333]" alt="" />
+              <div className="flex flex-col">
+                <div className="font-bold text-[#e4e6eb] text-base group-hover:text-[#1877f2] transition-colors">
+                  {member.name}
+                  {isAdmin && (
+                    <span className="ml-2 text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full uppercase tracking-tighter border border-[#1877f2]/20">
+                      Admin
+                    </span>
+                  )}
+                </div>
+                <div className="text-[#b0b3b8] text-xs">@{member.username || 'user'}</div>
               </div>
             </div>
-          )}
-        </div>
+            
+            {canManage && !isAdmin && memberId !== currentUser?.id && (
+              <div className="flex gap-2">
+                {/* Disable Posting Button */}
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Are you sure you want to ${(member as any).posting_disabled ? 'enable' : 'disable'} posting for ${member.name}?`)) return;
+                    setDisablePostingUserId(memberId);
+                    try {
+                      // Call API to disable/enable posting
+                      await apiFetch(`/api/group-members/${activeGroup.id}/toggle-posting`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ 
+                          user_id: memberId,
+                          disabled: !(member as any).posting_disabled 
+                        }),
+                      });
+                      // Update local state
+                      setUsers(prev => prev.map(u => 
+                        u.id === memberId 
+                          ? { ...u, posting_disabled: !(u as any).posting_disabled }
+                          : u
+                      ));
+                      alert(`Posting ${(member as any).posting_disabled ? 'enabled' : 'disabled'} for ${member.name}`);
+                    } catch (error) {
+                      console.error('Failed to toggle posting:', error);
+                      alert('Failed to update posting permissions');
+                    } finally {
+                      setDisablePostingUserId(null);
+                    }
+                  }}
+                  disabled={isRemoving || isDisabling}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    (member as any).posting_disabled
+                      ? 'bg-[#45BD62]/20 text-[#45BD62] hover:bg-[#45BD62]/30'
+                      : 'bg-[#F7B928]/20 text-[#F7B928] hover:bg-[#F7B928]/30'
+                  }`}
+                >
+                  {isDisabling ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : (member as any).posting_disabled ? (
+                    <><i className="fas fa-check mr-1"></i> Enable Posting</>
+                  ) : (
+                    <><i className="fas fa-ban mr-1"></i> Disable Posting</>
+                  )}
+                </button>
+                
+                {/* Remove Member Button */}
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Are you sure you want to remove ${member.name} from this group?`)) return;
+                    setRemovingMemberId(memberId);
+                    try {
+                      await onRemoveMember(activeGroup.id, memberId);
+                      // Update local members list
+                      setGroups(prev => prev.map(g => {
+                        if (g.id === activeGroup.id) {
+                          const newMembers = (g.members || []).filter(id => id !== memberId);
+                          return { ...g, members: newMembers, members_count: newMembers.length };
+                        }
+                        return g;
+                      }));
+                      alert(`${member.name} has been removed from the group`);
+                    } catch (error) {
+                      console.error('Failed to remove member:', error);
+                      alert('Failed to remove member');
+                    } finally {
+                      setRemovingMemberId(null);
+                    }
+                  }}
+                  disabled={isRemoving || isDisabling}
+                  className="px-3 py-1.5 bg-red-500/20 text-red-500 rounded-lg text-xs font-bold hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                >
+                  {isRemoving ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : (
+                    <><i className="fas fa-trash mr-1"></i> Remove</>
+                  )}
+                </button>
+              </div>
+            )}
+            
+            {/* Show badge for current user */}
+            {memberId === currentUser?.id && (
+              <span className="text-[#b0b3b8] text-xs bg-[#2d2d2d] px-3 py-1 rounded-full">You</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+    </div>
         
         {/* Create Post Modal */}
         {showGroupPostModal && (
