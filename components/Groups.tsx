@@ -1259,6 +1259,8 @@ const [groupInvites, setGroupInvites] = useState<any[]>([]);
 const [loadingInvites, setLoadingInvites] = useState(false);
 const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(null);
 const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
+const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
+const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(null);
     
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
