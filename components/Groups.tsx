@@ -1545,14 +1545,20 @@ useEffect(() => {
       console.error('Failed to create group:', error); 
     }
   };
-
-    const handleInviteUser = async (userId: number) => {
+ 
+ const handleInviteUser = async (userId: number) => {
   if (!activeGroup || !onInviteToGroup) return;
   try {
     setInvitingUserIds(prev => [...prev, userId]);
-    console.log('Sending invite:', { groupId: activeGroup.id, userId }); 
     const result = await onInviteToGroup(activeGroup.id, [userId]);
-    console.log('Invite result:', result); 
+    console.log('Invite result:', result);
+    
+    // Refresh invites list to update the "Invited" status
+    if (fetchGroupInvites) {
+      const updatedInvites = await fetchGroupInvites();
+      setGroupInvites(updatedInvites);
+    }
+    
     alert('Invite sent');
   } catch (error) {
     console.error('Failed to invite user:', error);
@@ -1561,7 +1567,7 @@ useEffect(() => {
     setInvitingUserIds(prev => prev.filter(id => id !== userId));
   }
 };
-    
+
 
   // ✅ FIXED: Submit post handler with proper Buy/Sell metadata
   const handlePostSubmit = async () => {
