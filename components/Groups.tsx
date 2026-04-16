@@ -488,9 +488,7 @@ const PostActionsMenu: React.FC<{
   const [editText, setEditText] = useState(post.content || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [inviteSearch, setInviteSearch] = useState('');
- const [invitingUserIds, setInvitingUserIds] = useState<number[]>([]);
- const [showGroupMenu, setShowGroupMenu] = useState(false);
+  
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); };
@@ -1251,11 +1249,34 @@ export const GroupsPage: React.FC<any> = ({
   const [postFiles, setPostFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [postMetadata, setPostMetadata] = useState<any>({});
+  const [inviteSearch, setInviteSearch] = useState('');
+ const [invitingUserIds, setInvitingUserIds] = useState<number[]>([]);
+ const [showGroupMenu, setShowGroupMenu] = useState(false);
 
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
   const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
-  
+ 
+  const inviteableUsers = useMemo(() => {
+  if (!activeGroup || !currentUser) return [];
+  const memberIds = new Set<number>(
+    Array.isArray(activeGroup.members) ? activeGroup.members : []
+  );
+  memberIds.add(Number(activeGroup.admin_id));
+  return (users || []).filter((u: User) => {
+    if (!u?.id) return false;
+    if (Number(u.id) === Number(currentUser.id)) return false;
+    if (memberIds.has(Number(u.id))) return false;
+    const q = inviteSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      String(u.name || '').toLowerCase().includes(q) ||
+      String(u.username || '').toLowerCase().includes(q)
+    );
+  });
+}, [activeGroup, currentUser, users, inviteSearch]);
+
+    
   // ========== HELPER FUNCTIONS ==========
   const seededShuffle = <T,>(items: T[], seed: number) => {
     const arr = [...items];
