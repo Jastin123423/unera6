@@ -1251,7 +1251,8 @@ export const GroupsPage: React.FC<any> = ({
 
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
-
+  const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
+  
   // ========== HELPER FUNCTIONS ==========
   const seededShuffle = <T,>(items: T[], seed: number) => {
     const arr = [...items];
@@ -1310,8 +1311,6 @@ export const GroupsPage: React.FC<any> = ({
       setGroupTab('Discussion'); 
     }
   }, [initialGroupId, safeGroups]);
-
-  const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
 
   useEffect(() => { activeGroupIdRef.current = activeGroupId; }, [activeGroupId]);
 
