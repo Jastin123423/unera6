@@ -2291,44 +2291,47 @@ return (
                     <span>{(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)} members</span>
                   </div>
                 </div>
-                
-                <div className="flex gap-2 mt-4 md:mt-0 w-full md:w-auto">
-                  {isMember ? (
-                    <>
-                      <div className="relative">
-                        <button onClick={() => setShowGroupMenu(prev => !prev)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-all">
-                          <i className="fas fa-ellipsis-h text-[#e4e6eb] text-xl"></i>
-                        </button>
-                        {showGroupMenu && (
-                          <div className="absolute right-0 top-12 z-[120] w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
-                            <button onClick={() => { setShowGroupMenu(false); setShowInviteModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                              <i className="fas fa-user-plus w-5 text-[#b0b3b8]"></i><span>Invite People</span>
-                            </button>
-                            <button onClick={() => { setShowGroupMenu(false); handleShareGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                              <i className="fas fa-share-alt w-5 text-[#b0b3b8]"></i><span>Share Group</span>
-                            </button>
-                            <button onClick={() => { setShowGroupMenu(false); handleLeaveGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f]">
-                              <i className="fas fa-sign-out-alt w-5 text-[#f3425f]"></i><span>Leave Group</span>
-                            </button>
-                            {canManage && (
-                              <button onClick={() => { setShowGroupMenu(false); setShowSettingsModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
-                                <i className="fas fa-cog w-5 text-[#b0b3b8]"></i><span>Group Settings</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <button className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all disabled:opacity-50" onClick={handleLeaveGroup} disabled={leaving}>
-                        {leaving ? (<i className="fas fa-spinner fa-spin mr-2"></i>) : (<i className="fas fa-check mr-2"></i>)}
-                        {leaving ? 'Leaving...' : 'Joined'}
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={handleJoinGroup} disabled={joining} className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                      {joining ? (<span className="flex items-center gap-2"><i className="fas fa-spinner fa-spin"></i>Joining...</span>) : 'Join Group'}
-                    </button>
-                  )}
-                </div>
+            
+<div className="flex gap-2 mt-4 md:mt-0 w-full md:w-auto">
+  {isMember ? (
+    <>
+      {/* Joined button FIRST */}
+      <button className="bg-[#2d2d2d] text-[#e4e6eb] px-4 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#3a3a3a] flex-1 md:flex-none transition-all disabled:opacity-50" onClick={handleLeaveGroup} disabled={leaving}>
+        {leaving ? (<i className="fas fa-spinner fa-spin mr-2"></i>) : (<i className="fas fa-check mr-2"></i>)}
+        {leaving ? 'Leaving...' : 'Joined'}
+      </button>
+      
+      {/* ... menu button SECOND (on the right) */}
+      <div className="relative">
+        <button onClick={() => setShowGroupMenu(prev => !prev)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#2d2d2d] transition-all">
+          <i className="fas fa-ellipsis-h text-[#e4e6eb] text-xl"></i>
+        </button>
+        {showGroupMenu && (
+          <div className="absolute right-0 top-12 z-[120] w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
+            <button onClick={() => { setShowGroupMenu(false); setShowInviteModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
+              <i className="fas fa-user-plus w-5 text-[#b0b3b8]"></i><span>Invite People</span>
+            </button>
+            <button onClick={() => { setShowGroupMenu(false); handleShareGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
+              <i className="fas fa-share-alt w-5 text-[#b0b3b8]"></i><span>Share Group</span>
+            </button>
+            <button onClick={() => { setShowGroupMenu(false); handleLeaveGroup(); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f]">
+              <i className="fas fa-sign-out-alt w-5 text-[#f3425f]"></i><span>Leave Group</span>
+            </button>
+            {canManage && (
+              <button onClick={() => { setShowGroupMenu(false); setShowSettingsModal(true); }} className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]">
+                <i className="fas fa-cog w-5 text-[#b0b3b8]"></i><span>Group Settings</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  ) : (
+    <button onClick={handleJoinGroup} disabled={joining} className="bg-[#1877f2] text-white px-8 py-2 rounded-lg font-bold text-base hover:bg-[#166fe5] w-full md:w-auto transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+      {joining ? 'Joining...' : 'Join Group'}
+    </button>
+  )}
+</div>
               </div>
               
               <div className="border-t border-[#333] mt-4"></div>
