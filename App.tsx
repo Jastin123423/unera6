@@ -6085,21 +6085,34 @@ const data = await apiFetch('/api/reels', {
     }
   }, [requireAdmin]);
 
-  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
-    if (!requireAuth("Updating group image")) return;
+  //====UPDATE GROUP IMAGE ======
+    
+const updateGroupImage = useCallback(async (
+  groupId: number,
+  type: 'cover' | 'profile',
+  file: File
+) => {
+  if (!requireAuth("Updating group image")) return;
 
-    try {
-      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-      const imageUrl = uploadResult.url;
+  try {
+    const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
+    const imageUrl = uploadResult.url;
 
-      const field = type === 'cover' ? 'cover_image' : 'profile_image';
-      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
-      return imageUrl;
-    } catch (error) {
-      console.error('Failed to update group image:', error);
-      throw error;
-    }
-  }, [requireAuth, updateGroupSettings]);
+    const field = type === 'cover' ? 'cover_image' : 'profile_image';
+    await updateGroupSettings(groupId, { [field]: imageUrl } as any);
+
+    return {
+      success: true,
+      [field]: imageUrl,
+      image_url: imageUrl,
+      url: imageUrl,
+    };
+  } catch (error) {
+    console.error('Failed to update group image:', error);
+    throw error;
+  }
+}, [requireAuth, updateGroupSettings]);
+
 
   const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
     if (!requireAuth('Liking comments')) return;
