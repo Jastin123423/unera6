@@ -1926,15 +1926,21 @@ if (view === 'feed' || !activeGroup) {
         {/* Content */}
         <div className="max-w-[900px] mx-auto">
           {(() => {
-  
-      // Handle Invites tab separately
 if (fbTab === 'Invites') {
-  // Fetch invites when tab is opened
-  useEffect(() => {
-    if (fetchGroupInvites) {
-      fetchGroupInvites().then(setGroupInvites).catch(console.error);
-    }
-  }, [fbTab, fetchGroupInvites]);
+  // Safety check - if functions are undefined, show error message
+  if (!fetchGroupInvites) {
+    return (
+      <div className="px-4">
+        <div className="pt-3 pb-2">
+          <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
+          <div className="text-[#b0b3b8] text-sm">Invites feature is not available</div>
+        </div>
+        <div className="py-16 text-center text-[#b0b3b8]">
+          <div className="text-[15px]">Please refresh the page or try again later.</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4">
@@ -1948,12 +1954,12 @@ if (fbTab === 'Invites') {
           <div className="w-12 h-12 mx-auto mb-4 border-2 border-[#1877f2] border-t-transparent rounded-full animate-spin"></div>
           <div className="text-[15px]">Loading invites...</div>
         </div>
-      ) : groupInvites.length > 0 ? (
+      ) : groupInvites && groupInvites.length > 0 ? (
         <div className="space-y-3">
           {groupInvites.map((invite: any) => {
             const group = normalizeGroup(invite.group || invite);
             const inviter = users.find(u => Number(u.id) === Number(invite.inviter_id));
-            const isLoading = acceptingInviteId === invite.id || decliningInviteId === invite.id;
+            const isLoading = (acceptingInviteId === invite.id) || (decliningInviteId === invite.id);
             
             return (
               <div key={invite.id || `${group.id}-${invite.inviter_id}`} className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:border-[#4a4a4a] transition-all">
@@ -1966,8 +1972,8 @@ if (fbTab === 'Invites') {
                   />
                   {/* Category Badge */}
                   <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-xs text-white">
-                    <i className={getCategoryIcon(group.category)} className="mr-1"></i>
-                    {GROUP_CATEGORIES.find(c => c.id === group.category)?.label || 'General'}
+                    <i className={getCategoryIcon?.(group.category) || 'fas fa-users'}></i>
+                    <span className="ml-1">{GROUP_CATEGORIES.find(c => c.id === group.category)?.label || 'General'}</span>
                   </div>
                 </div>
                 
@@ -1995,18 +2001,20 @@ if (fbTab === 'Invites') {
                   <div className="flex gap-3">
                     <button
                       onClick={async () => {
-                        if (!onAcceptGroupInvite) return;
-                        setAcceptingInviteId(invite.id);
+                        if (!onAcceptGroupInvite) {
+                          alert('Accept invite function not available');
+                          return;
+                        }
+                        setAcceptingInviteId?.(invite.id);
                         try {
                           await onAcceptGroupInvite(invite.id, group.id);
-                          // Remove from invites list
-                          setGroupInvites(prev => prev.filter(i => i.id !== invite.id));
+                          setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
                           alert(`You joined "${group.name}"!`);
                         } catch (error) {
                           console.error('Failed to accept invite:', error);
                           alert('Failed to join group. Please try again.');
                         } finally {
-                          setAcceptingInviteId(null);
+                          setAcceptingInviteId?.(null);
                         }
                       }}
                       disabled={isLoading}
@@ -2022,17 +2030,19 @@ if (fbTab === 'Invites') {
                     
                     <button
                       onClick={async () => {
-                        if (!onDeclineGroupInvite) return;
-                        setDecliningInviteId(invite.id);
+                        if (!onDeclineGroupInvite) {
+                          alert('Decline invite function not available');
+                          return;
+                        }
+                        setDecliningInviteId?.(invite.id);
                         try {
                           await onDeclineGroupInvite(invite.id);
-                          // Remove from invites list
-                          setGroupInvites(prev => prev.filter(i => i.id !== invite.id));
+                          setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
                         } catch (error) {
                           console.error('Failed to decline invite:', error);
                           alert('Failed to decline invite. Please try again.');
                         } finally {
-                          setDecliningInviteId(null);
+                          setDecliningInviteId?.(null);
                         }
                       }}
                       disabled={isLoading}
@@ -2062,7 +2072,8 @@ if (fbTab === 'Invites') {
       )}
     </div>
   );
-}   
+}
+
             // Apply search filter to Your groups
             if (searchQuery.trim()) {
               const q = searchQuery.toLowerCase();
