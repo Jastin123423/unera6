@@ -1839,8 +1839,10 @@ const formatNewPostsText = (g: Group) => {
     return cat?.color || '#1877F2'; 
   };
 
-  // ========== FEED VIEW RENDER ==========
-if (view === 'feed' || !activeGroup) {
+
+    // ========== FEED VIEW RENDER ==========
+
+  if (view === 'feed' || !activeGroup) {
   return (
     <>
       <div className="w-full bg-[#121212] min-h-screen font-sans pb-24">
@@ -1926,155 +1928,231 @@ if (view === 'feed' || !activeGroup) {
         {/* Content */}
         <div className="max-w-[900px] mx-auto">
           {(() => {
-if (fbTab === 'Invites') {
-  // Safety check - if functions are undefined, show error message
-  if (!fetchGroupInvites) {
-    return (
-      <div className="px-4">
-        <div className="pt-3 pb-2">
-          <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
-          <div className="text-[#b0b3b8] text-sm">Invites feature is not available</div>
-        </div>
-        <div className="py-16 text-center text-[#b0b3b8]">
-          <div className="text-[15px]">Please refresh the page or try again later.</div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4">
-      <div className="pt-3 pb-2">
-        <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
-        <div className="text-[#b0b3b8] text-sm">Groups you've been invited to join</div>
-      </div>
-      
-      {loadingInvites ? (
-        <div className="py-16 text-center text-[#b0b3b8]">
-          <div className="w-12 h-12 mx-auto mb-4 border-2 border-[#1877f2] border-t-transparent rounded-full animate-spin"></div>
-          <div className="text-[15px]">Loading invites...</div>
-        </div>
-      ) : groupInvites && groupInvites.length > 0 ? (
-        <div className="space-y-3">
-          {groupInvites.map((invite: any) => {
-            const group = normalizeGroup(invite.group || invite);
-            const inviter = users.find(u => Number(u.id) === Number(invite.inviter_id));
-            const isLoading = (acceptingInviteId === invite.id) || (decliningInviteId === invite.id);
-            
-            return (
-              <div key={invite.id || `${group.id}-${invite.inviter_id}`} className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:border-[#4a4a4a] transition-all">
-                {/* Group Cover */}
-                <div className="h-[120px] bg-[#2d2d2d] relative">
-                  <img 
-                    src={group.cover_image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80'} 
-                    className="w-full h-full object-cover" 
-                    alt="" 
-                  />
-                  {/* Category Badge */}
-                  <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-xs text-white">
-                    <i className={getCategoryIcon?.(group.category) || 'fas fa-users'}></i>
-                    <span className="ml-1">{GROUP_CATEGORIES.find(c => c.id === group.category)?.label || 'General'}</span>
-                  </div>
-                </div>
-                
-                <div className="p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <img 
-                      src={group.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(group.name || 'Group')}&background=random`} 
-                      className="w-14 h-14 rounded-xl object-cover border-2 border-[#1877f2]" 
-                      alt="" 
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[#e4e6eb] font-extrabold text-[18px] truncate">{group.name}</div>
-                      <div className="text-[#b0b3b8] text-sm">{group.members_count || 0} members</div>
-                      {inviter && (
-                        <div className="text-[#b0b3b8] text-xs mt-1 flex items-center gap-1">
-                          <i className="fas fa-user-plus text-[#45BD62] text-[10px]"></i>
-                          <span>Invited by {inviter.name || inviter.username}</span>
-                        </div>
-                      )}
+            // ========== INVITES TAB ==========
+            if (fbTab === 'Invites') {
+              if (!fetchGroupInvites) {
+                return (
+                  <div className="px-4">
+                    <div className="pt-3 pb-2">
+                      <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
+                      <div className="text-[#b0b3b8] text-sm">Invites feature is not available</div>
+                    </div>
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="text-[15px]">Please refresh the page or try again later.</div>
                     </div>
                   </div>
-                  
-                  <p className="text-[#b0b3b8] text-sm mb-4 line-clamp-2">{group.description || 'No description provided'}</p>
-                  
-                  <div className="flex gap-3">
-                    <button
-                      onClick={async () => {
-                        if (!onAcceptGroupInvite) {
-                          alert('Accept invite function not available');
-                          return;
-                        }
-                        setAcceptingInviteId?.(invite.id);
-                        try {
-                          await onAcceptGroupInvite(invite.id, group.id);
-                          setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
-                          alert(`You joined "${group.name}"!`);
-                        } catch (error) {
-                          console.error('Failed to accept invite:', error);
-                          alert('Failed to join group. Please try again.');
-                        } finally {
-                          setAcceptingInviteId?.(null);
-                        }
-                      }}
-                      disabled={isLoading}
-                      className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {isLoading && acceptingInviteId === invite.id ? (
-                        <i className="fas fa-spinner fa-spin"></i>
-                      ) : (
-                        <i className="fas fa-check"></i>
-                      )}
-                      Accept & Join
-                    </button>
-                    
-                    <button
-                      onClick={async () => {
-                        if (!onDeclineGroupInvite) {
-                          alert('Decline invite function not available');
-                          return;
-                        }
-                        setDecliningInviteId?.(invite.id);
-                        try {
-                          await onDeclineGroupInvite(invite.id);
-                          setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
-                        } catch (error) {
-                          console.error('Failed to decline invite:', error);
-                          alert('Failed to decline invite. Please try again.');
-                        } finally {
-                          setDecliningInviteId?.(null);
-                        }
-                      }}
-                      disabled={isLoading}
-                      className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {isLoading && decliningInviteId === invite.id ? (
-                        <i className="fas fa-spinner fa-spin"></i>
-                      ) : (
-                        <i className="fas fa-times"></i>
-                      )}
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="py-16 text-center text-[#b0b3b8]">
-          <div className="w-20 h-20 mx-auto mb-4 bg-[#2d2d2d] rounded-full flex items-center justify-center">
-            <i className="fas fa-envelope-open-text text-3xl text-[#b0b3b8]"></i>
-          </div>
-          <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No pending invites</div>
-          <div className="text-[15px]">When someone invites you to a group, it will appear here.</div>
-        </div>
-      )}
-    </div>
-  );
-}
+                );
+              }
 
-            // Apply search filter to Your groups
+              return (
+                <div className="px-4">
+                  <div className="pt-3 pb-2">
+                    <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
+                    <div className="text-[#b0b3b8] text-sm">Groups you've been invited to join</div>
+                  </div>
+                  
+                  {loadingInvites ? (
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="w-12 h-12 mx-auto mb-4 border-2 border-[#1877f2] border-t-transparent rounded-full animate-spin"></div>
+                      <div className="text-[15px]">Loading invites...</div>
+                    </div>
+                  ) : groupInvites && groupInvites.length > 0 ? (
+                    <div className="space-y-3">
+                      {groupInvites.map((invite: any) => {
+                        const group = normalizeGroup(invite.group || invite);
+                        const inviter = users.find(u => Number(u.id) === Number(invite.inviter_id));
+                        const isLoading = (acceptingInviteId === invite.id) || (decliningInviteId === invite.id);
+                        
+                        return (
+                          <div key={invite.id || `${group.id}-${invite.inviter_id}`} className="bg-[#1e1e1e] rounded-xl border border-[#333] overflow-hidden hover:border-[#4a4a4a] transition-all">
+                            <div className="h-[120px] bg-[#2d2d2d] relative">
+                              <img 
+                                src={group.cover_image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80'} 
+                                className="w-full h-full object-cover" 
+                                alt="" 
+                              />
+                              <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-xs text-white">
+                                <i className={getCategoryIcon?.(group.category) || 'fas fa-users'}></i>
+                                <span className="ml-1">{GROUP_CATEGORIES.find(c => c.id === group.category)?.label || 'General'}</span>
+                              </div>
+                            </div>
+                            <div className="p-4">
+                              <div className="flex items-center gap-3 mb-3">
+                                <img 
+                                  src={group.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(group.name || 'Group')}&background=random`} 
+                                  className="w-14 h-14 rounded-xl object-cover border-2 border-[#1877f2]" 
+                                  alt="" 
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[#e4e6eb] font-extrabold text-[18px] truncate">{group.name}</div>
+                                  <div className="text-[#b0b3b8] text-sm">{group.members_count || 0} members</div>
+                                  {inviter && (
+                                    <div className="text-[#b0b3b8] text-xs mt-1 flex items-center gap-1">
+                                      <i className="fas fa-user-plus text-[#45BD62] text-[10px]"></i>
+                                      <span>Invited by {inviter.name || inviter.username}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-[#b0b3b8] text-sm mb-4 line-clamp-2">{group.description || 'No description provided'}</p>
+                              <div className="flex gap-3">
+                                <button
+                                  onClick={async () => {
+                                    if (!onAcceptGroupInvite) {
+                                      alert('Accept invite function not available');
+                                      return;
+                                    }
+                                    setAcceptingInviteId(invite.id);
+                                    try {
+                                      await onAcceptGroupInvite(invite.id, group.id);
+                                      setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
+                                      alert(`You joined "${group.name}"!`);
+                                    } catch (error) {
+                                      console.error('Failed to accept invite:', error);
+                                      alert('Failed to join group. Please try again.');
+                                    } finally {
+                                      setAcceptingInviteId(null);
+                                    }
+                                  }}
+                                  disabled={isLoading}
+                                  className="flex-1 bg-[#1877f2] text-white py-2.5 rounded-lg font-bold hover:bg-[#166fe5] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                  {isLoading && acceptingInviteId === invite.id ? (
+                                    <i className="fas fa-spinner fa-spin"></i>
+                                  ) : (
+                                    <i className="fas fa-check"></i>
+                                  )}
+                                  Accept & Join
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!onDeclineGroupInvite) {
+                                      alert('Decline invite function not available');
+                                      return;
+                                    }
+                                    setDecliningInviteId(invite.id);
+                                    try {
+                                      await onDeclineGroupInvite(invite.id);
+                                      setGroupInvites((prev: any[]) => prev.filter(i => i.id !== invite.id));
+                                    } catch (error) {
+                                      console.error('Failed to decline invite:', error);
+                                      alert('Failed to decline invite. Please try again.');
+                                    } finally {
+                                      setDecliningInviteId(null);
+                                    }
+                                  }}
+                                  disabled={isLoading}
+                                  className="flex-1 bg-[#2d2d2d] text-[#e4e6eb] py-2.5 rounded-lg font-bold hover:bg-[#3a3a3a] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                  {isLoading && decliningInviteId === invite.id ? (
+                                    <i className="fas fa-spinner fa-spin"></i>
+                                  ) : (
+                                    <i className="fas fa-times"></i>
+                                  )}
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="w-20 h-20 mx-auto mb-4 bg-[#2d2d2d] rounded-full flex items-center justify-center">
+                        <i className="fas fa-envelope-open-text text-3xl text-[#b0b3b8]"></i>
+                      </div>
+                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No pending invites</div>
+                      <div className="text-[15px]">When someone invites you to a group, it will appear here.</div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // ========== DISCOVER TAB ==========
+            if (fbTab === 'Discover') {
+              const base = currentUser ? safeGroups.filter(g => {
+                if (Number(g.admin_id) === Number(currentUser.id)) return false;
+                if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
+                return true;
+              }) : safeGroups;
+              const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+              const shuffledList = seededShuffle(base, todaySeed);
+              
+              // Apply search filter
+              let displayList = shuffledList;
+              if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                displayList = displayList.filter(g => (g.name || '').toLowerCase().includes(q));
+              }
+              
+              return (
+                <div className="px-4">
+                  <div className="pt-3 pb-2">
+                    <div className="text-[20px] font-extrabold text-[#e4e6eb]">Discover Groups</div>
+                    <div className="text-[#b0b3b8] text-sm">Groups you might like</div>
+                  </div>
+                  {displayList.length > 0 ? (
+                    <div className="space-y-1">
+                      {displayList.map(g => {
+                        const categoryColor = getCategoryColor(g.category);
+                        const categoryIcon = getCategoryIcon(g.category);
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => handleGroupClick(g)}
+                            className="w-full flex items-center gap-3 py-3 hover:bg-[#2d2d2d] rounded-lg transition-colors group"
+                          >
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-[#2d2d2d] flex items-center justify-center shrink-0">
+                              {g.profile_image ? (
+                                <img src={g.profile_image} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                <span className="text-[#e4e6eb] font-extrabold">
+                                  {(g.name || 'G').slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[18px] font-extrabold text-[#e4e6eb] truncate">
+                                  {g.name}
+                                </span>
+                                <i className={categoryIcon} style={{ color: categoryColor, fontSize: '12px' }}></i>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <div className="text-[15px] text-[#b0b3b8] truncate">
+                                  {g.members_count || 0} members
+                                </div>
+                              </div>
+                            </div>
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <i className="fas fa-chevron-right text-[#b0b3b8]"></i>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No groups to discover</div>
+                      <div className="text-[15px]">Check back later for new groups!</div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // ========== YOUR GROUPS TAB ==========
+            // Split into Created and Joined groups
+            let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
+            let joinedGroups = currentUser ? safeGroups.filter(g => 
+              !(Number(g.admin_id) === Number(currentUser.id)) && 
+              Array.isArray(g.members) && 
+              g.members.includes(Number(currentUser.id))
+            ) : [];
+
+            // Apply search filter
             if (searchQuery.trim()) {
               const q = searchQuery.toLowerCase();
               createdGroups = createdGroups.filter(g => (g.name || '').toLowerCase().includes(q));
@@ -2140,9 +2218,6 @@ if (fbTab === 'Invites') {
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} />
-                                <div className="text-[15px] text-[#b0b3b8] truncate">
-                                  {formatNewPostsText(g)}
-                                </div>
                               </div>
                             </div>
                             <div
@@ -2200,9 +2275,6 @@ if (fbTab === 'Invites') {
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className={`w-2 h-2 rounded-full ${hasNewPosts(g) ? 'bg-[#1877f2]' : 'bg-transparent'}`} />
-                                <div className="text-[15px] text-[#b0b3b8] truncate">
-                                  {formatNewPostsText(g)}
-                                </div>
                               </div>
                             </div>
                             <div
@@ -2304,6 +2376,8 @@ if (fbTab === 'Invites') {
     </>
   );
 }
+              
+
 
   // ========== DETAIL VIEW RENDER ==========
   const isMember = currentUser ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id : false;
