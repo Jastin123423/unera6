@@ -6088,6 +6088,22 @@ const data = await apiFetch('/api/reels', {
     }
   }, [requireAdmin]);
 
+    
+const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
+  if (!requireAuth("Managing group members")) return;
+  
+  try {
+    const result = await apiFetch(`/api/group-members/${groupId}/toggle-posting`, {
+      method: 'PATCH',
+      body: JSON.stringify({ user_id: userId, disabled }),
+    });
+    return result;
+  } catch (error) {
+    console.error('Failed to toggle posting:', error);
+    throw error;
+  }
+}, [requireAuth]);
+
   //====UPDATE GROUP IMAGE ======
     
 const updateGroupImage = useCallback(async (
@@ -6356,7 +6372,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     };
   }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsIdentity]);
 
-  // Admin functions
+  // ===== ADMIN FUNCTIONS ====
   const verifyUser = useCallback(
     async (userId: number) => {
       if (!requireAdmin('Verify user')) return;
