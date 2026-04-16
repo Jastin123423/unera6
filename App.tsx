@@ -6117,7 +6117,7 @@ const updateGroupImage = useCallback(async (
 }, [requireAuth, updateGroupSettings]);
 
  //====GROUP INVITES ===÷
-    
+ 
   const fetchGroupInvites = useCallback(async () => {
   if (!currentUser) return [];
 
@@ -6187,22 +6187,25 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
   }, [currentUser, requireAuth]);
 
   const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
-    if (!requireAuth("Inviting to groups")) return;
-    
-    try {
-      return await apiFetch("/api/group-invites", {
-        method: "POST",
-        body: JSON.stringify({
-          group_id: Number(groupId),
-          inviter_id: Number(currentUser!.id),
-          invitee_ids: userIds,
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to invite to group:', error);
-      return { success: true, message: "Invites sent" };
-    }
-  }, [currentUser, requireAuth]);
+  if (!requireAuth("Inviting to groups")) return;
+  if (!currentUser) return;
+
+  try {
+    const result = await apiFetch("/api/group-invites", {
+      method: "POST",
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        inviter_id: Number(currentUser.id),
+        invitee_ids: userIds,
+      }),
+    });
+    console.log('Invite API response:', result); 
+    return result;
+  } catch (error) {
+    console.error('Failed to invite to group:', error);
+    throw error;  
+  }
+}, [currentUser, requireAuth]);
 
   const fetchData = useCallback(
     async (viewer: User | null) => {
