@@ -1794,15 +1794,19 @@ export const GroupsPage: React.FC<any> = ({
       .sort((a: number, b: number) => b - a)[0];
     return newest || 0; 
   };
+
+    //===NEW POST COUNT===
+const formatNewPostsText = (g: Group) => { 
+  const count = Number((g as any)?.newPostsCount ?? 0); 
   
-  const formatNewPostsText = (g: Group) => { 
-    const count = Number((g as any)?.newPostsCount ?? 0); 
-    if (count > 25) return '25+ new posts'; 
-    if (count > 0) return `${count} new posts`; 
-    const updated = String((g as any)?.updatedAt ?? '').trim(); 
-    return updated ? updated : 'Updated recently'; 
-  };
-  
+  if (count >= 16) return '16+ new posts';
+  if (count >= 8) return '8+ new posts';
+  if (count >= 4) return '4+ new posts';
+  if (count >= 2) return '2+ new posts';
+  if (count === 1) return '1 new post';
+  return '0 new posts';
+};
+    
   const hasNewPosts = (g: Group) => Number((g as any)?.newPostsCount ?? 0) > 0;
 
   const sortedGroups = useMemo(() => {
