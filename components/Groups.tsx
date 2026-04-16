@@ -1452,6 +1452,17 @@ const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
       console.error('Failed to save pinned groups:', e); 
     }
   }, [pinnedGroups]);
+    
+    // Load invites when switching to Invites tab
+useEffect(() => {
+  if (fbTab === 'Invites' && fetchGroupInvites) {
+    setLoadingInvites(true);
+    fetchGroupInvites()
+      .then(setGroupInvites)
+      .catch(console.error)
+      .finally(() => setLoadingInvites(false));
+  }
+}, [fbTab, fetchGroupInvites]);
 
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
