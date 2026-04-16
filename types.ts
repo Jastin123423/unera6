@@ -47,6 +47,9 @@ export interface User {
   created_at?: string;
   interests?: string[];
 
+  // ✅ Group posting restriction - allows admins to disable member posting
+  posting_disabled?: boolean;
+
   // ✅ Optional aliases some endpoints might return
   user_id?: number;
   userId?: number;
@@ -89,6 +92,7 @@ export interface Brand {
   isVerified?: boolean;
   logo_url?: string;            // ✅ Backend uses this for profile image
 }
+
 // ============================================================================
 // ✅ ADVERTISING SYSTEM FUNCTIONS
 // ============================================================================
