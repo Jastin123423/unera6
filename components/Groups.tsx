@@ -1251,8 +1251,12 @@ export const GroupsPage: React.FC<any> = ({
   const [postMetadata, setPostMetadata] = useState<any>({});
   const [inviteSearch, setInviteSearch] = useState('');
  const [invitingUserIds, setInvitingUserIds] = useState<number[]>([]);
- const [showGroupMenu, setShowGroupMenu] = useState(false);
-
+ const [showGroupMenu, setShowGroupMenu] = useState(false); 
+const [groupInvites, setGroupInvites] = useState<any[]>([]);
+const [loadingInvites, setLoadingInvites] = useState(false);
+const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(null);
+const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
+    
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
   const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
