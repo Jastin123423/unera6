@@ -1170,7 +1170,7 @@ const CreateGroupFullPageModal: React.FC<{
   );
 };
 
-export const GroupsPage: React.FC<any> = ({
+  export const GroupsPage: React.FC<any> = ({
   currentUser,
   groups = [],
   users = [],
@@ -1208,9 +1208,9 @@ export const GroupsPage: React.FC<any> = ({
   onMessageSeller,
   onMakeOffer,
   onPlayVideo,
-  fetchGroupInvites?: () => Promise<any[]>;
-  onAcceptGroupInvite?: (inviteId: number, groupId: number) => Promise<any>;
-  onDeclineGroupInvite?: (inviteId: number) => Promise<any>;
+  fetchGroupInvites,
+  onAcceptGroupInvite,
+  onDeclineGroupInvite,
 }) => {
   // ========== STATE DECLARATIONS ==========
   const [view, setView] = useState<'feed' | 'detail'>('feed');
