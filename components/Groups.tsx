@@ -2480,8 +2480,12 @@ return (
         {/* Cover & Header */}
         <div className="bg-[#1e1e1e] border-b border-[#333] shadow-sm mb-4 animate-fade-in">
           <div className="max-w-[1100px] mx-auto">
-            <div className="h-[200px] md:h-[350px] relative group bg-[#2d2d2d] md:rounded-b-xl overflow-hidden">
-              <img src={activeGroup.cover_image} className="w-full h-full object-cover" alt="Cover" />
+            <div className="h-[200px] md:h-[350px] relative group bg-[#2d2d2d] md:rounded-b-xl overflow-hidden">       
+<img 
+  src={activeGroup.cover_image || 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1500&q=80'} 
+  className="w-full h-full object-cover" 
+  alt="Cover" 
+/>
               
               {/* ✅ BACK BUTTON - Added here */}
               <button
