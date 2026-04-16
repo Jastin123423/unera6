@@ -2511,7 +2511,12 @@ return (
               <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
                 <div className="relative">
                   <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
-                    <img src={activeGroup.profile_image} className="w-full h-full object-cover" alt="" />
+                   <img 
+  src={activeGroup.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeGroup.name || 'Group')}&background=random`} 
+  className="w-full h-full object-cover" 
+  alt="" 
+/>
+                
                   </div>
                   {canManage && (
                     <div className="absolute bottom-2 right-2 bg-[#2d2d2d] p-2 rounded-full cursor-pointer hover:bg-[#3a3a3a] shadow-md transition-colors" onClick={() => groupProfileInputRef.current?.click()}>
