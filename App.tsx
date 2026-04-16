@@ -8536,6 +8536,7 @@ return (
               fetchGroupDetails={fetchGroupDetails}
               fetchGroupEvents={fetchGroupEvents}
               fetchComments={fetchGroupPostComments}
+              fetchGroupInvites={fetchGroupInvites}
               onComment={createGroupPostComment}
               onLikeComment={handleLikeComment}
               onPlayAudioTrack={onPlayTrack}
@@ -8544,6 +8545,8 @@ return (
               onHashtagClick={handleHashtagClick}
               onViewImage={setFullScreenImage}
               onVideoClick={handleVideoClick}
+              onAcceptGroupInvite={acceptGroupInvite}
+              onDeclineGroupInvite={declineGroupInvite}
               initialGroupId={null}
               onApplyToJob={async (postId: number, applicationData?: any) => {
                 console.log('Apply to job:', postId, applicationData);
