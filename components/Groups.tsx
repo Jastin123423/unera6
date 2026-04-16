@@ -2876,7 +2876,7 @@ return (
         )}
       </div>
 
-      {/* Invite Modal */}
+{/* Invite Modal */}
 {showInviteModal && activeGroup && (
   <div className="fixed inset-0 z-[210] bg-black/60 flex items-end md:items-center md:justify-center" onClick={() => setShowInviteModal(false)}>
     <div className="w-full md:max-w-[520px] bg-[#1e1e1e] rounded-t-2xl md:rounded-2xl border border-[#333] max-h-[85vh] overflow-hidden animate-slide-up" onClick={(e) => e.stopPropagation()}>
@@ -2887,15 +2887,27 @@ return (
       <div className="p-4 border-b border-[#333]"><div className="relative"><i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[#b0b3b8] text-sm"></i><input value={inviteSearch} onChange={(e) => setInviteSearch(e.target.value)} placeholder="Search people" className="w-full bg-[#2d2d2d] rounded-full pl-9 pr-4 py-2.5 outline-none text-[15px] text-[#e4e6eb] placeholder-[#b0b3b8]" /></div></div>
       <div className="overflow-y-auto max-h-[60vh] p-2">
         {inviteableUsers.length > 0 ? (
-          inviteableUsers.map((user: User) => {
+          inviteableUsers.map((user: any) => {
             const loading = invitingUserIds.includes(user.id);
+            const isInvited = user.isInvited === true;
+            
             return (
               <div key={user.id} className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors">
                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => onProfileClick?.(user.id)}>
                   <img src={avatarFrom(user)} className="w-12 h-12 rounded-full object-cover" alt="" />
                   <div><div className="text-[#e4e6eb] font-bold">{user.name || user.username}</div><div className="text-[#b0b3b8] text-sm">@{user.username || 'user'}</div></div>
                 </div>
-                <button onClick={() => handleInviteUser(user.id)} disabled={loading} className="bg-[#1877f2] text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-[#166fe5] disabled:opacity-50">{loading ? 'Sending...' : 'Invite'}</button>
+                <button 
+                  onClick={() => !isInvited && !loading && handleInviteUser(user.id)} 
+                  disabled={isInvited || loading}
+                  className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
+                    isInvited 
+                      ? 'bg-[#2d2d2d] text-[#b0b3b8] cursor-not-allowed'
+                      : 'bg-[#1877f2] text-white hover:bg-[#166fe5]'
+                  } disabled:opacity-50`}
+                >
+                  {loading ? 'Sending...' : (isInvited ? 'Invited' : 'Invite')}
+                </button>
               </div>
             );
           })
@@ -2906,7 +2918,8 @@ return (
     </div>
   </div>
 )}
-      
+
+    
       {/* Full Post View for Groups */}
       {showPostView && selectedPost && selectedPostAuthor && currentUser && (
         <CommentsSheet 
