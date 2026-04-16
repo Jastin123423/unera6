@@ -1168,6 +1168,7 @@ const CreateGroupFullPageModal: React.FC<{
     </div>
   );
 };
+
 export const GroupsPage: React.FC<any> = ({
   currentUser,
   groups = [],
@@ -1230,7 +1231,8 @@ export const GroupsPage: React.FC<any> = ({
   const [loadingEvents, setLoadingEvents] = useState(false);
   const eventsLoadedRef = useRef<boolean>(false);
   const activeGroupIdRef = useRef<number | null>(null);
-  const [fbTab, setFbTab] = useState<'Your groups' | 'Posts' | 'Discover' | 'Invites'>('Your groups');
+  // ✅ REMOVED 'Posts' from the tabs - only 3 tabs now
+  const [fbTab, setFbTab] = useState<'Your groups' | 'Discover' | 'Invites'>('Your groups');
   const [sortOpen, setSortOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'Most visited' | 'Recently active' | 'Alphabetical'>('Most visited');
   const [pinnedGroups, setPinnedGroups] = useState<Set<number>>(new Set());
@@ -1251,31 +1253,50 @@ export const GroupsPage: React.FC<any> = ({
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
 
   // ========== HELPER FUNCTIONS ==========
-  const fetchUpdatedPost = useCallback(async (postId: number) => {
-    if (!currentUser) return;
-    try {
-      const viewerId = currentUser.id;
-      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
-      const token = localStorage.getItem('unera_token');
-      const headers: HeadersInit = { 
-        'Accept': 'application/json', 
-        'Content-Type': 'application/json', 
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
-      };
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-      if (data && typeof data.comments_count === 'number') {
-        setGroupPosts(prev => prev.map(post => { 
-          if (post.id === postId) { 
-            return { ...post, comment_count: data.comments_count, comments_count: data.comments_count }; 
-          } 
-          return post; 
-        }));
-      }
-    } catch (error) { 
-      console.error('Failed to fetch updated post:', error); 
+  const seededShuffle = <T,>(items: T[], seed: number) => {
+    const arr = [...items];
+    let s = seed || 1;
+    const rand = () => {
+      s = (s * 1664525 + 1013904223) % 4294967296;
+      return s / 4294967296;
+    };
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-  }, [currentUser]);
+    return arr;
+  };
+
+  const getGroupShareLink = useCallback((group: Group | null) => {
+    if (!group) return '';
+    return `${window.location.origin}/groups/${group.id}`;
+  }, []);
+
+  const handleShareGroup = useCallback(async () => {
+    if (!activeGroup) return;
+    const shareUrl = getGroupShareLink(activeGroup);
+    const shareText = `Join the group "${activeGroup.name}" on UNERA`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: activeGroup.name,
+          text: shareText,
+          url: shareUrl,
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(shareUrl);
+      alert('Group link copied to clipboard');
+    } catch (error) {
+      console.error('Failed to share group:', error);
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        alert('Group link copied to clipboard');
+      } catch {
+        alert(shareUrl);
+      }
+    }
+  }, [activeGroup, getGroupShareLink]);
 
   // ========== EFFECTS ==========
   useEffect(() => {
@@ -1406,6 +1427,32 @@ export const GroupsPage: React.FC<any> = ({
   }, [pinnedGroups]);
 
   // ========== HANDLER FUNCTIONS ==========
+  const fetchUpdatedPost = useCallback(async (postId: number) => {
+    if (!currentUser) return;
+    try {
+      const viewerId = currentUser.id;
+      const url = `/api/posts/${postId}?viewerId=${viewerId}`;
+      const token = localStorage.getItem('unera_token');
+      const headers: HeadersInit = { 
+        'Accept': 'application/json', 
+        'Content-Type': 'application/json', 
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}) 
+      };
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (data && typeof data.comments_count === 'number') {
+        setGroupPosts(prev => prev.map(post => { 
+          if (post.id === postId) { 
+            return { ...post, comment_count: data.comments_count, comments_count: data.comments_count }; 
+          } 
+          return post; 
+        }));
+      }
+    } catch (error) { 
+      console.error('Failed to fetch updated post:', error); 
+    }
+  }, [currentUser]);
+
   const handleGroupClick = (group: Group) => { 
     setActiveGroupId(group.id); 
     setView('detail'); 
@@ -1770,9 +1817,9 @@ export const GroupsPage: React.FC<any> = ({
                 </div>
               </div>
               
-              {/* Tabs */}
+              {/* Tabs - ✅ Only 3 tabs now */}
               <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-hide">
-                {(['Your groups', 'Posts', 'Discover', 'Invites'] as const).map(tab => { 
+                {(['Your groups', 'Discover', 'Invites'] as const).map(tab => { 
                   const active = fbTab === tab; 
                   return (
                     <button key={tab} onClick={() => setFbTab(tab)} className={
@@ -1799,34 +1846,44 @@ export const GroupsPage: React.FC<any> = ({
           {/* Content */}
           <div className="max-w-[900px] mx-auto">
             {(() => {
-              const myGroups = currentUser ? safeGroups.filter(g => { 
-                if (g.admin_id === currentUser.id) return true; 
-                if (Array.isArray(g.members)) return g.members.includes(currentUser.id); 
-                return false; 
-              }) : [];
-              let list = myGroups.length ? myGroups : safeGroups;
-              const pinnedList = list.filter(g => pinnedGroups.has(g.id));
-              const regularList = list.filter(g => !pinnedGroups.has(g.id));
+              // Handle Invites tab separately
+              if (fbTab === 'Invites') {
+                return (
+                  <div className="px-4">
+                    <div className="pt-3 pb-2">
+                      <div className="text-[20px] font-extrabold text-[#e4e6eb]">Group Invites</div>
+                    </div>
+                    <div className="py-16 text-center text-[#b0b3b8]">
+                      <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">No group invites</div>
+                      <div className="text-[15px]">When people invite you to groups, they will appear here.</div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Your groups - show only groups user created
+              let list = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
               
+              // Discover - shuffle groups user is not member of
+              if (fbTab === 'Discover') {
+                const base = currentUser ? safeGroups.filter(g => {
+                  if (Number(g.admin_id) === Number(currentUser.id)) return false;
+                  if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
+                  return true;
+                }) : safeGroups;
+                const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+                list = seededShuffle(base, todaySeed);
+              }
+              
+              // Apply search filter
               if (searchQuery.trim()) { 
                 const q = searchQuery.toLowerCase(); 
                 list = list.filter(g => (g.name || '').toLowerCase().includes(q)); 
               }
               
-              if (fbTab === 'Discover') { 
-                list = currentUser ? safeGroups.filter(g => { 
-                  if (g.admin_id === currentUser.id) return false; 
-                  if (Array.isArray(g.members) && g.members.includes(currentUser.id)) return false; 
-                  return true; 
-                }) : safeGroups; 
-                if (searchQuery.trim()) { 
-                  const q = searchQuery.toLowerCase(); 
-                  list = list.filter(g => (g.name || '').toLowerCase().includes(q)); 
-                } 
-              }
-              
-              if (fbTab === 'Invites') list = [];
-              
+              const pinnedList = list.filter(g => pinnedGroups.has(g.id));
+              const regularList = list.filter(g => !pinnedGroups.has(g.id));
+
               const sortGroups = (groups: Group[]) => { 
                 return [...groups].sort((a, b) => { 
                   if (sortMode === 'Alphabetical') return (a.name || '').localeCompare(b.name || ''); 
@@ -1912,7 +1969,7 @@ export const GroupsPage: React.FC<any> = ({
                   {sortedPinned.length === 0 && sortedRegular.length === 0 && (
                     <div className="py-16 text-center text-[#b0b3b8]">
                       <div className="text-[18px] font-bold text-[#e4e6eb] mb-2">Nothing to show</div>
-                      <div className="text-[15px]">{fbTab === 'Invites' ? 'No group invites right now.' : 'Try searching for a group.'}</div>
+                      <div className="text-[15px]">Try searching for a group.</div>
                     </div>
                   )}
                 </div>
