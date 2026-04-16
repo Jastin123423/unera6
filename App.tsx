@@ -5947,18 +5947,29 @@ const data = await apiFetch('/api/reels', {
     }
   }, [requireAuth, fetchOtherData]);
 
-  const fetchGroupDetails = useCallback(async (groupId: number) => {
-    try {
-      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
-      return {
-        group: normalizeGroup((res as any)?.group ?? res),
-        members: safeArray((res as any)?.members),
-      };
-    } catch (error) {
-      console.error('Failed to fetch group details:', error);
-      return { group: null, members: [] };
+   const fetchGroupDetails = useCallback(async (groupId: number) => {
+  try {
+    const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
+    const groupData = (res as any)?.group ?? res;
+    
+    // ✅ Extract member users if returned
+    const memberUsers = safeArray(groupData?.memberUsers || groupData?.members_details);
+    if (memberUsers.length) {
+      setUsers(prev => {
+        const map = new Map(prev.map(u => [u.id, u]));
+        memberUsers.forEach((u: User) => map.set(u.id, normalizeUser(u)));
+        return Array.from(map.values());
+      });
     }
-  }, []);
+    
+    return {
+      group: normalizeGroup(groupData),
+      members: safeArray(groupData?.members || []),
+    };
+  } catch (error) {
+    return { group: null, members: [] };
+  }
+}, []);                   
 
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     try {
