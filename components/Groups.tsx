@@ -1456,16 +1456,14 @@ const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
     }
   }, [pinnedGroups]);
     
-    // Load invites when switching to Invites tab
+// Load invites when switching to Invites tab - no loading state
 useEffect(() => {
-  if (fbTab === 'Invites' && fetchGroupInvites) {
-    setLoadingInvites(true);
+  if (fbTab === 'Invites' && fetchGroupInvites && groupInvites.length === 0) {
     fetchGroupInvites()
       .then(setGroupInvites)
-      .catch(console.error)
-      .finally(() => setLoadingInvites(false));
+      .catch(console.error);
   }
-}, [fbTab, fetchGroupInvites]);
+}, [fbTab, fetchGroupInvites, groupInvites.length]);
 
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
