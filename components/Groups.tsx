@@ -2538,30 +2538,37 @@ return (
           {/* Discussion Tab */}
           {groupTab === 'Discussion' && (
             <div className="animate-fade-in">
-              {isMember && canPost && (
-                <div className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]" onClick={() => { 
-                  // ✅ Set defaults when opening modal
-                  if (activeGroup?.category === 'buy_sell') { 
-                    setPostMetadata({ currency: 'USD', condition: 'Used - Good', location: '', price: '', status: 'available' }); 
-                  } else { 
-                    setPostMetadata({}); 
-                  } 
-                  setShowGroupPostModal(true); 
-                }}>
-                  <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
-                  <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
-                    <span className="text-[#b0b3b8] text-[17px]">
-                      {activeGroup.category === 'buy_sell' && 'Sell something in '}
-                      {activeGroup.category === 'recruitment' && 'Post a job in '}
-                      {activeGroup.category === 'general' && 'Post something in '}
-                      {activeGroup.name}...
-                    </span>
-                  </div>
-                  <div className="text-[#45BD62] hover:bg-[#2d2d2d] p-2 rounded-full transition-colors">
-                    <i className="fas fa-images text-xl"></i>
-                  </div>
-                </div>
-              )}
+            
+      {isMember && canPost && canUserPost(currentUser?.id ?? 0) && (
+  <div className="bg-[#1e1e1e] rounded-xl p-3 mb-4 border border-[#333] shadow-sm flex gap-3 items-center cursor-pointer mx-0 transition-colors hover:bg-[#2d2d2d]" onClick={() => { 
+    if (activeGroup?.category === 'buy_sell') { 
+      setPostMetadata({ currency: 'USD', condition: 'Used - Good', location: '', price: '', status: 'available' }); 
+    } else { 
+      setPostMetadata({}); 
+    } 
+    setShowGroupPostModal(true); 
+  }}>
+    <img src={avatarFrom(currentUser)} className="w-10 h-10 rounded-full bg-[#2d2d2d] object-cover" alt="" />
+    <div className="flex-1 bg-[#2d2d2d] transition-colors rounded-full px-4 py-2.5">
+      <span className="text-[#b0b3b8] text-[17px]">
+        {activeGroup.category === 'buy_sell' && 'Sell something in '}
+        {activeGroup.category === 'recruitment' && 'Post a job in '}
+        {activeGroup.category === 'general' && 'Post something in '}
+        {activeGroup.name}...
+      </span>
+    </div>
+    <div className="text-[#45BD62] hover:bg-[#2d2d2d] p-2 rounded-full transition-colors">
+      <i className="fas fa-images text-xl"></i>
+    </div>
+  </div>
+)}
+
+{isMember && !canUserPost(currentUser?.id ?? 0) && (
+  <div className="bg-[#1e1e1e] rounded-xl p-4 mb-4 border border-[#333] text-center">
+    <i className="fas fa-ban text-[#F7B928] text-2xl mb-2"></i>
+    <p className="text-[#b0b3b8] text-sm">You have been restricted from posting in this group</p>
+  </div>
+)}  
               
               <div className="space-y-4">
                 {activeGroup.type === 'private' && !isMember ? (
