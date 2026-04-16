@@ -1516,20 +1516,23 @@ export const GroupsPage: React.FC<any> = ({
       console.error('Failed to create group:', error); 
     }
   };
-    
+
     const handleInviteUser = async (userId: number) => {
   if (!activeGroup || !onInviteToGroup) return;
   try {
     setInvitingUserIds(prev => [...prev, userId]);
-    await onInviteToGroup(activeGroup.id, [userId]);
+    console.log('Sending invite:', { groupId: activeGroup.id, userId }); 
+    const result = await onInviteToGroup(activeGroup.id, [userId]);
+    console.log('Invite result:', result); 
     alert('Invite sent');
   } catch (error) {
     console.error('Failed to invite user:', error);
-    alert('Failed to send invite');
+    alert('Failed to send invite: ' + (error as Error).message);
   } finally {
     setInvitingUserIds(prev => prev.filter(id => id !== userId));
   }
 };
+    
 
   // ✅ FIXED: Submit post handler with proper Buy/Sell metadata
   const handlePostSubmit = async () => {
