@@ -6113,6 +6113,55 @@ const updateGroupImage = useCallback(async (
   }
 }, [requireAuth, updateGroupSettings]);
 
+ //====GROUP INVITES ===÷
+    
+  const fetchGroupInvites = useCallback(async () => {
+  if (!currentUser) return [];
+
+  try {
+    const res = await apiFetch(`/api/group-invites?user_id=${Number(currentUser.id)}`);
+    return safeArray((res as any)?.invites ?? res);
+  } catch (error) {
+    console.error('Failed to fetch group invites:', error);
+    return [];
+  }
+}, [currentUser]);
+
+const acceptGroupInvite = useCallback(async (inviteId: number, groupId: number) => {
+  if (!requireAuth("Accepting group invites")) return;
+  if (!currentUser) return;
+
+  try {
+    const res = await apiFetch(`/api/group-invites?id=${Number(inviteId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        status: 'accepted',
+        user_id: Number(currentUser.id),
+      }),
+    });
+
+    await joinGroup(groupId);
+    return res;
+  } catch (error) {
+    console.error('Failed to accept group invite:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth, joinGroup]);
+
+const declineGroupInvite = useCallback(async (inviteId: number) => {
+  if (!requireAuth("Declining group invites")) return;
+  if (!currentUser) return;
+
+  try {
+    return await apiFetch(
+      `/api/group-invites?id=${Number(inviteId)}&user_id=${Number(currentUser.id)}`,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    console.error('Failed to decline group invite:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
 
   const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
     if (!requireAuth('Liking comments')) return;
