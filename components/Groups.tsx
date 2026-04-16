@@ -1265,7 +1265,12 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
     
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
-  const activeGroup = useMemo(() => safeGroups.find(g => g.id === activeGroupId) || null, [safeGroups, activeGroupId]);
+  const activeGroup = useMemo(() => {
+  const base = safeGroups.find(g => g.id === activeGroupId) || null;
+  if (!base) return null;
+  const overrides = groupImageOverrides[base.id] || {};
+  return { ...base, ...overrides };
+}, [safeGroups, activeGroupId, groupImageOverrides]);
 
 //=====INVITABLE USERS===
   const inviteableUsers = useMemo(() => {
