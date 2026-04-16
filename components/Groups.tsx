@@ -488,6 +488,9 @@ const PostActionsMenu: React.FC<{
   const [editText, setEditText] = useState(post.content || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [inviteSearch, setInviteSearch] = useState('');
+ const [invitingUserIds, setInvitingUserIds] = useState<number[]>([]);
+ const [showGroupMenu, setShowGroupMenu] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose(); };
