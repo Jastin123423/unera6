@@ -1630,14 +1630,67 @@ useEffect(() => {
   };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
-    if (e.target.files && e.target.files[0] && activeGroup) { 
-      try { 
-        await onUpdateGroupImage(activeGroup.id, type, e.target.files[0]); 
-      } catch (error) { 
-        console.error('Failed to update group image:', error); 
-      } 
+  const file = e.target.files?.[0];
+  if (!file || !activeGroup) return;
+  
+  // Create local preview URL for optimistic update
+  const previewUrl = URL.createObjectURL(file);
+  
+  // Update local state immediately with preview
+  setGroupImageOverrides(prev => ({
+    ...prev,
+    [activeGroup.id]: {
+      ...(prev[activeGroup.id] || {}),
+      ...(type === 'cover' ? { cover_image: previewUrl } : { profile_image: previewUrl }),
+    },
+  }));
+  
+  try {
+    const result = await onUpdateGroupImage(activeGroup.id, type, file);
+    
+    // Get the final URL from the response
+    const finalUrl = typeof result === 'string' 
+      ? result 
+      : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
+    
+    if (finalUrl) {
+      // Update with final URL from server
+      setGroupImageOverrides(prev => ({
+        ...prev,
+        [activeGroup.id]: {
+          ...(prev[activeGroup.id] || {}),
+          ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
+        },
+      }));
     }
-  };
+    
+    // Refresh group data to ensure consistency
+    if (fetchGroupDetails) {
+      const details = await fetchGroupDetails(activeGroup.id);
+      if (details?.group) {
+        setActiveGroupId(prev => prev);
+      }
+    }
+    
+  } catch (error) {
+    console.error('Failed to update group image:', error);
+    // Revert on error - remove the preview
+    setGroupImageOverrides(prev => {
+      const next = { ...prev };
+      const current = { ...(next[activeGroup.id] || {}) };
+      if (type === 'cover') delete current.cover_image;
+      else delete current.profile_image;
+      next[activeGroup.id] = current;
+      return next;
+    });
+    alert('Failed to update image. Please try again.');
+  } finally {
+    // Clean up the preview URL
+    URL.revokeObjectURL(previewUrl);
+    e.target.value = ''; // Reset input
+  }
+};
+                                                         
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
     if (e.target.files) setPostFiles(Array.from(e.target.files)); 
