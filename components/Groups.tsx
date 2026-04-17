@@ -2216,7 +2216,7 @@ const formatNewPostsText = (g: Group) => {
             if (fbTab === 'Discover') {
               const base = currentUser ? safeGroups.filter(g => {
                 if (Number(g.admin_id) === Number(currentUser.id)) return false;
-                if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
+              if (g.is_member === true || (Array.isArray(g.members) && g.members.map((id: any) => Number(id)).includes(Number(currentUser.id)))) return false;
                 return true;
               }) : safeGroups;
               const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
