@@ -960,27 +960,44 @@ const GroupPost: React.FC<any> = (props) => {
     default: return <GeneralGroupPost {...props} />;
   }
 };
-
+//===NORMALIZE GROUP ==÷
+  
 function normalizeGroup(raw: any): Group {
-  const members = raw?.members === undefined || raw?.members === null ? undefined : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
+  // Safely parse members array - handle strings, numbers, and undefined
+  let members: number[] = [];
+  if (raw?.members !== undefined && raw?.members !== null) {
+    if (Array.isArray(raw.members)) {
+      members = raw.members.map((x: any) => Number(x)).filter(Number.isFinite);
+    }
+  }
+  
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
+  
+  // Check is_member from various possible formats
+  const is_member = 
+    raw?.is_member === true || 
+    raw?.is_member === 1 || 
+    raw?.isMember === true || 
+    raw?.isMember === 1;
+  
   return {
     ...raw,
     id: Number(raw?.id ?? raw?.groupId ?? 0),
     admin_id: Number(raw?.admin_id ?? raw?.adminId ?? 0),
     name: String(raw?.name ?? 'Untitled Group'),
     description: String(raw?.description ?? ''),
-    type: (raw?.type === 'private' ? 'private' : 'public') as any,
+    type: raw?.type === 'private' ? 'private' : 'public',
     category: (raw?.category as GroupCategory) || 'general',
     cover_image: String(raw?.cover_image ?? raw?.coverImage ?? ''),
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-    members: members,
+    members,
     posts,
     events,
     members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
+    is_member,  // ✅ Use computed value
   } as Group;
 }
 
