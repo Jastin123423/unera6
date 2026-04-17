@@ -1636,9 +1636,15 @@ useEffect(() => {
     }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+
+const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
   const file = e.target.files?.[0];
-  if (!file || !activeGroup) return;
+  if (!file || !activeGroup || uploadingImage) return;
+  
+  setUploadingImage(true);
+  
+  // Store original URL to revert on error
+  const originalUrl = type === 'cover' ? activeGroup.cover_image : activeGroup.profile_image;
   
   // Create local preview URL for optimistic update
   const previewUrl = URL.createObjectURL(file);
@@ -1654,11 +1660,21 @@ useEffect(() => {
   
   try {
     const result = await onUpdateGroupImage(activeGroup.id, type, file);
+    console.log('Upload result:', result);
     
     // Get the final URL from the response
-    const finalUrl = typeof result === 'string' 
-      ? result 
-      : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
+    let finalUrl = null;
+    if (typeof result === 'string') {
+      finalUrl = result;
+    } else if (result?.url) {
+      finalUrl = result.url;
+    } else if (result?.image_url) {
+      finalUrl = result.image_url;
+    } else if (type === 'cover' && result?.cover_image) {
+      finalUrl = result.cover_image;
+    } else if (type === 'profile' && result?.profile_image) {
+      finalUrl = result.profile_image;
+    }
     
     if (finalUrl) {
       // Update with final URL from server
@@ -1669,35 +1685,55 @@ useEffect(() => {
           ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
         },
       }));
-    }
-    
-    // Refresh group data to ensure consistency
-    if (fetchGroupDetails) {
-      const details = await fetchGroupDetails(activeGroup.id);
-      if (details?.group) {
-        setActiveGroupId(prev => prev);
-      }
+      
+      // Show success message
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#45BD62] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.innerText = `${type === 'cover' ? 'Cover' : 'Profile'} image updated!`;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    } else {
+      throw new Error('No URL returned from server');
     }
     
   } catch (error) {
     console.error('Failed to update group image:', error);
-    // Revert on error - remove the preview
+    
+    // Revert on error - restore original image
     setGroupImageOverrides(prev => {
       const next = { ...prev };
       const current = { ...(next[activeGroup.id] || {}) };
-      if (type === 'cover') delete current.cover_image;
-      else delete current.profile_image;
+      if (type === 'cover') {
+        if (originalUrl) {
+          current.cover_image = originalUrl;
+        } else {
+          delete current.cover_image;
+        }
+      } else {
+        if (originalUrl) {
+          current.profile_image = originalUrl;
+        } else {
+          delete current.profile_image;
+        }
+      }
       next[activeGroup.id] = current;
       return next;
     });
-    alert('Failed to update image. Please try again.');
+    
+    // Show error message
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Failed to update image';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+    
   } finally {
-    // Clean up the preview URL
-    URL.revokeObjectURL(previewUrl);
+    // Clean up the preview URL after a delay
+    setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
     e.target.value = ''; // Reset input
+    setUploadingImage(false);
   }
 };
-                                                         
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
     if (e.target.files) setPostFiles(Array.from(e.target.files)); 
