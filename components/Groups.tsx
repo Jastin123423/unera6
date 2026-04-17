@@ -960,67 +960,29 @@ const GroupPost: React.FC<any> = (props) => {
     default: return <GeneralGroupPost {...props} />;
   }
 };
-//===NORMALIZE GROUP ==÷
 
 function normalizeGroup(raw: any): Group {
-  let members: number[] = [];
-  
-  if (raw?.members !== undefined && raw?.members !== null) {
-    if (Array.isArray(raw.members)) {
-      members = raw.members
-        .map((m: any) => {
-          if (typeof m === 'number' || typeof m === 'string') return Number(m);
-          if (m && typeof m === 'object') {
-            return Number(m.user_id ?? m.id ?? 0);
-          }
-          return 0;
-        })
-        .filter(Number.isFinite)
-        .filter((n: number) => n > 0);
-    } else if (typeof raw.members === 'string') {
-      try {
-        const parsed = JSON.parse(raw.members);
-        if (Array.isArray(parsed)) {
-          members = parsed
-            .map((m: any) => {
-              if (typeof m === 'number' || typeof m === 'string') return Number(m);
-              if (m && typeof m === 'object') {
-                return Number(m.user_id ?? m.id ?? 0);
-              }
-              return 0;
-            })
-            .filter(Number.isFinite)
-            .filter((n: number) => n > 0);
-        }
-      } catch {
-        members = [];
-      }
-    }
-  }
-  
+  const members = raw?.members === undefined || raw?.members === null ? undefined : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
-  
   return {
     ...raw,
     id: Number(raw?.id ?? raw?.groupId ?? 0),
     admin_id: Number(raw?.admin_id ?? raw?.adminId ?? 0),
     name: String(raw?.name ?? 'Untitled Group'),
     description: String(raw?.description ?? ''),
-    type: raw?.type === 'private' ? 'private' : 'public',
+    type: (raw?.type === 'private' ? 'private' : 'public') as any,
     category: (raw?.category as GroupCategory) || 'general',
     cover_image: String(raw?.cover_image ?? raw?.coverImage ?? ''),
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-    members,
+    members: members,
     posts,
     events,
-    members_count: Number(raw?.members_count ?? members.length ?? 0),
-    is_member: raw?.is_member === true || raw?.is_member === 1 || raw?.isMember === true || raw?.isMember === 1 || false,
+    members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
   } as Group;
 }
-  
 
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
@@ -1299,8 +1261,7 @@ const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(null);
 const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
 const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
 const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(null);
-const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
-const [uploadingImage, setUploadingImage] = useState(false);
+    const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
@@ -1674,15 +1635,9 @@ useEffect(() => {
     }
   };
 
-
-const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
   const file = e.target.files?.[0];
-  if (!file || !activeGroup || uploadingImage) return;
-  
-  setUploadingImage(true);
-  
-  // Store original URL to revert on error
-  const originalUrl = type === 'cover' ? activeGroup.cover_image : activeGroup.profile_image;
+  if (!file || !activeGroup) return;
   
   // Create local preview URL for optimistic update
   const previewUrl = URL.createObjectURL(file);
@@ -1698,21 +1653,11 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
   
   try {
     const result = await onUpdateGroupImage(activeGroup.id, type, file);
-    console.log('Upload result:', result);
     
     // Get the final URL from the response
-    let finalUrl = null;
-    if (typeof result === 'string') {
-      finalUrl = result;
-    } else if (result?.url) {
-      finalUrl = result.url;
-    } else if (result?.image_url) {
-      finalUrl = result.image_url;
-    } else if (type === 'cover' && result?.cover_image) {
-      finalUrl = result.cover_image;
-    } else if (type === 'profile' && result?.profile_image) {
-      finalUrl = result.profile_image;
-    }
+    const finalUrl = typeof result === 'string' 
+      ? result 
+      : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
     
     if (finalUrl) {
       // Update with final URL from server
@@ -1723,55 +1668,35 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
           ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
         },
       }));
-      
-      // Show success message
-      const toast = document.createElement('div');
-      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#45BD62] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-      toast.innerText = `${type === 'cover' ? 'Cover' : 'Profile'} image updated!`;
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 3000);
-    } else {
-      throw new Error('No URL returned from server');
+    }
+    
+    // Refresh group data to ensure consistency
+    if (fetchGroupDetails) {
+      const details = await fetchGroupDetails(activeGroup.id);
+      if (details?.group) {
+        setActiveGroupId(prev => prev);
+      }
     }
     
   } catch (error) {
     console.error('Failed to update group image:', error);
-    
-    // Revert on error - restore original image
+    // Revert on error - remove the preview
     setGroupImageOverrides(prev => {
       const next = { ...prev };
       const current = { ...(next[activeGroup.id] || {}) };
-      if (type === 'cover') {
-        if (originalUrl) {
-          current.cover_image = originalUrl;
-        } else {
-          delete current.cover_image;
-        }
-      } else {
-        if (originalUrl) {
-          current.profile_image = originalUrl;
-        } else {
-          delete current.profile_image;
-        }
-      }
+      if (type === 'cover') delete current.cover_image;
+      else delete current.profile_image;
       next[activeGroup.id] = current;
       return next;
     });
-    
-    // Show error message
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
-    toast.innerText = 'Failed to update image';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-    
+    alert('Failed to update image. Please try again.');
   } finally {
-    // Clean up the preview URL after a delay
-    setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
+    // Clean up the preview URL
+    URL.revokeObjectURL(previewUrl);
     e.target.value = ''; // Reset input
-    setUploadingImage(false);
   }
 };
+                                                         
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
     if (e.target.files) setPostFiles(Array.from(e.target.files)); 
@@ -2237,7 +2162,7 @@ const formatNewPostsText = (g: Group) => {
             if (fbTab === 'Discover') {
               const base = currentUser ? safeGroups.filter(g => {
                 if (Number(g.admin_id) === Number(currentUser.id)) return false;
-              if (g.is_member === true || (Array.isArray(g.members) && g.members.map((id: any) => Number(id)).includes(Number(currentUser.id)))) return false;
+                if (Array.isArray(g.members) && g.members.includes(Number(currentUser.id))) return false;
                 return true;
               }) : safeGroups;
               const todaySeed = Number(currentUser?.id || 1) + Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
@@ -2308,12 +2233,13 @@ const formatNewPostsText = (g: Group) => {
 
             // ========== YOUR GROUPS TAB ==========
             // Split into Created and Joined groups
-          let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
-let joinedGroups = currentUser ? safeGroups.filter(g => 
-  !(Number(g.admin_id) === Number(currentUser.id)) && 
-  (g.is_member === true || (Array.isArray(g.members) && g.members.map((id: any) => Number(id)).includes(Number(currentUser.id))))
-) : [];
-  
+            let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
+            let joinedGroups = currentUser ? safeGroups.filter(g => 
+              !(Number(g.admin_id) === Number(currentUser.id)) && 
+              Array.isArray(g.members) && 
+              g.members.includes(Number(currentUser.id))
+            ) : [];
+
             // Apply search filter
             if (searchQuery.trim()) {
               const q = searchQuery.toLowerCase();
@@ -2542,11 +2468,7 @@ let joinedGroups = currentUser ? safeGroups.filter(g =>
 
 
   // ========== DETAIL VIEW RENDER ==========
-  const isMember = currentUser ? (
-  activeGroup.admin_id === Number(currentUser.id) ||
-  activeGroup.is_member === true ||
-  (Array.isArray(activeGroup.members) && activeGroup.members.map((id: any) => Number(id)).includes(Number(currentUser.id)))
-) : false;
+  const isMember = currentUser ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id : false;
   const isGroupAdmin = currentUser && activeGroup.admin_id === currentUser.id;
   const canManage = Boolean(isGroupAdmin || isAdmin);
   const canPost = canManage || (activeGroup.member_posting_allowed ?? true);
