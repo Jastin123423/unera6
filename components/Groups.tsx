@@ -960,11 +960,52 @@ const GroupPost: React.FC<any> = (props) => {
     default: return <GeneralGroupPost {...props} />;
   }
 };
+//===NORMALIZE GROUP ====
+  function normalizeGroup(raw: any): Group {
+  let members: number[] | undefined = undefined;
 
-function normalizeGroup(raw: any): Group {
-  const members = raw?.members === undefined || raw?.members === null ? undefined : (Array.isArray(raw.members) ? raw.members.map(Number).filter(Number.isFinite) : []);
+  if (raw?.members !== undefined && raw?.members !== null) {
+    if (Array.isArray(raw.members)) {
+      members = raw.members
+        .map((m: any) => {
+          if (typeof m === 'number' || typeof m === 'string') {
+            return Number(m);
+          }
+          if (m && typeof m === 'object') {
+            return Number(m.user_id ?? m.id ?? 0);
+          }
+          return 0;
+        })
+        .filter((n: number) => Number.isFinite(n) && n > 0);
+    } else if (typeof raw.members === 'string') {
+      try {
+        const parsed = JSON.parse(raw.members);
+        if (Array.isArray(parsed)) {
+          members = parsed
+            .map((m: any) => {
+              if (typeof m === 'number' || typeof m === 'string') {
+                return Number(m);
+              }
+              if (m && typeof m === 'object') {
+                return Number(m.user_id ?? m.id ?? 0);
+              }
+              return 0;
+            })
+            .filter((n: number) => Number.isFinite(n) && n > 0);
+        } else {
+          members = [];
+        }
+      } catch {
+        members = [];
+      }
+    } else {
+      members = [];
+    }
+  }
+
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
+
   return {
     ...raw,
     id: Number(raw?.id ?? raw?.groupId ?? 0),
@@ -977,10 +1018,15 @@ function normalizeGroup(raw: any): Group {
     profile_image: String(raw?.profile_image ?? raw?.profileImage ?? ''),
     created_at: raw?.created_at ?? new Date().toISOString(),
     member_posting_allowed: raw?.member_posting_allowed ?? true,
-    members: members,
+    members,
     posts,
     events,
     members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
+    is_member:
+      raw?.is_member === true ||
+      raw?.is_member === 1 ||
+      raw?.isMember === true ||
+      raw?.isMember === 1,
   } as Group;
 }
 
