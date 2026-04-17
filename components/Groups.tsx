@@ -2279,12 +2279,20 @@ const formatNewPostsText = (g: Group) => {
 
             // ========== YOUR GROUPS TAB ==========
             // Split into Created and Joined groups
-            let createdGroups = currentUser ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id)) : [];
-            let joinedGroups = currentUser ? safeGroups.filter(g => 
-              !(Number(g.admin_id) === Number(currentUser.id)) && 
-              Array.isArray(g.members) && 
-              g.members.includes(Number(currentUser.id))
-            ) : [];
+         let createdGroups = currentUser
+  ? safeGroups.filter(g => Number(g.admin_id) === Number(currentUser.id))
+  : [];
+
+let joinedGroups = currentUser
+  ? safeGroups.filter(g =>
+      Number(g.admin_id) !== Number(currentUser.id) &&
+      (
+        g.is_member === true ||
+        (Array.isArray(g.members) &&
+          g.members.map((id: any) => Number(id)).includes(Number(currentUser.id)))
+      )
+    )
+  : [];
 
             // Apply search filter
             if (searchQuery.trim()) {
