@@ -6116,7 +6116,8 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
-    const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
+ 
+  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
   if (!requireAuth("Updating group image")) return;
 
   try {
@@ -6126,18 +6127,14 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
     const field = type === 'cover' ? 'cover_image' : 'profile_image';
     await updateGroupSettings(groupId, { [field]: imageUrl } as any);
 
-    // Return object with URL
-    return {
-      success: true,
-      [field]: imageUrl,
-      image_url: imageUrl,
-      url: imageUrl,
-    };
+    // Return just the URL string for simplicity
+    return imageUrl;
   } catch (error) {
     console.error('Failed to update group image:', error);
     throw error;
   }
 }, [requireAuth, updateGroupSettings]);
+  
 
  //====GROUP INVITES ===÷
  
