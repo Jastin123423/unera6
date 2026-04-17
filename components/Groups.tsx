@@ -2522,7 +2522,11 @@ const formatNewPostsText = (g: Group) => {
 
 
   // ========== DETAIL VIEW RENDER ==========
-  const isMember = currentUser ? (Array.isArray(activeGroup.members) && activeGroup.members.includes(currentUser.id)) || activeGroup.admin_id === currentUser.id : false;
+  const isMember = currentUser ? (
+  activeGroup.admin_id === Number(currentUser.id) ||
+  activeGroup.is_member === true ||
+  (Array.isArray(activeGroup.members) && activeGroup.members.map((id: any) => Number(id)).includes(Number(currentUser.id)))
+) : false;
   const isGroupAdmin = currentUser && activeGroup.admin_id === currentUser.id;
   const canManage = Boolean(isGroupAdmin || isAdmin);
   const canPost = canManage || (activeGroup.member_posting_allowed ?? true);
