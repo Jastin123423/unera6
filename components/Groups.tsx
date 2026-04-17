@@ -961,25 +961,45 @@ const GroupPost: React.FC<any> = (props) => {
   }
 };
 //===NORMALIZE GROUP ==÷
-  
+
 function normalizeGroup(raw: any): Group {
-  // Safely parse members array - handle strings, numbers, and undefined
   let members: number[] = [];
+  
   if (raw?.members !== undefined && raw?.members !== null) {
     if (Array.isArray(raw.members)) {
-      members = raw.members.map((x: any) => Number(x)).filter(Number.isFinite);
+      members = raw.members
+        .map((m: any) => {
+          if (typeof m === 'number' || typeof m === 'string') return Number(m);
+          if (m && typeof m === 'object') {
+            return Number(m.user_id ?? m.id ?? 0);
+          }
+          return 0;
+        })
+        .filter(Number.isFinite)
+        .filter((n: number) => n > 0);
+    } else if (typeof raw.members === 'string') {
+      try {
+        const parsed = JSON.parse(raw.members);
+        if (Array.isArray(parsed)) {
+          members = parsed
+            .map((m: any) => {
+              if (typeof m === 'number' || typeof m === 'string') return Number(m);
+              if (m && typeof m === 'object') {
+                return Number(m.user_id ?? m.id ?? 0);
+              }
+              return 0;
+            })
+            .filter(Number.isFinite)
+            .filter((n: number) => n > 0);
+        }
+      } catch {
+        members = [];
+      }
     }
   }
   
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
-  
-  // Check is_member from various possible formats
-  const is_member = 
-    raw?.is_member === true || 
-    raw?.is_member === 1 || 
-    raw?.isMember === true || 
-    raw?.isMember === 1;
   
   return {
     ...raw,
@@ -996,10 +1016,11 @@ function normalizeGroup(raw: any): Group {
     members,
     posts,
     events,
-    members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
-    is_member,  // ✅ Use computed value
+    members_count: Number(raw?.members_count ?? members.length ?? 0),
+    is_member: raw?.is_member === true || raw?.is_member === 1 || raw?.isMember === true || raw?.isMember === 1 || false,
   } as Group;
 }
+  
 
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
