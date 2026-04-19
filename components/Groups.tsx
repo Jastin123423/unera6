@@ -1415,6 +1415,10 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
   }, [initialGroupId, safeGroups]);
 
   useEffect(() => { activeGroupIdRef.current = activeGroupId; }, [activeGroupId]);
+  
+  useEffect(() => {
+  setActiveGroupDetails(null);
+}, [activeGroupId]);
 
   const loadGroupPosts = useCallback(async (force = false) => {
     if (!activeGroup || !fetchGroupPosts) { setGroupPosts([]); return; }
