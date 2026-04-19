@@ -1314,10 +1314,12 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
   const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
  const activeGroup = useMemo(() => {
   const base = safeGroups.find(g => g.id === activeGroupId) || null;
-  if (!base) return null;
-  const overrides = groupImageOverrides[base.id] || {};
-  return { ...base, ...overrides };
-}, [safeGroups, activeGroupId, groupImageOverrides]);
+  const details = activeGroupDetails && Number(activeGroupDetails.id) === Number(activeGroupId) ? activeGroupDetails : null;
+  const source = details || base;
+  if (!source) return null;
+  const overrides = groupImageOverrides[source.id] || {};
+  return { ...source, ...overrides };
+}, [safeGroups, activeGroupId, activeGroupDetails, groupImageOverrides]);
     
                             
 //=====INVITABLE USERS===
