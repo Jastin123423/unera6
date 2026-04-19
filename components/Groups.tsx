@@ -961,19 +961,15 @@ const GroupPost: React.FC<any> = (props) => {
   }
 };
 //===NORMALIZE GROUP ====
-  function normalizeGroup(raw: any): Group {
+function normalizeGroup(raw: any): Group {
   let members: number[] | undefined = undefined;
 
   if (raw?.members !== undefined && raw?.members !== null) {
     if (Array.isArray(raw.members)) {
       members = raw.members
         .map((m: any) => {
-          if (typeof m === 'number' || typeof m === 'string') {
-            return Number(m);
-          }
-          if (m && typeof m === 'object') {
-            return Number(m.user_id ?? m.id ?? 0);
-          }
+          if (typeof m === 'number' || typeof m === 'string') return Number(m);
+          if (m && typeof m === 'object') return Number(m.user_id ?? m.id ?? 0);
           return 0;
         })
         .filter((n: number) => Number.isFinite(n) && n > 0);
@@ -983,12 +979,8 @@ const GroupPost: React.FC<any> = (props) => {
         if (Array.isArray(parsed)) {
           members = parsed
             .map((m: any) => {
-              if (typeof m === 'number' || typeof m === 'string') {
-                return Number(m);
-              }
-              if (m && typeof m === 'object') {
-                return Number(m.user_id ?? m.id ?? 0);
-              }
+              if (typeof m === 'number' || typeof m === 'string') return Number(m);
+              if (m && typeof m === 'object') return Number(m.user_id ?? m.id ?? 0);
               return 0;
             })
             .filter((n: number) => Number.isFinite(n) && n > 0);
@@ -1006,6 +998,17 @@ const GroupPost: React.FC<any> = (props) => {
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
 
+  const normalizedIsMember =
+    raw?.is_member === true || raw?.is_member === 1
+      ? true
+      : raw?.is_member === false || raw?.is_member === 0
+      ? false
+      : raw?.isMember === true || raw?.isMember === 1
+      ? true
+      : raw?.isMember === false || raw?.isMember === 0
+      ? false
+      : undefined;
+
   return {
     ...raw,
     id: Number(raw?.id ?? raw?.groupId ?? 0),
@@ -1022,13 +1025,10 @@ const GroupPost: React.FC<any> = (props) => {
     posts,
     events,
     members_count: Number(raw?.members_count ?? (members ? members.length : 0)),
-    is_member:
-      raw?.is_member === true ||
-      raw?.is_member === 1 ||
-      raw?.isMember === true ||
-      raw?.isMember === 1,
+    is_member: normalizedIsMember,
   } as Group;
 }
+
 
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
