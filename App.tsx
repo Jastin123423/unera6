@@ -5454,27 +5454,36 @@ const data = await apiFetch('/api/reels', {
     return newEvent;
   }, [currentUser, requireAuth, selectedUserId]);
 
-  // Refresh group members helper
-  const refreshGroupMembers = useCallback(async (groupId: number) => {
-    try {
-      const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
-      const members = safeArray(res?.members)
-        .map((m: any) => Number(m.user_id ?? m))
-        .filter(Number.isFinite);
-      
-      setGroups(prev => prev.map(g => {
-        if (Number(g.id) !== Number(groupId)) return g;
-        return { 
-          ...g, 
-          members, 
-          members_count: members.length 
-        };
-      }));
-    } catch (error) {
-      console.error('Failed to refresh group members:', error);
-    }
-  }, []);
+  //====Refresh group members helper
+          
+const refreshGroupMembers = useCallback(async (groupId: number) => {
+  try {
+    const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
+    const members = safeArray(res?.members)
+      .map((m: any) => Number(m.user_id ?? m))
+      .filter(Number.isFinite);
 
+    const meId = currentUser?.id ? Number(currentUser.id) : 0;
+
+    setGroups(prev => prev.map(g => {
+      if (Number(g.id) !== Number(groupId)) return g;
+
+      const amMember =
+        !!meId &&
+        (Number(g.admin_id) === meId || members.includes(meId));
+
+      return {
+        ...g,
+        members,
+        members_count: members.length,
+        is_member: amMember,
+      };
+    }));
+  } catch (error) {
+    console.error('Failed to refresh group members:', error);
+  }
+}, [currentUser]);
+            
   // fetchOtherData
  const fetchOtherData = useCallback(async () => {
   if (otherDataInFlightRef.current) return;
