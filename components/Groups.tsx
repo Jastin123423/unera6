@@ -1819,27 +1819,30 @@ const handleGroupClick = async (group: Group) => {
   };
 
   const handleJoinGroup = async () => {
-    if (!activeGroup) return;
-    if (!currentUser) { alert('Please login to join groups'); return; }
-    if (joining) return;
-    setJoining(true);
-    try {
-      await onJoinGroup(activeGroup.id);
-      postsLoadedRef.current = false;
-      eventsLoadedRef.current = false;
-      await loadGroupPosts(true);
-      if (groupTab === 'Events') await loadGroupEvents(true);
-      if (fetchGroupDetails) { 
-        const details = await fetchGroupDetails(activeGroup.id); 
-        if (details?.group) setActiveGroupId(prev => prev); 
-      }
-    } catch (error) { 
-      console.error('Failed to join group:', error); 
-      alert('Failed to join group. Please try again.'); 
-    } finally { 
-      setJoining(false); 
+  if (!activeGroup) return;
+  if (!currentUser) { alert('Please login to join groups'); return; }
+  if (joining) return;
+  setJoining(true);
+  try {
+    await onJoinGroup(activeGroup.id);
+    postsLoadedRef.current = false;
+    eventsLoadedRef.current = false;
+    if (fetchGroupDetails) { 
+      const details = await fetchGroupDetails(activeGroup.id); 
+      if (details?.group) { 
+        setActiveGroupDetails(normalizeGroup(details.group)); 
+      } 
     }
-  };
+    await loadGroupPosts(true);
+    if (groupTab === 'Events') await loadGroupEvents(true);
+  } catch (error) { 
+    console.error('Failed to join group:', error); 
+    alert('Failed to join group. Please try again.'); 
+  } finally { 
+    setJoining(false); 
+  }
+};
+
 
   const handleLeaveGroup = async () => {
     if (!activeGroup) return;
