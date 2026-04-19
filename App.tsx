@@ -5737,60 +5737,85 @@ const data = await apiFetch('/api/reels', {
     }
   }, [joinGroup]);
 
-  const leaveGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Leaving groups")) return;
-    if (!currentUser) return;
+   //===LEAVE GROUP ======
 
-    const meId = Number(currentUser.id);
+const leaveGroup = useCallback(async (groupId: number) => {
+  if (!requireAuth("Leaving groups")) return;
+  if (!currentUser) return;
 
+  const meId = Number(currentUser.id);
+
+  // Optimistic update
+  setGroups(prev =>
+    prev.map(g => {
+      if (Number(g.id) !== Number(groupId)) return g;
+
+      const currentMembers = Array.isArray(g.members) ? g.members : [];
+      const nextMembers = currentMembers.filter(id => id !== meId);
+
+      return {
+        ...g,
+        members: nextMembers,
+        members_count: nextMembers.length,
+        is_member: false,
+      };
+    })
+  );
+
+  try {
+    const result = await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
+      { method: "DELETE" }
+    );
+
+    await refreshGroupMembers(groupId);
+
+    setGroups(prev =>
+      prev.map(g =>
+        Number(g.id) !== Number(groupId)
+          ? g
+          : {
+              ...g,
+              is_member: false,
+              members: Array.isArray(g.members)
+                ? g.members.filter(id => id !== meId)
+                : [],
+              members_count: Array.isArray(g.members)
+                ? g.members.filter(id => id !== meId).length
+                : 0,
+            }
+      )
+    );
+
+    return result;
+  } catch (error) {
+    console.error('Failed to leave group:', error);
+
+    // Rollback optimistic update
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
-        
+
         const currentMembers = Array.isArray(g.members) ? g.members : [];
-        const nextMembers = currentMembers.filter(id => id !== meId);
-        
+        if (currentMembers.includes(meId)) {
+          return { ...g, is_member: true };
+        }
+
+        const nextMembers = [...currentMembers, meId];
+
         return {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: false,
+          is_member: true,
         };
       })
     );
 
-    try {
-      const result = await apiFetch(
-        `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
-        { method: "DELETE" }
-      );
-
-      await refreshGroupMembers(groupId);
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      setGroups(prev =>
-        prev.map(g => {
-          if (Number(g.id) !== Number(groupId)) return g;
-          
-          const currentMembers = Array.isArray(g.members) ? g.members : [];
-          if (currentMembers.includes(meId)) return g;
-          
-          const nextMembers = [...currentMembers, meId];
-          
-          return {
-            ...g,
-            members: nextMembers,
-            members_count: nextMembers.length,
-            is_member: true,
-          };
-        })
-      );
-      setLoginError('Failed to leave group');
-      throw error;
-    }
-  }, [currentUser, requireAuth, refreshGroupMembers]);
+    setLoginError('Failed to leave group');
+    throw error;
+  }
+}, [currentUser, requireAuth, refreshGroupMembers]);
 
   //===CREATE GROUP POST =====
             
