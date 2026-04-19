@@ -1402,17 +1402,27 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
   }, [activeGroup, getGroupShareLink]);
 
   // ========== EFFECTS ==========
-  useEffect(() => {
-    if (!initialGroupId) return;
-    const gid = parseInt(initialGroupId, 10);
-    if (Number.isNaN(gid)) return;
-    const group = safeGroups.find(g => g.id === gid);
-    if (group) { 
-      setActiveGroupId(group.id); 
-      setView('detail'); 
-      setGroupTab('Discussion'); 
-    }
-  }, [initialGroupId, safeGroups]);
+useEffect(() => {
+  if (!initialGroupId) return;
+  const gid = parseInt(initialGroupId, 10);
+  if (Number.isNaN(gid)) return;
+  const group = safeGroups.find(g => g.id === gid);
+  if (group) { 
+    setActiveGroupId(group.id); 
+    setView('detail'); 
+    setGroupTab('Discussion'); 
+    if (fetchGroupDetails) { 
+      fetchGroupDetails(group.id) 
+        .then((details) => { 
+          if (details?.group) setActiveGroupDetails(normalizeGroup(details.group)); 
+        }) 
+        .catch((error) => { 
+          console.error('Failed to fetch initial group details:', error); 
+        }); 
+    } 
+  }
+}, [initialGroupId, safeGroups, fetchGroupDetails]);
+
 
   useEffect(() => { activeGroupIdRef.current = activeGroupId; }, [activeGroupId]);
   
