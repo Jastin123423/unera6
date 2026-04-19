@@ -1567,12 +1567,22 @@ useEffect(() => {
     }
   }, [currentUser]);
 
-  const handleGroupClick = (group: Group) => { 
-    setActiveGroupId(group.id); 
-    setView('detail'); 
-    setGroupTab('Discussion'); 
-    window.scrollTo(0, 0); 
-  };
+const handleGroupClick = async (group: Group) => { 
+  setActiveGroupId(group.id); 
+  setView('detail'); 
+  setGroupTab('Discussion'); 
+  window.scrollTo(0, 0); 
+  if (fetchGroupDetails) { 
+    try { 
+      const details = await fetchGroupDetails(group.id); 
+      if (details?.group) { 
+        setActiveGroupDetails(normalizeGroup(details.group)); 
+      } 
+    } catch (error) { 
+      console.error('Failed to fetch group details:', error); 
+    } 
+  } 
+};
 
   const handleCreateGroupClick = () => {
     if (!currentUser) { 
