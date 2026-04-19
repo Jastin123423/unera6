@@ -1843,30 +1843,33 @@ const handleGroupClick = async (group: Group) => {
   }
 };
 
-
-  const handleLeaveGroup = async () => {
-    if (!activeGroup) return;
-    if (!currentUser) { alert('Please login to leave groups'); return; }
-    if (leaving) return;
-    if (!confirm('Are you sure you want to leave this group?')) return;
-    setLeaving(true);
-    try {
-      await onLeaveGroup(activeGroup.id);
-      setGroupPosts([]);
-      setGroupEvents([]);
-      postsLoadedRef.current = false;
-      eventsLoadedRef.current = false;
-      if (fetchGroupDetails) { 
-        const details = await fetchGroupDetails(activeGroup.id); 
-        if (details?.group) setActiveGroupId(prev => prev); 
-      }
-    } catch (error) { 
-      console.error('Failed to leave group:', error); 
-      alert('Failed to leave group. Please try again.'); 
-    } finally { 
-      setLeaving(false); 
+   const handleLeaveGroup = async () => {
+  if (!activeGroup) return;
+  if (!currentUser) { alert('Please login to leave groups'); return; }
+  if (leaving) return;
+  if (!confirm('Are you sure you want to leave this group?')) return;
+  setLeaving(true);
+  try {
+    await onLeaveGroup(activeGroup.id);
+    setGroupPosts([]);
+    setGroupEvents([]);
+    postsLoadedRef.current = false;
+    eventsLoadedRef.current = false;
+    if (fetchGroupDetails) { 
+      const details = await fetchGroupDetails(activeGroup.id); 
+      if (details?.group) { 
+        setActiveGroupDetails(normalizeGroup(details.group)); 
+      } else { 
+        setActiveGroupDetails(null); 
+      } 
     }
-  };
+  } catch (error) { 
+    console.error('Failed to leave group:', error); 
+    alert('Failed to leave group. Please try again.'); 
+  } finally { 
+    setLeaving(false); 
+  }
+}; 
 
   const handleOpenComments = (postId: number) => {
     const post = groupPosts.find(p => p.id === postId);
