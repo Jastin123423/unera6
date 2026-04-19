@@ -5637,60 +5637,85 @@ const data = await apiFetch('/api/reels', {
     }
   }, [currentUser, requireAuth]);
 
+        //===JOIN GROUP ===
+
   const joinGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Joining groups")) return;
-    if (!currentUser) return;
+  if (!requireAuth("Joining groups")) return;
+  if (!currentUser) return;
 
-    const meId = Number(currentUser.id);
+  const meId = Number(currentUser.id);
 
+  // Optimistic update
+  setGroups(prev =>
+    prev.map(g => {
+      if (Number(g.id) !== Number(groupId)) return g;
+
+      const currentMembers = Array.isArray(g.members) ? g.members : [];
+      if (currentMembers.includes(meId)) {
+        return { ...g, is_member: true };
+      }
+
+      const nextMembers = [...currentMembers, meId];
+
+      return {
+        ...g,
+        members: nextMembers,
+        members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
+        is_member: true,
+      };
+    })
+  );
+
+  try {
+    const result = await apiFetch("/api/group-members", {
+      method: "POST",
+      body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+    });
+
+    await refreshGroupMembers(groupId);
+
+    // extra safety: force member true even if backend member list response is incomplete
+    setGroups(prev =>
+      prev.map(g =>
+        Number(g.id) !== Number(groupId)
+          ? g
+          : {
+              ...g,
+              is_member: true,
+              members: Array.isArray(g.members)
+                ? (g.members.includes(meId) ? g.members : [...g.members, meId])
+                : [meId],
+              members_count: Math.max(Number(g.members_count || 0), 1),
+            }
+      )
+    );
+
+    return result;
+  } catch (error) {
+    console.error('Failed to join group:', error);
+
+    // Rollback optimistic update
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
-        
+
         const currentMembers = Array.isArray(g.members) ? g.members : [];
-        if (currentMembers.includes(meId)) return g;
-        
-        const nextMembers = [...currentMembers, meId];
-        
+        const nextMembers = currentMembers.filter(id => id !== meId);
+
         return {
           ...g,
           members: nextMembers,
           members_count: nextMembers.length,
-          is_member: true,
+          is_member: false,
         };
       })
     );
 
-    try {
-      const result = await apiFetch("/api/group-members", {
-        method: "POST",
-        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
-      });
+    setLoginError('Failed to join group');
+    throw error;
+  }
+}, [currentUser, requireAuth, refreshGroupMembers]);
 
-      await refreshGroupMembers(groupId);
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      setGroups(prev =>
-        prev.map(g => {
-          if (Number(g.id) !== Number(groupId)) return g;
-          
-          const currentMembers = Array.isArray(g.members) ? g.members : [];
-          const nextMembers = currentMembers.filter(id => id !== meId);
-          
-          return {
-            ...g,
-            members: nextMembers,
-            members_count: nextMembers.length,
-            is_member: false,
-          };
-        })
-      );
-      setLoginError('Failed to join group');
-      throw error;
-    }
-  }, [currentUser, requireAuth, refreshGroupMembers]);
 
   // Join from Groups You May Join
   const joinFromSuggestion = useCallback(async (groupId: number) => {
