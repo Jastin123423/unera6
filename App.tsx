@@ -5470,30 +5470,33 @@ const data = await apiFetch('/api/reels', {
   }, [currentUser, requireAuth, selectedUserId]);
 
   //====Refresh group members helper
-          
+
+
 const refreshGroupMembers = useCallback(async (groupId: number) => {
   try {
     const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
-    const members = safeArray(res?.members)
-      .map((m: any) => Number(m.user_id ?? m))
+    const members = safeArray((res as any)?.members)
+      .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
       .filter(Number.isFinite);
 
     const meId = currentUser?.id ? Number(currentUser.id) : 0;
 
-    setGroups(prev => prev.map(g => {
-      if (Number(g.id) !== Number(groupId)) return g;
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
 
-      const amMember =
-        !!meId &&
-        (Number(g.admin_id) === meId || members.includes(meId));
+        const amMember =
+          !!meId &&
+          (Number(g.admin_id) === meId || members.includes(meId));
 
-      return {
-        ...g,
-        members,
-        members_count: members.length,
-        is_member: amMember,
-      };
-    }));
+        return {
+          ...g,
+          members,
+          members_count: members.length,
+          is_member: amMember,
+        };
+      })
+    );
   } catch (error) {
     console.error('Failed to refresh group members:', error);
   }
@@ -5530,6 +5533,8 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
       : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
       : [];
+
+            
 setGroups(prev => {
   const byId = new Map(prev.map(g => [Number(g.id), g]));
 
