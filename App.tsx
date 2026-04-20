@@ -5533,8 +5533,6 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
       : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
       : [];
-
-
 setGroups(prev => {
   const byId = new Map(prev.map(g => [Number(g.id), g]));
 
@@ -5592,6 +5590,7 @@ setGroups(prev => {
     });
   });
 });
+
 
     setBrands(safeArray(b));
     
