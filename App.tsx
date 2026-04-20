@@ -5532,37 +5532,45 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
       : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
       : [];
-    
     setGroups(prev => {
-      const byId = new Map(prev.map(g => [Number(g.id), g]));
-      
-      return gList.map((ng: any) => {
-        const old = byId.get(Number(ng.id));
-        
-        const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
-        
-        const members = hasMembers ? ng.members : old?.members;
-        
-        const members_count = hasMembers 
-          ? ng.members.length 
-          : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0);
-        
-        const is_member = ng.is_member === true ? true : 
-                         ng.is_member === false ? false : 
-                         old?.is_member;
-        
-        const category = ng.category || old?.category || 'general';
-        
-        return normalizeGroup({
-          ...old,
-          ...ng,
-          members,
-          members_count,
-          is_member,
-          category,
-        });
-      });
+  const byId = new Map(prev.map(g => [Number(g.id), g]));
+
+  return gList.map((ng: any) => {
+    const old = byId.get(Number(ng.id));
+
+    const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
+    const members = hasMembers ? ng.members : old?.members;
+    const members_count = hasMembers
+      ? ng.members.length
+      : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0);
+
+    const rawIsMember = ng?.is_member ?? ng?.isMember;
+    const is_member =
+      rawIsMember === true ||
+      rawIsMember === 1 ||
+      rawIsMember === "1" ||
+      rawIsMember === "true"
+        ? true
+        : rawIsMember === false ||
+          rawIsMember === 0 ||
+          rawIsMember === "0" ||
+          rawIsMember === "false"
+        ? false
+        : old?.is_member;
+
+    const category = ng.category || old?.category || 'general';
+
+    return normalizeGroup({
+      ...old,
+      ...ng,
+      members,
+      members_count,
+      is_member,
+      category,
     });
+  });
+});
+
     
     setBrands(safeArray(b));
     
