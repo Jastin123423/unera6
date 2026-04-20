@@ -5517,7 +5517,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
     const prList =
       Array.isArray(prRaw) ? prRaw :
       Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :1
       Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
       Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
       [];
@@ -6050,31 +6050,40 @@ const leaveGroup = useCallback(async (groupId: number) => {
       console.error('Failed to update group settings:', error);
       throw error;
     }
-  }, [requireAuth, fetchOtherData]);
+   }, [requireAuth, fetchOtherData]);
 
-   const fetchGroupDetails = useCallback(async (groupId: number) => {
+    
+const fetchGroupDetails = useCallback(async (groupId: number) => {
   try {
-    const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+    const res = await apiFetch(`/api/groups?id=${Number(groupId)}&viewerId=${viewerId}`);
+
     const groupData = (res as any)?.group ?? res;
-    
-    // ✅ Extract member users if returned
-    const memberUsers = safeArray(groupData?.memberUsers || groupData?.members_details);
-    if (memberUsers.length) {
-      setUsers(prev => {
-        const map = new Map(prev.map(u => [u.id, u]));
-        memberUsers.forEach((u: User) => map.set(u.id, normalizeUser(u)));
-        return Array.from(map.values());
-      });
-    }
-    
+    const rawMembers = safeArray((res as any)?.members);
+
+    const normalizedMembers = rawMembers
+      .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+      .filter(Number.isFinite);
+
+    const normalizedGroup = normalizeGroup({
+      ...groupData,
+      members: normalizedMembers,
+      members_count:
+        typeof groupData?.members_count === "number"
+          ? groupData.members_count
+          : normalizedMembers.length,
+    });
+
     return {
-      group: normalizeGroup(groupData),
-      members: safeArray(groupData?.members || []),
+      group: normalizedGroup,
+      members: normalizedMembers,
     };
   } catch (error) {
+    console.error("Failed to fetch group details:", error);
     return { group: null, members: [] };
   }
-}, []);                   
+}, [currentUser]);
+                   
 
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     try {
