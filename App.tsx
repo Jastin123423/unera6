@@ -1555,7 +1555,7 @@ const normalizeGroup = (g: any): Group => {
     name,
     description,
     type,
-    category: (g?.category as any) || 'general',
+    category: (g?.category as any) || "general",
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
@@ -1566,7 +1566,7 @@ const normalizeGroup = (g: any): Group => {
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
     is_member: normalizedIsMember,
   } as any;
-};   
+};
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
