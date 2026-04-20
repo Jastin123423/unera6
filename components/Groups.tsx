@@ -1887,33 +1887,65 @@ const handleJoinGroup = async () => {
   }
 };
 
-   const handleLeaveGroup = async () => {
+const handleLeaveGroup = async () => {
   if (!activeGroup) return;
-  if (!currentUser) { alert('Please login to leave groups'); return; }
+  if (!currentUser) {
+    alert('Please login to leave groups');
+    return;
+  }
   if (leaving) return;
   if (!confirm('Are you sure you want to leave this group?')) return;
+
   setLeaving(true);
+
+  const meId = Number(currentUser.id);
+
   try {
     await onLeaveGroup(activeGroup.id);
+
+    // optimistic local update for all lists immediately
+    setLocalGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(activeGroup.id)) return g;
+
+        const members = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = members.filter(id => Number(id) !== meId);
+
+        return {
+          ...g,
+          is_member: false,
+          members: nextMembers,
+          members_count: nextMembers.length,
+        };
+      })
+    );
+
     setGroupPosts([]);
     setGroupEvents([]);
     postsLoadedRef.current = false;
     eventsLoadedRef.current = false;
-    if (fetchGroupDetails) { 
-      const details = await fetchGroupDetails(activeGroup.id); 
-      if (details?.group) { 
-        setActiveGroupDetails(normalizeGroup(details.group)); 
-      } else { 
-        setActiveGroupDetails(null); 
-      } 
+
+    if (fetchGroupDetails) {
+      const details = await fetchGroupDetails(activeGroup.id);
+      if (details?.group) {
+        const normalized = normalizeGroup(details.group);
+        setActiveGroupDetails(normalized);
+
+        setLocalGroups(prev =>
+          prev.map(g => Number(g.id) === Number(normalized.id) ? { ...g, ...normalized } : g)
+        );
+      } else {
+        setActiveGroupDetails(null);
+      }
     }
-  } catch (error) { 
-    console.error('Failed to leave group:', error); 
-    alert('Failed to leave group. Please try again.'); 
-  } finally { 
-    setLeaving(false); 
+  } catch (error) {
+    console.error('Failed to leave group:', error);
+    alert('Failed to leave group. Please try again.');
+  } finally {
+    setLeaving(false);
   }
-}; 
+};
+
 
   const handleOpenComments = (postId: number) => {
     const post = groupPosts.find(p => p.id === postId);
