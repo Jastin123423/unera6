@@ -1521,7 +1521,7 @@ const uploadGroupVideoBundle = async (file: File) => {
 // 🔧 Normalize groups
 // ============================================================================
 
-  const normalizeGroup = (g: any): Group => {
+const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
@@ -1535,7 +1535,6 @@ const uploadGroupVideoBundle = async (file: File) => {
           .filter(Number.isFinite);
 
   const rawIsMember = g?.is_member ?? g?.isMember;
-
   const normalizedIsMember =
     rawIsMember === true ||
     rawIsMember === 1 ||
@@ -1567,8 +1566,7 @@ const uploadGroupVideoBundle = async (file: File) => {
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
     is_member: normalizedIsMember,
   } as any;
-};    
-      
+};   
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
