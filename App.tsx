@@ -5530,30 +5530,31 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
       : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
       : [];
-
 setGroups(prev => {
   const byId = new Map(prev.map(g => [Number(g.id), g]));
-  const meId = currentUser?.id ? Number(currentUser.id) : 0;
 
   return gList.map((ng: any) => {
     const old = byId.get(Number(ng.id));
 
-    const rawMembers = Array.isArray(ng?.members)
+    const hasMembers =
+      ng?.members !== undefined &&
+      ng?.members !== null &&
+      Array.isArray(ng.members);
+
+    const members = hasMembers
       ? ng.members
           .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
           .filter(Number.isFinite)
-      : undefined;
+      : old?.members;
 
-    const hasIncomingMembers = Array.isArray(rawMembers);
-    const members = hasIncomingMembers ? rawMembers : old?.members;
-
-    const incomingCount = hasIncomingMembers
-      ? rawMembers.length
-      : safeNumber(ng?.members_count, NaN);
-
-    const members_count = Number.isFinite(incomingCount)
-      ? incomingCount
-      : safeNumber(old?.members_count ?? old?.members?.length ?? 0);
+    const members_count = hasMembers
+      ? members.length
+      : safeNumber(
+          ng?.members_count ??
+          old?.members_count ??
+          old?.members?.length ??
+          0
+        );
 
     const rawIsMember = ng?.is_member ?? ng?.isMember;
     const parsedIncomingIsMember =
@@ -5569,28 +5570,10 @@ setGroups(prev => {
         ? false
         : undefined;
 
-    const inferredFromMembers =
-      !!meId && Array.isArray(members)
-        ? members.includes(meId)
-        : undefined;
-
-    const inferredFromCountOnly =
-      !!meId &&
-      old?.is_member === true &&
-      parsedIncomingIsMember === undefined &&
-      !hasIncomingMembers &&
-      safeNumber(ng?.members_count, 0) >= safeNumber(old?.members_count, 0)
-        ? true
-        : undefined;
-
     const is_member =
       parsedIncomingIsMember !== undefined
         ? parsedIncomingIsMember
-        : inferredFromMembers !== undefined
-        ? inferredFromMembers
-        : inferredFromCountOnly !== undefined
-        ? inferredFromCountOnly
-        : old?.is_member;
+        : old?.is_member ?? false;
 
     const category = ng?.category || old?.category || "general";
 
@@ -5604,6 +5587,9 @@ setGroups(prev => {
     });
   });
 });
+
+            
+        
     
     setBrands(safeArray(b));
     
