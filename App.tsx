@@ -5530,8 +5530,8 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
       : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
       : [];
- 
-  setGroups(prev => {
+
+setGroups(prev => {
   const byId = new Map(prev.map(g => [Number(g.id), g]));
   const meId = currentUser?.id ? Number(currentUser.id) : 0;
 
@@ -5539,16 +5539,17 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
     const old = byId.get(Number(ng.id));
 
     const rawMembers = Array.isArray(ng?.members)
-      ? ng.members.map((m: any) => Number(m?.user_id ?? m?.id ?? m)).filter(Number.isFinite)
+      ? ng.members
+          .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+          .filter(Number.isFinite)
       : undefined;
 
     const hasIncomingMembers = Array.isArray(rawMembers);
     const members = hasIncomingMembers ? rawMembers : old?.members;
 
-    const incomingCount =
-      hasIncomingMembers
-        ? rawMembers.length
-        : safeNumber(ng?.members_count, NaN);
+    const incomingCount = hasIncomingMembers
+      ? rawMembers.length
+      : safeNumber(ng?.members_count, NaN);
 
     const members_count = Number.isFinite(incomingCount)
       ? incomingCount
@@ -5569,7 +5570,9 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
         : undefined;
 
     const inferredFromMembers =
-      !!meId && Array.isArray(members) ? members.includes(meId) : undefined;
+      !!meId && Array.isArray(members)
+        ? members.includes(meId)
+        : undefined;
 
     const inferredFromCountOnly =
       !!meId &&
@@ -5589,7 +5592,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
         ? inferredFromCountOnly
         : old?.is_member;
 
-    const category = ng.category || old?.category || 'general';
+    const category = ng?.category || old?.category || "general";
 
     return normalizeGroup({
       ...old,
@@ -5600,8 +5603,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
       category,
     });
   });
-});          
-                    
+});
     
     setBrands(safeArray(b));
     
