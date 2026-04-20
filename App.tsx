@@ -6052,7 +6052,6 @@ const leaveGroup = useCallback(async (groupId: number) => {
     }
    }, [requireAuth, fetchOtherData]);
 
-    
 const fetchGroupDetails = useCallback(async (groupId: number) => {
   try {
     const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
