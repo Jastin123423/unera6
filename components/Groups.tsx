@@ -1830,28 +1830,60 @@ const handleGroupClick = async (group: Group) => {
     }
   };
 
-  const handleJoinGroup = async () => {
+const handleJoinGroup = async () => {
   if (!activeGroup) return;
-  if (!currentUser) { alert('Please login to join groups'); return; }
+  if (!currentUser) {
+    alert('Please login to join groups');
+    return;
+  }
   if (joining) return;
+
   setJoining(true);
+
+  const meId = Number(currentUser.id);
+
   try {
     await onJoinGroup(activeGroup.id);
+
+    // optimistic local update for all lists immediately
+    setLocalGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(activeGroup.id)) return g;
+
+        const members = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = members.includes(meId) ? members : [...members, meId];
+
+        return {
+          ...g,
+          is_member: true,
+          members: nextMembers,
+          members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
+        };
+      })
+    );
+
     postsLoadedRef.current = false;
     eventsLoadedRef.current = false;
-    if (fetchGroupDetails) { 
-      const details = await fetchGroupDetails(activeGroup.id); 
-      if (details?.group) { 
-        setActiveGroupDetails(normalizeGroup(details.group)); 
-      } 
+
+    if (fetchGroupDetails) {
+      const details = await fetchGroupDetails(activeGroup.id);
+      if (details?.group) {
+        const normalized = normalizeGroup(details.group);
+        setActiveGroupDetails(normalized);
+
+        setLocalGroups(prev =>
+          prev.map(g => Number(g.id) === Number(normalized.id) ? { ...g, ...normalized } : g)
+        );
+      }
     }
+
     await loadGroupPosts(true);
     if (groupTab === 'Events') await loadGroupEvents(true);
-  } catch (error) { 
-    console.error('Failed to join group:', error); 
-    alert('Failed to join group. Please try again.'); 
-  } finally { 
-    setJoining(false); 
+  } catch (error) {
+    console.error('Failed to join group:', error);
+    alert('Failed to join group. Please try again.');
+  } finally {
+    setJoining(false);
   }
 };
 
