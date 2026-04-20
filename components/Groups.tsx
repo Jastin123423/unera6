@@ -961,7 +961,8 @@ const GroupPost: React.FC<any> = (props) => {
   }
 };
 //===NORMALIZE GROUP ====
-function normalizeGroup(raw: any): Group {
+
+  function normalizeGroup(raw: any): Group {
   let members: number[] | undefined = undefined;
 
   if (raw?.members !== undefined && raw?.members !== null) {
@@ -998,14 +999,17 @@ function normalizeGroup(raw: any): Group {
   const posts = Array.isArray(raw?.posts) ? raw.posts : [];
   const events = Array.isArray(raw?.events) ? raw.events : [];
 
+  const rawIsMember = raw?.is_member ?? raw?.isMember;
   const normalizedIsMember =
-    raw?.is_member === true || raw?.is_member === 1
+    rawIsMember === true ||
+    rawIsMember === 1 ||
+    rawIsMember === "1" ||
+    rawIsMember === "true"
       ? true
-      : raw?.is_member === false || raw?.is_member === 0
-      ? false
-      : raw?.isMember === true || raw?.isMember === 1
-      ? true
-      : raw?.isMember === false || raw?.isMember === 0
+      : rawIsMember === false ||
+        rawIsMember === 0 ||
+        rawIsMember === "0" ||
+        rawIsMember === "false"
       ? false
       : undefined;
 
@@ -1028,8 +1032,7 @@ function normalizeGroup(raw: any): Group {
     is_member: normalizedIsMember,
   } as Group;
 }
-
-
+                                          
 function normalizePost(post: any): PostType {
   const mediaUrl = post?.media_url ?? post?.mediaUrl ?? null;
   const mediaType = post?.media_type ?? post?.mediaType ?? null;
