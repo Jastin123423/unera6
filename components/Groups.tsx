@@ -1308,6 +1308,7 @@ const [decliningInviteId, setDecliningInviteId] = useState<number | null>(null);
 const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
 const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(null);
  const [activeGroupDetails, setActiveGroupDetails] = useState<Group | null>(null);
+ const [localGroups, setLocalGroups] = useState<Group[]>([]);
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
@@ -1550,6 +1551,10 @@ useEffect(() => {
   }
 }, [fbTab, fetchGroupInvites, groupInvites.length]);
 
+    useEffect(() => {
+  setLocalGroups((groups || []).map(normalizeGroup));
+}, [groups]);
+
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
     if (!currentUser) return;
@@ -1576,22 +1581,29 @@ useEffect(() => {
       console.error('Failed to fetch updated post:', error); 
     }
   }, [currentUser]);
+    
 
-const handleGroupClick = async (group: Group) => { 
-  setActiveGroupId(group.id); 
-  setView('detail'); 
-  setGroupTab('Discussion'); 
-  window.scrollTo(0, 0); 
-  if (fetchGroupDetails) { 
-    try { 
-      const details = await fetchGroupDetails(group.id); 
-      if (details?.group) { 
-        setActiveGroupDetails(normalizeGroup(details.group)); 
-      } 
-    } catch (error) { 
-      console.error('Failed to fetch group details:', error); 
-    } 
-  } 
+const handleGroupClick = async (group: Group) => {
+  setActiveGroupId(group.id);
+  setView('detail');
+  setGroupTab('Discussion');
+  window.scrollTo(0, 0);
+
+  if (fetchGroupDetails) {
+    try {
+      const details = await fetchGroupDetails(group.id);
+      if (details?.group) {
+        const normalized = normalizeGroup(details.group);
+        setActiveGroupDetails(normalized);
+
+        setLocalGroups(prev =>
+          prev.map(g => Number(g.id) === Number(normalized.id) ? { ...g, ...normalized } : g)
+        );
+      }
+    } catch (error) {
+      console.error('Failed to fetch group details:', error);
+    }
+  }
 };
 
   const handleCreateGroupClick = () => {
