@@ -1312,7 +1312,8 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
-  const safeGroups = useMemo(() => (groups || []).map(normalizeGroup), [groups]);
+
+const safeGroups = useMemo(() => localGroups.map(normalizeGroup), [localGroups]);
  const activeGroup = useMemo(() => {
   const base = safeGroups.find(g => g.id === activeGroupId) || null;
   const details = activeGroupDetails && Number(activeGroupDetails.id) === Number(activeGroupId) ? activeGroupDetails : null;
