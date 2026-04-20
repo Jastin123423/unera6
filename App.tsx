@@ -1520,16 +1520,34 @@ const uploadGroupVideoBundle = async (file: File) => {
 // ============================================================================
 // 🔧 Normalize groups
 // ============================================================================
-const normalizeGroup = (g: any): Group => {
+
+  const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
-  
+
   const members =
     g?.members === undefined || g?.members === null
       ? undefined
-      : safeArray(g.members).map(Number).filter(Number.isFinite);
+      : safeArray(g.members)
+          .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+          .filter(Number.isFinite);
+
+  const rawIsMember = g?.is_member ?? g?.isMember;
+
+  const normalizedIsMember =
+    rawIsMember === true ||
+    rawIsMember === 1 ||
+    rawIsMember === "1" ||
+    rawIsMember === "true"
+      ? true
+      : rawIsMember === false ||
+        rawIsMember === 0 ||
+        rawIsMember === "0" ||
+        rawIsMember === "false"
+      ? false
+      : undefined;
 
   return {
     ...g,
@@ -1547,11 +1565,10 @@ const normalizeGroup = (g: any): Group => {
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
-    is_member: g?.is_member === true ? true : 
-               g?.is_member === false ? false : 
-               undefined,
+    is_member: normalizedIsMember,
   } as any;
-};
+};    
+      
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
