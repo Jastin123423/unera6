@@ -5809,7 +5809,7 @@ const leaveGroup = useCallback(async (groupId: number) => {
 
   const meId = Number(currentUser.id);
 
-  // Optimistic update
+  // optimistic update in main groups state
   setGroups(prev =>
     prev.map(g => {
       if (Number(g.id) !== Number(groupId)) return g;
@@ -5834,43 +5834,41 @@ const leaveGroup = useCallback(async (groupId: number) => {
 
     await refreshGroupMembers(groupId);
 
+    // keep leave state durable in main groups state
     setGroups(prev =>
-      prev.map(g =>
-        Number(g.id) !== Number(groupId)
-          ? g
-          : {
-              ...g,
-              is_member: false,
-              members: Array.isArray(g.members)
-                ? g.members.filter(id => id !== meId)
-                : [],
-              members_count: Array.isArray(g.members)
-                ? g.members.filter(id => id !== meId).length
-                : 0,
-            }
-      )
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.filter(id => id !== meId);
+
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: nextMembers.length,
+          is_member: false,
+        };
+      })
     );
 
     return result;
   } catch (error) {
     console.error('Failed to leave group:', error);
 
-    // Rollback optimistic update
+    // rollback
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
 
         const currentMembers = Array.isArray(g.members) ? g.members : [];
-        if (currentMembers.includes(meId)) {
-          return { ...g, is_member: true };
-        }
-
-        const nextMembers = [...currentMembers, meId];
+        const nextMembers = currentMembers.includes(meId)
+          ? currentMembers
+          : [...currentMembers, meId];
 
         return {
           ...g,
           members: nextMembers,
-          members_count: nextMembers.length,
+          members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
           is_member: true,
         };
       })
@@ -5880,7 +5878,7 @@ const leaveGroup = useCallback(async (groupId: number) => {
     throw error;
   }
 }, [currentUser, requireAuth, refreshGroupMembers]);
-
+    
   //===CREATE GROUP POST =====
             
  const createGroupPost = useCallback(async (
