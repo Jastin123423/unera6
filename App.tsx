@@ -5696,24 +5696,22 @@ setGroups(prev => {
   }, [currentUser, requireAuth]);
 
         //===JOIN GROUP ===
-
-  const joinGroup = useCallback(async (groupId: number) => {
+            
+const joinGroup = useCallback(async (groupId: number) => {
   if (!requireAuth("Joining groups")) return;
   if (!currentUser) return;
 
   const meId = Number(currentUser.id);
 
-  // Optimistic update
+  // optimistic update in main groups state
   setGroups(prev =>
     prev.map(g => {
       if (Number(g.id) !== Number(groupId)) return g;
 
       const currentMembers = Array.isArray(g.members) ? g.members : [];
-      if (currentMembers.includes(meId)) {
-        return { ...g, is_member: true };
-      }
-
-      const nextMembers = [...currentMembers, meId];
+      const nextMembers = currentMembers.includes(meId)
+        ? currentMembers
+        : [...currentMembers, meId];
 
       return {
         ...g,
@@ -5727,32 +5725,40 @@ setGroups(prev => {
   try {
     const result = await apiFetch("/api/group-members", {
       method: "POST",
-      body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        user_id: meId,
+        role: "member",
+      }),
     });
 
+    // hard refresh members after join
     await refreshGroupMembers(groupId);
 
-    // extra safety: force member true even if backend member list response is incomplete
+    // keep joined state durable in main groups state
     setGroups(prev =>
-      prev.map(g =>
-        Number(g.id) !== Number(groupId)
-          ? g
-          : {
-              ...g,
-              is_member: true,
-              members: Array.isArray(g.members)
-                ? (g.members.includes(meId) ? g.members : [...g.members, meId])
-                : [meId],
-              members_count: Math.max(Number(g.members_count || 0), 1),
-            }
-      )
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.includes(meId)
+          ? currentMembers
+          : [...currentMembers, meId];
+
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
+          is_member: true,
+        };
+      })
     );
 
     return result;
   } catch (error) {
     console.error('Failed to join group:', error);
 
-    // Rollback optimistic update
+    // rollback
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
