@@ -5502,7 +5502,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
   }
 }, [currentUser]);
             
-  //===fetch Group for viewers=
+  //===fetch Group for viewers====
 
 const fetchGroupsForViewer = useCallback(async () => {
   const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
@@ -5578,7 +5578,7 @@ const fetchGroupsForViewer = useCallback(async () => {
   }
 }, [currentUser]);
                     
-//=====fetch otherdata==÷
+//=====fetch otherdata==
 
 const fetchOtherData = useCallback(async () => {
   if (otherDataInFlightRef.current) return;
@@ -5613,9 +5613,7 @@ const fetchOtherData = useCallback(async () => {
     otherDataInFlightRef.current = false;
   }
 }, [fetchEvents]);
-
-  
-
+            
 
     setBrands(safeArray(b));
     
