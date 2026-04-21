@@ -1739,25 +1739,15 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
   }));
 
   try {
-    console.log('Uploading group image...', {
-      groupId: activeGroup.id,
-      type,
-      fileName: file.name,
-      size: file.size,
-    });
-
     const result = await onUpdateGroupImage(activeGroup.id, type, file);
-    console.log('Upload result:', result);
 
     const finalUrl =
       typeof result === 'string'
         ? result
-        : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
-
-    console.log('Resolved final URL:', finalUrl);
+        : result?.cover_image || result?.profile_image || result?.image_url || result?.url || result?.group?.cover_image || result?.group?.profile_image || null;
 
     if (!finalUrl) {
-      throw new Error('No final image URL returned');
+      throw new Error('No image URL returned after upload');
     }
 
     setGroupImageOverrides(prev => ({
@@ -1770,16 +1760,13 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
 
     if (fetchGroupDetails) {
       const details = await fetchGroupDetails(activeGroup.id);
-      console.log('Fetched updated group details:', details);
       if (details?.group) {
         setActiveGroupDetails(normalizeGroup(details.group));
       }
     }
 
     URL.revokeObjectURL(previewUrl);
-  } catch (error) {
-    console.error('Failed to update group image:', error);
-
+  } catch (error: any) {
     setGroupImageOverrides(prev => {
       const next = { ...prev };
       const current = { ...(next[activeGroup.id] || {}) };
@@ -1790,16 +1777,21 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
     });
 
     URL.revokeObjectURL(previewUrl);
-    alert('Failed to update image. Please try again.');
+
+    alert(
+      `Failed to update image\n\n${
+        error?.message ||
+        error?.error ||
+        (typeof error === 'string' ? error : JSON.stringify(error))
+      }`
+    );
   } finally {
     e.target.value = '';
   }
 };
 
 
-
-    
-                                                         
+                                                      
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
     if (e.target.files) setPostFiles(Array.from(e.target.files)); 
