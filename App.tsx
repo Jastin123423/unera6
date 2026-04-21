@@ -5591,6 +5591,85 @@ setGroups(prev => {
   });
 });
 
+const fetchGroupsForViewer = useCallback(async () => {
+  const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+
+  try {
+    const g = await apiFetch(`/api/groups?viewerId=${viewerId}`).catch(() => []);
+    const gRaw = g;
+    const gList = Array.isArray(gRaw)
+      ? gRaw
+      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
+      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
+      : [];
+
+    setGroups(prev => {
+      const byId = new Map(prev.map(g => [Number(g.id), g]));
+
+      return gList.map((ng: any) => {
+        const old = byId.get(Number(ng.id));
+
+        const hasMembers =
+          ng?.members !== undefined &&
+          ng?.members !== null &&
+          Array.isArray(ng.members);
+
+        const members = hasMembers
+          ? ng.members
+              .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+              .filter(Number.isFinite)
+          : old?.members;
+
+        const members_count = hasMembers
+          ? members.length
+          : safeNumber(
+              ng?.members_count ??
+              old?.members_count ??
+              old?.members?.length ??
+              0
+            );
+
+        const rawIsMember = ng?.is_member ?? ng?.isMember;
+        const parsedIncomingIsMember =
+          rawIsMember === true ||
+          rawIsMember === 1 ||
+          rawIsMember === "1" ||
+          rawIsMember === "true"
+            ? true
+            : rawIsMember === false ||
+              rawIsMember === 0 ||
+              rawIsMember === "0" ||
+              rawIsMember === "false"
+            ? false
+            : undefined;
+
+        const is_member =
+          parsedIncomingIsMember !== undefined
+            ? parsedIncomingIsMember
+            : old?.is_member ?? false;
+
+        const category = ng?.category || old?.category || "general";
+
+        return normalizeGroup({
+          ...old,
+          ...ng,
+          members,
+          members_count,
+          is_member,
+          category,
+        });
+      });
+    });
+  } catch (error) {
+    console.error("Failed to fetch groups for viewer:", error);
+  }
+}, [currentUser]);
+
+
+
+
+    
+
 
     setBrands(safeArray(b));
     
