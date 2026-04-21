@@ -5502,9 +5502,9 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
   }
 }, [currentUser]);
             
-  //===fetch Group for viewerS==
-            
-    const fetchGroupsForViewer = useCallback(async () => {
+  //===fetch Group for viewers=
+
+const fetchGroupsForViewer = useCallback(async () => {
   const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
 
   try {
@@ -5577,6 +5577,8 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
     console.error("Failed to fetch groups for viewer:", error);
   }
 }, [currentUser]);
+                    
+//=====fetch otherdata==÷
 
 const fetchOtherData = useCallback(async () => {
   if (otherDataInFlightRef.current) return;
