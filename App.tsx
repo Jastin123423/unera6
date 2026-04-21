@@ -6217,6 +6217,8 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
     }
   }, [currentUser, requireAuth]);
 
+    //===REMOVE GROUP MEMBER =====
+
   const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
   if (!requireAuth('Removing group members')) return;
   if (!currentUser) return;
@@ -6232,7 +6234,20 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
   }
 }, [currentUser, requireAuth]);
     
+//====MAKE MODERATOR ===
+    
+const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!currentUser) return;
 
+  return await apiFetch(`/api/group-members?action=make-moderator`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(memberId),
+      actor_id: Number(currentUser.id),
+    }),
+  });
+}, [currentUser]);
     
 const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
   if (!requireAuth("Managing group members")) return;
@@ -6436,20 +6451,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
   }
 }, [currentUser, requireAuth]);
 
-    //====MAKE MODERATOR ===
 
-    const makeModerator = useCallback(async (groupId: number, memberId: number) => {
-  if (!currentUser) return;
-
-  return await apiFetch(`/api/group-members?action=make-moderator`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(memberId),
-      actor_id: Number(currentUser.id),
-    }),
-  });
-}, [currentUser]);
 
 
   const fetchData = useCallback(
