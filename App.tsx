@@ -6217,7 +6217,7 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
     }
   }, [currentUser, requireAuth]);
 
-    //===REMOVE GROUP MEMBER/DISABLE POSTING/MODERATOR=====
+    //===REMOVE GROUP MEMBER- DISABLE POSTING-MODERATOR=====
 
 const toggleMemberPosting = useCallback(async (groupId: number, memberId: number, disabled: boolean) => {
   if (!currentUser) throw new Error("You must be logged in");
