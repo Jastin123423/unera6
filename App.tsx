@@ -6436,6 +6436,27 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
   }
 }, [currentUser, requireAuth]);
 
+    //====MAKE MODERATOR ===
+
+    const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!requireAuth('Making moderator')) return;
+  if (!currentUser) return;
+
+  try {
+    return await apiFetch(`/api/group-members/${Number(groupId)}/make-moderator`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        user_id: Number(memberId),
+        actor_id: Number(currentUser.id),
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to make moderator:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+
+
   const fetchData = useCallback(
     async (viewer: User | null) => {
       await Promise.all([
@@ -8853,6 +8874,7 @@ return (
               onViewImage={setFullScreenImage}
               onVideoClick={handleVideoClick}
               onAcceptGroupInvite={acceptGroupInvite}
+              onMakeModerator={makeModerator}
               onDeclineGroupInvite={declineGroupInvite}
               initialGroupId={null}
               onApplyToJob={async (postId: number, applicationData?: any) => {
