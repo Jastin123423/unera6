@@ -6217,46 +6217,48 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
     }
   }, [currentUser, requireAuth]);
 
-    //===REMOVE GROUP MEMBER =====
-    
-const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
-  if (!requireAuth('Removing group members')) return;
-  if (!currentUser) return;
+    //===REMOVE GROUP MEMBER/DISABLE POSTING/MODERATOR=====
 
-  try {
-    return await apiFetch(
-      `/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}&actor_id=${Number(currentUser.id)}`,
-      { method: 'DELETE' }
-    );
-  } catch (error) {
-    console.error('Failed to remove group member:', error);
-    throw error;
-  }
-}, [currentUser, requireAuth]);
-    
-//====MAKE MODERATOR ===  
-
-   const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+const toggleMemberPosting = useCallback(async (groupId: number, memberId: number, disabled: boolean) => {
   if (!currentUser) throw new Error("You must be logged in");
 
-  try {
-    const res = await apiFetch(`/api/group-members?action=make-moderator`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        group_id: Number(groupId),
-        user_id: Number(memberId),
-        actor_id: Number(currentUser.id),
-      }),
-    });
+  return await apiFetch(`/api/group-members?action=toggle-posting`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(memberId),
+      actor_id: Number(currentUser.id),
+      disabled,
+    }),
+  });
+}, [currentUser]);
 
-    console.log("makeModerator success:", res);
-    return res;
-  } catch (error: any) {
-    console.error("makeModerator failed:", error);
-    throw error;
-  }
-}, [currentUser]); 
-  
+const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!currentUser) throw new Error("You must be logged in");
+
+  return await apiFetch(`/api/group-members?action=make-moderator`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(memberId),
+      actor_id: Number(currentUser.id),
+    }),
+  });
+}, [currentUser]);
+
+const removeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!currentUser) throw new Error("You must be logged in");
+
+  return await apiFetch(`/api/group-members?action=remove-moderator`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(memberId),
+      actor_id: Number(currentUser.id),
+    }),
+  });
+}, [currentUser]);
+
     
 const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
   if (!requireAuth("Managing group members")) return;
