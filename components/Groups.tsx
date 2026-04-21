@@ -3002,8 +3002,7 @@ return (
           )}
           
           {/* Members Tab */}
-
-       {groupTab === 'Members' && (
+      {groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
@@ -3018,16 +3017,19 @@ return (
 
     <div className="p-2 space-y-1">
       {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
-        const member = users.find(u => Number(u.id) === Number(memberId));
-        if (!member) return null;
+        const rawMember = users.find(u => Number(u.id) === Number(memberId));
+        if (!rawMember) return null;
+
+        const override = memberMetaOverrides[Number(memberId)] || {};
+        const member: any = { ...rawMember, ...override };
 
         const isOwner = Number(memberId) === Number(activeGroup.admin_id);
         const isSelf = Number(memberId) === Number(currentUser?.id);
         const isRemoving = removingMemberId === memberId;
         const isDisabling = disablePostingUserId === memberId;
         const menuOpen = memberMenuOpenId === memberId;
-        const isModerator = (member as any)?.group_role === 'moderator';
-        const postingDisabled = !!(member as any)?.posting_disabled;
+        const isModerator = member.group_role === 'moderator';
+        const postingDisabled = !!member.posting_disabled;
 
         return (
           <div
@@ -3097,6 +3099,7 @@ return (
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
+
                           if (!onToggleMemberPosting) {
                             alert('Posting handler is not connected');
                             return;
@@ -3111,13 +3114,13 @@ return (
                           try {
                             await onToggleMemberPosting(Number(activeGroup.id), Number(memberId), nextDisabled);
 
-                            setUsers(prev =>
-                              prev.map(u =>
-                                Number(u.id) === Number(memberId)
-                                  ? { ...u, posting_disabled: nextDisabled }
-                                  : u
-                              )
-                            );
+                            setMemberMetaOverrides(prev => ({
+                              ...prev,
+                              [Number(memberId)]: {
+                                ...(prev[Number(memberId)] || {}),
+                                posting_disabled: nextDisabled,
+                              },
+                            }));
 
                             setMemberMenuOpenId(null);
                           } catch (err: any) {
@@ -3155,13 +3158,13 @@ return (
 
                               await onRemoveModerator(Number(activeGroup.id), Number(memberId));
 
-                              setUsers(prev =>
-                                prev.map(u =>
-                                  Number(u.id) === Number(memberId)
-                                    ? { ...u, group_role: 'member' }
-                                    : u
-                                )
-                              );
+                              setMemberMetaOverrides(prev => ({
+                                ...prev,
+                                [Number(memberId)]: {
+                                  ...(prev[Number(memberId)] || {}),
+                                  group_role: 'member',
+                                },
+                              }));
                             } else {
                               if (!onMakeModerator) {
                                 alert('Make moderator handler is not connected');
@@ -3172,13 +3175,13 @@ return (
 
                               await onMakeModerator(Number(activeGroup.id), Number(memberId));
 
-                              setUsers(prev =>
-                                prev.map(u =>
-                                  Number(u.id) === Number(memberId)
-                                    ? { ...u, group_role: 'moderator' }
-                                    : u
-                                )
-                              );
+                              setMemberMetaOverrides(prev => ({
+                                ...prev,
+                                [Number(memberId)]: {
+                                  ...(prev[Number(memberId)] || {}),
+                                  group_role: 'moderator',
+                                },
+                              }));
                             }
 
                             setMemberMenuOpenId(null);
@@ -3256,7 +3259,9 @@ return (
       })}
     </div>
   </div>
-)}                                                                   
+)}
+                            
+                                                                                               
     </div>
         
         {/* Create Post Modal */}
