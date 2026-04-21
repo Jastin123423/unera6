@@ -2,6 +2,8 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { cors, ok, bad, server, json } from "./_cors";
 
+type Env = { DB: D1Database };
+
 const safeString = (v: any) => (typeof v === "string" ? v : String(v ?? ""));
 const toNum = (v: any, fallback = 0) => {
   const n = Number(v);
@@ -17,7 +19,7 @@ const normalizeCategory = (v: any) => {
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
-export const onRequestPost: PagesFunction = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const body = await request.json().catch(() => ({} as any));
 
@@ -91,7 +93,101 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   }
 };
 
-export const onRequestGet: PagesFunction = async ({ request, env }) => {
+export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const groupId = toNum(url.searchParams.get("id"), 0);
+    if (!groupId) return bad("id is required");
+
+    const body = await request.json().catch(() => ({} as any));
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (body.name !== undefined) {
+      const name = safeString(body.name).trim();
+      if (!name) return bad("name cannot be empty");
+      updates.push("name = ?");
+      values.push(name);
+    }
+
+    if (body.description !== undefined) {
+      updates.push("description = ?");
+      values.push(safeString(body.description).trim());
+    }
+
+    if (body.type !== undefined) {
+      const type = safeString(body.type).trim().toLowerCase();
+      if (!(type === "public" || type === "private")) {
+        return bad("type must be public or private");
+      }
+      updates.push("type = ?");
+      values.push(type);
+    }
+
+    if (body.cover_image !== undefined) {
+      updates.push("cover_image = ?");
+      values.push(body.cover_image ? safeString(body.cover_image).trim() : null);
+    }
+
+    if (body.profile_image !== undefined) {
+      updates.push("profile_image = ?");
+      values.push(body.profile_image ? safeString(body.profile_image).trim() : null);
+    }
+
+    if (body.category !== undefined) {
+      updates.push("category = ?");
+      values.push(normalizeCategory(body.category));
+    }
+
+    if (body.member_posting_allowed !== undefined) {
+      updates.push("member_posting_allowed = ?");
+      values.push(body.member_posting_allowed ? 1 : 0);
+    }
+
+    if (updates.length === 0) {
+      return bad("No valid fields to update");
+    }
+
+    // only keep this if your groups table has updated_at
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+
+    const result = await env.DB.prepare(
+      `UPDATE groups
+       SET ${updates.join(", ")}
+       WHERE id = ?`
+    )
+      .bind(...values, groupId)
+      .run();
+
+    if (!result.success) {
+      return server("Failed to update group");
+    }
+
+    const updated = await env.DB.prepare(
+      `SELECT g.*,
+              (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id) AS members_count
+       FROM groups g
+       WHERE g.id = ?
+       LIMIT 1`
+    )
+      .bind(groupId)
+      .first();
+
+    if (!updated) return bad("Group not found", 404);
+
+    (updated as any).category = normalizeCategory((updated as any).category);
+
+    return ok({
+      success: true,
+      group: updated,
+    });
+  } catch (e: any) {
+    return server(e?.message || "Failed to update group");
+  }
+};
+
+export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
     const groupId = toNum(url.searchParams.get("id"), 0);
@@ -181,5 +277,37 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     return json(fixed);
   } catch (e: any) {
     return server(e?.message || "Failed to fetch groups");
+  }
+};
+
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const groupId = toNum(url.searchParams.get("id"), 0);
+    if (!groupId) return bad("id is required");
+
+    const existing = await env.DB.prepare(
+      `SELECT id FROM groups WHERE id = ? LIMIT 1`
+    )
+      .bind(groupId)
+      .first();
+
+    if (!existing) return bad("Group not found", 404);
+
+    await env.DB.prepare(`DELETE FROM group_members WHERE group_id = ?`)
+      .bind(groupId)
+      .run();
+
+    await env.DB.prepare(`DELETE FROM groups WHERE id = ?`)
+      .bind(groupId)
+      .run();
+
+    return ok({
+      success: true,
+      deleted: true,
+      group_id: groupId,
+    });
+  } catch (e: any) {
+    return server(e?.message || "Failed to delete group");
   }
 };
