@@ -27,11 +27,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const role = String(body.role || "member").trim().toLowerCase();
 
     if (!group_id || !user_id) return bad("group_id and user_id are required");
-    if (!(role === "admin" || role === "member")) {
-      return bad("role must be admin or member");
+    if (!(role === "admin" || role === "member" || role === "moderator")) {
+      return bad("role must be admin, moderator or member");
     }
 
-    // Ensure group exists and get admin
     const group = await env.DB.prepare(
       `SELECT id, admin_id
        FROM groups
@@ -43,7 +42,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!group) return bad("Group not found", 404);
 
-    // Check if already a member before insert
     const existing = await env.DB.prepare(
       `SELECT 1
        FROM group_members
@@ -53,7 +51,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(group_id, user_id)
       .first();
 
-    // Idempotent join
     await env.DB.prepare(
       `INSERT OR IGNORE INTO group_members (group_id, user_id, role)
        VALUES (?, ?, ?)`
@@ -61,9 +58,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .bind(group_id, user_id, role)
       .run();
 
-    // Only increment count and notify if this was a real new join
     if (!existing) {
-      // keep groups.members_count in sync
       await env.DB.prepare(
         `UPDATE groups
          SET members_count = COALESCE(members_count, 0) + 1
@@ -112,17 +107,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const { results } = await env.DB.prepare(
       `SELECT
          gm.user_id,
-         gm.role,
+         gm.role AS group_role,
          gm.joined_at,
          u.username,
          u.name,
          u.profile_image_url,
          u.is_verified,
-         u.role AS user_role
+         u.role AS user_role,
+         COALESCE(u.posting_disabled, 0) AS posting_disabled
        FROM group_members gm
        JOIN users u ON u.id = gm.user_id
        WHERE gm.group_id = ?
-       ORDER BY gm.joined_at DESC`
+       ORDER BY
+         CASE
+           WHEN gm.role = 'admin' THEN 0
+           WHEN gm.role = 'moderator' THEN 1
+           ELSE 2
+         END,
+         gm.joined_at DESC`
     )
       .bind(group_id)
       .all();
@@ -134,17 +136,121 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /**
- * LEAVE / REMOVE: DELETE /api/group-members?group_id=123&user_id=4
+ * PATCH:
+ * /api/group-members?action=toggle-posting
+ * body: { group_id, user_id, disabled, actor_id? }
+ *
+ * /api/group-members?action=make-moderator
+ * body: { group_id, user_id, actor_id? }
+ */
+export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
+  try {
+    const url = new URL(request.url);
+    const action = String(url.searchParams.get("action") || "").trim().toLowerCase();
+    const body = await request.json().catch(() => ({} as any));
+
+    const group_id = toNum(body.group_id ?? url.searchParams.get("group_id"), 0);
+    const user_id = toNum(body.user_id, 0);
+    const actor_id =
+      toNum(body.actor_id, 0) || toNum(request.headers.get("x-user-id"), 0);
+
+    if (!group_id || !user_id || !actor_id) {
+      return bad("group_id, user_id and actor_id are required");
+    }
+
+    const group = await env.DB.prepare(
+      `SELECT id, admin_id
+       FROM groups
+       WHERE id = ?
+       LIMIT 1`
+    )
+      .bind(group_id)
+      .first();
+
+    if (!group) return bad("Group not found", 404);
+
+    const adminId = toNum((group as any).admin_id, 0);
+    if (adminId !== actor_id) {
+      return bad("Only group admin can manage members", 403);
+    }
+
+    const member = await env.DB.prepare(
+      `SELECT group_id, user_id, role
+       FROM group_members
+       WHERE group_id = ? AND user_id = ?
+       LIMIT 1`
+    )
+      .bind(group_id, user_id)
+      .first();
+
+    if (!member) return bad("Member not found", 404);
+
+    if (action === "toggle-posting") {
+      const disabled = body.disabled ? 1 : 0;
+
+      await env.DB.prepare(
+        `UPDATE users
+         SET posting_disabled = ?
+         WHERE id = ?`
+      )
+        .bind(disabled, user_id)
+        .run();
+
+      return ok({
+        success: true,
+        action: "toggle-posting",
+        group_id,
+        user_id,
+        posting_disabled: !!disabled,
+      });
+    }
+
+    if (action === "make-moderator") {
+      if (user_id === adminId) {
+        return bad("Admin is already highest role", 400);
+      }
+
+      await env.DB.prepare(
+        `UPDATE group_members
+         SET role = 'moderator'
+         WHERE group_id = ? AND user_id = ?`
+      )
+        .bind(group_id, user_id)
+        .run();
+
+      return ok({
+        success: true,
+        action: "make-moderator",
+        group_id,
+        user_id,
+        role: "moderator",
+      });
+    }
+
+    return bad("Unsupported action");
+  } catch (e: any) {
+    return server(e?.message || "Failed to update member");
+  }
+};
+
+/**
+ * LEAVE / REMOVE: DELETE /api/group-members?group_id=123&user_id=4&actor_id=7
+ *
+ * - If actor_id is omitted, user removes self
+ * - If actor_id is present and different from user_id, actor must be group admin
  */
 export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
     const group_id = toNum(url.searchParams.get("group_id"), 0);
     const user_id = toNum(url.searchParams.get("user_id"), 0);
+    const actor_id =
+      toNum(url.searchParams.get("actor_id"), 0) ||
+      toNum(request.headers.get("x-user-id"), 0) ||
+      user_id;
 
     if (!group_id || !user_id) return bad("group_id and user_id are required");
 
-    // prevent admin from leaving their own group
     const g = await env.DB.prepare(
       `SELECT admin_id
        FROM groups
@@ -156,11 +262,19 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!g) return bad("Group not found", 404);
 
-    if (toNum((g as any).admin_id, 0) === user_id) {
+    const adminId = toNum((g as any).admin_id, 0);
+
+    if (adminId === user_id) {
       return bad("Group admin cannot leave. Delete group or transfer admin.", 400);
     }
 
-    // check if member exists first
+    const isSelfAction = actor_id === user_id;
+    const isAdminAction = actor_id === adminId;
+
+    if (!isSelfAction && !isAdminAction) {
+      return bad("Only the member or group admin can remove a member", 403);
+    }
+
     const existing = await env.DB.prepare(
       `SELECT 1
        FROM group_members
@@ -185,7 +299,6 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
       .bind(group_id, user_id)
       .run();
 
-    // decrement members_count safely
     await env.DB.prepare(
       `UPDATE groups
        SET members_count = CASE
