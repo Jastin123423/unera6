@@ -6236,18 +6236,26 @@ const removeGroupMember = useCallback(async (groupId: number, memberId: number) 
     
 //====MAKE MODERATOR ===  
 
-const makeModerator = useCallback(async (groupId: number, memberId: number) => {
-  if (!currentUser) return;
+   const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!currentUser) throw new Error("You must be logged in");
 
-  return await apiFetch(`/api/group-members?action=make-moderator`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(memberId),
-      actor_id: Number(currentUser.id),
-    }),
-  });
-}, [currentUser]);
+  try {
+    const res = await apiFetch(`/api/group-members?action=make-moderator`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        user_id: Number(memberId),
+        actor_id: Number(currentUser.id),
+      }),
+    });
+
+    console.log("makeModerator success:", res);
+    return res;
+  } catch (error: any) {
+    console.error("makeModerator failed:", error);
+    throw error;
+  }
+}, [currentUser]); 
   
     
 const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
