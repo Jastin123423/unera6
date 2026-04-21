@@ -2999,8 +2999,7 @@ return (
           )}
           
           {/* Members Tab */}
-
-          {groupTab === 'Members' && (
+   {groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
@@ -3203,7 +3202,17 @@ return (
                       </button>
                     </div>
                   )}
-    
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+
+                            
             
             {/* Show badge for current user */}
             {memberId === currentUser?.id && (
