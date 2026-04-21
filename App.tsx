@@ -5501,6 +5501,43 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
     console.error('Failed to refresh group members:', error);
   }
 }, [currentUser]);
+
+  //===fetch otherdata ===
+const fetchOtherData = useCallback(async () => {
+  if (otherDataInFlightRef.current) return;
+  otherDataInFlightRef.current = true;
+
+  try {
+    const [pr, b, c] = await Promise.all([
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
+
+    const prRaw = pr;
+    const prList =
+      Array.isArray(prRaw) ? prRaw :
+      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+      [];
+
+    setProducts(prList.map(normalizeProduct));
+    setBrands(safeArray(b));
+
+    const eventsData = await fetchEvents().catch(() => []);
+    setEvents(eventsData);
+
+    setChats(safeArray(c));
+  } catch (error) {
+    console.error('Failed to fetch other data:', error);
+  } finally {
+    otherDataInFlightRef.current = false;
+  }
+}, [fetchEvents]);
+        
+            
             
   //===fetch Group for viewers====
 
@@ -5578,43 +5615,6 @@ const fetchGroupsForViewer = useCallback(async () => {
   }
 }, [currentUser]);
                     
-//=====fetch otherdata==
-
-const fetchOtherData = useCallback(async () => {
-  if (otherDataInFlightRef.current) return;
-  otherDataInFlightRef.current = true;
-
-  try {
-    const [pr, b, c] = await Promise.all([
-      apiFetch('/api/products').catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
-
-    const prRaw = pr;
-    const prList =
-      Array.isArray(prRaw) ? prRaw :
-      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
-      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-      [];
-
-    setProducts(prList.map(normalizeProduct));
-    setBrands(safeArray(b));
-
-    const eventsData = await fetchEvents().catch(() => []);
-    setEvents(eventsData);
-
-    setChats(safeArray(c));
-  } catch (error) {
-    console.error('Failed to fetch other data:', error);
-  } finally {
-    otherDataInFlightRef.current = false;
-  }
-}, [fetchEvents]);
-            
-
     setBrands(safeArray(b));
     const eventsData = await fetchEvents().catch(() => []);
     setEvents(eventsData);
