@@ -1261,6 +1261,8 @@ const CreateGroupFullPageModal: React.FC<{
   fetchGroupInvites,
   onAcceptGroupInvite,
   onMakeModerator,
+onToggleMemberPosting,
+onRemoveModerator,
   onDeclineGroupInvite,
 }) => {
   // ========== STATE DECLARATIONS ==========
