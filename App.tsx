@@ -5617,17 +5617,7 @@ const fetchGroupsForViewer = useCallback(async () => {
   }
 }, [currentUser]);
                     
-    setBrands(safeArray(b));
-    const eventsData = await fetchEvents().catch(() => []);
-    setEvents(eventsData);
-    
-    setChats(safeArray(c));
-  } catch (error) {
-    console.error('Failed to fetch other data:', error);
-  } finally {
-    otherDataInFlightRef.current = false;
-  }
-}, [fetchEvents, currentUser]);  // ✅ Add currentUser to dependencies
+
             
 
   const isGroupMember = useCallback((group: Group): boolean => {
