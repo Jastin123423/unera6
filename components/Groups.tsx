@@ -2999,15 +2999,16 @@ return (
           )}
           
           {/* Members Tab */}
-   {groupTab === 'Members' && (
-  <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 overflow-hidden shadow-sm animate-fade-in">
+
+{groupTab === 'Members' && (
+  <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
         Members · {(Array.isArray(activeGroup.members) ? activeGroup.members.length : activeGroup.members_count)}
       </h3>
       {isGroupAdmin && (
         <p className="text-[#b0b3b8] text-xs mt-1">
-          As admin, you can manage members from the menu
+          Manage members from menu
         </p>
       )}
     </div>
@@ -3026,10 +3027,11 @@ return (
         return (
           <div
             key={memberId}
-            className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors relative"
+            className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors relative overflow-visible"
           >
+            {/* USER INFO */}
             <div
-              className="flex items-center gap-3 cursor-pointer group min-w-0"
+              className="flex items-center gap-3 cursor-pointer"
               onClick={() => onProfileClick(memberId)}
             >
               <img
@@ -3037,26 +3039,30 @@ return (
                 className="w-12 h-12 rounded-xl object-cover border border-[#333]"
                 alt=""
               />
-              <div className="flex flex-col min-w-0">
-                <div className="font-bold text-[#e4e6eb] text-base group-hover:text-[#1877f2] transition-colors truncate">
+              <div>
+                <div className="font-bold text-[#e4e6eb]">
                   {member.name}
+
                   {isOwner && (
-                    <span className="ml-2 text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full uppercase tracking-tighter border border-[#1877f2]/20">
+                    <span className="ml-2 text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full">
                       Admin
                     </span>
                   )}
+
                   {!isOwner && (member as any)?.group_role === 'moderator' && (
-                    <span className="ml-2 text-[10px] text-[#45BD62] font-black bg-[#45BD62]/10 px-2 py-0.5 rounded-full uppercase tracking-tighter border border-[#45BD62]/20">
+                    <span className="ml-2 text-[10px] text-[#45BD62] font-black bg-[#45BD62]/10 px-2 py-0.5 rounded-full">
                       Moderator
                     </span>
                   )}
                 </div>
-                <div className="text-[#b0b3b8] text-xs truncate">
+
+                <div className="text-[#b0b3b8] text-xs">
                   @{member.username || 'user'}
                 </div>
               </div>
             </div>
 
+            {/* ACTIONS */}
             <div className="flex items-center gap-2">
               {isSelf && (
                 <span className="text-[#b0b3b8] text-xs bg-[#2d2d2d] px-3 py-1 rounded-full">
@@ -3069,20 +3075,20 @@ return (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setMemberMenuOpenId(prev => (prev === memberId ? null : memberId));
+                      setMemberMenuOpenId(prev => prev === memberId ? null : memberId);
                     }}
-                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
-                    aria-label="Open member actions"
+                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]"
                   >
-                    <i className="fas fa-ellipsis-v text-[#b0b3b8] text-[16px]"></i>
+                    <i className="fas fa-ellipsis-v text-[#b0b3b8]"></i>
                   </button>
 
                   {menuOpen && (
-                    <div className="absolute right-0 top-11 z-[130] w-52 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
+                    <div className="absolute right-0 top-11 z-[999] w-52 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
+
+                      {/* Disable Posting */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Are you sure you want to ${(member as any).posting_disabled ? 'enable' : 'disable'} posting for ${member.name}?`)) return;
 
                           setDisablePostingUserId(memberId);
                           try {
@@ -3094,112 +3100,69 @@ return (
                               }),
                             });
 
-                            setUsers(prev =>
-                              prev.map(u =>
-                                u.id === memberId
-                                  ? { ...u, posting_disabled: !(u as any).posting_disabled }
-                                  : u
-                              )
-                            );
-
                             setMemberMenuOpenId(null);
-                            alert(`Posting ${(member as any).posting_disabled ? 'enabled' : 'disabled'} for ${member.name}`);
                           } catch (error) {
-                            console.error('Failed to toggle posting:', error);
-                            alert('Failed to update posting permissions');
+                            console.error(error);
+                            alert('Failed to update posting');
                           } finally {
                             setDisablePostingUserId(null);
                           }
                         }}
-                        disabled={isRemoving || isDisabling}
-                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors disabled:opacity-50"
+                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]"
                       >
-                        <i className={`fas ${(member as any).posting_disabled ? 'fa-check-circle text-[#45BD62]' : 'fa-ban text-[#F7B928]'} w-5`}></i>
+                        <i className="fas fa-ban text-[#F7B928] w-5"></i>
                         <span>
-                          {isDisabling
-                            ? 'Please wait...'
-                            : (member as any).posting_disabled
-                            ? 'Enable Posting'
-                            : 'Disable Posting'}
+                          {(member as any).posting_disabled ? 'Enable Posting' : 'Disable Posting'}
                         </span>
                       </button>
 
+                      {/* Make Moderator */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
 
                           if (!onMakeModerator) {
-                            alert('Make moderator handler is not connected yet');
+                            alert("Moderator not connected yet");
                             return;
                           }
 
-                          if (!confirm(`Make ${member.name} a moderator?`)) return;
-
-                          try {
-                            await onMakeModerator(activeGroup.id, memberId);
-                            setMemberMenuOpenId(null);
-                            alert(`${member.name} is now a moderator`);
-                          } catch (error) {
-                            console.error('Failed to make moderator:', error);
-                            alert('Failed to make moderator');
-                          }
+                          await onMakeModerator(activeGroup.id, memberId);
+                          setMemberMenuOpenId(null);
                         }}
-                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] transition-colors"
+                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]"
                       >
                         <i className="fas fa-user-shield text-[#1877f2] w-5"></i>
                         <span>Make Moderator</span>
                       </button>
 
-                      <div className="border-t border-[#333]"></div>
+                      {/* Divider */}
+                      <div className="border-t border-[#333]" />
 
+                      {/* REMOVE */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Are you sure you want to remove ${member.name} from this group?`)) return;
+
+                          if (!confirm(`Remove ${member.name}?`)) return;
 
                           setRemovingMemberId(memberId);
                           try {
                             await onRemoveMember(activeGroup.id, memberId);
 
-                            setGroups(prev =>
-                              prev.map(g => {
-                                if (g.id === activeGroup.id) {
-                                  const newMembers = (g.members || []).filter(id => id !== memberId);
-                                  return {
-                                    ...g,
-                                    members: newMembers,
-                                    members_count: newMembers.length,
-                                  };
-                                }
-                                return g;
-                              })
-                            );
-
-                            setActiveGroupDetails(prev =>
-                              prev && Number(prev.id) === Number(activeGroup.id)
-                                ? {
-                                    ...prev,
-                                    members: (prev.members || []).filter(id => id !== memberId),
-                                    members_count: ((prev.members || []).filter(id => id !== memberId)).length,
-                                  }
-                                : prev
-                            );
-
                             setMemberMenuOpenId(null);
-                            alert(`${member.name} has been removed from the group`);
                           } catch (error) {
-                            console.error('Failed to remove member:', error);
+                            console.error(error);
                             alert('Failed to remove member');
                           } finally {
                             setRemovingMemberId(null);
                           }
                         }}
-                        disabled={isRemoving || isDisabling}
-                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f] transition-colors disabled:opacity-50"
+                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f]"
                       >
-                        <i className="fas fa-trash w-5 text-[#f3425f]"></i>
-                        <span>{isRemoving ? 'Removing...' : 'Remove'}</span>
+                        <i className="fas fa-trash w-5"></i>
+                        <span>Remove</span>
                       </button>
+
                     </div>
                   )}
                 </div>
