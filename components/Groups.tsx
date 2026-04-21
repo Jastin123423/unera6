@@ -1724,14 +1724,12 @@ const handleGroupClick = async (group: Group) => {
     }
   };
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
   const file = e.target.files?.[0];
   if (!file || !activeGroup) return;
-  
-  // Create local preview URL for optimistic update
+
   const previewUrl = URL.createObjectURL(file);
-  
-  // Update local state immediately with preview
+
   setGroupImageOverrides(prev => ({
     ...prev,
     [activeGroup.id]: {
@@ -1739,37 +1737,49 @@ const handleGroupClick = async (group: Group) => {
       ...(type === 'cover' ? { cover_image: previewUrl } : { profile_image: previewUrl }),
     },
   }));
-  
+
   try {
+    console.log('Uploading group image...', {
+      groupId: activeGroup.id,
+      type,
+      fileName: file.name,
+      size: file.size,
+    });
+
     const result = await onUpdateGroupImage(activeGroup.id, type, file);
-    
-    // Get the final URL from the response
-    const finalUrl = typeof result === 'string' 
-      ? result 
-      : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
-    
-    if (finalUrl) {
-      // Update with final URL from server
-      setGroupImageOverrides(prev => ({
-        ...prev,
-        [activeGroup.id]: {
-          ...(prev[activeGroup.id] || {}),
-          ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
-        },
-      }));
+    console.log('Upload result:', result);
+
+    const finalUrl =
+      typeof result === 'string'
+        ? result
+        : result?.cover_image || result?.profile_image || result?.image_url || result?.url || null;
+
+    console.log('Resolved final URL:', finalUrl);
+
+    if (!finalUrl) {
+      throw new Error('No final image URL returned');
     }
-    
-    // Refresh group data to ensure consistency
+
+    setGroupImageOverrides(prev => ({
+      ...prev,
+      [activeGroup.id]: {
+        ...(prev[activeGroup.id] || {}),
+        ...(type === 'cover' ? { cover_image: finalUrl } : { profile_image: finalUrl }),
+      },
+    }));
+
     if (fetchGroupDetails) {
       const details = await fetchGroupDetails(activeGroup.id);
+      console.log('Fetched updated group details:', details);
       if (details?.group) {
-        setActiveGroupId(prev => prev);
+        setActiveGroupDetails(normalizeGroup(details.group));
       }
     }
-    
+
+    URL.revokeObjectURL(previewUrl);
   } catch (error) {
     console.error('Failed to update group image:', error);
-    // Revert on error - remove the preview
+
     setGroupImageOverrides(prev => {
       const next = { ...prev };
       const current = { ...(next[activeGroup.id] || {}) };
@@ -1778,13 +1788,17 @@ const handleGroupClick = async (group: Group) => {
       next[activeGroup.id] = current;
       return next;
     });
+
+    URL.revokeObjectURL(previewUrl);
     alert('Failed to update image. Please try again.');
   } finally {
-    // Clean up the preview URL
-    URL.revokeObjectURL(previewUrl);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   }
 };
+
+
+
+    
                                                          
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
