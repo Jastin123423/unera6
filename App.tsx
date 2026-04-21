@@ -942,7 +942,7 @@ const normalizeEvent = (e: any): Event => {
       const parsed = JSON.parse(s.media_urls);
       if (Array.isArray(parsed)) {
         mediaUrls = parsed.map((x: any) => String(x || '').trim()).filter(Boolean);
-      }
+    }
     } catch {}
   }
 
@@ -5503,7 +5503,9 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
 }, [currentUser]);
 
   //===fetch otherdata ===
-const fetchOtherData = useCallback(async () => {
+
+        
+   const fetchOtherData = useCallback(async () => {
   if (otherDataInFlightRef.current) return;
   otherDataInFlightRef.current = true;
 
@@ -5535,9 +5537,7 @@ const fetchOtherData = useCallback(async () => {
   } finally {
     otherDataInFlightRef.current = false;
   }
-}, [fetchEvents]);
-        
-            
+}, [fetchEvents]);         
             
   //===fetch Group for viewers====
 
