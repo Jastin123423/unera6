@@ -6248,54 +6248,99 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
-const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
-  if (!requireAuth("Updating group image")) {
-    throw new Error("Authentication required");
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const uploadRes = await fetch("/api/upload", {
-    method: "POST",
-    body: formData,
-  });
-
-  const uploadData = await uploadRes.json().catch(() => null);
-
-  if (!uploadRes.ok || !uploadData?.success) {
-    throw new Error(uploadData?.error || "Upload failed");
-  }
-
-  const imageUrl = String(uploadData?.url || "").trim();
-  if (!imageUrl) {
-    throw new Error("Upload succeeded but no image URL was returned");
-  }
-
-  const field = type === "cover" ? "cover_image" : "profile_image";
-
-  const updateRes = await fetch(`/api/groups?id=${Number(groupId)}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      [field]: imageUrl,
-    }),
-  });
-
-  const updateData = await updateRes.json().catch(() => null);
-
-  if (!updateRes.ok || !updateData?.success) {
-    throw new Error(updateData?.error || "Group update failed");
-  }
-
-  return updateData?.group || imageUrl;
-}, [requireAuth]);
-
     
-                                                        
-    
+const updateGroupImage = useCallback(
+  async (groupId: number, type: 'cover' | 'profile', file: File) => {
+    if (!requireAuth("Updating group image")) {
+      throw new Error("Authentication required");
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadRes = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json().catch(() => null);
+
+      if (!uploadRes.ok || !uploadData?.success) {
+        throw new Error(uploadData?.error || "Upload failed");
+      }
+
+      let imageUrl = "";
+
+      if (uploadData?.media_urls) {
+        try {
+          const media =
+            typeof uploadData.media_urls === "string"
+              ? JSON.parse(uploadData.media_urls)
+              : uploadData.media_urls;
+
+          imageUrl = String(media?.feed || "").trim();
+        } catch {
+          imageUrl = "";
+        }
+      }
+
+      if (!imageUrl) {
+        throw new Error("Compressed feed image URL was not returned");
+      }
+
+      const field = type === "cover" ? "cover_image" : "profile_image";
+
+      const updateRes = await fetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          [field]: imageUrl,
+        }),
+      });
+
+      const updateData = await updateRes.json().catch(() => null);
+
+      if (!updateRes.ok || !updateData?.success) {
+        throw new Error(updateData?.error || "Group update failed");
+      }
+
+      // keep groups list in sync immediately
+      setGroups(prev =>
+        prev.map(g =>
+          Number(g.id) !== Number(groupId)
+            ? g
+            : {
+                ...g,
+                ...(type === "cover"
+                  ? { cover_image: imageUrl }
+                  : { profile_image: imageUrl }),
+              }
+        )
+      );
+
+      // keep currently opened group in sync
+      setActiveGroupDetails(prev =>
+        prev && Number(prev.id) === Number(groupId)
+          ? {
+              ...prev,
+              ...(type === "cover"
+                ? { cover_image: imageUrl }
+                : { profile_image: imageUrl }),
+            }
+          : prev
+      );
+
+      return imageUrl;
+    } catch (error) {
+      console.error("Failed to update group image:", error);
+      throw error;
+    }
+  },
+  [requireAuth]
+);
 
 
  //====GROUP INVITES ===÷
