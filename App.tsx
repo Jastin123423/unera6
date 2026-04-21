@@ -6218,18 +6218,20 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
   }, [currentUser, requireAuth]);
 
   const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
-    if (!requireAdmin('Removing group members')) return;
+  if (!requireAuth('Removing group members')) return;
+  if (!currentUser) return;
 
-    try {
-      await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}`, {
-        method: "DELETE",
-      });
-      return true;
-    } catch (error) {
-      console.error('Failed to remove group member:', error);
-      throw error;
-    }
-  }, [requireAdmin]);
+  try {
+    return await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}&actor_id=${Number(currentUser.id)}`,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    console.error('Failed to remove group member:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+    
 
     
 const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
