@@ -6439,22 +6439,17 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     //====MAKE MODERATOR ===
 
     const makeModerator = useCallback(async (groupId: number, memberId: number) => {
-  if (!requireAuth('Making moderator')) return;
   if (!currentUser) return;
 
-  try {
-    return await apiFetch(`/api/group-members/${Number(groupId)}/make-moderator`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        user_id: Number(memberId),
-        actor_id: Number(currentUser.id),
-      }),
-    });
-  } catch (error) {
-    console.error('Failed to make moderator:', error);
-    throw error;
-  }
-}, [currentUser, requireAuth]);
+  return await apiFetch(`/api/group-members?action=make-moderator`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(memberId),
+      actor_id: Number(currentUser.id),
+    }),
+  });
+}, [currentUser]);
 
 
   const fetchData = useCallback(
