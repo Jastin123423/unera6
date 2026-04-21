@@ -5540,7 +5540,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
 }, [fetchEvents]);         
             
   //===fetch Group for viewers====
-
+            
 const fetchGroupsForViewer = useCallback(async () => {
   const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
 
@@ -5611,9 +5611,10 @@ const fetchGroupsForViewer = useCallback(async () => {
       });
     });
   } catch (error) {
-    console.error("Failed to fetch groups for viewer:", error);
+    console.error('Failed to fetch groups for viewer:', error);
   }
 }, [currentUser]);
+
                     
     setBrands(safeArray(b));
     const eventsData = await fetchEvents().catch(() => []);
