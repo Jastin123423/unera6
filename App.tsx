@@ -6218,8 +6218,8 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
   }, [currentUser, requireAuth]);
 
     //===REMOVE GROUP MEMBER =====
-
-  const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
+    
+const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
   if (!requireAuth('Removing group members')) return;
   if (!currentUser) return;
 
@@ -6234,8 +6234,8 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
   }
 }, [currentUser, requireAuth]);
     
-//====MAKE MODERATOR ===
-    
+//====MAKE MODERATOR ===  
+
 const makeModerator = useCallback(async (groupId: number, memberId: number) => {
   if (!currentUser) return;
 
@@ -6248,6 +6248,7 @@ const makeModerator = useCallback(async (groupId: number, memberId: number) => {
     }),
   });
 }, [currentUser]);
+  
     
 const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
   if (!requireAuth("Managing group members")) return;
