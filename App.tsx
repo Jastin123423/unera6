@@ -8870,8 +8870,8 @@ return (
               onVideoClick={handleVideoClick}
               onAcceptGroupInvite={acceptGroupInvite}
               onMakeModerator={makeModerator}
+              onRemoveModerator={removeModerator}
              onToggleMemberPosting={toggleMemberPosting}
-             onRemoveModerator={removeModerator}
               onDeclineGroupInvite={declineGroupInvite}
               initialGroupId={null}
               onApplyToJob={async (postId: number, applicationData?: any) => {
