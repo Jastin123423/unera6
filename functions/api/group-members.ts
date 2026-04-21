@@ -142,6 +142,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
  *
  * /api/group-members?action=make-moderator
  * body: { group_id, user_id, actor_id? }
+ *
+ * /api/group-members?action=remove-moderator
+ * body: { group_id, user_id, actor_id? }
  */
 export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -227,7 +230,29 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
       });
     }
 
-    return bad("Unsupported action");
+    if (action === "remove-moderator") {
+      if (user_id === adminId) {
+        return bad("Cannot change admin role", 400);
+      }
+
+      await env.DB.prepare(
+        `UPDATE group_members
+         SET role = 'member'
+         WHERE group_id = ? AND user_id = ?`
+      )
+        .bind(group_id, user_id)
+        .run();
+
+      return ok({
+        success: true,
+        action: "remove-moderator",
+        group_id,
+        user_id,
+        role: "member",
+      });
+    }
+
+    return bad("Unsupported action", 400);
   } catch (e: any) {
     return server(e?.message || "Failed to update member");
   }
