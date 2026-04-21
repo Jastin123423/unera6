@@ -5616,7 +5616,6 @@ const fetchOtherData = useCallback(async () => {
             
 
     setBrands(safeArray(b));
-    
     const eventsData = await fetchEvents().catch(() => []);
     setEvents(eventsData);
     
