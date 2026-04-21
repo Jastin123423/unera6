@@ -6248,25 +6248,45 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
- 
-  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
+
+const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
   if (!requireAuth("Updating group image")) return;
 
   try {
-    const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-    const imageUrl = uploadResult.url;
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const uploadRes = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const uploadData = await uploadRes.json();
+
+    if (!uploadRes.ok || !uploadData?.success) {
+      throw new Error(uploadData?.error || "Upload failed");
+    }
+
+    const imageUrl = uploadData.url;
 
     const field = type === 'cover' ? 'cover_image' : 'profile_image';
-    await updateGroupSettings(groupId, { [field]: imageUrl } as any);
 
-    // Return just the URL string for simplicity
-    return imageUrl;
+    const res = await apiFetch(`/api/groups?id=${groupId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        [field]: imageUrl,
+      }),
+    });
+
+    return res?.group || imageUrl;
+
   } catch (error) {
-    console.error('Failed to update group image:', error);
+    console.error("Failed to update group image:", error);
     throw error;
   }
-}, [requireAuth, updateGroupSettings]);
-  
+}, [requireAuth]);
+    
+
 
  //====GROUP INVITES ===÷
  
