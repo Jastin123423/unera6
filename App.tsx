@@ -6217,50 +6217,61 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
     }
   }, [currentUser, requireAuth]);
 
-    //===REMOVE GROUP MEMBER- MODERATOR=====
+    //===REMOVE GROUP MEMBER =====
+    
+const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
+  if (!requireAuth('Removing group members')) return;
+  if (!currentUser) return;
 
+  try {
+    return await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}&actor_id=${Number(currentUser.id)}`,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    console.error('Failed to remove group member:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+    
+//====MAKE MODERATOR ===  
 
-const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+   const makeModerator = useCallback(async (groupId: number, memberId: number) => {
   if (!currentUser) throw new Error("You must be logged in");
 
-  return await apiFetch(`/api/group-members?action=make-moderator`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(memberId),
-      actor_id: Number(currentUser.id),
-    }),
-  });
-}, [currentUser]);
+  try {
+    const res = await apiFetch(`/api/group-members?action=make-moderator`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        user_id: Number(memberId),
+        actor_id: Number(currentUser.id),
+      }),
+    });
 
-const removeModerator = useCallback(async (groupId: number, memberId: number) => {
-  if (!currentUser) throw new Error("You must be logged in");
-
-  return await apiFetch(`/api/group-members?action=remove-moderator`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(memberId),
-      actor_id: Number(currentUser.id),
-    }),
-  });
-}, [currentUser]);
-
-   const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
+    console.log("makeModerator success:", res);
+    return res;
+  } catch (error: any) {
+    console.error("makeModerator failed:", error);
+    throw error;
+  }
+}, [currentUser]); 
+  
+    
+const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
   if (!requireAuth("Managing group members")) return;
-  if (!currentUser) throw new Error("Not authenticated");
-
-  return await apiFetch(`/api/group-members?action=toggle-posting`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(userId),
-      actor_id: Number(currentUser.id),
-      disabled,
-    }),
-  });
-}, [currentUser, requireAuth]); 
-
+  
+  try {
+    const result = await apiFetch(`/api/group-members/${groupId}/toggle-posting`, {
+      method: 'PATCH',
+      body: JSON.stringify({ user_id: userId, disabled }),
+    });
+    return result;
+  } catch (error) {
+    console.error('Failed to toggle posting:', error);
+    throw error;
+  }
+}, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
     
@@ -8870,8 +8881,8 @@ return (
               onVideoClick={handleVideoClick}
               onAcceptGroupInvite={acceptGroupInvite}
               onMakeModerator={makeModerator}
-              onRemoveModerator={removeModerator}
              onToggleMemberPosting={toggleMemberPosting}
+             onRemoveModerator={removeModerator}
               onDeclineGroupInvite={declineGroupInvite}
               initialGroupId={null}
               onApplyToJob={async (postId: number, applicationData?: any) => {
