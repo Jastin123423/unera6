@@ -1317,6 +1317,9 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
  const [activeGroupDetails, setActiveGroupDetails] = useState<Group | null>(null);
  const [localGroups, setLocalGroups] = useState<Group[]>([]);
   const [memberMenuOpenId, setMemberMenuOpenId] = useState<number | null>(null);
+const [memberMetaOverrides, setMemberMetaOverrides] = useState<
+  Record<number, { group_role?: 'member' | 'moderator'; posting_disabled?: boolean }>
+>({});    
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
@@ -1567,6 +1570,11 @@ useEffect(() => {
 useEffect(() => {
   setMemberMenuOpenId(null);
 }, [groupTab, activeGroupId]);
+
+
+useEffect(() => {
+  setMemberMetaOverrides({});
+}, [activeGroupId]);
     
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
