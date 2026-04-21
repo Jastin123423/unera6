@@ -1259,6 +1259,7 @@ const CreateGroupFullPageModal: React.FC<{
   onPlayVideo,
   fetchGroupInvites,
   onAcceptGroupInvite,
+   onMakeModerator,
   onDeclineGroupInvite,
 }) => {
   // ========== STATE DECLARATIONS ==========
@@ -1559,6 +1560,11 @@ useEffect(() => {
   setLocalGroups((groups || []).map(normalizeGroup));
 }, [groups]);
 
+
+useEffect(() => {
+  setMemberMenuOpenId(null);
+}, [groupTab, activeGroupId]);
+    
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
     if (!currentUser) return;
