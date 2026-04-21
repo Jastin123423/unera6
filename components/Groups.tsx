@@ -3212,18 +3212,7 @@ return (
   </div>
 )}
 
-                            
-            
-            {/* Show badge for current user */}
-            {memberId === currentUser?.id && (
-              <span className="text-[#b0b3b8] text-xs bg-[#2d2d2d] px-3 py-1 rounded-full">You</span>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  </div>
-)}
+                          
     </div>
         
         {/* Create Post Modal */}
