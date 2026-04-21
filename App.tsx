@@ -5502,94 +5502,9 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
   }
 }, [currentUser]);
             
-  // fetchOtherData
- const fetchOtherData = useCallback(async () => {
-  if (otherDataInFlightRef.current) return;
-  otherDataInFlightRef.current = true;
-  
-  try {
-    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-const [pr, b, c] = await Promise.all([
-  apiFetch('/api/products').catch(() => []),
-  apiFetch('/api/brands').catch(() => []),
-  apiFetch('/api/chats').catch(() => []),
-]);
-    const prRaw = pr;
-    const prList =
-      Array.isArray(prRaw) ? prRaw :
-      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :1
-      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-      [];
-
-    setProducts(prList.map(normalizeProduct));
-    
-    const gRaw = g;
-    const gList = Array.isArray(gRaw)
-      ? gRaw
-      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
-      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
-      : [];
-setGroups(prev => {
-  const byId = new Map(prev.map(g => [Number(g.id), g]));
-
-  return gList.map((ng: any) => {
-    const old = byId.get(Number(ng.id));
-
-    const hasMembers =
-      ng?.members !== undefined &&
-      ng?.members !== null &&
-      Array.isArray(ng.members);
-
-    const members = hasMembers
-      ? ng.members
-          .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
-          .filter(Number.isFinite)
-      : old?.members;
-
-    const members_count = hasMembers
-      ? members.length
-      : safeNumber(
-          ng?.members_count ??
-          old?.members_count ??
-          old?.members?.length ??
-          0
-        );
-
-    const rawIsMember = ng?.is_member ?? ng?.isMember;
-    const parsedIncomingIsMember =
-      rawIsMember === true ||
-      rawIsMember === 1 ||
-      rawIsMember === "1" ||
-      rawIsMember === "true"
-        ? true
-        : rawIsMember === false ||
-          rawIsMember === 0 ||
-          rawIsMember === "0" ||
-          rawIsMember === "false"
-        ? false
-        : undefined;
-
-    const is_member =
-      parsedIncomingIsMember !== undefined
-        ? parsedIncomingIsMember
-        : old?.is_member ?? false;
-
-    const category = ng?.category || old?.category || "general";
-
-    return normalizeGroup({
-      ...old,
-      ...ng,
-      members,
-      members_count,
-      is_member,
-      category,
-    });
-  });
-});
-
-const fetchGroupsForViewer = useCallback(async () => {
+  //===fetch Group for viewerS==
+            
+    const fetchGroupsForViewer = useCallback(async () => {
   const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
 
   try {
@@ -5663,10 +5578,41 @@ const fetchGroupsForViewer = useCallback(async () => {
   }
 }, [currentUser]);
 
+const fetchOtherData = useCallback(async () => {
+  if (otherDataInFlightRef.current) return;
+  otherDataInFlightRef.current = true;
 
+  try {
+    const [pr, b, c] = await Promise.all([
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
 
+    const prRaw = pr;
+    const prList =
+      Array.isArray(prRaw) ? prRaw :
+      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+      [];
 
-    
+    setProducts(prList.map(normalizeProduct));
+    setBrands(safeArray(b));
+
+    const eventsData = await fetchEvents().catch(() => []);
+    setEvents(eventsData);
+
+    setChats(safeArray(c));
+  } catch (error) {
+    console.error('Failed to fetch other data:', error);
+  } finally {
+    otherDataInFlightRef.current = false;
+  }
+}, [fetchEvents]);
+
+  
 
 
     setBrands(safeArray(b));
