@@ -5503,9 +5503,7 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
 }, [currentUser]);
 
   //===fetch otherdata ===
-
-        
-   const fetchOtherData = useCallback(async () => {
+const fetchOtherData = useCallback(async () => {
   if (otherDataInFlightRef.current) return;
   otherDataInFlightRef.current = true;
 
@@ -5537,7 +5535,8 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
   } finally {
     otherDataInFlightRef.current = false;
   }
-}, [fetchEvents]);         
+}, [fetchEvents]);
+              
             
   //===fetch Group for viewers====
             
