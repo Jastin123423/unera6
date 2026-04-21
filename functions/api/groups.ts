@@ -145,20 +145,18 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
       values.push(body.member_posting_allowed ? 1 : 0);
     }
 
-    if (updates.length === 0) {
-      return bad("No valid fields to update");
-    }
+     if (updates.length === 0) {
+  return bad("No valid fields to update");
+}
 
-    // only keep this if your groups table has updated_at
-    updates.push("updated_at = CURRENT_TIMESTAMP");
+const result = await env.DB.prepare(
+  `UPDATE groups
+   SET ${updates.join(", ")}
+   WHERE id = ?`
+)
+  .bind(...values, groupId)
+  .run();
 
-    const result = await env.DB.prepare(
-      `UPDATE groups
-       SET ${updates.join(", ")}
-       WHERE id = ?`
-    )
-      .bind(...values, groupId)
-      .run();
 
     if (!result.success) {
       return server("Failed to update group");
