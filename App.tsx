@@ -6217,21 +6217,8 @@ const fetchGroupDetails = useCallback(async (groupId: number) => {
     }
   }, [currentUser, requireAuth]);
 
-    //===REMOVE GROUP MEMBER- DISABLE POSTING-MODERATOR=====
+    //===REMOVE GROUP MEMBER- MODERATOR=====
 
-const toggleMemberPosting = useCallback(async (groupId: number, memberId: number, disabled: boolean) => {
-  if (!currentUser) throw new Error("You must be logged in");
-
-  return await apiFetch(`/api/group-members?action=toggle-posting`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      group_id: Number(groupId),
-      user_id: Number(memberId),
-      actor_id: Number(currentUser.id),
-      disabled,
-    }),
-  });
-}, [currentUser]);
 
 const makeModerator = useCallback(async (groupId: number, memberId: number) => {
   if (!currentUser) throw new Error("You must be logged in");
@@ -6259,21 +6246,21 @@ const removeModerator = useCallback(async (groupId: number, memberId: number) =>
   });
 }, [currentUser]);
 
-    
-const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
+   const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
   if (!requireAuth("Managing group members")) return;
-  
-  try {
-    const result = await apiFetch(`/api/group-members/${groupId}/toggle-posting`, {
-      method: 'PATCH',
-      body: JSON.stringify({ user_id: userId, disabled }),
-    });
-    return result;
-  } catch (error) {
-    console.error('Failed to toggle posting:', error);
-    throw error;
-  }
-}, [requireAuth]);
+  if (!currentUser) throw new Error("Not authenticated");
+
+  return await apiFetch(`/api/group-members?action=toggle-posting`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      group_id: Number(groupId),
+      user_id: Number(userId),
+      actor_id: Number(currentUser.id),
+      disabled,
+    }),
+  });
+}, [currentUser, requireAuth]); 
+
 
   //====UPDATE GROUP IMAGE ======
     
