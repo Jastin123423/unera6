@@ -6248,43 +6248,53 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
-
 const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
-  if (!requireAuth("Updating group image")) return;
-
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const uploadRes = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    const uploadData = await uploadRes.json();
-
-    if (!uploadRes.ok || !uploadData?.success) {
-      throw new Error(uploadData?.error || "Upload failed");
-    }
-
-    const imageUrl = uploadData.url;
-
-    const field = type === 'cover' ? 'cover_image' : 'profile_image';
-
-    const res = await apiFetch(`/api/groups?id=${groupId}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        [field]: imageUrl,
-      }),
-    });
-
-    return res?.group || imageUrl;
-
-  } catch (error) {
-    console.error("Failed to update group image:", error);
-    throw error;
+  if (!requireAuth("Updating group image")) {
+    throw new Error("Authentication required");
   }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const uploadRes = await fetch("/api/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  const uploadData = await uploadRes.json().catch(() => null);
+
+  if (!uploadRes.ok || !uploadData?.success) {
+    throw new Error(uploadData?.error || "Upload failed");
+  }
+
+  const imageUrl = String(uploadData?.url || "").trim();
+  if (!imageUrl) {
+    throw new Error("Upload succeeded but no image URL was returned");
+  }
+
+  const field = type === "cover" ? "cover_image" : "profile_image";
+
+  const updateRes = await fetch(`/api/groups?id=${Number(groupId)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      [field]: imageUrl,
+    }),
+  });
+
+  const updateData = await updateRes.json().catch(() => null);
+
+  if (!updateRes.ok || !updateData?.success) {
+    throw new Error(updateData?.error || "Group update failed");
+  }
+
+  return updateData?.group || imageUrl;
 }, [requireAuth]);
+
+    
+                                                        
     
 
 
