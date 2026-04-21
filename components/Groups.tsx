@@ -1312,6 +1312,7 @@ const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
 const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(null);
  const [activeGroupDetails, setActiveGroupDetails] = useState<Group | null>(null);
  const [localGroups, setLocalGroups] = useState<Group[]>([]);
+  const [memberMenuOpenId, setMemberMenuOpenId] = useState<number | null>(null);
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
