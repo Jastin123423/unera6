@@ -3000,8 +3000,7 @@ return (
           
           {/* Members Tab */}
 
-
-  {groupTab === 'Members' && (
+{groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
@@ -3087,10 +3086,12 @@ return (
 
                           setDisablePostingUserId(memberId);
                           try {
-                            await apiFetch(`/api/group-members/${activeGroup.id}/toggle-posting`, {
+                            await apiFetch(`/api/group-members?action=toggle-posting`, {
                               method: 'PATCH',
                               body: JSON.stringify({
+                                group_id: Number(activeGroup.id),
                                 user_id: Number(memberId),
+                                actor_id: Number(currentUser?.id || 0),
                                 disabled: !(member as any).posting_disabled,
                               }),
                             });
@@ -3135,7 +3136,7 @@ return (
                           if (!confirm(`Make ${member.name} a moderator?`)) return;
 
                           try {
-                            await onMakeModerator(activeGroup.id, Number(memberId));
+                            await onMakeModerator(Number(activeGroup.id), Number(memberId));
 
                             setUsers(prev =>
                               prev.map(u =>
@@ -3166,7 +3167,7 @@ return (
 
                           setRemovingMemberId(memberId);
                           try {
-                            await onRemoveMember(activeGroup.id, Number(memberId));
+                            await onRemoveMember(Number(activeGroup.id), Number(memberId));
 
                             setGroups(prev =>
                               prev.map(g => {
@@ -3196,6 +3197,8 @@ return (
                                 : prev
                             );
 
+                            setUsers(prev => prev.filter(u => Number(u.id) !== Number(memberId) ? true : true));
+
                             setMemberMenuOpenId(null);
                           } catch (error) {
                             console.error('Failed to remove member:', error);
@@ -3220,9 +3223,7 @@ return (
       })}
     </div>
   </div>
-)}
-
-                                                              
+)}                                                             
     </div>
         
         {/* Create Post Modal */}
