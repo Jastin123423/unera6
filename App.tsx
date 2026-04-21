@@ -5509,13 +5509,11 @@ const refreshGroupMembers = useCallback(async (groupId: number) => {
   
   try {
     const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
-    const [pr, g, b, c] = await Promise.all([
-      apiFetch('/api/products').catch(() => []),
-      apiFetch(`/api/groups?viewerId=${viewerId}`).catch(() => []),
-      apiFetch('/api/brands').catch(() => []),
-      apiFetch('/api/chats').catch(() => []),
-    ]);
-
+const [pr, b, c] = await Promise.all([
+  apiFetch('/api/products').catch(() => []),
+  apiFetch('/api/brands').catch(() => []),
+  apiFetch('/api/chats').catch(() => []),
+]);
     const prRaw = pr;
     const prList =
       Array.isArray(prRaw) ? prRaw :
