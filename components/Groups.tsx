@@ -1259,7 +1259,7 @@ const CreateGroupFullPageModal: React.FC<{
   onPlayVideo,
   fetchGroupInvites,
   onAcceptGroupInvite,
-   onMakeModerator,
+  onMakeModerator,
   onDeclineGroupInvite,
 }) => {
   // ========== STATE DECLARATIONS ==========
@@ -2999,7 +2999,7 @@ return (
           )}
           
           {/* Members Tab */}
-
+          
 {groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
