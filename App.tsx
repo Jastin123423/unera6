@@ -6518,6 +6518,11 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
       clearInterval(t);
     };
   }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsIdentity]);
+    
+    useEffect(() => {
+  fetchGroupsForViewer();
+}, [fetchGroupsForViewer]);
+
 
   // ===== ADMIN FUNCTIONS ====
   const verifyUser = useCallback(
