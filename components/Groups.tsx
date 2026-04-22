@@ -3000,7 +3000,8 @@ return (
           )}
           
           {/* Members Tab */}
-      {groupTab === 'Members' && (
+
+{groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
@@ -3029,7 +3030,6 @@ return (
             key={memberId}
             className="flex items-center justify-between p-3 hover:bg-[#2d2d2d] rounded-lg transition-colors relative overflow-visible"
           >
-            {/* LEFT SIDE */}
             <div
               className="flex items-center gap-3 cursor-pointer min-w-0"
               onClick={() => onProfileClick(memberId)}
@@ -3042,27 +3042,23 @@ return (
               <div className="min-w-0">
                 <div className="font-bold text-[#e4e6eb] truncate">
                   {member.name}
-
                   {isOwner && (
                     <span className="ml-2 text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full">
                       Admin
                     </span>
                   )}
-
                   {!isOwner && (member as any)?.group_role === 'moderator' && (
                     <span className="ml-2 text-[10px] text-[#45BD62] font-black bg-[#45BD62]/10 px-2 py-0.5 rounded-full">
                       Moderator
                     </span>
                   )}
                 </div>
-
                 <div className="text-[#b0b3b8] text-xs truncate">
                   @{member.username || 'user'}
                 </div>
               </div>
             </div>
 
-            {/* RIGHT SIDE */}
             <div className="flex items-center gap-2">
               {isSelf && (
                 <span className="text-[#b0b3b8] text-xs bg-[#2d2d2d] px-3 py-1 rounded-full">
@@ -3072,31 +3068,26 @@ return (
 
               {canManage && !isOwner && !isSelf && (
                 <div className="relative">
-                  {/* 3 DOT BUTTON */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setMemberMenuOpenId(prev => (prev === memberId ? null : memberId));
                     }}
-                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]"
+                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
                   >
                     <i className="fas fa-ellipsis-v text-[#b0b3b8]"></i>
                   </button>
 
-                  {/* MENU */}
                   {menuOpen && (
                     <div className="absolute right-0 top-11 z-[999] w-56 bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#333] overflow-hidden">
-
-                      {/* DISABLE POSTING */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
                           if (!confirm(`Are you sure you want to ${(member as any).posting_disabled ? 'enable' : 'disable'} posting for ${member.name}?`)) return;
 
                           setDisablePostingUserId(memberId);
-
                           try {
-                            const res = await apiFetch(`/api/group-members?action=toggle-posting`, {
+                            await apiFetch(`/api/group-members?action=toggle-posting`, {
                               method: 'PATCH',
                               body: JSON.stringify({
                                 group_id: Number(activeGroup.id),
@@ -3105,8 +3096,6 @@ return (
                                 disabled: !(member as any).posting_disabled,
                               }),
                             });
-
-                            console.log("toggle-posting:", res);
 
                             setUsers(prev =>
                               prev.map(u =>
@@ -3117,81 +3106,76 @@ return (
                             );
 
                             setMemberMenuOpenId(null);
-                          } catch (err: any) {
-                            console.error(err);
-                            alert(err?.message || "Failed to update posting");
+                          } catch (error) {
+                            console.error('Failed to toggle posting:', error);
+                            alert('Failed to update posting permissions');
                           } finally {
                             setDisablePostingUserId(null);
                           }
                         }}
-                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]"
+                        disabled={isRemoving || isDisabling}
+                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb] disabled:opacity-50"
                       >
                         <i className="fas fa-ban text-[#F7B928] w-5"></i>
                         <span>
-                          {(member as any).posting_disabled ? 'Enable Posting' : 'Disable Posting'}
+                          {isDisabling
+                            ? 'Please wait...'
+                            : (member as any).posting_disabled
+                            ? 'Enable Posting'
+                            : 'Disable Posting'}
                         </span>
                       </button>
 
-                      {/* MAKE / REMOVE MODERATOR */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
+                          if (!onMakeModerator) {
+                            alert('Make moderator handler is not connected');
+                            return;
+                          }
 
-                          const isMod = (member as any)?.group_role === 'moderator';
+                          if (!confirm(`Make ${member.name} a moderator?`)) return;
 
                           try {
-                            const res = await apiFetch(`/api/group-members?action=${isMod ? 'remove-moderator' : 'make-moderator'}`, {
-                              method: 'PATCH',
-                              body: JSON.stringify({
-                                group_id: Number(activeGroup.id),
-                                user_id: Number(memberId),
-                                actor_id: Number(currentUser?.id || 0),
-                              }),
-                            });
-
-                            console.log("moderator:", res);
+                            await onMakeModerator(Number(activeGroup.id), Number(memberId));
 
                             setUsers(prev =>
                               prev.map(u =>
                                 Number(u.id) === Number(memberId)
-                                  ? { ...u, group_role: isMod ? 'member' : 'moderator' }
+                                  ? { ...u, group_role: 'moderator' }
                                   : u
                               )
                             );
 
                             setMemberMenuOpenId(null);
-                          } catch (err: any) {
-                            console.error(err);
-                            alert(err?.message || "Failed to update role");
+                          } catch (error) {
+                            console.error('Failed to make moderator:', error);
+                            alert('Failed to make moderator');
                           }
                         }}
                         className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]"
                       >
                         <i className="fas fa-user-shield text-[#1877f2] w-5"></i>
-                        <span>
-                          {(member as any)?.group_role === 'moderator'
-                            ? 'Remove Moderator'
-                            : 'Make Moderator'}
-                        </span>
+                        <span>Make Moderator</span>
                       </button>
 
                       <div className="border-t border-[#333]" />
 
-                      {/* REMOVE MEMBER */}
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Remove ${member.name}?`)) return;
+                          if (!confirm(`Are you sure you want to remove ${member.name} from this group?`)) return;
 
                           setRemovingMemberId(memberId);
-
                           try {
-                            await onRemoveMember(activeGroup.id, Number(memberId));
+                            await onRemoveMember(Number(activeGroup.id), Number(memberId));
 
                             setGroups(prev =>
                               prev.map(g => {
                                 if (Number(g.id) !== Number(activeGroup.id)) return g;
-                                const newMembers = g.members.filter(id => Number(id) !== Number(memberId));
+                                const newMembers = Array.isArray(g.members)
+                                  ? g.members.filter(id => Number(id) !== Number(memberId))
+                                  : [];
                                 return {
                                   ...g,
                                   members: newMembers,
@@ -3200,20 +3184,36 @@ return (
                               })
                             );
 
+                            setActiveGroupDetails(prev =>
+                              prev && Number(prev.id) === Number(activeGroup.id)
+                                ? {
+                                    ...prev,
+                                    members: Array.isArray(prev.members)
+                                      ? prev.members.filter(id => Number(id) !== Number(memberId))
+                                      : [],
+                                    members_count: Array.isArray(prev.members)
+                                      ? prev.members.filter(id => Number(id) !== Number(memberId)).length
+                                      : 0,
+                                  }
+                                : prev
+                            );
+
+                            setUsers(prev => prev.filter(u => Number(u.id) !== Number(memberId) ? true : true));
+
                             setMemberMenuOpenId(null);
-                          } catch (err: any) {
-                            console.error(err);
-                            alert(err?.message || "Failed to remove");
+                          } catch (error) {
+                            console.error('Failed to remove member:', error);
+                            alert('Failed to remove member');
                           } finally {
                             setRemovingMemberId(null);
                           }
                         }}
-                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f]"
+                        disabled={isRemoving || isDisabling}
+                        className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#f3425f] disabled:opacity-50"
                       >
                         <i className="fas fa-trash w-5"></i>
                         <span>{isRemoving ? 'Removing...' : 'Remove'}</span>
                       </button>
-
                     </div>
                   )}
                 </div>
@@ -3224,7 +3224,7 @@ return (
       })}
     </div>
   </div>
-)}                                       
+)}                                                             
     </div>
         
         {/* Create Post Modal */}
