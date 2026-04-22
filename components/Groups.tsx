@@ -1261,6 +1261,8 @@ const CreateGroupFullPageModal: React.FC<{
   fetchGroupInvites,
   onAcceptGroupInvite,
   onMakeModerator,
+onToggleMemberPosting,
+onRemoveModerator,
   onDeclineGroupInvite,
 }) => {
   // ========== STATE DECLARATIONS ==========
@@ -1315,6 +1317,9 @@ const [disablePostingUserId, setDisablePostingUserId] = useState<number | null>(
  const [activeGroupDetails, setActiveGroupDetails] = useState<Group | null>(null);
  const [localGroups, setLocalGroups] = useState<Group[]>([]);
   const [memberMenuOpenId, setMemberMenuOpenId] = useState<number | null>(null);
+const [memberMetaOverrides, setMemberMetaOverrides] = useState<
+  Record<number, { group_role?: 'member' | 'moderator'; posting_disabled?: boolean }>
+>({});    
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
     
   // ========== MEMOIZED VALUES ==========
@@ -1565,6 +1570,11 @@ useEffect(() => {
 useEffect(() => {
   setMemberMenuOpenId(null);
 }, [groupTab, activeGroupId]);
+
+
+useEffect(() => {
+  setMemberMetaOverrides({});
+}, [activeGroupId]);
     
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
@@ -3000,8 +3010,7 @@ return (
           )}
           
           {/* Members Tab */}
-
-{groupTab === 'Members' && (
+      {groupTab === 'Members' && (
   <div className="bg-[#1e1e1e] rounded-xl border border-[#333] mx-0 shadow-sm animate-fade-in overflow-visible">
     <div className="p-5 border-b border-[#333] bg-[#1e1e1e]">
       <h3 className="text-[#e4e6eb] font-bold text-lg">
@@ -3016,14 +3025,19 @@ return (
 
     <div className="p-2 space-y-1">
       {(Array.isArray(activeGroup.members) ? activeGroup.members : []).map(memberId => {
-        const member = users.find(u => Number(u.id) === Number(memberId));
-        if (!member) return null;
+        const rawMember = users.find(u => Number(u.id) === Number(memberId));
+        if (!rawMember) return null;
+
+        const override = memberMetaOverrides[Number(memberId)] || {};
+        const member: any = { ...rawMember, ...override };
 
         const isOwner = Number(memberId) === Number(activeGroup.admin_id);
         const isSelf = Number(memberId) === Number(currentUser?.id);
         const isRemoving = removingMemberId === memberId;
         const isDisabling = disablePostingUserId === memberId;
         const menuOpen = memberMenuOpenId === memberId;
+        const isModerator = member.group_role === 'moderator';
+        const postingDisabled = !!member.posting_disabled;
 
         return (
           <div
@@ -3039,20 +3053,30 @@ return (
                 className="w-12 h-12 rounded-xl object-cover border border-[#333]"
                 alt=""
               />
+
               <div className="min-w-0">
                 <div className="font-bold text-[#e4e6eb] truncate">
                   {member.name}
+
                   {isOwner && (
                     <span className="ml-2 text-[10px] text-[#1877f2] font-black bg-[#1877f2]/10 px-2 py-0.5 rounded-full">
                       Admin
                     </span>
                   )}
-                  {!isOwner && (member as any)?.group_role === 'moderator' && (
+
+                  {!isOwner && isModerator && (
                     <span className="ml-2 text-[10px] text-[#45BD62] font-black bg-[#45BD62]/10 px-2 py-0.5 rounded-full">
                       Moderator
                     </span>
                   )}
+
+                  {postingDisabled && (
+                    <span className="ml-2 text-[10px] text-[#F7B928] font-black bg-[#F7B928]/10 px-2 py-0.5 rounded-full">
+                      Posting Disabled
+                    </span>
+                  )}
                 </div>
+
                 <div className="text-[#b0b3b8] text-xs truncate">
                   @{member.username || 'user'}
                 </div>
@@ -3073,7 +3097,7 @@ return (
                       e.stopPropagation();
                       setMemberMenuOpenId(prev => (prev === memberId ? null : memberId));
                     }}
-                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a] transition-colors"
+                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-[#3a3a3a]"
                   >
                     <i className="fas fa-ellipsis-v text-[#b0b3b8]"></i>
                   </button>
@@ -3083,32 +3107,33 @@ return (
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Are you sure you want to ${(member as any).posting_disabled ? 'enable' : 'disable'} posting for ${member.name}?`)) return;
+
+                          if (!onToggleMemberPosting) {
+                            alert('Posting handler is not connected');
+                            return;
+                          }
+
+                          const nextDisabled = !postingDisabled;
+                          const actionText = nextDisabled ? 'disable' : 'enable';
+
+                          if (!confirm(`Are you sure you want to ${actionText} posting for ${member.name}?`)) return;
 
                           setDisablePostingUserId(memberId);
                           try {
-                            await apiFetch(`/api/group-members?action=toggle-posting`, {
-                              method: 'PATCH',
-                              body: JSON.stringify({
-                                group_id: Number(activeGroup.id),
-                                user_id: Number(memberId),
-                                actor_id: Number(currentUser?.id || 0),
-                                disabled: !(member as any).posting_disabled,
-                              }),
-                            });
+                            await onToggleMemberPosting(Number(activeGroup.id), Number(memberId), nextDisabled);
 
-                            setUsers(prev =>
-                              prev.map(u =>
-                                Number(u.id) === Number(memberId)
-                                  ? { ...u, posting_disabled: !(u as any).posting_disabled }
-                                  : u
-                              )
-                            );
+                            setMemberMetaOverrides(prev => ({
+                              ...prev,
+                              [Number(memberId)]: {
+                                ...(prev[Number(memberId)] || {}),
+                                posting_disabled: nextDisabled,
+                              },
+                            }));
 
                             setMemberMenuOpenId(null);
-                          } catch (error) {
-                            console.error('Failed to toggle posting:', error);
-                            alert('Failed to update posting permissions');
+                          } catch (err: any) {
+                            console.error(err);
+                            alert(err?.message || 'Failed to update posting');
                           } finally {
                             setDisablePostingUserId(null);
                           }
@@ -3120,8 +3145,8 @@ return (
                         <span>
                           {isDisabling
                             ? 'Please wait...'
-                            : (member as any).posting_disabled
-                            ? 'Enable Posting'
+                            : postingDisabled
+                            ? 'Undo Disable Posting'
                             : 'Disable Posting'}
                         </span>
                       </button>
@@ -3129,34 +3154,54 @@ return (
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!onMakeModerator) {
-                            alert('Make moderator handler is not connected');
-                            return;
-                          }
-
-                          if (!confirm(`Make ${member.name} a moderator?`)) return;
 
                           try {
-                            await onMakeModerator(Number(activeGroup.id), Number(memberId));
+                            if (isModerator) {
+                              if (!onRemoveModerator) {
+                                alert('Remove moderator handler is not connected');
+                                return;
+                              }
 
-                            setUsers(prev =>
-                              prev.map(u =>
-                                Number(u.id) === Number(memberId)
-                                  ? { ...u, group_role: 'moderator' }
-                                  : u
-                              )
-                            );
+                              if (!confirm(`Remove moderator role from ${member.name}?`)) return;
+
+                              await onRemoveModerator(Number(activeGroup.id), Number(memberId));
+
+                              setMemberMetaOverrides(prev => ({
+                                ...prev,
+                                [Number(memberId)]: {
+                                  ...(prev[Number(memberId)] || {}),
+                                  group_role: 'member',
+                                },
+                              }));
+                            } else {
+                              if (!onMakeModerator) {
+                                alert('Make moderator handler is not connected');
+                                return;
+                              }
+
+                              if (!confirm(`Make ${member.name} a moderator?`)) return;
+
+                              await onMakeModerator(Number(activeGroup.id), Number(memberId));
+
+                              setMemberMetaOverrides(prev => ({
+                                ...prev,
+                                [Number(memberId)]: {
+                                  ...(prev[Number(memberId)] || {}),
+                                  group_role: 'moderator',
+                                },
+                              }));
+                            }
 
                             setMemberMenuOpenId(null);
-                          } catch (error) {
-                            console.error('Failed to make moderator:', error);
-                            alert('Failed to make moderator');
+                          } catch (err: any) {
+                            console.error(err);
+                            alert(err?.message || 'Failed to update role');
                           }
                         }}
                         className="w-full px-4 py-3 text-left hover:bg-[#2d2d2d] flex items-center gap-3 text-[#e4e6eb]"
                       >
                         <i className="fas fa-user-shield text-[#1877f2] w-5"></i>
-                        <span>Make Moderator</span>
+                        <span>{isModerator ? 'Undo Moderator' : 'Make Moderator'}</span>
                       </button>
 
                       <div className="border-t border-[#333]" />
@@ -3164,7 +3209,7 @@ return (
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (!confirm(`Are you sure you want to remove ${member.name} from this group?`)) return;
+                          if (!confirm(`Remove ${member.name}?`)) return;
 
                           setRemovingMemberId(memberId);
                           try {
@@ -3198,12 +3243,10 @@ return (
                                 : prev
                             );
 
-                            setUsers(prev => prev.filter(u => Number(u.id) !== Number(memberId) ? true : true));
-
                             setMemberMenuOpenId(null);
-                          } catch (error) {
-                            console.error('Failed to remove member:', error);
-                            alert('Failed to remove member');
+                          } catch (err: any) {
+                            console.error(err);
+                            alert(err?.message || 'Failed to remove');
                           } finally {
                             setRemovingMemberId(null);
                           }
@@ -3224,7 +3267,9 @@ return (
       })}
     </div>
   </div>
-)}                                                             
+)}
+                            
+                                                                                               
     </div>
         
         {/* Create Post Modal */}
