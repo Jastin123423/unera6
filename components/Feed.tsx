@@ -5606,21 +5606,32 @@ const marketplaceGridData = useMemo(() => {
       if (onFollow && a.id) onFollow(safeUserId(a));
     };
 
-  const handleReactClick = async (type: ReactionType) => {
+const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
 
   const isGroupPost = Boolean((p as any)?.group_id);
+  
+  console.log("🔍 REACTION DEBUG:", { 
+    postId: p.id, 
+    type, 
+    isGroupPost, 
+    group_id: (p as any)?.group_id,
+    hasToggleGroupPostLike: !!onToggleGroupPostLike 
+  });
 
   if (isGroupPost) {
+    console.log("📡 Calling onToggleGroupPostLike for post:", p.id);
     await onToggleGroupPostLike?.(Number(p.id), type);
     return;
   }
 
+  console.log("📡 Calling regular onReact for post:", p.id);
   onReact?.(p, type);
 };
+
       
 
     const openGallery = (urls: string[], index: number) => {
