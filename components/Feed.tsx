@@ -5602,13 +5602,22 @@ const marketplaceGridData = useMemo(() => {
       if (onFollow && a.id) onFollow(safeUserId(a));
     };
 
-    const handleReactClick = (type: ReactionType) => {
-      if (!currentUser) {
-        alert('Please login to react.');
-        return;
-      }
-      onReact(post, type);
-    };
+  const handleReactClick = async (type: ReactionType) => {
+  if (!currentUser) {
+    alert("Please login to react.");
+    return;
+  }
+
+  const isGroupPost = Boolean((p as any)?.group_id);
+
+  if (isGroupPost) {
+    await onToggleGroupPostLike?.(Number(p.id), type);
+    return;
+  }
+
+  onReact?.(p, type);
+};
+      
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
