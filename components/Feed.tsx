@@ -5255,6 +5255,7 @@ export const Post = memo(
     onReport,
     onHide,
     pushButton,
+    onToggleGroupPostLike,
   }: {
     post: PostType;
     author: User | any;
@@ -5285,6 +5286,7 @@ export const Post = memo(
     onReport?: (postId: number, reason?: string) => void;
     onHide?: (postId: number) => void;
     pushButton?: React.ReactNode;
+      
   }) => {
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
