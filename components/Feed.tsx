@@ -7593,38 +7593,41 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
           </div>
         </div>
 
+
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
-          <div className="border-b border-[#3E4042]">
-            <Post
-              post={post}
-              author={p.author || {
-                name: p.name,
-                username: p.username,
-                profile_image_url: p.profile_image_url,
-                id: p.user_id || p.author_id,
-              }}
-              currentUser={currentUser}
-              users={users}
-              onProfileClick={onProfileClick}
-              onReact={onReact}
-              onShare={onShare}
-              onViewImage={(url) => {}}
-              onOpenComments={() => {}}
-              onVideoClick={onVideoClick}
-              onPlayAudioTrack={onOpenAudio}
-              onHashtagClick={onHashtagClick}
-              onViewProductFromPost={onViewProductFromPost}
-              onOpenGroup={onOpenGroup}
-              onOpenAudio={onOpenAudio}
-              onRSVP={onRSVP}
-              groups={groups}
-              brands={brands}
-              chats={chats}
-              onFollow={onFollow}
-              onEventClick={onEventClick}
-              onOpenReactions={onOpenReactions}
-            />
-          </div>
+  <div className="border-b border-[#3E4042]">
+    <Post
+      post={post}
+      author={p.author || {
+        name: p.name,
+        username: p.username,
+        profile_image_url: p.profile_image_url,
+        id: p.user_id || p.author_id,
+      }}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={onProfileClick}
+      onReact={onReact}
+      onShare={onShare}
+      onViewImage={(url) => {}}
+      onOpenComments={() => {}}
+      onVideoClick={onVideoClick}
+      onPlayAudioTrack={onOpenAudio}
+      onHashtagClick={onHashtagClick}
+      onViewProductFromPost={onViewProductFromPost}
+      onOpenGroup={onOpenGroup}
+      onOpenAudio={onOpenAudio}
+      onRSVP={onRSVP}
+      groups={groups}
+      brands={brands}
+      chats={chats}
+      onFollow={onFollow}
+      onEventClick={onEventClick}
+      onOpenReactions={onOpenReactions}
+      onToggleGroupPostLike={onToggleGroupPostLike}  // ← ADD THIS LINE
+    />
+  </div>
+
 
           <div className="p-4">
             <div ref={discussionsTopRef} />
