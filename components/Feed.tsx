@@ -6471,6 +6471,12 @@ const handleReactClick = async (type: ReactionType) => {
  * ✅ CREATE POST MODAL (with image compression support)
  * =========================
  */
+
+/**
+ * =========================
+ * ✅ CREATE POST MODAL (with image compression + native Flutter upload support)
+ * =========================
+ */
 export const CreatePostModal = memo(
   ({
     currentUser,
@@ -6494,6 +6500,10 @@ export const CreatePostModal = memo(
         taggedUsers?: number[];
         background?: string;
         linkPreview?: LinkPreview | null;
+        // ✅ Native Flutter upload fields
+        nativeMediaMeta?: any[];
+        nativeMediaUrls?: string[];
+        nativeMediaTypes?: string[];
       }
     ) => void;
     onCreateEventClick?: () => void;
@@ -6518,12 +6528,73 @@ export const CreatePostModal = memo(
     const previewTimeout = useRef<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // ✅ Native upload states
+    const [mediaMeta, setMediaMeta] = useState<any[]>([]);
+    const [mediaUrls, setMediaUrls] = useState<string[]>([]);
+    const [mediaTypes, setMediaTypes] = useState<string[]>([]);
+
+    // ==================== NATIVE APP DETECTION ====================
+    const isUneraNativeApp = (): boolean => {
+      return Boolean(
+        (window as any).UneraNative || 
+        (window as any).UNERA_IS_NATIVE_APP
+      );
+    };
+
+    // ✅ Listen for native upload results
+    useEffect(() => {
+      const handleNativeUpload = (event: any) => {
+        const media = event.detail;
+        console.log("📱 Native upload received:", media);
+        
+        if (!media || !media.feed) {
+          console.error("Invalid native upload data:", media);
+          return;
+        }
+        
+        // Add preview
+        setPreviews(prev => [...prev, media.thumb || media.feed]);
+        setType(media.type === 'video' ? 'video' : 'image');
+        
+        // Store native media metadata
+        setMediaMeta(prev => [
+          ...prev,
+          {
+            thumb: media.thumb || media.feed,
+            feed: media.feed,
+            full: media.full || media.feed,
+            type: media.type || 'image',
+          }
+        ]);
+        
+        setMediaUrls(prev => [...prev, media.feed || media.full || media.url]);
+        setMediaTypes(prev => [...prev, media.type || 'image']);
+        
+        // Close any open pickers
+        setView('main');
+      };
+
+      window.addEventListener("uneraNativeUpload", handleNativeUpload);
+      return () => {
+        window.removeEventListener("uneraNativeUpload", handleNativeUpload);
+      };
+    }, []);
+
+    // ✅ Debug native bridge
+    useEffect(() => {
+      console.log("🔍 Checking native bridge:", {
+        isNativeApp: isUneraNativeApp(),
+        hasUneraNative: !!(window as any).UneraNative,
+        hasPostMessage: !!(window as any).UneraNative?.postMessage,
+      });
+    }, []);
+
     useEffect(() => {
       if (previewTimeout.current) {
         clearTimeout(previewTimeout.current);
       }
 
-      if (files.length > 0 || activeBackground) {
+      if (files.length > 0 || activeBackground || mediaMeta.length > 0) {
         setLinkPreview(null);
         return;
       }
@@ -6546,7 +6617,7 @@ export const CreatePostModal = memo(
           clearTimeout(previewTimeout.current);
         }
       };
-    }, [text, files, activeBackground]);
+    }, [text, files, activeBackground, mediaMeta]);
 
     useEffect(() => {
       return () => {
@@ -6554,10 +6625,70 @@ export const CreatePostModal = memo(
       };
     }, [previews]);
 
+    // ✅ Native photo picker
+    const handleNativePhotoClick = () => {
+      if (isUneraNativeApp()) {
+        console.log("📱 Calling native photo picker");
+        if ((window as any).UneraNative?.postMessage) {
+          (window as any).UneraNative.postMessage(
+            JSON.stringify({ action: "pick_image" })
+          );
+        } else {
+          console.warn("Native bridge not available, using web picker");
+          fileInputRef.current?.click();
+        }
+      } else {
+        fileInputRef.current?.click();
+      }
+    };
+
+    // ✅ Native video picker
+    const handleNativeVideoClick = () => {
+      if (isUneraNativeApp()) {
+        console.log("📱 Calling native video picker");
+        if ((window as any).UneraNative?.postMessage) {
+          (window as any).UneraNative.postMessage(
+            JSON.stringify({ action: "pick_video" })
+          );
+        } else {
+          console.warn("Native bridge not available, using web picker");
+          if (onVideoClick) onVideoClick();
+        }
+      } else {
+        if (onVideoClick) onVideoClick();
+      }
+    };
+
+    // ✅ Native camera
+    const handleNativeCameraClick = () => {
+      if (isUneraNativeApp()) {
+        console.log("📱 Calling native camera");
+        if ((window as any).UneraNative?.postMessage) {
+          (window as any).UneraNative.postMessage(
+            JSON.stringify({ action: "take_photo" })
+          );
+        }
+      }
+    };
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const list = Array.from(e.target.files || []);
       if (list.length === 0) return;
 
+      // If in native app, let native handle it
+      if (isUneraNativeApp()) {
+        console.log("📱 In native app, using native picker");
+        const action = list[0].type.startsWith('video/') ? 'pick_video' : 'pick_image';
+        if ((window as any).UneraNative?.postMessage) {
+          (window as any).UneraNative.postMessage(
+            JSON.stringify({ action })
+          );
+        }
+        e.target.value = '';
+        return;
+      }
+
+      // Otherwise use web file picker
       const images = list.filter((f) => f.type.startsWith('image/'));
       const videos = list.filter((f) => f.type.startsWith('video/'));
 
@@ -6604,19 +6735,30 @@ export const CreatePostModal = memo(
       searchTimeout.current = setTimeout(() => handleLocationSearch(val), 450);
     };
 
-    const canPost = !!text.trim() || files.length > 0 || !!activeBackground;
+    const canPost = !!text.trim() || files.length > 0 || !!activeBackground || mediaMeta.length > 0;
 
+    // ✅ Updated submit with native media support
     const submit = () => {
       if (!canPost) return;
+      
+      const hasNativeMedia = mediaMeta.length > 0;
+      
       onCreatePost(text, files, {
-        type: files.length ? type : 'text',
+        type: hasNativeMedia 
+          ? (mediaMeta[0]?.type === 'video' ? 'video' : 'image')
+          : (files.length ? type : 'text'),
         visibility,
         location: location || undefined,
         feeling: feeling || undefined,
         taggedUsers: taggedUsers.length ? taggedUsers : undefined,
         background: activeBackground || undefined,
         linkPreview: linkPreview || null,
+        // ✅ Pass native uploaded URLs to App.tsx
+        nativeMediaMeta: hasNativeMedia ? mediaMeta : undefined,
+        nativeMediaUrls: hasNativeMedia ? mediaUrls : undefined,
+        nativeMediaTypes: hasNativeMedia ? mediaTypes : undefined,
       });
+      
       onClose();
     };
 
@@ -6903,7 +7045,7 @@ export const CreatePostModal = memo(
               </div>
             )}
 
-            {linkPreview && files.length === 0 && !activeBackground && (
+            {linkPreview && files.length === 0 && !activeBackground && mediaMeta.length === 0 && (
               <div
                 className="mb-4 bg-[#242526] border border-[#3E4042] rounded-lg overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors"
                 onClick={() =>
@@ -6931,7 +7073,52 @@ export const CreatePostModal = memo(
               </div>
             )}
 
-            {previews.length > 0 && (
+            {/* Native Upload Preview */}
+            {mediaMeta.length > 0 && (
+              <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
+                <div
+                  onClick={() => {
+                    setMediaMeta([]);
+                    setMediaUrls([]);
+                    setMediaTypes([]);
+                    setPreviews([]);
+                    setType('text');
+                  }}
+                  className="absolute top-2 right-2 w-8 h-8 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center cursor-pointer hover:bg-black/80 z-10"
+                >
+                  <i className="fas fa-times text-white"></i>
+                </div>
+
+                {mediaMeta[0]?.type === 'video' ? (
+                  <video
+                    src={mediaUrls[0]}
+                    controls
+                    className="w-full h-auto max-h-[400px] bg-black"
+                  />
+                ) : (
+                  <div
+                    className={`grid ${
+                      mediaMeta.length === 1 ? 'grid-cols-1' : 'grid-cols-3'
+                    } gap-1 bg-black`}
+                  >
+                    {mediaMeta.slice(0, 9).map((item, i) => (
+                      <img
+                        key={i}
+                        src={item.feed || item.thumb}
+                        className={`${
+                          mediaMeta.length === 1
+                            ? 'w-full h-auto max-h-[400px] object-contain'
+                            : 'w-full h-28 object-cover'
+                        }`}
+                        alt=""
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {previews.length > 0 && mediaMeta.length === 0 && (
               <div className="relative rounded-lg overflow-hidden border border-[#3E4042] mb-4">
                 <div
                   onClick={() => {
@@ -6973,7 +7160,7 @@ export const CreatePostModal = memo(
               </div>
             )}
 
-            {previews.length === 0 && (
+            {previews.length === 0 && mediaMeta.length === 0 && (
               <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
                 <div
                   className={`w-8 h-8 rounded-lg cursor-pointer border-2 bg-[#3A3B3C] flex items-center justify-center flex-shrink-0 ${
@@ -7005,17 +7192,14 @@ export const CreatePostModal = memo(
               icon="fas fa-image"
               color="#45BD62"
               label="Photo"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleNativePhotoClick}
             />
 
             <OptionsItem
               icon="fas fa-camera"
               color="#F3425F"
               label="Video"
-              onClick={() => {
-                onClose();
-                if (onOpenRecorder) onOpenRecorder();
-              }}
+              onClick={handleNativeVideoClick}
             />
 
             <OptionsItem
@@ -7077,6 +7261,7 @@ export const CreatePostModal = memo(
     return prev.currentUser?.id === next.currentUser?.id;
   }
 );
+
 
 // ==================== COMMENTS CACHE ====================
 const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: number }>();
