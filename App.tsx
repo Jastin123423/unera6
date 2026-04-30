@@ -7113,8 +7113,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
   // ============================================================================
   // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
   // ============================================================================
- 
-  const createPost = useCallback(
+const createPost = useCallback(
   async (
     text: string,
     files: File[] | File | null,
@@ -7126,12 +7125,16 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
       taggedUsers?: number[];
       background?: string;
       linkPreview?: any;
+      // ✅ Native Flutter upload fields
+      nativeMediaMeta?: any[];
+      nativeMediaUrls?: string[];
+      nativeMediaTypes?: string[];
     }
   ) => {
     if (!requireAuth('Creating posts')) return;
 
     const trimmed = (text || '').trim();
-    if (!trimmed && !files && !meta?.background) return;
+    if (!trimmed && !files && !meta?.background && !meta?.nativeMediaMeta?.length) return;
 
     const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
 
@@ -7142,9 +7145,18 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     let media_type: string | null = null;
 
     try {
-      // IMAGE POSTS -> compress in browser, upload bundled thumb/feed/original
-      // but STORE full as feed (not original)
-      if (meta?.type === 'image' && list.length) {
+      // ✅ CHECK FOR NATIVE UPLOAD FIRST
+      if (meta?.nativeMediaMeta && meta.nativeMediaMeta.length > 0) {
+        console.log("📱 Using native uploaded media:", meta.nativeMediaMeta);
+        
+        media_urls = meta.nativeMediaUrls || [];
+        media_types = meta.nativeMediaTypes || [];
+        media_meta = meta.nativeMediaMeta;
+        media_url = media_urls[0] || null;
+        media_type = media_types[0] || null;
+      }
+      // IMAGE POSTS - compress in browser
+      else if (meta?.type === 'image' && list.length) {
         const uploadedItems = await Promise.all(
           list.map(async (file) => {
             const bundle = await buildImageUploadBundle(file);
@@ -7158,15 +7170,8 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
               body: form,
             });
 
-            const thumb =
-              data?.uploaded?.thumbnail?.url ||
-              data?.media_urls?.thumb ||
-              '';
-
-            const feed =
-              data?.uploaded?.feed?.url ||
-              data?.media_urls?.feed ||
-              '';
+            const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
+            const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
 
             if (!feed) {
               throw new Error('Image upload failed: missing feed URL');
@@ -7175,7 +7180,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
             return {
               thumb,
               feed,
-              full: feed, // ✅ use feed instead of original
+              full: feed,
               type: 'image',
             };
           })
@@ -7185,14 +7190,14 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
         media_meta = uploadedItems.map((item) => ({
           thumb: item.thumb,
           feed: item.feed,
-          full: item.feed, // ✅ full = feed
+          full: item.feed,
           type: 'image',
         }));
         media_types = uploadedItems.map(() => 'image');
         media_url = uploadedItems[0]?.feed || null;
         media_type = 'image';
       }
-      // NON-IMAGE POSTS -> keep old upload flow
+      // NON-IMAGE POSTS (videos, audio, etc.)
       else if (list.length) {
         const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
         media_urls = ups.map((u) => u.url).filter(Boolean);
@@ -7241,25 +7246,13 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
       created_at: new Date().toISOString(),
     };
 
-    (newPostRaw as any).media_urls =
-      (newPostRaw as any).media_urls ||
-      (media_urls.length ? media_urls : media_url ? [media_url] : []);
-
-    (newPostRaw as any).media_types =
-      (newPostRaw as any).media_types ||
-      (media_types.length ? media_types : media_type ? [media_type] : []);
-
-    (newPostRaw as any).media_meta =
-      (newPostRaw as any).media_meta ||
-      (media_meta.length ? media_meta : undefined);
-
-    // ✅ safety normalize: force every image full -> feed
+    // Safety normalize: force every image full -> feed
     if (Array.isArray((newPostRaw as any).media_meta)) {
       (newPostRaw as any).media_meta = (newPostRaw as any).media_meta.map((m: any) => ({
         ...m,
         thumb: m?.thumb || '',
         feed: m?.feed || m?.full || m?.thumb || '',
-        full: m?.feed || m?.full || m?.thumb || '', // ✅ full always feed
+        full: m?.feed || m?.full || m?.thumb || '',
         type: m?.type || 'image',
       }));
     }
@@ -7277,7 +7270,6 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
       if (!currentUser) return prev;
       const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
       if (!isMyProfile) return prev;
-
       const next = [normalized, ...safeArray(prev)];
       return next;
     });
@@ -7286,10 +7278,17 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
 
     setShowCreatePostModal(false);
     scheduleSilentRefresh();
+
+    // Show success toast
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Post created successfully!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
   },
   [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
-);      
-  
+);
+
   // Update user details
   const updateUserDetails = useCallback(
     async (data: Partial<User>) => {
