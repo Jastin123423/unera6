@@ -9371,24 +9371,56 @@ return (
       />
     )}
 
-    {activePost && currentUser && (
-      <CommentsSheet
-        post={activePost}
-        currentUser={currentUser}
-        users={users}
-        onClose={() => {
-          setActiveCommentsIdentity(null);
-          setCommentPostSnapshot(null);
-        }}
-        onComment={createGroupPostComment}
-        onLikeComment={handleLikeComment}
-        getCommentAuthor={(id) => users.find((u) => u.id === id)}
-        onProfileClick={(id) => openProfile(id)}
-        onHashtagClick={handleHashtagClick}
-        onFollow={followUser}
-        checkIsFollowing={checkIsFollowing}
-      />
-    )}
+  {activePost && currentUser && (
+  <CommentsSheet
+    post={activePost}
+    currentUser={currentUser}
+    users={users}
+    onClose={() => {
+      setActiveCommentsIdentity(null);
+      setCommentPostSnapshot(null);
+    }}
+    onComment={createComment}
+    onCommentAdded={() => {
+      refreshComments(activePost);
+    }}
+    onLikeComment={likeComment}
+    getCommentAuthor={(id) => users.find((u) => u.id === id)}
+    onProfileClick={(id) => openProfile(id)}
+    onHashtagClick={handleHashtagClick}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    onViewProductFromPost={openProductFromPost}
+    onOpenAudio={onPlayTrack}
+    onReact={(post, type) => reactToFeedItem(post, type)}
+    onShare={(id, newShareCount) => {
+      setPosts(prev => prev.map(p => 
+        Number(p.id) === id ? { ...p, shares: newShareCount } as any : p
+      ));
+      setProfilePosts(prev => prev.map(p => 
+        Number(p.id) === id ? { ...p, shares: newShareCount } as any : p
+      ));
+    }}
+    onVideoClick={handleVideoClick}
+    groups={groups}
+    brands={brands}
+    chats={chats}
+    onOpenGroup={(groupId) => {
+      navigateTo('groups');
+    }}
+    onRSVP={onRSVPEvent}
+    onEventClick={(eventId) => {
+      setActiveEventId(eventId);
+      navigateTo('events');
+    }}
+    onOpenReactions={(post) => {
+      // Optional: Open reactions sheet if needed
+      console.log('Open reactions for post:', post.id);
+    }}
+  />
+)}
+
+  
 
     {/* MUSIC COMMENTS SHEET */}
     {showMusicComments && selectedMusicTrack && (
