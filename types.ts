@@ -1,3 +1,31 @@
+//Native 
+
+// Add this at the top
+declare global {
+  interface Window {
+    UneraNative?: {
+      postMessage: (message: string) => void;
+    };
+    UNERA_IS_NATIVE_APP?: boolean;
+  }
+}
+
+// Your existing types
+export interface User {
+  id: number;
+  name: string;
+  username: string;
+  // ... rest of your User type
+}
+
+export interface Post {
+  id: number;
+  // ... rest of your Post type
+}
+
+// ... rest of your types
+
+
 // =========================
 // USERS / BRANDS
 // =========================
