@@ -8392,6 +8392,18 @@ const openEvent = useCallback((eventId: string | number) => {
   navigateTo('events');
 }, [navigateTo]);          
 
+  const activePost = useMemo(() => {
+  if (!activeCommentsIdentity) return null;
+  return (
+    commentPostSnapshot || 
+    posts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    profilePosts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    null
+  );
+}, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);        
+
+
+      
    //====NOTIFICATION DELETE ===     
 const deleteNotification = useCallback(async (notificationId: number) => {
   const token = localStorage.getItem("unera_token");
@@ -8447,15 +8459,7 @@ const markAllNotificationsAsRead = useCallback(async () => {
   }
 }, [currentUser]);
           
-const activePost = useMemo(() => {
-  if (!activeCommentsIdentity) return null;
-  return (
-    commentPostSnapshot || 
-    posts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
-    profilePosts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
-    null
-  );
-}, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);
+
 
   
     //=======NOTIFICATION TARGET ===          
