@@ -7756,30 +7756,29 @@ const fetchComments = useCallback(async (item: any) => {
   }
 }, [currentUser, requireAuth]);
 
-const handleOpenComments = useCallback((item: any) => {
+const handleOpenComments = useCallback((post: PostType) => {
   if (!requireAuth('Viewing comments')) return;
-  if (!item) return;
+  if (!post) return;
   
-  let identity = '';
-  try {
-    identity = getFeedKey(item);
-  } catch {
-    identity = `post:${item?.id}`;
+  let postType: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post' = 'feed_post';
+  
+  if ((post as any).group_id || (post as any).group) {
+    postType = 'group_post';
+  } else if ((post as any).product_id || (post as any).marketplace || (post as any).type === 'product') {
+    postType = 'marketplace_post';
+  } else if ((post as any).event_id || (post as any).type === 'event' || (post as any).item_type === 'event') {
+    postType = 'event_post';
+  } else if ((post as any).reel_id || (post as any).type === 'reel') {
+    postType = 'reel_post';
+  } else if ((post as any).song_id || (post as any).type === 'music') {
+    postType = 'music_post';
   }
   
-  setActiveCommentsIdentity(identity);
-  
-  const source = view === 'profile' ? profilePosts : posts;
-  let found = null;
-  
-  try {
-    found = source.find((p: any) => getFeedKey(p) === identity) || null;
-  } catch {
-    found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
-  }
-  
-  setCommentPostSnapshot(found || item);
-}, [requireAuth, view, posts, profilePosts]);
+  setCommentPostSnapshot(post);
+  setActiveCommentsIdentity({ type: postType, id: post.id });
+}, [requireAuth]);
+          
+
 
 const handleCloseComments = useCallback(() => {
   setActiveCommentsIdentity(null);
