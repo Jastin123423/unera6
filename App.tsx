@@ -2111,6 +2111,16 @@ const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
 const [storyCreateLoading, setStoryCreateLoading] = useState(false);
 
+   // Add this type definition at the top of your state section (around line 200)
+type ActiveCommentsIdentity = {
+  type: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post';
+  id: string | number;
+};
+
+// Then add these with your other useState declarations
+const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<ActiveCommentsIdentity | null>(null);
+const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);     
+
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
 const [showStoryComments, setShowStoryComments] = useState(false);
@@ -2121,6 +2131,7 @@ const [showStoryComments, setShowStoryComments] = useState(false);
 
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
+
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
