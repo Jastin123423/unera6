@@ -9384,28 +9384,42 @@ return (
         }}
       />
     )}
-{activePost && currentUser && (
+                                                 
+ {activePost && currentUser && (
   <CommentsSheet
     post={activePost}
     currentUser={currentUser}
     users={users}
     onClose={() => {
-      setActivePost(null); // ✅ VERY IMPORTANT FIX
       setActiveCommentsIdentity(null);
       setCommentPostSnapshot(null);
     }}
-    onComment={createGroupPostComment}
-    onLikeComment={handleLikeComment}
+    onComment={createComment}  // Use createComment, not createGroupPostComment
+    onLikeComment={likeComment}  // Use likeComment, not handleLikeComment
     getCommentAuthor={(id) => users.find((u) => u.id === id)}
     onProfileClick={(id) => openProfile(id)}
     onHashtagClick={handleHashtagClick}
     onFollow={followUser}
     checkIsFollowing={checkIsFollowing}
+    onReact={(post, type) => reactToFeedItem(post, type)}
+    onShare={(id, newShareCount) => {
+      setPosts(prev => prev.map(p => 
+        Number(p.id) === id ? { ...p, shares: newShareCount } as any : p
+      ));
+    }}
+    onVideoClick={handleVideoClick}
+    onOpenAudio={onPlayTrack}
+    groups={groups}
+    brands={brands}
+    chats={chats}
+    onOpenGroup={(groupId) => navigateTo('groups')}
+    onRSVP={onRSVPEvent}
+    onEventClick={(eventId) => {
+      setActiveEventId(eventId);
+      navigateTo('events');
+    }}
   />
-)}
-
-                                                 
-  
+)} 
 
     {/* MUSIC COMMENTS SHEET */}
     {showMusicComments && selectedMusicTrack && (
