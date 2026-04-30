@@ -2111,15 +2111,6 @@ const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
 const [storyCreateLoading, setStoryCreateLoading] = useState(false);
 
-   // Add this type definition at the top of your state section (around line 200)
-type ActiveCommentsIdentity = {
-  type: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post';
-  id: string | number;
-};
-
-// Then add these with your other useState declarations
-const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<ActiveCommentsIdentity | null>(null);
-const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);     
 
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
@@ -2181,9 +2172,17 @@ const [showStoryComments, setShowStoryComments] = useState(false);
   // ============================================================================
   // ✅ COMMENTS IDENTITY STATE
   // ============================================================================
-  const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<string | null>(null);
-  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
+type ActiveCommentsIdentity = {
+  type: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post';
+  id: string | number;
+};
+
+
+const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<ActiveCommentsIdentity | null>(null);
+const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+    
+  
   // ============================================================================
   // ✅ People You May Know - State declarations
   // ============================================================================
