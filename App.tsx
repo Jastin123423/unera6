@@ -2181,18 +2181,7 @@ type ActiveCommentsIdentity = {
 
 const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<ActiveCommentsIdentity | null>(null);
 const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
-
-
-  const activePost = useMemo(() => {
-  if (activeCommentsIdentity == null) return null;
-
-  if (commentPostSnapshot && getFeedKey(commentPostSnapshot) === activeCommentsIdentity) {
-    return commentPostSnapshot;
-  }
-
-  const source = view === 'profile' ? profilePosts : posts;
-  return source.find((p: any) => getFeedKey(p) === activeCommentsIdentity) || null;
-}, [posts, profilePosts, view, activeCommentsIdentity, commentPostSnapshot]);                   
+                   
   
   // ============================================================================
   // ✅ People You May Know - State declarations
@@ -6838,17 +6827,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     return merged;
   }, [rankedPosts, reels, ads, currentUser]);
 
-  const activePost = useMemo(() => {
-    if (activeCommentsIdentity == null) return null;
-
-    if (commentPostSnapshot && getFeedKey(commentPostSnapshot) === activeCommentsIdentity) {
-      return commentPostSnapshot;
-    }
-
-    const source = view === 'profile' ? profilePosts : posts;
-    return source.find((p: any) => getFeedKey(p) === activeCommentsIdentity) || null;
-  }, [posts, profilePosts, view, activeCommentsIdentity, commentPostSnapshot]);
-
+  
   const profileUser = useMemo(() => {
     if (selectedUserId) {
       return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
