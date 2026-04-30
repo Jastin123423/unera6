@@ -318,6 +318,62 @@ const apiFetch = async (url: string, options: RequestInit = {}) => {
     ...(options.headers || {}),
   };
 
+//====NATIVE HELPERS =====
+  
+  // Native detection helper (add inside CreatePostModal or import from parent)
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP
+  );
+};
+
+// Native photo picker
+const handleNativePhotoClick = () => {
+  if (isUneraNativeApp()) {
+    console.log("📱 Calling native photo picker");
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(
+        JSON.stringify({ action: "pick_image" })
+      );
+    } else {
+      console.warn("Native bridge not available, using web picker");
+      fileInputRef.current?.click();
+    }
+  } else {
+    fileInputRef.current?.click();
+  }
+};
+
+// Native video picker
+const handleNativeVideoClick = () => {
+  if (isUneraNativeApp()) {
+    console.log("📱 Calling native video picker");
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(
+        JSON.stringify({ action: "pick_video" })
+      );
+    } else {
+      console.warn("Native bridge not available, using web picker");
+      if (onVideoClick) onVideoClick();
+    }
+  } else {
+    if (onVideoClick) onVideoClick();
+  }
+};
+
+// Native camera
+const handleNativeCameraClick = () => {
+  if (isUneraNativeApp()) {
+    console.log("📱 Calling native camera");
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(
+        JSON.stringify({ action: "take_photo" })
+      );
+    }
+  }
+};
+
 // ====== FEEDS ARRANGEMENTS HELPERS =====
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? v : []);
 
