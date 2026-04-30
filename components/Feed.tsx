@@ -7595,21 +7595,25 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
 
 
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
-  <div className="border-b border-[#3E4042]">
+
+<div className="border-b border-[#3E4042]">
+  {post && (
     <Post
       post={post}
-      author={p.author || {
-        name: p.name,
-        username: p.username,
-        profile_image_url: p.profile_image_url,
-        id: p.user_id || p.author_id,
-      }}
+      author={
+        (post as any).author || {
+          id: (post as any).user_id || (post as any).author_id || 0,
+          name: (post as any).name || (post as any).username || 'User',
+          username: (post as any).username || '',
+          profile_image_url: (post as any).profile_image_url || '',
+        }
+      }
       currentUser={currentUser}
       users={users}
       onProfileClick={onProfileClick}
       onReact={onReact}
       onShare={onShare}
-      onViewImage={(url) => {}}
+      onViewImage={() => {}}
       onOpenComments={() => {}}
       onVideoClick={onVideoClick}
       onPlayAudioTrack={onOpenAudio}
@@ -7624,9 +7628,10 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
       onFollow={onFollow}
       onEventClick={onEventClick}
       onOpenReactions={onOpenReactions}
-      onToggleGroupPostLike={onToggleGroupPostLike}  // ← ADD THIS LINE
     />
-  </div>
+  )}
+</div>
+
 
 
           <div className="p-4">
