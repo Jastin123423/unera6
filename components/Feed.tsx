@@ -7562,10 +7562,10 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
           </div>
         </div>
       );
-    };
-
+    };    
     return (
-      <div className="fixed inset-0 z-[500] bg-[#18191A] flex flex-col">
+    
+        <div className="comments-sheet-root flex flex-col">
         <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <button
