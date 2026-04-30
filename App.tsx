@@ -8446,7 +8446,18 @@ const markAllNotificationsAsRead = useCallback(async () => {
     setLoginError('Failed to mark notifications as read');
   }
 }, [currentUser]);
+          
+const activePost = useMemo(() => {
+  if (!activeCommentsIdentity) return null;
+  return (
+    commentPostSnapshot || 
+    posts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    profilePosts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    null
+  );
+}, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);
 
+  
     //=======NOTIFICATION TARGET ===          
  
  const openNotificationTarget = useCallback((notification: any) => {
