@@ -8150,6 +8150,7 @@ export const isAudioPost = (post: any): boolean => {
   return mediaInfo.isAudio || (post?.media_type === 'audio');
 };
 
+
 // CSS injection
 const injectGlobalStyles = () => {
   if (typeof document === 'undefined') return;
@@ -8212,6 +8213,17 @@ const injectGlobalStyles = () => {
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
+      
+      /* Comments Sheet Fix - prevents blank screen */
+      .comments-sheet-root {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 99999 !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        background: #18191A !important;
+        overflow: hidden !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -8222,4 +8234,5 @@ if (typeof window !== 'undefined') {
 }
 
 export const FEED_VERSION = '2.0.0';
-export const LAST_UPDATED = '2024-03-27'
+export const LAST_UPDATED = '2024-03-27';
+                       
