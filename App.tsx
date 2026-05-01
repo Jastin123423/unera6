@@ -1191,6 +1191,29 @@ const normalizeProduct = (p: any) => {
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
+      
+  // ============================================================================
+// ✅ NATIVE VIDEO HELPERS
+// ============================================================================
+
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP
+  );
+};
+
+const openNativeVideoPicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_video' })
+    );
+    return true;
+  }
+  return false;
+};
+
+
 
 // ============================================================================
 // ✅ NOTIFICATION ENRICHMENT HELPERS
@@ -2110,7 +2133,9 @@ const [brands, setBrands] = useState<Brand[]>([]);
 const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
 const [storyCreateLoading, setStoryCreateLoading] = useState(false);
-
+        
+const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
+const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
 
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
