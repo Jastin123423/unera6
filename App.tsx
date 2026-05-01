@@ -1214,8 +1214,57 @@ const openNativeVideoPicker = (): boolean => {
   return false;
 };
 
-
-
+//===NATIVE UPLOAD HELPERS ===
+      
+// Add this useEffect where your other listeners are (around other useEffects)
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    if (!media || media.type !== 'video') return;
+    
+    console.log('📱 Native reel video uploaded:', media);
+    
+    const videoUrl = media.full || media.feed || media.url;
+    if (!videoUrl) return;
+    
+    // Clear any pending file-based video
+    setPendingReelFile(null);
+    
+    // Store native video URL and metadata
+    setNativeReelVideoUrl(videoUrl);
+    setNativeReelMediaMeta({
+      thumb: media.thumb || videoUrl,
+      feed: media.feed || videoUrl,
+      full: media.full || videoUrl,
+      type: 'video',
+    });
+    
+    // Navigate to recorder with preview mode
+    setView('recorder');
+    setRecorderActiveTab('preview');
+    
+    // Dispatch custom event for Recorder component to pick up
+    window.dispatchEvent(
+      new CustomEvent('uneraNativeReelVideo', {
+        detail: {
+          videoUrl,
+          mediaMeta: {
+            thumb: media.thumb || videoUrl,
+            feed: media.feed || videoUrl,
+            full: media.full || videoUrl,
+            type: 'video',
+          },
+        },
+      })
+    );
+  };
+  
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, []);
+      
 // ============================================================================
 // ✅ NOTIFICATION ENRICHMENT HELPERS
 // ============================================================================
