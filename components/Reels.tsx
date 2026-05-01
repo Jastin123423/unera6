@@ -2237,12 +2237,17 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
-  const handleCameraClick = useCallback(() => {
-    stopActivePlayback();
-    if (onVideoClick) {
-      onVideoClick();
-    }
-  }, [onVideoClick, stopActivePlayback]);
+const handleCameraClick = useCallback(() => {
+  stopActivePlayback();
+  
+  // ✅ Check if native upload handler exists and use it
+  if (onNativeUploadClick) {
+    onNativeUploadClick();
+  } else if (onVideoClick) {
+    onVideoClick();
+  }
+}, [onVideoClick, onNativeUploadClick, stopActivePlayback]);
+  
 
   // ==================== UPDATED handleVideoClick ====================
   const handleVideoClick = useCallback(
