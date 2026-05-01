@@ -2131,7 +2131,8 @@ const [brands, setBrands] = useState<Brand[]>([]);
 const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
 const [storyCreateLoading, setStoryCreateLoading] = useState(false);
-
+const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
+const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
 
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
