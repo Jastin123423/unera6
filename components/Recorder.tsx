@@ -2,6 +2,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
 
+// ==================== NATIVE APP DETECTION ====================
+const isUneraNativeApp = (): boolean => {
+  return !!(
+    (window as any).UneraNative ||
+    (window as any).flutter_inappwebview ||
+    navigator.userAgent.includes('UneraApp')
+  );
+};
+
 // ==================== MEDIA FETCH & CACHE ====================
 const mediaBlobCache = new Map<string, { blobUrl: string, timestamp: number }>(); 
 const mediaWarmPromises = new Map<string, Promise<string>>();
@@ -782,7 +791,7 @@ export interface RecorderSubmitPayload {
   caption: string;
   location?: string;
   visibility: Visibility;
-  videoFile: File;
+  videoFile?: File;  // For web uploads
   thumbnailFile?: File;
   audioFile?: File;
   songName?: string;
@@ -797,6 +806,9 @@ export interface RecorderSubmitPayload {
   lyricsEnabled?: boolean;
   filterId?: string;
   filterIntensity?: number;
+  // ✅ Native Flutter upload fields
+  nativeVideoUrl?: string;
+  nativeVideoMeta?: any;
 }
 
 // Updated RecorderProps interface with new props
@@ -810,6 +822,8 @@ interface RecorderProps {
   maxDurationSec?: number;
   brandName?: string;
   initialVideoFile?: File | null;
+  initialVideoUrl?: string;           // ✅ NEW: native video URL
+  initialNativeMediaMeta?: any;       // ✅ NEW: native media metadata
   startInPreview?: boolean;
 }
 
@@ -1263,10 +1277,12 @@ const Recorder: React.FC<RecorderProps> = ({
   maxDurationSec = 60,
   brandName = 'UNERA',
   initialVideoFile = null,
+  initialVideoUrl = '',
+  initialNativeMediaMeta = null,
   startInPreview = false,
 }) => {
   const [mode, setMode] = useState<EditorMode>(
-    startInPreview && initialVideoFile ? 'preview' : 'choose'
+    startInPreview && (initialVideoFile || initialVideoUrl) ? 'preview' : 'choose'
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
@@ -1291,6 +1307,12 @@ const Recorder: React.FC<RecorderProps> = ({
   const [filterIntensity, setFilterIntensity] = useState(0.75);
   const [isEffectsOpen, setIsEffectsOpen] = useState(false);
 
+  // ✅ Native upload states
+  const [nativeVideoUrl, setNativeVideoUrl] = useState<string>(initialVideoUrl);
+  const [nativeVideoMeta, setNativeVideoMeta] = useState<any | null>(initialNativeMediaMeta);
+  const [isNativePickerActive, setIsNativePickerActive] = useState(false);
+  const [nativeUploadProgress, setNativeUploadProgress] = useState(0);
+
   const activeFilter = useMemo(
     () => FILTER_PRESETS.find((f) => f.id === selectedFilterId) || FILTER_PRESETS[0],
     [selectedFilterId]
@@ -1313,7 +1335,7 @@ const Recorder: React.FC<RecorderProps> = ({
   }, [filterCategory]);
 
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(initialVideoUrl || null);
   const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
   const [playPreview, setPlayPreview] = useState(true);
   const [previewFillMode, setPreviewFillMode] = useState<'cover' | 'contain'>('cover');
@@ -1348,6 +1370,69 @@ const Recorder: React.FC<RecorderProps> = ({
       (selectedUploadedSound?.url && String(selectedUploadedSound.url).trim())
     );
   }, [selectedSound, selectedUploadedSound]);
+
+  // ✅ Native upload listener
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      console.log("📱 Recorder: Native upload received:", media);
+      
+      if (!media || media.type !== 'video') return;
+      
+      const videoUrl = media.full || media.feed || media.url;
+      if (!videoUrl) return;
+      
+      setIsNativePickerActive(false);
+      setNativeUploadProgress(100);
+      
+      // Clear any existing file-based video
+      setVideoFile(null);
+      
+      // Store native video URL and metadata directly (NO conversion to File)
+      setNativeVideoUrl(videoUrl);
+      setNativeVideoMeta({
+        thumb: media.thumb || videoUrl,
+        feed: media.feed || videoUrl,
+        full: media.full || videoUrl,
+        type: 'video',
+      });
+      
+      // Set preview URL directly from native upload
+      setNextPreviewUrl(videoUrl);
+      setMode('preview');
+      setSubmitState('idle');
+      setSubmitError('');
+      setSubmitProgress(0);
+      
+      // Note: Audio extraction is skipped for native uploaded videos
+      // because Flutter has already handled the upload
+    };
+
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => {
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    };
+  }, []);
+
+  // ✅ Listen for native reel video from App.tsx
+  useEffect(() => {
+    const handleNativeReelVideo = (event: any) => {
+      const { videoUrl, mediaMeta } = event.detail;
+      console.log("📱 Recorder: Native reel video received:", videoUrl);
+      
+      if (!videoUrl) return;
+      
+      setNativeVideoUrl(videoUrl);
+      setNativeVideoMeta(mediaMeta);
+      setNextPreviewUrl(videoUrl);
+      setMode('preview');
+    };
+
+    window.addEventListener('uneraNativeReelVideo', handleNativeReelVideo);
+    return () => {
+      window.removeEventListener('uneraNativeReelVideo', handleNativeReelVideo);
+    };
+  }, []);
 
   // Fetch popular sounds
   useEffect(() => {
@@ -1610,9 +1695,23 @@ const Recorder: React.FC<RecorderProps> = ({
     };
   }, [initialVideoFile, setNextPreviewUrl, hasSelectedSound, selectedUploadedSound, currentUser, onSelectSound]);
 
+  // Handle initial native video URL from App.tsx
+  useEffect(() => {
+    if (!initialVideoUrl) return;
+    
+    setNativeVideoUrl(initialVideoUrl);
+    setNativeVideoMeta(initialNativeMediaMeta);
+    setNextPreviewUrl(initialVideoUrl);
+    setMode('preview');
+    
+    // Skip audio extraction for native videos
+  }, [initialVideoUrl, initialNativeMediaMeta]);
+
   const resetAll = useCallback(() => {
     stopSoundPreview();
     setVideoFile(null);
+    setNativeVideoUrl('');
+    setNativeVideoMeta(null);
     setThumbnailFile(null);
     setTrimmedAudioFile(null);
     setExtractedVideoAudioFile(null);
@@ -1635,16 +1734,18 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [setNextPreviewUrl, stopSoundPreview, onSelectSound]);
 
-  // Silent audio extraction - runs only when user picks video WITHOUT a selected sound
-  const handlePickVideo = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // Process selected video (only for web picker)
+  const processSelectedVideo = useCallback((file: File) => {
     if (!file.type.startsWith('video/')) {
       setSubmitState('error');
       setSubmitError('Please choose a video file.');
       return;
     }
 
+    // Clear native video states
+    setNativeVideoUrl('');
+    setNativeVideoMeta(null);
+    
     setSubmitState('idle');
     setSubmitError('');
     setSubmitProgress(0);
@@ -1652,17 +1753,15 @@ const Recorder: React.FC<RecorderProps> = ({
     setNextPreviewUrl(URL.createObjectURL(file));
     setMode('preview');
     
-    // 🔥 SILENT AUTO EXTRACTION LOGIC
-    // ONLY extract audio if there's no selected sound from "Use this sound" and no manually uploaded sound
+    // Silent auto extraction logic (only for web uploaded videos)
     if (!hasSelectedSound) {
       setIsExtractingAudio(true);
-      try {
-        // Revoke old extracted audio if exists
-        if (selectedUploadedSound?.url?.startsWith('blob:')) {
-          safeRevoke(selectedUploadedSound.url);
-        }
-        
-        const extracted = await extractAudioFromVideo(file);
+      // Revoke old extracted audio if exists
+      if (selectedUploadedSound?.url?.startsWith('blob:')) {
+        safeRevoke(selectedUploadedSound.url);
+      }
+      
+      extractAudioFromVideo(file).then(extracted => {
         if (extracted) {
           const extractedUrl = URL.createObjectURL(extracted);
           const generatedSoundKey = `original:extracted:${Date.now()}`;
@@ -1693,19 +1792,63 @@ const Recorder: React.FC<RecorderProps> = ({
           setTrimEnd(0);
           onSelectSound?.(autoSound);
         } else {
-          // No audio found in video
           setSelectedUploadedSound(null);
           onSelectSound?.(null);
         }
-      } catch (error) {
-        console.warn('Silent audio extraction failed:', error);
-        setExtractedVideoAudioFile(null);
-      } finally {
         setIsExtractingAudio(false);
-      }
+      }).catch(() => {
+        setIsExtractingAudio(false);
+        setSelectedUploadedSound(null);
+        onSelectSound?.(null);
+      });
     }
+  }, [hasSelectedSound, selectedUploadedSound, currentUser, onSelectSound, setNextPreviewUrl]);
+
+  // ✅ Updated handlePickVideo - supports native picker
+  const handlePickVideo = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    // Check if in native app
+    if (isUneraNativeApp()) {
+      console.log("📱 Recorder: Using native video picker");
+      setIsNativePickerActive(true);
+      setNativeUploadProgress(0);
+      
+      // Simulate progress for better UX
+      const interval = setInterval(() => {
+        setNativeUploadProgress(prev => Math.min(prev + 10, 90));
+      }, 300);
+      
+      if ((window as any).UneraNative?.postMessage) {
+        (window as any).UneraNative.postMessage(
+          JSON.stringify({ action: "pick_video" })
+        );
+      } else {
+        console.warn("Native bridge not available, falling back to web picker");
+        setIsNativePickerActive(false);
+        clearInterval(interval);
+        // Fall back to web picker
+        const file = event.target.files?.[0];
+        if (!file) return;
+        processSelectedVideo(file);
+      }
+      
+      // Clear interval after timeout (native will trigger the event)
+      setTimeout(() => {
+        clearInterval(interval);
+        if (isNativePickerActive) {
+          setIsNativePickerActive(false);
+        }
+      }, 10000);
+      
+      event.target.value = '';
+      return;
+    }
+    
+    // Web picker fallback
+    const file = event.target.files?.[0];
+    if (!file) return;
+    processSelectedVideo(file);
     event.target.value = '';
-  }, [setNextPreviewUrl, hasSelectedSound, selectedUploadedSound, currentUser, onSelectSound]);
+  }, [isNativePickerActive, processSelectedVideo]);
 
   const handlePickMusic = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1782,8 +1925,10 @@ const Recorder: React.FC<RecorderProps> = ({
     return 'original:none';
   }, [currentSelectedSound, trimmedAudioFile, selectedUploadedSound, extractedVideoAudioFile]);
 
+  // ✅ Updated handleSubmit - passes native data when available
   const handleSubmit = useCallback(async () => {
-    if (!videoFile) {
+    // Check if we have either a file-based video OR native video URL
+    if (!videoFile && !nativeVideoUrl) {
       setSubmitState('error');
       setSubmitError('Please select a video first.');
       return;
@@ -1812,7 +1957,6 @@ const Recorder: React.FC<RecorderProps> = ({
       const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
       const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
 
-      // Priority: trimmed audio > uploaded sound > extracted video audio > none
       let audioFileToSend: File | undefined = trimmedAudioFile || selectedUploadedSound?.file || extractedVideoAudioFile || undefined;
 
       const finalSongName = currentSelectedSound?.songName || selectedUploadedSound?.name || (audioFileToSend ? 'Original Sound' : 'Original Sound');
@@ -1821,12 +1965,21 @@ const Recorder: React.FC<RecorderProps> = ({
       setSubmitProgress(20);
       setVideoPrepareMessage('Preparing thumbnail...');
 
-      const thumbnail = await createThumbnailFromVideo(videoFile, 720);
-      setThumbnailFile(thumbnail.file);
-      if (thumbnailPreviewRef.current) {
-        safeRevoke(thumbnailPreviewRef.current);
+      let thumbnail: { file: File; previewUrl: string } | null = null;
+      
+      // Only generate thumbnail for web uploads (file-based)
+      if (videoFile) {
+        thumbnail = await createThumbnailFromVideo(videoFile, 720);
+        setThumbnailFile(thumbnail.file);
+        if (thumbnailPreviewRef.current) {
+          safeRevoke(thumbnailPreviewRef.current);
+        }
+        thumbnailPreviewRef.current = thumbnail.previewUrl;
+      } else {
+        // For native uploads, use the thumb from native metadata
+        setVideoPrepareMessage('Using native video...');
+        setSubmitProgress(50);
       }
-      thumbnailPreviewRef.current = thumbnail.previewUrl;
 
       setSubmitProgress(70);
       setVideoPrepareMessage('Publishing...');
@@ -1835,8 +1988,8 @@ const Recorder: React.FC<RecorderProps> = ({
         caption: caption.trim(),
         location: location.trim(),
         visibility,
-        videoFile,
-        thumbnailFile: thumbnail.file,
+        videoFile: videoFile || undefined,  // Only for web uploads
+        thumbnailFile: thumbnail?.file,
         audioFile: audioFileToSend,
         songName: finalSongName,
         audioUrl: finalAudioUrl,
@@ -1850,6 +2003,9 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsEnabled,
         filterId: selectedFilterId,
         filterIntensity,
+        // ✅ Pass native video data when available
+        nativeVideoUrl: nativeVideoUrl || undefined,
+        nativeVideoMeta: nativeVideoMeta || undefined,
       });
 
       setSubmitProgress(100);
@@ -1869,6 +2025,8 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [
     videoFile,
+    nativeVideoUrl,
+    nativeVideoMeta,
     onSubmit,
     caption,
     location,
@@ -2132,7 +2290,7 @@ const Recorder: React.FC<RecorderProps> = ({
       <div className="absolute top-0 left-0 right-0 z-40 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-3 bg-gradient-to-b from-black/85 to-transparent flex items-center justify-between">
         <button
           onClick={() => {
-            if (mode === 'preview' && !initialVideoFile) {
+            if (mode === 'preview' && !initialVideoFile && !initialVideoUrl) {
               setMode('choose');
               return;
             }
@@ -2159,7 +2317,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </button>
       </div>
 
-      {mode === 'choose' && !initialVideoFile && (
+      {mode === 'choose' && !initialVideoFile && !initialVideoUrl && (
         <div className="relative h-full flex flex-col items-center justify-center px-6 pb-12 pt-24 overflow-y-auto">
           <div className="w-full max-w-[420px] text-center mb-8">
             <div className="w-24 h-24 mx-auto rounded-[32px] bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl mb-6">
