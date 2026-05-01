@@ -7185,14 +7185,7 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
 
-      // Replace your existing handleUploadVideoClick
-const handleUploadVideoClick = useCallback(() => {
-  if (isUneraNativeApp()) {
-    const opened = openNativeVideoPicker();
-    if (opened) return;
-  }
-  reelVideoInputRef.current?.click();
-}, []);
+      
   // ============================================================================
   // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
   // ============================================================================
