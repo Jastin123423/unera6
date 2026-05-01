@@ -14,6 +14,26 @@ import {
 } from './Feed';
 import { CreateEventModal } from './Events';
 
+
+// ==================== NATIVE APP DETECTION ====================
+
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP
+  );
+};
+
+const openNativeImagePicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_image' })
+    );
+    return true;
+  }
+  return false;
+};
+
 // ✅ Spark icon (React) - orange/coral gradient
 const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
