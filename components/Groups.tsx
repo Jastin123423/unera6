@@ -1599,7 +1599,6 @@ useEffect(() => {
   setMemberMetaOverrides({});
 }, [activeGroupId]);
 
-
 useEffect(() => {
   const handleNativeUpload = (event: any) => {
     const media = event.detail;
@@ -1610,22 +1609,29 @@ useEffect(() => {
     
     console.log('📱 Groups: Native image uploaded:', imageUrl);
     
-    // Determine which upload is pending (cover or profile)
-    // You can use a ref to track which button was clicked
     if (pendingUploadTypeRef.current === 'cover') {
-      // Handle cover image update with native URL
       updateGroupImageWithUrl('cover', imageUrl, media);
     } else if (pendingUploadTypeRef.current === 'profile') {
-      // Handle profile image update with native URL
       updateGroupImageWithUrl('profile', imageUrl, media);
+    } else if (pendingUploadTypeRef.current === 'post') {
+      // Handle post image upload
+      fetch(imageUrl)
+        .then(res => res.blob())
+        .then(blob => {
+          const file = new File([blob], `native-post-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setPostFiles(prev => [...prev, file]);
+          setPreviews(prev => [...prev, URL.createObjectURL(blob)]);
+        })
+        .catch(err => console.error('Failed to process native image for post:', err));
     }
+    pendingUploadTypeRef.current = null;
   };
 
   window.addEventListener('uneraNativeUpload', handleNativeUpload);
-  return () => {
-    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  };
-}, [activeGroup, onUpdateGroupImage, fetchGroupDetails]); 
+  return () => window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+}, [activeGroup, onUpdateGroupImage, fetchGroupDetails]);
+
+    
     
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
