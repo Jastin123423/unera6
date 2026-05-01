@@ -1291,6 +1291,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [videoPrepareMessage, setVideoPrepareMessage] = useState('');
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const thumbnailPreviewRef = useRef<string | null>(null);
+const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' | 'sound' | 'preview'>('preview');
 
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
