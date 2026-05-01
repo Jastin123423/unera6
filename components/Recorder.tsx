@@ -1,4 +1,4 @@
-// Recorder.tsx – Upload-only Reel Creator (no camera, no drafts, trimming kept)
+// Recorder.tsx – Direct Preview Reel Creator (no choose mode)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '../types';
 
@@ -9,6 +9,14 @@ const isUneraNativeApp = (): boolean => {
     (window as any).flutter_inappwebview ||
     navigator.userAgent.includes('UneraApp')
   );
+};
+
+const openNativeVideoPicker = (): void => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_video' })
+    );
+  }
 };
 
 // ==================== MEDIA FETCH & CACHE ====================
@@ -148,12 +156,6 @@ async function trimAudioUrlToWavBlob(audioUrl: string, startSec: number, endSec:
 }
 
 // ==================== VIDEO THUMBNAIL GENERATION ====================
-type VideoPrepareProgress = {
-  stage: 'analyzing' | 'thumbnail' | 'done';
-  percent: number;
-  message: string;
-};
-
 const createVideoElementFromFile = (file: File): Promise<{
   video: HTMLVideoElement;
   url: string;
@@ -168,7 +170,7 @@ const createVideoElementFromFile = (file: File): Promise<{
     video.muted = true;
     video.playsInline = true;
     video.src = url;
-    video.load(); // ensure metadata loads
+    video.load();
 
     const cleanup = () => {
       video.onloadedmetadata = null;
@@ -236,7 +238,6 @@ const createThumbnailFromVideo = async (
     throw new Error('Canvas is not supported for thumbnail generation.');
   }
 
-  // Safe seek
   const captureAt = Math.max(0.2, Math.min(duration * 0.2 || 0.2, 2));
   if (duration <= 0) {
     video.currentTime = 0;
@@ -276,7 +277,7 @@ const createThumbnailFromVideo = async (
   return { file: outFile, previewUrl };
 };
 
-// ==================== SILENT AUDIO EXTRACTOR (NO UI, NO SPEAKER) ====================
+// ==================== SILENT AUDIO EXTRACTOR ====================
 async function extractAudioFromVideo(file: File): Promise<File | null> {
   let video: HTMLVideoElement | null = null;
   let audioContext: AudioContext | null = null;
@@ -293,7 +294,6 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
     video.muted = true;
     video.playsInline = true;
     
-    // Wait for metadata to load
     await new Promise<void>((resolve, reject) => {
       if (!video) return reject(new Error('Video element not created'));
       video.onloadedmetadata = () => resolve();
@@ -306,25 +306,20 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
       return null;
     }
     
-    // Create audio context
     audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     sourceNode = audioContext.createMediaElementSource(video);
     
-    // Create destination stream for recording (DO NOT connect to speakers)
     const dest = audioContext.createMediaStreamDestination();
     sourceNode.connect(dest);
-    // IMPORTANT: DO NOT connect sourceNode to audioContext.destination (that would output to speakers)
     
     stream = dest.stream;
     
-    // Check if there are audio tracks
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks.length) {
       URL.revokeObjectURL(videoUrl);
       return null;
     }
     
-    // Setup recorder
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm')
@@ -343,13 +338,9 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
       if (e.data.size > 0) chunks.push(e.data);
     };
     
-    // Start recording
     mediaRecorder.start(250);
-    
-    // Play video and record until video ends or max 60 seconds
     await video.play();
     
-    // Wait for video to end or timeout (max 60 seconds)
     await new Promise<void>((resolve) => {
       const stopAt = Math.min(duration, 60);
       const timer = setTimeout(() => {
@@ -370,7 +361,6 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
       }
     });
     
-    // Stop recording
     const recordingStopped = new Promise<Blob>((resolve) => {
       if (!mediaRecorder) return resolve(new Blob());
       mediaRecorder.onstop = () => {
@@ -380,18 +370,12 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
       mediaRecorder.stop();
     });
     
-    // Pause video
     if (video) video.pause();
-    
-    // Wait for recording to finish
     const recordedBlob = await recordingStopped;
-    
-    // Cleanup
     URL.revokeObjectURL(videoUrl);
     
     if (!recordedBlob.size) return null;
     
-    // Create file from recorded audio
     return new File(
       [recordedBlob],
       `original-audio-${Date.now()}.webm`,
@@ -402,7 +386,6 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
     console.warn('Audio extraction from video failed:', error);
     return null;
   } finally {
-    // Clean up resources
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       try { mediaRecorder.stop(); } catch {}
     }
@@ -515,7 +498,7 @@ const safeRevoke = (url?: string | null) => {
 };
 
 // =========================
-// ENHANCED FILTER SYSTEM
+// FILTER SYSTEM
 // =========================
 type FilterCategory = 'beauty' | 'bright' | 'mood' | 'vintage' | 'bw';
 
@@ -748,9 +731,8 @@ type LyricPreset = {
   className: string;
 };
 
-type EditorMode = 'choose' | 'preview';
+type EditorMode = 'preview'; // Simplified - only preview mode
 
-// Sound type matching Reels.tsx exactly
 export type Sound = {
   id: string | number;
   name: string;
@@ -766,7 +748,7 @@ export type Sound = {
   coverImage?: string;
   soundKey?: string;
   originalUrl?: string;
-  file?: File; // For local uploads
+  file?: File;
 };
 
 export type RecorderSoundOption = {
@@ -784,14 +766,14 @@ export type RecorderSoundOption = {
   creationCount?: number;
   soundKey?: string;
   isOriginal?: boolean;
-  file?: File; // For local uploads
+  file?: File;
 };
 
 export interface RecorderSubmitPayload {
   caption: string;
   location?: string;
   visibility: Visibility;
-  videoFile?: File;  // For web uploads
+  videoFile?: File;
   thumbnailFile?: File;
   audioFile?: File;
   songName?: string;
@@ -806,12 +788,10 @@ export interface RecorderSubmitPayload {
   lyricsEnabled?: boolean;
   filterId?: string;
   filterIntensity?: number;
-  // ✅ Native Flutter upload fields
   nativeVideoUrl?: string;
   nativeVideoMeta?: any;
 }
 
-// Updated RecorderProps interface with new props
 interface RecorderProps {
   currentUser: User;
   selectedSound?: ReelSound | null;
@@ -822,8 +802,8 @@ interface RecorderProps {
   maxDurationSec?: number;
   brandName?: string;
   initialVideoFile?: File | null;
-  initialVideoUrl?: string;           // ✅ NEW: native video URL
-  initialNativeMediaMeta?: any;       // ✅ NEW: native media metadata
+  initialVideoUrl?: string;
+  initialNativeMediaMeta?: any;
   startInPreview?: boolean;
 }
 
@@ -1281,9 +1261,6 @@ const Recorder: React.FC<RecorderProps> = ({
   initialNativeMediaMeta = null,
   startInPreview = false,
 }) => {
-  const [mode, setMode] = useState<EditorMode>(
-    startInPreview && (initialVideoFile || initialVideoUrl) ? 'preview' : 'choose'
-  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [submitError, setSubmitError] = useState('');
@@ -1307,11 +1284,14 @@ const Recorder: React.FC<RecorderProps> = ({
   const [filterIntensity, setFilterIntensity] = useState(0.75);
   const [isEffectsOpen, setIsEffectsOpen] = useState(false);
 
-  // ✅ Native upload states
+  // Native upload states
   const [nativeVideoUrl, setNativeVideoUrl] = useState<string>(initialVideoUrl);
   const [nativeVideoMeta, setNativeVideoMeta] = useState<any | null>(initialNativeMediaMeta);
   const [isNativePickerActive, setIsNativePickerActive] = useState(false);
   const [nativeUploadProgress, setNativeUploadProgress] = useState(0);
+
+  // Video preload state for smooth preview
+  const [videoPreloaded, setVideoPreloaded] = useState(false);
 
   const activeFilter = useMemo(
     () => FILTER_PRESETS.find((f) => f.id === selectedFilterId) || FILTER_PRESETS[0],
@@ -1336,7 +1316,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(initialVideoUrl || null);
-  const [soundPreviewEnabled, setSoundPreviewEnabled] = useState(true);
   const [playPreview, setPlayPreview] = useState(true);
   const [previewFillMode, setPreviewFillMode] = useState<'cover' | 'contain'>('cover');
 
@@ -1357,7 +1336,7 @@ const Recorder: React.FC<RecorderProps> = ({
   const [extractedVideoAudioFile, setExtractedVideoAudioFile] = useState<File | null>(null);
   const [isExtractingAudio, setIsExtractingAudio] = useState(false);
 
-  // Refs for file inputs and video preview
+  // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
@@ -1371,7 +1350,15 @@ const Recorder: React.FC<RecorderProps> = ({
     );
   }, [selectedSound, selectedUploadedSound]);
 
-  // ✅ Native upload listener
+  // Reset video preloaded when URL changes
+  useEffect(() => {
+    setVideoPreloaded(false);
+  }, [videoPreviewUrl]);
+
+  // Compute poster URL for instant thumbnail
+  const posterUrl = nativeVideoMeta?.thumb || thumbnailPreviewRef.current || '';
+
+  // Native upload listener
   useEffect(() => {
     const handleNativeUpload = (event: any) => {
       const media = event.detail;
@@ -1385,10 +1372,8 @@ const Recorder: React.FC<RecorderProps> = ({
       setIsNativePickerActive(false);
       setNativeUploadProgress(100);
       
-      // Clear any existing file-based video
       setVideoFile(null);
       
-      // Store native video URL and metadata directly (NO conversion to File)
       setNativeVideoUrl(videoUrl);
       setNativeVideoMeta({
         thumb: media.thumb || videoUrl,
@@ -1397,15 +1382,10 @@ const Recorder: React.FC<RecorderProps> = ({
         type: 'video',
       });
       
-      // Set preview URL directly from native upload
       setNextPreviewUrl(videoUrl);
-      setMode('preview');
       setSubmitState('idle');
       setSubmitError('');
       setSubmitProgress(0);
-      
-      // Note: Audio extraction is skipped for native uploaded videos
-      // because Flutter has already handled the upload
     };
 
     window.addEventListener('uneraNativeUpload', handleNativeUpload);
@@ -1414,7 +1394,7 @@ const Recorder: React.FC<RecorderProps> = ({
     };
   }, []);
 
-  // ✅ Listen for native reel video from App.tsx
+  // Listen for native reel video from App.tsx
   useEffect(() => {
     const handleNativeReelVideo = (event: any) => {
       const { videoUrl, mediaMeta } = event.detail;
@@ -1425,7 +1405,6 @@ const Recorder: React.FC<RecorderProps> = ({
       setNativeVideoUrl(videoUrl);
       setNativeVideoMeta(mediaMeta);
       setNextPreviewUrl(videoUrl);
-      setMode('preview');
     };
 
     window.addEventListener('uneraNativeReelVideo', handleNativeReelVideo);
@@ -1441,7 +1420,7 @@ const Recorder: React.FC<RecorderProps> = ({
       try {
         const data = await apiFetch('/api/sounds/popular?limit=20');
         if (data?.success && data.sounds) {
-          const sounds = data.sounds.map((sound: any) => ({
+          const soundsList = data.sounds.map((sound: any) => ({
             id: sound.id,
             name: sound.name,
             url: sound.url,
@@ -1456,9 +1435,9 @@ const Recorder: React.FC<RecorderProps> = ({
             creationCount: sound.creationCount,
             soundKey: sound.soundKey || `sound:${sound.id}`
           }));
-          setPopularSounds(sounds);
+          setPopularSounds(soundsList);
           
-          sounds.slice(0, 5).forEach((sound: any) => {
+          soundsList.slice(0, 5).forEach((sound: any) => {
             if (sound.url) {
               fetchAsBlobUrl(sound.url, 'audio').catch(() => {});
             }
@@ -1515,15 +1494,13 @@ const Recorder: React.FC<RecorderProps> = ({
 
   const currentSelectedSound = selectedSound || null;
   const soundLabel = currentSelectedSound?.songName || (selectedUploadedSound?.name || 'Original Sound');
-  const soundStart = trimStart;
-  const soundEnd = trimEnd;
 
   const lyricPreset = useMemo(
     () => LYRIC_PRESETS.find((p) => p.id === lyricsTheme) || LYRIC_PRESETS[0],
     [lyricsTheme]
   );
 
-  // Filter sounds for display - include local uploaded sounds first (no duplicates)
+  // Filter sounds for display
   const filteredSounds = useMemo(() => {
     const q = soundSearch.trim().toLowerCase();
     
@@ -1622,7 +1599,7 @@ const Recorder: React.FC<RecorderProps> = ({
     [cleanupPreviewUrl]
   );
 
-  // Handle initial video file from Reels.tsx (when coming from "Use this sound")
+  // Handle initial video file from Reels.tsx
   useEffect(() => {
     if (!initialVideoFile) return;
     
@@ -1632,16 +1609,13 @@ const Recorder: React.FC<RecorderProps> = ({
     const run = async () => {
       setVideoFile(initialVideoFile);
       setNextPreviewUrl(objectUrl);
-      setMode('preview');
       setSubmitState('idle');
       setSubmitError('');
       setSubmitProgress(0);
       
-      // Only extract audio if there's no selected sound (coming from "Use this sound" or manual upload)
       if (!hasSelectedSound) {
         setIsExtractingAudio(true);
         try {
-          // Revoke old extracted audio if exists
           if (selectedUploadedSound?.url?.startsWith('blob:')) {
             safeRevoke(selectedUploadedSound.url);
           }
@@ -1702,9 +1676,6 @@ const Recorder: React.FC<RecorderProps> = ({
     setNativeVideoUrl(initialVideoUrl);
     setNativeVideoMeta(initialNativeMediaMeta);
     setNextPreviewUrl(initialVideoUrl);
-    setMode('preview');
-    
-    // Skip audio extraction for native videos
   }, [initialVideoUrl, initialNativeMediaMeta]);
 
   const resetAll = useCallback(() => {
@@ -1718,7 +1689,6 @@ const Recorder: React.FC<RecorderProps> = ({
     setSelectedUploadedSound(null);
     onSelectSound?.(null);
     setNextPreviewUrl(null);
-    setMode('choose');
     setCaption('');
     setLocation('');
     setSubmitState('idle');
@@ -1734,7 +1704,6 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [setNextPreviewUrl, stopSoundPreview, onSelectSound]);
 
-  // Process selected video (only for web picker)
   const processSelectedVideo = useCallback((file: File) => {
     if (!file.type.startsWith('video/')) {
       setSubmitState('error');
@@ -1742,7 +1711,6 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
 
-    // Clear native video states
     setNativeVideoUrl('');
     setNativeVideoMeta(null);
     
@@ -1751,12 +1719,9 @@ const Recorder: React.FC<RecorderProps> = ({
     setSubmitProgress(0);
     setVideoFile(file);
     setNextPreviewUrl(URL.createObjectURL(file));
-    setMode('preview');
     
-    // Silent auto extraction logic (only for web uploaded videos)
     if (!hasSelectedSound) {
       setIsExtractingAudio(true);
-      // Revoke old extracted audio if exists
       if (selectedUploadedSound?.url?.startsWith('blob:')) {
         safeRevoke(selectedUploadedSound.url);
       }
@@ -1804,34 +1769,18 @@ const Recorder: React.FC<RecorderProps> = ({
     }
   }, [hasSelectedSound, selectedUploadedSound, currentUser, onSelectSound, setNextPreviewUrl]);
 
-  // ✅ Updated handlePickVideo - supports native picker
   const handlePickVideo = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    // Check if in native app
     if (isUneraNativeApp()) {
       console.log("📱 Recorder: Using native video picker");
       setIsNativePickerActive(true);
       setNativeUploadProgress(0);
       
-      // Simulate progress for better UX
       const interval = setInterval(() => {
         setNativeUploadProgress(prev => Math.min(prev + 10, 90));
       }, 300);
       
-      if ((window as any).UneraNative?.postMessage) {
-        (window as any).UneraNative.postMessage(
-          JSON.stringify({ action: "pick_video" })
-        );
-      } else {
-        console.warn("Native bridge not available, falling back to web picker");
-        setIsNativePickerActive(false);
-        clearInterval(interval);
-        // Fall back to web picker
-        const file = event.target.files?.[0];
-        if (!file) return;
-        processSelectedVideo(file);
-      }
+      openNativeVideoPicker();
       
-      // Clear interval after timeout (native will trigger the event)
       setTimeout(() => {
         clearInterval(interval);
         if (isNativePickerActive) {
@@ -1843,7 +1792,6 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
     
-    // Web picker fallback
     const file = event.target.files?.[0];
     if (!file) return;
     processSelectedVideo(file);
@@ -1859,7 +1807,6 @@ const Recorder: React.FC<RecorderProps> = ({
       return;
     }
     
-    // Revoke old extracted audio if exists
     if (selectedUploadedSound?.url?.startsWith('blob:')) {
       safeRevoke(selectedUploadedSound.url);
     }
@@ -1925,9 +1872,7 @@ const Recorder: React.FC<RecorderProps> = ({
     return 'original:none';
   }, [currentSelectedSound, trimmedAudioFile, selectedUploadedSound, extractedVideoAudioFile]);
 
-  // ✅ Updated handleSubmit - passes native data when available
   const handleSubmit = useCallback(async () => {
-    // Check if we have either a file-based video OR native video URL
     if (!videoFile && !nativeVideoUrl) {
       setSubmitState('error');
       setSubmitError('Please select a video first.');
@@ -1967,7 +1912,6 @@ const Recorder: React.FC<RecorderProps> = ({
 
       let thumbnail: { file: File; previewUrl: string } | null = null;
       
-      // Only generate thumbnail for web uploads (file-based)
       if (videoFile) {
         thumbnail = await createThumbnailFromVideo(videoFile, 720);
         setThumbnailFile(thumbnail.file);
@@ -1976,7 +1920,6 @@ const Recorder: React.FC<RecorderProps> = ({
         }
         thumbnailPreviewRef.current = thumbnail.previewUrl;
       } else {
-        // For native uploads, use the thumb from native metadata
         setVideoPrepareMessage('Using native video...');
         setSubmitProgress(50);
       }
@@ -1988,7 +1931,7 @@ const Recorder: React.FC<RecorderProps> = ({
         caption: caption.trim(),
         location: location.trim(),
         visibility,
-        videoFile: videoFile || undefined,  // Only for web uploads
+        videoFile: videoFile || undefined,
         thumbnailFile: thumbnail?.file,
         audioFile: audioFileToSend,
         songName: finalSongName,
@@ -2003,7 +1946,6 @@ const Recorder: React.FC<RecorderProps> = ({
         lyricsEnabled,
         filterId: selectedFilterId,
         filterIntensity,
-        // ✅ Pass native video data when available
         nativeVideoUrl: nativeVideoUrl || undefined,
         nativeVideoMeta: nativeVideoMeta || undefined,
       });
@@ -2047,7 +1989,6 @@ const Recorder: React.FC<RecorderProps> = ({
   ]);
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
-    // Revoke old extracted audio if exists
     if (selectedUploadedSound?.url?.startsWith('blob:')) {
       safeRevoke(selectedUploadedSound.url);
     }
@@ -2158,15 +2099,46 @@ const Recorder: React.FC<RecorderProps> = ({
   }, [cleanupPreviewUrl, stopSoundPreview, localUploadedSounds, selectedUploadedSound]);
 
   useEffect(() => {
-    if (mode !== 'preview' || !previewVideoRef.current || !videoPreviewUrl) return;
+    if (!previewVideoRef.current || !videoPreviewUrl) return;
     const video = previewVideoRef.current;
     video.play().catch(() => {});
-  }, [mode, videoPreviewUrl]);
+  }, [videoPreviewUrl]);
 
   const lyricStyle = useMemo<React.CSSProperties>(() => ({
     transform: `translateX(-50%) scale(${lyricsScale})`,
     bottom: `${lyricsBottomOffset}%`,
   }), [lyricsBottomOffset, lyricsScale]);
+
+  const triggerVideoPicker = useCallback(() => {
+    if (isUneraNativeApp()) {
+      openNativeVideoPicker();
+      setIsNativePickerActive(true);
+      setNativeUploadProgress(0);
+      
+      const interval = setInterval(() => {
+        setNativeUploadProgress(prev => Math.min(prev + 10, 90));
+      }, 300);
+      
+      setTimeout(() => {
+        clearInterval(interval);
+        if (isNativePickerActive) {
+          setIsNativePickerActive(false);
+        }
+      }, 10000);
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [isNativePickerActive]);
+
+  const handleBack = useCallback(() => {
+    cleanupPreviewUrl();
+    stopSoundPreview();
+    if (thumbnailPreviewRef.current) {
+      safeRevoke(thumbnailPreviewRef.current);
+      thumbnailPreviewRef.current = null;
+    }
+    onBack();
+  }, [cleanupPreviewUrl, stopSoundPreview, onBack]);
 
   return (
     <div
@@ -2175,6 +2147,7 @@ const Recorder: React.FC<RecorderProps> = ({
     >
       <style>{RECORDER_STYLES}</style>
 
+      {/* Upload progress modal */}
       {submitState === 'uploading' && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
@@ -2247,6 +2220,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {/* Success modal */}
       {submitState === 'success' && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
@@ -2263,6 +2237,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {/* Error modal */}
       {submitState === 'error' && (
         <div className="fixed inset-0 z-[1000] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] rounded-3xl p-8 max-w-sm w-full border border-white/10 shadow-2xl">
@@ -2285,17 +2260,13 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {/* Background gradient */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(24,119,242,0.18),transparent_28%),radial-gradient(circle_at_bottom,rgba(243,66,95,0.16),transparent_25%)] pointer-events-none" />
 
+      {/* Header */}
       <div className="absolute top-0 left-0 right-0 z-40 px-4 pt-[max(env(safe-area-inset-top),10px)] pb-3 bg-gradient-to-b from-black/85 to-transparent flex items-center justify-between">
         <button
-          onClick={() => {
-            if (mode === 'preview' && !initialVideoFile && !initialVideoUrl) {
-              setMode('choose');
-              return;
-            }
-            onBack();
-          }}
+          onClick={handleBack}
           className="w-11 h-11 rounded-full bg-white/10 border border-white/10 flex items-center justify-center active:scale-95 transition"
         >
           <i className="fas fa-arrow-left text-sm" />
@@ -2303,9 +2274,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
         <div className="text-center">
           <div className="text-[10px] tracking-[0.35em] uppercase text-[#7fb6ff] font-black">{brandName} Studio</div>
-          <div className="text-[12px] font-black tracking-[0.2em] uppercase">
-            {mode === 'choose' ? 'Create Reel' : 'Preview'}
-          </div>
+          <div className="text-[12px] font-black tracking-[0.2em] uppercase">Edit Reel</div>
         </div>
 
         <button
@@ -2317,192 +2286,62 @@ const Recorder: React.FC<RecorderProps> = ({
         </button>
       </div>
 
-      {mode === 'choose' && !initialVideoFile && !initialVideoUrl && (
-        <div className="relative h-full flex flex-col items-center justify-center px-6 pb-12 pt-24 overflow-y-auto">
-          <div className="w-full max-w-[420px] text-center mb-8">
-            <div className="w-24 h-24 mx-auto rounded-[32px] bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl mb-6">
-              <i className="fas fa-video text-4xl text-[#1877F2]" />
-            </div>
-            <h1 className="text-3xl font-black tracking-tight mb-3">Create a Reel</h1>
-          </div>
-
-          <div className="w-full max-w-[420px] space-y-4">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-6 text-left active:scale-[0.98] transition"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-3xl bg-white/10 flex items-center justify-center">
-                  <i className="fas fa-cloud-upload-alt text-2xl text-[#7fb6ff]" />
-                </div>
-                <div>
-                  <div className="text-lg font-black uppercase tracking-[0.18em]">Upload Video</div>
-                  <div className="text-white/60 text-xs mt-1 uppercase tracking-[0.12em]">From your gallery or file picker</div>
-                </div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setIsSoundPickerOpen(true)}
-              className="w-full rounded-[32px] bg-white/5 border border-white/10 p-5 text-left active:scale-[0.98] transition"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-3xl bg-[#1877F2]/15 border border-[#1877F2]/30 flex items-center justify-center">
-                  <i className="fas fa-music text-xl text-[#7fb6ff]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-black uppercase tracking-[0.18em] text-[#7fb6ff]">Sound</div>
-                  <div className="text-base font-bold truncate mt-1">{soundLabel}</div>
-                  <div className="text-white/55 text-xs mt-1">Tap to browse, upload from your phone, or preview songs</div>
-                </div>
-              </div>
-            </button>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/*"
-              className="hidden"
-              onChange={handlePickVideo}
-            />
-            
-            <input
-              ref={musicFileInputRef}
-              type="file"
-              accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
-              className="hidden"
-              onChange={handlePickMusic}
-            />
-          </div>
-
-          {(currentSelectedSound || selectedUploadedSound) && (
-            <div className="w-full max-w-[420px] mt-5 rounded-[28px] bg-white/5 border border-white/10 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#7fb6ff]">Selected Sound</div>
-                  <div className="text-sm font-bold mt-1 truncate">{soundLabel}</div>
-                  {selectedUploadedSound && !extractedVideoAudioFile && (
-                    <div className="text-[10px] text-green-500 mt-1">
-                      <i className="fas fa-phone-alt mr-1"></i> Uploaded from device
-                    </div>
-                  )}
-                  {extractedVideoAudioFile && !currentSelectedSound?.songId && (
-                    <div className="text-[10px] text-green-400 mt-1">
-                      <i className="fas fa-film mr-1"></i> Audio extracted from video
-                    </div>
-                  )}
-                  {selectedSound && !selectedUploadedSound && !extractedVideoAudioFile && (
-                    <div className="text-[10px] text-[#1877F2] mt-1">
-                      <i className="fas fa-music mr-1"></i> Using sound from "Use this sound"
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setIsSoundPickerOpen(true)}
-                  className="px-4 py-2 rounded-2xl bg-white/10 border border-white/10 text-xs font-black uppercase tracking-[0.14em] active:scale-95"
-                >
-                  Change
-                </button>
-              </div>
-
-              <div className="mt-4 grid gap-4">
-                <RangeRow
-                  label="Trim start"
-                  value={trimStart}
-                  min={0}
-                  max={Math.max(trimEnd > 0 ? trimEnd - 1 : 1, 1)}
-                  step={0.1}
-                  display={`${trimStart.toFixed(1)}s`}
-                  onChange={(v) => setTrimStart(v)}
-                />
-                <RangeRow
-                  label="Trim end"
-                  value={trimEnd || 60}
-                  min={trimStart + 0.5}
-                  max={60}
-                  step={0.1}
-                  display={`${trimEnd.toFixed(1)}s`}
-                  onChange={(v) => setTrimEnd(v)}
-                />
-              </div>
-
-              <div className="mt-3 text-white/55 text-xs">
-                Fast trim mode: only start/end metadata changes, so there is no fake trimming delay.
-              </div>
-
-              <button
-                onClick={() => {
-                  const sound = {
-                    id: selectedUploadedSound?.id || currentSelectedSound?.songId || 'temp',
-                    name: selectedUploadedSound?.name || currentSelectedSound?.songName || 'Sound',
-                    url: selectedUploadedSound?.url || currentSelectedSound?.audioUrl || '',
-                    originalUrl: selectedUploadedSound?.originalUrl || currentSelectedSound?.originalUrl || '',
-                    duration: 60,
-                    start: trimStart,
-                    end: trimEnd,
-                    isOriginal: !!selectedUploadedSound,
-                    file: selectedUploadedSound?.file
-                  };
-                  setTrimmingSound(sound as RecorderSoundOption);
-                  setIsTrimmerOpen(true);
-                }}
-                className="w-full mt-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors"
-              >
-                <i className="fas fa-scissors mr-2"></i>
-                Advanced Trim & Export
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === 'preview' && videoPreviewUrl && (
+      {/* Main content - Preview mode only */}
+      {videoPreviewUrl ? (
         <div className="absolute inset-0 bg-black overflow-y-auto pt-20 pb-28">
           <div className="px-4 pb-6 max-w-[720px] mx-auto">
             <div className="grid gap-5 md:grid-cols-[minmax(0,420px)_minmax(0,1fr)] items-start">
+              {/* Video Preview */}
               <div className="relative rounded-[34px] overflow-hidden border border-white/10 bg-[#0c0c0c] shadow-2xl w-full max-w-[420px] aspect-[9/16] mx-auto">
+                
+                {/* Poster/Thumbnail - Shows instantly while video loads */}
+                {posterUrl && !videoPreloaded && (
+                  <img 
+                    src={posterUrl} 
+                    alt="Video thumbnail" 
+                    className="absolute inset-0 w-full h-full object-cover z-10"
+                  />
+                )}
+                
+                {/* Video element - loads in background */}
                 <video
                   ref={previewVideoRef}
                   src={videoPreviewUrl}
-                  className={`absolute inset-0 w-full h-full ${previewFillMode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
-                  style={{ filter: activeFilterString }}
+                  poster={posterUrl || undefined}
+                  className={`absolute inset-0 w-full h-full ${
+                    previewFillMode === 'cover' ? 'object-cover' : 'object-contain'
+                  } bg-black transition-opacity duration-300`}
+                  style={{ 
+                    filter: activeFilterString,
+                    opacity: videoPreloaded ? 1 : 0,
+                    zIndex: videoPreloaded ? 20 : 5,
+                  }}
                   playsInline
-                  loop
+                  loop={false}
                   controls={false}
-                  muted={true} // Always mute preview video to avoid speaker output
+                  muted={true}
                   autoPlay
+                  preload="metadata"
+                  onLoadedData={() => setVideoPreloaded(true)}
+                  onCanPlay={() => setVideoPreloaded(true)}
                 />
-
-                {isBeautyEffect && (
-                  <div 
-                    className="absolute inset-0 pointer-events-none"
-                    style={{
-                      backdropFilter: 'blur(1.2px)',
-                      background: 'rgba(255, 240, 240, 0.02)',
-                      mixBlendMode: 'soft-light',
-                    }}
-                  />
-                )}
-
-                {lyricsEnabled && (
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                      {lyricsText.split('\n').map((line, idx) => (
-                        <div key={idx}>{line || '\u00A0'}</div>
-                      ))}
-                    </div>
+                
+                {/* Loading indicator */}
+                {!videoPreloaded && !posterUrl && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
+                    <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
-
-                <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-3">
+                
+                {/* Controls overlay */}
+                <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-3 z-30">
                   <button
-                    onClick={() =>
-                      setPreviewFillMode((prev) => (prev === 'cover' ? 'contain' : 'cover'))
-                    }
+                    onClick={() => setPreviewFillMode(prev => prev === 'cover' ? 'contain' : 'cover')}
                     className="px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black"
                   >
                     {previewFillMode === 'cover' ? 'Fill' : 'Fit'}
                   </button>
+                  
                   <button
                     onClick={() => {
                       const video = previewVideoRef.current;
@@ -2513,21 +2352,23 @@ const Recorder: React.FC<RecorderProps> = ({
                       } else {
                         video.pause();
                         setPlayPreview(false);
-                      }
-                    }}
+                      }}
+                    }
                     className="w-10 h-10 rounded-full bg-black/55 backdrop-blur-md border border-white/10 flex items-center justify-center"
                   >
                     <i className={`fas ${playPreview ? 'fa-pause' : 'fa-play'} text-xs`} />
                   </button>
                 </div>
 
+                {/* Filter indicator */}
                 {selectedFilterId !== 'none' && (
-                  <div className="absolute top-3 right-16 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black text-[#7fb6ff]">
+                  <div className="absolute top-3 right-16 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[10px] uppercase tracking-[0.2em] font-black text-[#7fb6ff] z-30">
                     {activeFilter.name} • {Math.round(filterIntensity * 100)}%
                   </div>
                 )}
               </div>
 
+              {/* Edit Controls */}
               <div className="space-y-4">
                 <SectionCard title="Caption & publishing">
                   <textarea
@@ -2557,7 +2398,7 @@ const Recorder: React.FC<RecorderProps> = ({
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <button
-                      onClick={onBack}
+                      onClick={triggerVideoPicker}
                       className="rounded-2xl bg-white/8 border border-white/10 py-3 font-black uppercase tracking-[0.14em] active:scale-95"
                     >
                       Replace video
@@ -2712,12 +2553,55 @@ const Recorder: React.FC<RecorderProps> = ({
                     </div>
                   )}
                 </SectionCard>
+
+                <SectionCard title="Effects">
+                  <button
+                    onClick={() => setIsEffectsOpen(true)}
+                    className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-[0.14em] hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <i className="fas fa-magic"></i>
+                    {selectedFilterId !== 'none' ? `${activeFilter.name} • ${Math.round(filterIntensity * 100)}%` : 'Apply Filter'}
+                  </button>
+                </SectionCard>
               </div>
             </div>
           </div>
         </div>
+      ) : (
+        /* No video - show upload prompt */
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
+          <div className="w-24 h-24 rounded-full bg-white/10 flex items-center justify-center mb-6">
+            <i className="fas fa-video text-3xl text-[#1877F2]" />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2">No video selected</h2>
+          <p className="text-white/60 text-center mb-8">Please select a video to continue</p>
+          <button
+            onClick={triggerVideoPicker}
+            className="px-8 py-3 bg-[#1877F2] rounded-full text-white font-bold active:scale-95 transition"
+          >
+            Select Video
+          </button>
+        </div>
       )}
 
+      {/* Hidden file input for web fallback */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={handlePickVideo}
+      />
+      
+      <input
+        ref={musicFileInputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg"
+        className="hidden"
+        onChange={handlePickMusic}
+      />
+
+      {/* Effects Modal */}
       {isEffectsOpen && (
         <div className="absolute inset-0 z-[10030] bg-black/70 backdrop-blur-sm flex items-end animate-fade-in">
           <div className="w-full max-h-[75vh] rounded-t-[32px] border-t border-white/10 bg-[#0e0e0e] overflow-hidden animate-slide-up">
@@ -2813,6 +2697,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {/* Sound Picker Modal */}
       {isSoundPickerOpen && (
         <div className="absolute inset-0 z-[10020] bg-black/85 backdrop-blur-sm flex items-end">
           <div className="w-full max-h-[84vh] rounded-t-[32px] border-t border-white/10 bg-[#0e0e0e] overflow-hidden">
@@ -2895,6 +2780,7 @@ const Recorder: React.FC<RecorderProps> = ({
         </div>
       )}
 
+      {/* Audio Trimmer Modal */}
       {isTrimmerOpen && trimmingSound && (
         <AudioTrimmer
           url={trimmingSound.originalUrl || trimmingSound.url}
