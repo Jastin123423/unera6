@@ -9438,44 +9438,76 @@ return (
     )}
 
     {showRecorder && currentUser && (
-      <Recorder
-        currentUser={currentUser}
-        selectedSound={selectedReelSound}
-        sounds={songs.map((song: any) => ({
-          id: song.id,
-          name: song.title || song.name || 'Song',
-          url: song.audio_fetch_url || song.audio_url || song.url || '',
-          originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-          duration: song.duration || 30,
-          start: 0,
-          end: song.duration || 30,
-          coverImage: song.cover_url || song.cover || '',
-          creatorName: song.artist || '',
-          creatorImage: song.artist_image || song.cover_url || '',
-          playCount: song.playCount || song.plays || 0,
-          creationCount: song.creationCount || song.uses || 0,
-          soundKey: `song:${song.id}`,
-        }))}
-        onSelectSound={setSelectedReelSound}
-        onBack={() => setShowRecorder(false)}
-        onSubmit={async (reelData) => {
-          await createReel({
-            ...reelData,
-            audioUrl:
-              reelData.audioUrl ||
-              (selectedReelSound?.songId &&
-                songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-              selectedReelSound?.audioUrl ||
-              '',
-            originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-            songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-            audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-            audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-          });
+  <Recorder
+  currentUser={currentUser}
+  selectedSound={selectedReelSound}
+  sounds={songs.map((song: any) => ({
+    id: song.id,
+    name: song.title || song.name || 'Song',
+    url: song.audio_fetch_url || song.audio_url || song.url || '',
+    originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+    duration: song.duration || 30,
+    start: 0,
+    end: song.duration || 30,
+    coverImage: song.cover_url || song.cover || '',
+    creatorName: song.artist || '',
+    creatorImage: song.artist_image || song.cover_url || '',
+    playCount: song.playCount || song.plays || 0,
+    creationCount: song.creationCount || song.uses || 0,
+    soundKey: `song:${song.id}`,
+  }))}
+  onSelectSound={setSelectedReelSound}
+  initialVideoFile={pendingReelFile}
+  initialVideoUrl={nativeReelVideoUrl}
+  initialNativeMediaMeta={nativeReelMediaMeta}
+  startInPreview={!!pendingReelFile || !!nativeReelVideoUrl}
+  onBack={() => {
+    setPendingReelFile(null);
+    setNativeReelVideoUrl('');
+    setNativeReelMediaMeta(null);
+    setSelectedReelSound(null);
+    setShowRecorder(false);
+    setRecorderActiveTab('record');
+    setRecordingTime(0);
+    setRecordedVideoBlob(null);
+    setIsRecording(false);
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }}
+  onSubmit={async (reelData) => {
+    await createReel({
+      ...reelData,
+      audioUrl:
+        reelData.audioUrl ||
+        (selectedReelSound?.songId &&
+          songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+        selectedReelSound?.audioUrl ||
+        '',
+      originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+      songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+      audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+      audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+      // ✅ Pass native video data through
+      nativeVideoUrl: reelData.nativeVideoUrl,
+      nativeVideoMeta: reelData.nativeVideoMeta,
+    });
 
-          setShowRecorder(false);
-        }}
-      />
+    setPendingReelFile(null);
+    setNativeReelVideoUrl('');
+    setNativeReelMediaMeta(null);
+    setSelectedReelSound(null);
+    setShowRecorder(false);
+  }}
+/>
     )}
                                                  
  {activePost && currentUser && (
