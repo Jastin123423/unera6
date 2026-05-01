@@ -1773,7 +1773,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
   onVideoClick,
+  onNativeUploadClick,  // ✅ NEW
 }) => {
+
   // ==================== STATE ====================
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || reels[0]?.id || null
