@@ -1763,6 +1763,16 @@ const handleGroupClick = async (group: Group) => {
   };
 
 const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'profile') => {
+  // If in native app, use native picker
+  if (isUneraNativeApp()) {
+    const opened = openNativeImagePicker();
+    if (opened) {
+      // Clear input value to prevent duplicate processing
+      e.target.value = '';
+      return;
+    }
+  }
+
   const file = e.target.files?.[0];
   if (!file || !activeGroup) return;
 
@@ -1827,9 +1837,7 @@ const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: '
     e.target.value = '';
   }
 };
-
-
-                                                      
+                                                    
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { 
     if (e.target.files) setPostFiles(Array.from(e.target.files)); 
