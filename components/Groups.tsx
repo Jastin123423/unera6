@@ -2799,34 +2799,56 @@ return (
               >
                 <i className="fas fa-arrow-left text-white text-xl"></i>
               </button>
-              
-              {canManage && (
-                <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg cursor-pointer hover:bg-black/70 font-bold text-white text-sm flex items-center gap-2 transition-all" onClick={() => groupCoverInputRef.current?.click()}>
-                  <i className="fas fa-camera"></i> Edit Cover
-                </div>
-              )}
-              <input type="file" ref={groupCoverInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'cover')} />
-            </div>
-            
-            <div className="px-4 pb-0">
-              <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
-                <div className="relative">
-                  <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
-                   <img 
-  src={activeGroup.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeGroup.name || 'Group')}&background=random`} 
-  className="w-full h-full object-cover" 
-  alt="" 
-/>
-                
-                  </div>
-                  {canManage && (
-                    <div className="absolute bottom-2 right-2 bg-[#2d2d2d] p-2 rounded-full cursor-pointer hover:bg-[#3a3a3a] shadow-md transition-colors" onClick={() => groupProfileInputRef.current?.click()}>
-                      <i className="fas fa-camera text-white text-xs"></i>
-                    </div>
-                  )}
-                  <input type="file" ref={groupProfileInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'profile')} />
-                </div>
-                
+
+        {canManage && (
+  <div 
+    className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg cursor-pointer hover:bg-black/70 font-bold text-white text-sm flex items-center gap-2 transition-all" 
+    onClick={() => {
+      if (isUneraNativeApp()) {
+        pendingUploadTypeRef.current = 'cover';
+        openNativeImagePicker();
+      } else {
+        groupCoverInputRef.current?.click();
+      }
+    }}
+  >
+    <i className="fas fa-camera"></i> Edit Cover
+  </div>
+)}
+<input type="file" ref={groupCoverInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'cover')} />
+</div>
+
+<div className="px-4 pb-0">
+  <div className="flex flex-col md:flex-row items-start md:items-end -mt-[40px] md:-mt-[30px] relative z-10 gap-4 mb-4">
+    <div className="relative">
+      <div className="w-[100px] h-[100px] md:w-[140px] md:h-[140px] rounded-xl border-4 border-[#1e1e1e] overflow-hidden bg-[#1e1e1e] shadow-xl">
+        <img 
+          src={activeGroup.profile_image || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeGroup.name || 'Group')}&background=random`} 
+          className="w-full h-full object-cover" 
+          alt="" 
+        />
+      </div>
+      
+      {/* Profile image edit button with native support */}
+      {canManage && (
+        <div 
+          className="absolute bottom-2 right-2 bg-[#2d2d2d] p-2 rounded-full cursor-pointer hover:bg-[#3a3a3a] shadow-md transition-colors" 
+          onClick={() => {
+            if (isUneraNativeApp()) {
+              pendingUploadTypeRef.current = 'profile';
+              openNativeImagePicker();
+            } else {
+              groupProfileInputRef.current?.click();
+            }
+          }}
+        >
+          <i className="fas fa-camera text-white text-xs"></i>
+        </div>
+      )}
+      <input type="file" ref={groupProfileInputRef} className="hidden" accept="image/*" onChange={e => handleImageChange(e, 'profile')} />
+    </div>
+    
+         
                 <div className="flex-1 mt-2">
                   <div className="flex items-center gap-2 mb-1">
                     <h1 className="text-2xl md:text-4xl font-bold text-[#e4e6eb] leading-tight">{activeGroup.name}</h1>
