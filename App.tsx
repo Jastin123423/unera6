@@ -6312,45 +6312,52 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
-    
-const updateGroupImage = useCallback(
-  async (groupId: number, type: 'cover' | 'profile', file: File) => {
+
+  const updateGroupImage = useCallback(
+  async (groupId: number, type: 'cover' | 'profile', file?: File | null, imageUrl?: string) => {
     if (!requireAuth("Updating group image")) {
       throw new Error("Authentication required");
     }
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      let finalImageUrl = imageUrl || '';
 
-      const uploadRes = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
+      // Only upload if we have a file and no native URL provided
+      if (file && !imageUrl) {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      const uploadData = await uploadRes.json().catch(() => null);
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
 
-      if (!uploadRes.ok || !uploadData?.success) {
-        throw new Error(uploadData?.error || "Upload failed");
-      }
+        const uploadData = await uploadRes.json().catch(() => null);
 
-      let imageUrl = "";
+        if (!uploadRes.ok || !uploadData?.success) {
+          throw new Error(uploadData?.error || "Upload failed");
+        }
 
-      if (uploadData?.media_urls) {
-        try {
-          const media =
-            typeof uploadData.media_urls === "string"
-              ? JSON.parse(uploadData.media_urls)
-              : uploadData.media_urls;
+        if (uploadData?.media_urls) {
+          try {
+            const media =
+              typeof uploadData.media_urls === "string"
+                ? JSON.parse(uploadData.media_urls)
+                : uploadData.media_urls;
 
-          imageUrl = String(media?.feed || "").trim();
-        } catch {
-          imageUrl = "";
+            finalImageUrl = String(media?.feed || "").trim();
+          } catch {
+            finalImageUrl = "";
+          }
+        }
+
+        if (!finalImageUrl) {
+          throw new Error("Compressed feed image URL was not returned");
         }
       }
 
-      if (!imageUrl) {
-        throw new Error("Compressed feed image URL was not returned");
+      if (!finalImageUrl) {
+        throw new Error("No image URL provided");
       }
 
       const field = type === "cover" ? "cover_image" : "profile_image";
@@ -6361,7 +6368,7 @@ const updateGroupImage = useCallback(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          [field]: imageUrl,
+          [field]: finalImageUrl,
         }),
       });
 
@@ -6379,8 +6386,8 @@ const updateGroupImage = useCallback(
             : {
                 ...g,
                 ...(type === "cover"
-                  ? { cover_image: imageUrl }
-                  : { profile_image: imageUrl }),
+                  ? { cover_image: finalImageUrl }
+                  : { profile_image: finalImageUrl }),
               }
         )
       );
@@ -6391,13 +6398,13 @@ const updateGroupImage = useCallback(
           ? {
               ...prev,
               ...(type === "cover"
-                ? { cover_image: imageUrl }
-                : { profile_image: imageUrl }),
+                ? { cover_image: finalImageUrl }
+                : { profile_image: finalImageUrl }),
             }
           : prev
       );
 
-      return imageUrl;
+      return finalImageUrl;
     } catch (error) {
       console.error("Failed to update group image:", error);
       throw error;
