@@ -7488,9 +7488,17 @@ const createPost = useCallback(
   reelVideoInputRef.current?.click();
 }, [requireAuth]);
 
-
 const handleReelVideoSelected = useCallback(
   (e: React.ChangeEvent<HTMLInputElement>) => {
+    // If in native app, use native picker instead
+    if (isUneraNativeApp()) {
+      const opened = openNativeVideoPicker();
+      if (opened) {
+        e.target.value = '';
+        return;
+      }
+    }
+    
     const file = e.target.files?.[0];
     e.target.value = '';
 
@@ -7506,6 +7514,7 @@ const handleReelVideoSelected = useCallback(
   },
   []
 );
+
     const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
   if (sound) {
     setSelectedReelSound({
