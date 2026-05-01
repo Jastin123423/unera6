@@ -2155,6 +2155,15 @@ const handleLeaveGroup = async () => {
     } 
   };
 
+  const handlePostImageClick = () => {
+  if (isUneraNativeApp()) {
+    pendingUploadTypeRef.current = 'post';
+    openNativeImagePicker();
+  } else {
+    postFileInputRef.current?.click();
+  }
+};  
+
     //=== GROUP ADMIN HANDLERS ===
 
 const canUserPost = useCallback((userId: number) => {
