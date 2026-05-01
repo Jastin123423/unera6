@@ -1595,6 +1595,34 @@ useEffect(() => {
 useEffect(() => {
   setMemberMetaOverrides({});
 }, [activeGroupId]);
+
+
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    if (!media || media.type !== 'image') return;
+    
+    const imageUrl = media.full || media.feed || media.url;
+    if (!imageUrl) return;
+    
+    console.log('📱 Groups: Native image uploaded:', imageUrl);
+    
+    // Determine which upload is pending (cover or profile)
+    // You can use a ref to track which button was clicked
+    if (pendingUploadTypeRef.current === 'cover') {
+      // Handle cover image update with native URL
+      updateGroupImageWithUrl('cover', imageUrl, media);
+    } else if (pendingUploadTypeRef.current === 'profile') {
+      // Handle profile image update with native URL
+      updateGroupImageWithUrl('profile', imageUrl, media);
+    }
+  };
+
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, [activeGroup, onUpdateGroupImage, fetchGroupDetails]); 
     
   // ========== HANDLER FUNCTIONS ==========
   const fetchUpdatedPost = useCallback(async (postId: number) => {
