@@ -1341,7 +1341,10 @@ const [memberMetaOverrides, setMemberMetaOverrides] = useState<
   Record<number, { group_role?: 'member' | 'moderator'; posting_disabled?: boolean }>
 >({});    
     const [groupImageOverrides, setGroupImageOverrides] = useState<Record<number, { cover_image?: string; profile_image?: string }>>({});
-    
+
+
+    // ==refs
+const pendingUploadTypeRef = useRef<'cover' | 'profile' | null>(null);
   // ========== MEMOIZED VALUES ==========
     const safeGroups = useMemo(() => localGroups.map(normalizeGroup), [localGroups]);
  const activeGroup = useMemo(() => {
