@@ -3491,15 +3491,17 @@ return (
               )}
               
               {/* Action Buttons */}
-              <div className="border-t border-[#333] bg-[#1e1e1e] p-2">
-                <div className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]" onClick={() => postFileInputRef.current?.click()}>
-                  <div className="w-10 h-10 bg-[#45BD62]/10 rounded-full flex items-center justify-center text-[#45BD62]"><i className="fas fa-images text-xl"></i></div>
-                  <span className="text-[#e4e6eb] font-black text-lg">{postFiles.length > 0 ? `${postFiles.length} file(s) selected` : 'Add Photo/Video'}</span>
-                </div>
-                <div className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]" onClick={() => { setShowGroupPostModal(false); setShowEventModal(true); }}>
-                  <div className="w-10 h-10 bg-[#F7B928]/10 rounded-full flex items-center justify-center text-[#F7B928]"><i className="fas fa-calendar-plus text-xl"></i></div>
-                  <span className="text-[#e4e6eb] font-black text-lg">Host Group Event</span>
-                </div>
+              {/* Action Buttons */}
+<div className="border-t border-[#333] bg-[#1e1e1e] p-2">
+  <div 
+    className="flex items-center gap-4 p-4 hover:bg-[#2d2d2d] rounded-2xl cursor-pointer transition-all border border-transparent hover:border-[#333]" 
+    onClick={handlePostImageClick}  // ✅ Changed from postFileInputRef.current?.click()
+  >
+    <div className="w-10 h-10 bg-[#45BD62]/10 rounded-full flex items-center justify-center text-[#45BD62]">
+      <i className="fas fa-images text-xl"></i>
+    </div>
+    <span className="text-[#e4e6eb] font-black text-lg">{postFiles.length > 0 ? `${postFiles.length} file(s) selected` : 'Add Photo/Video'}</span>
+  </div>
               </div>
               
               {/* Submit Button */}
