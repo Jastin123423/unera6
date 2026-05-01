@@ -1652,6 +1652,46 @@ useEffect(() => {
   }, [currentUser]);
     
 
+const updateGroupImageWithUrl = useCallback(async (type: 'cover' | 'profile', imageUrl: string, media: any) => {
+  if (!activeGroup) return;
+
+  const previewUrl = imageUrl;
+
+  setGroupImageOverrides(prev => ({
+    ...prev,
+    [activeGroup.id]: {
+      ...(prev[activeGroup.id] || {}),
+      ...(type === 'cover' ? { cover_image: previewUrl } : { profile_image: previewUrl }),
+    },
+  }));
+
+  try {
+    // Here you would call an API to update the group with the native URL
+    // Since the image is already uploaded by Flutter, you can send the URL directly
+    const result = await onUpdateGroupImage(activeGroup.id, type, null as any, imageUrl);
+
+    if (fetchGroupDetails) {
+      const details = await fetchGroupDetails(activeGroup.id);
+      if (details?.group) {
+        setActiveGroupDetails(normalizeGroup(details.group));
+      }
+    }
+  } catch (error: any) {
+    setGroupImageOverrides(prev => {
+      const next = { ...prev };
+      const current = { ...(next[activeGroup.id] || {}) };
+      if (type === 'cover') delete current.cover_image;
+      else delete current.profile_image;
+      next[activeGroup.id] = current;
+      return next;
+    });
+    alert(`Failed to update image: ${error?.message || 'Unknown error'}`);
+  } finally {
+    pendingUploadTypeRef.current = null;
+  }
+}, [activeGroup, onUpdateGroupImage, fetchGroupDetails]);
+    
+    
 const handleGroupClick = async (group: Group) => {
   setActiveGroupId(group.id);
   setView('detail');
