@@ -1,4 +1,4 @@
-// Events.tsx - Complete file with native app integration and image picker support
+// Events.tsx - Complete file with native app integration (no loader)
 
 import React, { useState, useRef, useEffect } from 'react';
 import { User, Event } from '../types';
@@ -342,7 +342,7 @@ interface CreateEventModalProps {
 /* =========================================================
    CREATE EVENT PAGE
    - full-page style, not floating popup
-   - WITH NATIVE IMAGE PICKER SUPPORT
+   - WITH NATIVE IMAGE PICKER SUPPORT (no loader)
 ========================================================= */
 
 export const CreateEventModal: React.FC<CreateEventModalProps> = ({
@@ -364,8 +364,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [coverTouched, setCoverTouched] = useState(false);
   
-  // ✅ Native upload state
-  const [isNativePickerActive, setIsNativePickerActive] = useState(false);
+  // Native upload state
   const [nativeImageUrl, setNativeImageUrl] = useState<string>('');
   const [nativeImageMeta, setNativeImageMeta] = useState<any | null>(null);
 
@@ -373,7 +372,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
 
   const userFallbackLocation = getUserLocationFallback(currentUser);
 
-  // ✅ Listen for native image upload
+  // Listen for native image upload
   useEffect(() => {
     const handleNativeUpload = (event: any) => {
       const media = event.detail;
@@ -382,7 +381,6 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
       const imageUrl = media.full || media.feed || media.url;
       if (!imageUrl) return;
       
-      setIsNativePickerActive(false);
       setNativeImageUrl(imageUrl);
       setNativeImageMeta({
         thumb: media.thumb || imageUrl,
@@ -405,12 +403,11 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
     };
   }, [image]);
 
-  // ✅ Updated handlePickImage with native support
+  // Handle picking image - opens gallery quietly
   const handlePickImage = () => {
     if (isUneraNativeApp()) {
-      setIsNativePickerActive(true);
-      const opened = openNativeImagePicker();
-      if (opened) return;
+      openNativeImagePicker(); // Gallery opens quietly
+      return;
     }
     fileInputRef.current?.click();
   };
@@ -498,7 +495,7 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
 
       let coverUrl = 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1500&q=80';
 
-      // ✅ Handle native uploaded image
+      // Handle native uploaded image
       if (nativeImageUrl && nativeImageMeta) {
         console.log('📱 Using native uploaded image:', nativeImageUrl);
         coverUrl = nativeImageUrl;
@@ -583,16 +580,6 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
         </button>
       </div>
 
-      {/* Native picker loading indicator */}
-      {isNativePickerActive && (
-        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center">
-          <div className="bg-[#242526] rounded-2xl p-6 flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-white">Opening gallery...</p>
-          </div>
-        </div>
-      )}
-
       <form
         id="create-event-form"
         onSubmit={handleSubmit}
@@ -609,12 +596,12 @@ export const CreateEventModal: React.FC<CreateEventModalProps> = ({
             </div>
           )}
 
-          {/* Cover - Updated click handler to use native picker */}
+          {/* Cover - Opens gallery quietly */}
           <section>
             <div className="text-[#E4E6EB] font-semibold text-[17px] mb-3">Cover photo</div>
 
             <div
-              onClick={handlePickImage}  // ✅ Updated to use native picker
+              onClick={handlePickImage}
               className="w-full h-52 rounded-2xl overflow-hidden border border-[#3E4042] bg-[#3A3B3C] cursor-pointer group relative"
             >
               {image ? (
