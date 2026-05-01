@@ -325,6 +325,30 @@ const parseJSON = (v: any) => {
   }
   return [];
 }; 
+  
+  const createReel = useCallback(async (
+  reelData: Partial<Reel> & {
+    videoFile?: File | Blob;
+    thumbnailFile?: File | Blob;
+    audioFile?: File | Blob;
+    originalSoundId?: string | number;
+  }
+) => {
+  if (!requireAuth('Creating reels')) return;
+  if (!currentUser) return;
+
+  console.log("createReel input:", reelData);
+  setIsFeedRefreshing(true);
+
+  try {
+    const videoFile = reelData.videoFile;
+    const thumbnailFile = reelData.thumbnailFile;
+    const audioFile = reelData.audioFile;
+
+    if (!videoFile) {
+      throw new Error('Video is required');
+    }
+    // ... rest of the function
 
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
