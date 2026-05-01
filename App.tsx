@@ -7479,10 +7479,15 @@ const createPost = useCallback(
     setShowCreatePostModal(true);
   }, [requireAuth]);
 
- const handleVideoClickFromCreate = useCallback(() => {
+  const handleVideoClickFromCreate = useCallback(() => {
   if (!requireAuth('Creating videos')) return;
+  if (isUneraNativeApp()) {
+    const opened = openNativeVideoPicker();
+    if (opened) return;
+  }
   reelVideoInputRef.current?.click();
 }, [requireAuth]);
+
 
 const handleReelVideoSelected = useCallback(
   (e: React.ChangeEvent<HTMLInputElement>) => {
