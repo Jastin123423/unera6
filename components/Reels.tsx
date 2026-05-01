@@ -1751,6 +1751,8 @@ interface ReelsFeedProps {
   initialReelId?: number | null;
   onBack?: () => void;
   onVideoClick?: (sound?: UseSoundPayload) => void;
+  // ✅ NEW: Native upload handler
+  onNativeUploadClick?: () => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
