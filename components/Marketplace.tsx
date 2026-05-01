@@ -1,7 +1,27 @@
-// Marketplace.tsx
+// Marketplace.tsx - Complete file with native app integration
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, Product } from '../types';
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_COUNTRIES } from '../constants';
+
+// ==================== NATIVE APP DETECTION ====================
+
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP
+  );
+};
+
+const openNativeImagePicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_image' })
+    );
+    return true;
+  }
+  return false;
+};
 
 // ==================== MARKETPLACE IMAGE BUNDLE HELPERS ====================
 
@@ -11,6 +31,19 @@ type ProductImageVariant = {
   full: string;
   type: 'image';
 };
+
+interface ImageItem {
+  id: number;
+  data: string;
+  file: File | null;
+  isNative?: boolean;
+  nativeUrl?: string;
+  nativeMeta?: {
+    thumb: string;
+    feed: string;
+    full: string;
+  };
+}
 
 const canvasToBlob = (
   canvas: HTMLCanvasElement,
@@ -985,7 +1018,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const [discountPriceRaw, setDiscountPriceRaw] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [phone, setPhone] = useState('');
-  const [images, setImages] = useState<{ id: number; data: string; file: File }[]>([]);
+  const [images, setImages] = useState<ImageItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
   const [userCountry, setUserCountry] = useState<string>('all');
@@ -1011,6 +1044,41 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       setCurrencyLabel('$');
     }
   }, [currentUser]);
+
+  // ✅ Listen for native image uploads
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      if (!media || media.type !== 'image') return;
+      
+      const imageUrl = media.full || media.feed || media.url;
+      if (!imageUrl) return;
+      
+      console.log('📱 Marketplace: Native image uploaded:', imageUrl);
+      
+      // Store native image info directly (no re-fetching needed)
+      setImages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + Math.random(),
+          data: imageUrl, // URL directly for preview
+          file: null, // No file for native uploads
+          isNative: true,
+          nativeUrl: imageUrl,
+          nativeMeta: {
+            thumb: media.thumb || imageUrl,
+            feed: media.feed || imageUrl,
+            full: media.full || imageUrl,
+          }
+        },
+      ]);
+    };
+
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => {
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    };
+  }, []);
 
   const effectiveListingCountry = useMemo(() => {
     return resolveListingCountry({
@@ -1042,7 +1110,19 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     setShowSellModal(true);
   };
 
+  // ✅ Updated handleFileChange with native support
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // If in native app, use native picker
+    if (isUneraNativeApp()) {
+      const opened = openNativeImagePicker();
+      if (opened) {
+        // Clear the input value to prevent duplicate processing
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+    }
+
+    // Fallback to web picker
     if (e.target.files && e.target.files.length > 0) {
       if (images.length + e.target.files.length > 10) {
         alert('Maximum 10 images allowed for a professional listing');
@@ -1057,6 +1137,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
             id: Date.now() + Math.random(),
             data: previewUrl,
             file,
+            isNative: false,
           },
         ]);
       });
@@ -1066,7 +1147,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const removeImage = (id: number) => {
     setImages((prev) => {
       const imageToRemove = prev.find((img) => img.id === id);
-      if (imageToRemove) URL.revokeObjectURL(imageToRemove.data);
+      if (imageToRemove && !imageToRemove.isNative && imageToRemove.data.startsWith('blob:')) {
+        URL.revokeObjectURL(imageToRemove.data);
+      }
       return prev.filter((img) => img.id !== id);
     });
   };
@@ -1087,7 +1170,24 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     try {
       setIsUploading(true);
 
-      const uploadedVariants = await Promise.all(images.map((img) => uploadMarketplaceImageBundle(img.file)));
+      const uploadedVariants: ProductImageVariant[] = [];
+
+      for (const img of images) {
+        if (img.isNative && img.nativeMeta) {
+          // Use native uploaded URLs directly - no re-upload needed
+          uploadedVariants.push({
+            thumb: img.nativeMeta.thumb,
+            feed: img.nativeMeta.feed,
+            full: img.nativeMeta.full,
+            type: 'image',
+          });
+        } else if (img.file) {
+          // Upload web-picked image
+          const variant = await uploadMarketplaceImageBundle(img.file);
+          uploadedVariants.push(variant);
+        }
+      }
+
       const uploadedUrls = uploadedVariants.map((x) => x.feed).filter(Boolean);
 
       const countryFromResolved = resolveListingCountry({
@@ -1119,6 +1219,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
       onCreateProduct(newProduct);
       setShowSellModal(false);
 
+      // Cleanup blob URLs
+      images.forEach((img) => {
+        if (!img.isNative && img.data.startsWith('blob:')) {
+          URL.revokeObjectURL(img.data);
+        }
+      });
+
       setTitle('');
       setCategory('');
       setDesc('');
@@ -1137,7 +1244,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     }
   };
 
-  // ✅ Filtered products based on country + category
+  // Filtered products based on country + category
   const filteredProducts = useMemo(() => {
     const base = safeArray<any>(products).filter((p: any) => {
       const pCountry = getProductCountryCode(p);
@@ -1157,7 +1264,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     );
   }, [products, selectedCountry, selectedCategory, currentUser, marketMode]);
 
-  // ✅ Search filter
+  // Search filter
   const searchFilteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return filteredProducts;
@@ -1204,7 +1311,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* ✅ Search button - opens overlay */}
+            {/* Search button - opens overlay */}
             <button
               className="w-10 h-10 rounded-full bg-[#3A3B3C] text-[#E4E6EB] flex items-center justify-center hover:bg-[#4E4F50] transition-colors"
               aria-label="Search"
@@ -1425,11 +1532,20 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
               <section>
                 <div className="text-[#E4E6EB] font-semibold text-[17px] mb-3">Photos</div>
                 <div
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => {
+                    if (isUneraNativeApp()) {
+                      const opened = openNativeImagePicker();
+                      if (opened) return;
+                    }
+                    fileInputRef.current?.click();
+                  }}
                   className="bg-[#3A3B3C] rounded-2xl border border-[#3E4042] p-5 text-center cursor-pointer"
                 >
                   <i className="fas fa-images text-3xl text-[#B0B3B8] mb-3"></i>
-                  <div className="text-[#E4E6EB] font-medium">Add photos</div>
+                  <div className="text-[#E4E6EB] font-medium">
+                    {isUneraNativeApp() ? 'Add photos from gallery' : 'Add photos'}
+                  </div>
+                  <div className="text-[#B0B3B8] text-xs mt-1">Up to 10 images</div>
                 </div>
                 <input
                   type="file"
