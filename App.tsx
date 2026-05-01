@@ -6312,8 +6312,7 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
   //====UPDATE GROUP IMAGE ======
-
-  const updateGroupImage = useCallback(
+const updateGroupImage = useCallback(
   async (groupId: number, type: 'cover' | 'profile', file?: File | null, imageUrl?: string) => {
     if (!requireAuth("Updating group image")) {
       throw new Error("Authentication required");
@@ -6392,17 +6391,8 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
         )
       );
 
-      // keep currently opened group in sync
-      setActiveGroupDetails(prev =>
-        prev && Number(prev.id) === Number(groupId)
-          ? {
-              ...prev,
-              ...(type === "cover"
-                ? { cover_image: finalImageUrl }
-                : { profile_image: finalImageUrl }),
-            }
-          : prev
-      );
+      // ✅ REMOVE this line - setActiveGroupDetails is not needed
+      
 
       return finalImageUrl;
     } catch (error) {
@@ -6412,7 +6402,6 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
   },
   [requireAuth]
 );
-
 
  //====GROUP INVITES ===÷
  
