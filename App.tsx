@@ -8910,29 +8910,38 @@ return (
       </MarketplaceContext.Provider>
     </div>
   </div>
-)}
-   
-        {view === 'reels' && (
-          <ReelsFeed
-            reels={safeArray(reels)}
-            users={safeArray(users)}
-            currentUser={currentUser}
-            onProfileClick={(id) => openProfile(id)}
-            onReact={reactToReel}
-            onComment={commentOnReel}
-            onEditComment={editCommentOnReel}
-            onDeleteComment={deleteCommentOnReel}
-            onEditReel={editReel}
-            onDeleteReel={deleteReel}
-            onShare={shareReel}
-            onFollow={followUser}
-            checkIsFollowing={checkIsFollowing}
-            followLoading={followLoading}
-            initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
-            onBack={goBack}
-            onVideoClick={openReelRecorderFromReels}
-          />
-        )}
+)}   
+     
+ {view === 'reels' && (
+  <ReelsFeed
+    reels={safeArray(reels)}
+    users={safeArray(users)}
+    currentUser={currentUser}
+    onProfileClick={(id) => openProfile(id)}
+    onReact={reactToReel}
+    onComment={commentOnReel}
+    onEditComment={editCommentOnReel}
+    onDeleteComment={deleteCommentOnReel}
+    onEditReel={editReel}
+    onDeleteReel={deleteReel}
+    onShare={shareReel}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
+    onBack={goBack}
+    onVideoClick={(sound) => {
+      // ✅ Native app detection
+      if (isUneraNativeApp()) {
+        const opened = openNativeVideoPicker();
+        if (opened) return;
+      }
+      // Fallback to web picker
+      openReelRecorderFromReels(sound);
+    }}
+  />
+)} 
+  
         
         {view === 'marketplace' && (
           <MarketplacePage
