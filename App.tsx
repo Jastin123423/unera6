@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -1192,79 +1191,7 @@ const normalizeProduct = (p: any) => {
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
-      
-  // ============================================================================
-// ✅ NATIVE VIDEO HELPERS
-// ============================================================================
 
-const isUneraNativeApp = (): boolean => {
-  return Boolean(
-    (window as any).UneraNative || 
-    (window as any).UNERA_IS_NATIVE_APP
-  );
-};
-
-const openNativeVideoPicker = (): boolean => {
-  if ((window as any).UneraNative?.postMessage) {
-    (window as any).UneraNative.postMessage(
-      JSON.stringify({ action: 'pick_video' })
-    );
-    return true;
-  }
-  return false;
-};
-
-//===NATIVE UPLOAD HELPERS ===
-      
-// Add this useEffect where your other listeners are (around other useEffects)
-useEffect(() => {
-  const handleNativeUpload = (event: any) => {
-    const media = event.detail;
-    if (!media || media.type !== 'video') return;
-    
-    console.log('📱 Native reel video uploaded:', media);
-    
-    const videoUrl = media.full || media.feed || media.url;
-    if (!videoUrl) return;
-    
-    // Clear any pending file-based video
-    setPendingReelFile(null);
-    
-    // Store native video URL and metadata
-    setNativeReelVideoUrl(videoUrl);
-    setNativeReelMediaMeta({
-      thumb: media.thumb || videoUrl,
-      feed: media.feed || videoUrl,
-      full: media.full || videoUrl,
-      type: 'video',
-    });
-    
-    // Navigate to recorder with preview mode
-    setView('recorder');
-    setRecorderActiveTab('preview');
-    
-    // Dispatch custom event for Recorder component to pick up
-    window.dispatchEvent(
-      new CustomEvent('uneraNativeReelVideo', {
-        detail: {
-          videoUrl,
-          mediaMeta: {
-            thumb: media.thumb || videoUrl,
-            feed: media.feed || videoUrl,
-            full: media.full || videoUrl,
-            type: 'video',
-          },
-        },
-      })
-    );
-  };
-  
-  window.addEventListener('uneraNativeUpload', handleNativeUpload);
-  return () => {
-    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  };
-}, []);
-      
 // ============================================================================
 // ✅ NOTIFICATION ENRICHMENT HELPERS
 // ============================================================================
@@ -2183,9 +2110,7 @@ const [brands, setBrands] = useState<Brand[]>([]);
 const [events, setEvents] = useState<Event[]>([]);
 const [chats, setChats] = useState<any[]>([]);
 const [storyCreateLoading, setStoryCreateLoading] = useState(false);
-        
-const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
-const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
+
 
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
@@ -7185,7 +7110,6 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
     navigateTo(target);
   }, [currentUser, navigateTo, openProfile]);
 
-      
   // ============================================================================
   // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
   // ============================================================================
