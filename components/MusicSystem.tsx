@@ -7,11 +7,10 @@ import type { Song, AudioTrack, User, ReactionType } from '../types';
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
 
 /* =========================================================
-   NATIVE APP DETECTION & HELPERS
+   NATIVE APP DETECTION & HELPERS (WORKING VERSION)
 ========================================================= */
 
-
-// Global reference for tracking pending upload type (must be outside component)
+// Global reference for tracking pending upload type
 let pendingUploadTypeRef: 'audio' | 'cover' | null = null;
 
 export const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
@@ -25,20 +24,24 @@ const isUneraNativeApp = (): boolean => {
   return Boolean(
     (window as any).UneraNative || 
     (window as any).UNERA_IS_NATIVE_APP ||
-    (window as any).ReactNativeWebView
+    (window as any).ReactNativeWebView ||
+    navigator.userAgent.includes('UneraApp')
   );
 };
 
-// Open native audio picker (for songs/audio files)
+// Open native FILE PICKER for audio (NOT recorder!)
 const openNativeAudioPicker = (): boolean => {
-  console.log('📱 Opening native audio picker...');
+  console.log('📱 Opening native AUDIO FILE PICKER...');
   
+  if (!isUneraNativeApp()) return false;
+  
+  // Use 'pick_file' action - opens file picker, not recorder
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
       JSON.stringify({ 
-        action: 'pick_audio', 
-        type: 'audio/*',
-        multiple: false 
+        action: 'pick_file',  // Key change: use file picker, not audio recorder
+        fileType: 'audio',
+        mimeTypes: ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/flac']
       })
     );
     return true;
@@ -47,28 +50,29 @@ const openNativeAudioPicker = (): boolean => {
   if ((window as any).ReactNativeWebView?.postMessage) {
     (window as any).ReactNativeWebView.postMessage(
       JSON.stringify({ 
-        action: 'pick_audio', 
-        type: 'audio/*',
-        multiple: false 
+        action: 'pick_file',
+        fileType: 'audio',
+        mimeTypes: ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/aac', 'audio/ogg']
       })
     );
     return true;
   }
   
-  console.log('📱 Not in native app, falling back to web input');
   return false;
 };
 
-// Open native image picker (for cover art)
+// Open native image picker for cover art
 const openNativeImagePicker = (): boolean => {
-  console.log('📱 Opening native image picker...');
+  console.log('📱 Opening native IMAGE picker...');
+  
+  if (!isUneraNativeApp()) return false;
   
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
       JSON.stringify({ 
-        action: 'pick_image', 
+        action: 'pick_image',
         type: 'image/*',
-        multiple: false 
+        allowMultiple: false 
       })
     );
     return true;
@@ -77,47 +81,17 @@ const openNativeImagePicker = (): boolean => {
   if ((window as any).ReactNativeWebView?.postMessage) {
     (window as any).ReactNativeWebView.postMessage(
       JSON.stringify({ 
-        action: 'pick_image', 
+        action: 'pick_image',
         type: 'image/*',
-        multiple: false 
+        allowMultiple: false 
       })
     );
     return true;
   }
   
-  console.log('📱 Not in native app, falling back to web input');
   return false;
 };
 
-// Test function for debugging native communication
-const testNativeCommunication = () => {
-  console.log('🔧 Testing native communication...');
-  console.log('📱 isUneraNativeApp:', isUneraNativeApp());
-  console.log('📱 window.UneraNative:', (window as any).UneraNative);
-  console.log('📱 window.ReactNativeWebView:', (window as any).ReactNativeWebView);
-  console.log('📱 pendingUploadType:', getPendingUploadType());
-  
-  // Dispatch test event
-  const testEvent = new CustomEvent('uneraNativeUpload', {
-    detail: {
-      type: 'audio',
-      url: 'https://example.com/test.mp3',
-      full: 'https://example.com/test.mp3',
-      feed: 'https://example.com/test.mp3',
-      mimeType: 'audio/mpeg'
-    }
-  });
-  window.dispatchEvent(testEvent);
-  console.log('🔧 Test event dispatched');
-};
-
-// Expose test function to window for debugging (development only)
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  (window as any).testNativeAudio = testNativeCommunication;
-}
-
-
-       
 /* =========================================================
    SPARK REACT ICON (same as Feed.tsx)
 ========================================================= */
@@ -700,7 +674,6 @@ export const CommentsSheet: React.FC<{
         className="w-full h-[72vh] bg-[#18191A] rounded-t-3xl flex flex-col overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Drag handle */}
         <div className="pt-3 pb-1 flex justify-center bg-[#242526]">
           <div className="w-12 h-1.5 rounded-full bg-[#4B4C4F]"></div>
         </div>
@@ -1189,6 +1162,9 @@ const uploadCompressedCoverToR2 = async (file: File) => {
   const compressed = await compressCoverImage(file);
   return uploadToR2(compressed);
 };
+
+// Forward declaration for uploadToR2 (defined in AudioUploadModal)
+declare function uploadToR2(file: File): Promise<string>;
 
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
@@ -1817,7 +1793,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 };
 
 /* =========================================================
-   UPLOAD MODAL (Full Page Version with Native Support)
+   UPLOAD MODAL (Full Page Version with Native Support - Fixed)
 ========================================================= */
 
 interface AudioUploadModalProps {
@@ -1827,13 +1803,6 @@ interface AudioUploadModalProps {
   initialNativeAudioFile?: File | null;
   initialNativeCoverFile?: File | null;
 }
-
-// Define pendingUploadTypeRef outside the component for global access
-let pendingUploadTypeRef: 'audio' | 'cover' | null = null;
-const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
-  pendingUploadTypeRef = type;
-};
-const getPendingUploadType = () => pendingUploadTypeRef;
 
 const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ 
   currentUser, 
@@ -1866,9 +1835,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
   const coverInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
 
-  const defaultCover = DEFAULT_MUSIC_COVER;
-
-  // Add effects to receive native files
+  // Receive native files
   useEffect(() => {
     if (initialNativeAudioFile && !audioFile) {
       setAudioFile(initialNativeAudioFile);
@@ -1881,6 +1848,34 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
       setCoverPreview(URL.createObjectURL(initialNativeCoverFile));
     }
   }, [initialNativeCoverFile, coverFile]);
+
+  // Native pick handlers - BOTH use file picker, not recorder!
+  const handlePickAudio = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('audio');
+      openNativeAudioPicker(); // Uses 'pick_file' action
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handlePickCover = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('cover');
+      openNativeImagePicker();
+    } else {
+      coverInputRef.current?.click();
+    }
+  };
+
+  const handlePickTrackAudio = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('audio');
+      openNativeAudioPicker(); // Same function for tracks
+    } else {
+      trackInputRef.current?.click();
+    }
+  };
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
@@ -2010,25 +2005,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
     if (mode === 'album') await uploadAlbum();
   };
 
-  // Native pick handlers
-  const handlePickAudio = () => {
-    if (isUneraNativeApp()) {
-      setPendingUploadType('audio');
-      openNativeAudioPicker();
-    } else {
-      fileInputRef.current?.click();
-    }
-  };
-
-  const handlePickCover = () => {
-    if (isUneraNativeApp()) {
-      setPendingUploadType('cover');
-      openNativeImagePicker();
-    } else {
-      coverInputRef.current?.click();
-    }
-  };
-
   return (
     <div className="w-full">
       <div className="bg-transparent w-full max-w-5xl mx-auto overflow-hidden flex flex-col">
@@ -2101,7 +2077,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
                   ref={coverInputRef}
                   className="hidden"
                   accept="image/*"
-                  capture="environment"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) {
@@ -2112,6 +2087,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
                 />
               </div>
 
+              {/* SINGLE MODE - Uses file picker (NOT recorder!) */}
               {mode === 'single' && (
                 <div>
                   <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Audio File</label>
@@ -2134,7 +2110,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
                     ref={fileInputRef}
                     className="hidden"
                     accept="audio/*"
-                    capture="environment"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) setAudioFile(f);
@@ -2223,14 +2198,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
 
                     <div className="flex items-center gap-2 mt-2">
                       <div
-                        onClick={() => {
-                          if (isUneraNativeApp()) {
-                            setPendingUploadType('audio');
-                            openNativeAudioPicker();
-                          } else {
-                            trackInputRef.current?.click();
-                          }
-                        }}
+                        onClick={handlePickTrackAudio}
                         className="flex-1 bg-[#222] hover:bg-[#333] p-2 rounded text-center cursor-pointer text-sm text-[#888] hover:text-white transition-colors border border-[#444]"
                       >
                         {tempTrackFile ? (
@@ -2416,68 +2384,61 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [nativeCoverFile, setNativeCoverFile] = useState<File | null>(null);
 
   const isAdmin = (currentUser as any)?.role === 'admin';
-
   const musicSeed = useMemo(() => Date.now(), []);
 
-useEffect(() => {
-  const handleNativeUpload = (event: any) => {
-    const media = event.detail;
-    if (!media) return;
-    
-    console.log('📱 MusicSystem: Native upload received:', media);
-    console.log('📱 Media type:', media?.type);
-    console.log('📱 Available URLs:', { full: media?.full, feed: media?.feed, url: media?.url });
-    
-    // Better detection - check if it's audio by URL extension or mimeType
-    const url = media?.full || media?.feed || media?.url || '';
-    const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
-    const isAudioByMime = media?.mimeType?.startsWith('audio/');
-    const isExplicitAudio = media?.type === 'audio';
-    
-    const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
-    const isImage = media?.type === 'image' || media?.mimeType?.startsWith('image/');
-    
-    console.log('📱 Detection results:', { isExplicitAudio, isAudioByUrl, isAudioByMime, isAudio, isImage });
-    
-    if (isAudio && pendingUploadTypeRef.current === 'audio') {
-      const audioUrl = media.full || media.feed || media.url;
-      if (audioUrl) {
-        fetch(audioUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            // Determine file extension from URL or default to mp3
-            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
-            const mimeType = media.mimeType || `audio/${ext}`;
-            const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: mimeType });
-            setNativeAudioFile(file);
-            console.log('✅ Audio file created:', file.name, file.type);
-          })
-          .catch(err => console.error('Failed to process native audio:', err));
+  // Native upload listener
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      console.log('📱 MusicSystem: Native upload received:', media);
+      
+      if (!media) return;
+      
+      // Detect if this is audio (by type, mimeType, or URL extension)
+      const url = media.full || media.feed || media.url || '';
+      const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
+      const isAudioByMime = media.mimeType?.startsWith('audio/');
+      const isExplicitAudio = media.type === 'audio';
+      const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
+      
+      const isImage = media.type === 'image' || media.mimeType?.startsWith('image/');
+      
+      if (isAudio && getPendingUploadType() === 'audio') {
+        const audioUrl = media.full || media.feed || media.url;
+        if (audioUrl) {
+          fetch(audioUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+              const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
+              setNativeAudioFile(file);
+              console.log('✅ Audio file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process native audio:', err));
+        }
+        setPendingUploadType(null);
+      } else if (isImage && getPendingUploadType() === 'cover') {
+        const imageUrl = media.full || media.feed || media.url;
+        if (imageUrl) {
+          fetch(imageUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+              const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+              setNativeCoverFile(file);
+              console.log('✅ Cover file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process native cover:', err));
+        }
+        setPendingUploadType(null);
       }
-    } else if (isImage && pendingUploadTypeRef.current === 'cover') {
-      const imageUrl = media.full || media.feed || media.url;
-      if (imageUrl) {
-        fetch(imageUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-            const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
-            setNativeCoverFile(file);
-            console.log('✅ Cover file created:', file.name);
-          })
-          .catch(err => console.error('Failed to process native cover:', err));
-      }
-    }
-    pendingUploadTypeRef.current = null;
-  };
+    };
 
-  window.addEventListener('uneraNativeUpload', handleNativeUpload);
-  return () => {
-    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  };
-}, []);
-
-
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => {
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    };
+  }, []);
 
   const albums = useMemo(() => {
     const grouped = new Map<string, Song[]>();
@@ -2655,13 +2616,6 @@ useEffect(() => {
     setSongs((prev) => prev.filter((s) => String(s.id) !== id));
   };
 
-  const handleDownload = (id: string) => {
-    if (!currentUser) return;
-    if (!downloads.includes(id)) {
-      setDownloads((prev) => [...prev, id]);
-    }
-  };
-
   const filteredSongs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return songs;
@@ -2701,51 +2655,6 @@ useEffect(() => {
     }, 5000);
     return () => clearInterval(interval);
   }, [featuredSongs.length]);
-
-  const dashboardStats = useMemo(() => {
-    const totalPlays = songs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0);
-    const totalLikesReceived = songs.reduce((sum, s) => sum + (Number((s.stats as any)?.likes) || 0), 0);
-    const totalTracks = songs.length;
-    const myId = Number((currentUser as any)?.id || 0);
-
-    const userSongs = songs.filter((s) => Number(s.uploaderId) === myId);
-    const userPlays = userSongs.reduce((sum, s) => sum + (Number((s.stats as any)?.plays) || 0), 0);
-    const userLikesReceived = userSongs.reduce((sum, s) => sum + (Number((s.stats as any)?.likes) || 0), 0);
-
-    return {
-      totalPlays,
-      totalTracks,
-      totalLikesReceived,
-      userSongs: userSongs.length,
-      userUploads: userSongs.length,
-      userPlays,
-      userLikesReceived,
-      myLikesCount: likedTracks.length,
-      myTotalPlays: myTotalPlays || 0,
-    };
-  }, [songs, currentUser, likedTracks, myTotalPlays]);
-
-  const selectedArtistUser: User | null = useMemo(() => {
-    if (!selectedArtistId) return null;
-
-    const found = users.find((u) => u.id === selectedArtistId);
-    if (found) return found;
-
-    const artistName = songs.find((s) => s.uploaderId === selectedArtistId)?.artist || 'Artist';
-
-    return {
-      id: selectedArtistId,
-      name: artistName,
-      profileImage: `https://ui-avatars.com/api/?name=${encodeURIComponent(artistName)}&background=random`,
-      coverImage:
-        'https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80',
-      followers: [],
-      following: [],
-      isOnline: false,
-      isVerified: false,
-      role: 'user',
-    } as any;
-  }, [selectedArtistId, users, songs]);
 
   const showLoading = loadingSongs && view === 'music';
 
@@ -2794,19 +2703,15 @@ useEffect(() => {
           </div>
         )}
 
-        {/* MODERN MUSIC FEED LAYOUT - Boomplay Style */}
+        {/* MUSIC FEED LAYOUT */}
         {view === 'music' && !showLoading && (
           <div className="space-y-8">
             {/* Mobile Entertainment Header */}
             <div className="rounded-[28px] bg-gradient-to-b from-[#0B0B0F] to-[#121217] border border-white/5 p-4 sm:p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
-                    UNERA Music
-                  </h1>
-                  <p className="text-[#A8AFBC] mt-1 text-sm sm:text-base">
-                    Discover trending sounds, creators and fresh vibes
-                  </p>
+                  <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">UNERA Music</h1>
+                  <p className="text-[#A8AFBC] mt-1 text-sm sm:text-base">Discover trending sounds, creators and fresh vibes</p>
                 </div>
                 {currentUser && (
                   <button onClick={() => setView('dashboard')} className="shrink-0 px-4 py-2 rounded-full bg-[#1877F2] text-white font-bold text-sm hover:opacity-90">
@@ -2886,7 +2791,7 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Horizontal feed sections like Boomplay */}
+            {/* Horizontal feed sections */}
             {!searchQuery ? (
               <>
                 <HorizontalMusicRow
@@ -2986,7 +2891,7 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Optional compact all music list */}
+            {/* All songs list */}
             {!searchQuery && filteredSongs.length > 0 && (
               <div className="rounded-2xl bg-[#111318] border border-white/5 p-4">
                 <SectionTitle title="All Songs" subtitle="A fresh ranked mix from all UNERA creators" />
@@ -3004,17 +2909,13 @@ useEffect(() => {
                           isCurrentTrack ? 'bg-[#1877F2]/10 border border-[#1877F2]/30' : 'hover:bg-white/5'
                         }`}
                       >
-                        <div className="w-6 text-center text-[#9CA3AF] font-bold text-sm">
-                          {index + 1}
-                        </div>
+                        <div className="w-6 text-center text-[#9CA3AF] font-bold text-sm">{index + 1}</div>
                         <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-12 h-12 rounded-lg object-cover" />
                         <div className="flex-1 min-w-0">
                           <p className="text-white font-semibold truncate">{song.title}</p>
                           <p className="text-[#9CA3AF] text-sm truncate">{artistName}</p>
                         </div>
-                        <div className="text-[#9CA3AF] text-xs hidden sm:block">
-                          {formatCompactNumber(playCount)} plays
-                        </div>
+                        <div className="text-[#9CA3AF] text-xs hidden sm:block">{formatCompactNumber(playCount)} plays</div>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -3054,19 +2955,13 @@ useEffect(() => {
                       className="w-[165px] sm:w-[185px] flex-shrink-0 snap-start cursor-pointer group"
                     >
                       <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
-                        <img 
-                          src={album.cover} 
-                          alt={album.name} 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                        />
+                        <img src={album.cover} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
                       </div>
                       <div className="mt-2">
                         <h3 className="font-bold text-white text-[15px] line-clamp-1">{album.name}</h3>
                         <p className="text-[#B8BCC7] text-sm mt-1 line-clamp-1">{album.artist}</p>
-                        <p className="text-[#888] text-xs mt-1">
-                          {album.totalTracks} song{album.totalTracks !== 1 ? 's' : ''}
-                        </p>
+                        <p className="text-[#888] text-xs mt-1">{album.totalTracks} song{album.totalTracks !== 1 ? 's' : ''}</p>
                       </div>
                     </div>
                   ))
@@ -3081,37 +2976,25 @@ useEffect(() => {
           </div>
         )}
 
-        {/* ALBUM DETAIL VIEW - Dark theme, no green gradient */}
+        {/* ALBUM DETAIL VIEW */}
         {view === 'album' && selectedAlbumData && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl overflow-hidden">
               <div className="relative p-6 bg-gradient-to-br from-[#1a1a2e] to-[#0a0a0f]">
-                <button
-                  onClick={() => setView('albums')}
-                  className="mb-4 w-10 h-10 rounded-full bg-black/20 hover:bg-black/30 flex items-center justify-center text-white"
-                >
+                <button onClick={() => setView('albums')} className="mb-4 w-10 h-10 rounded-full bg-black/20 hover:bg-black/30 flex items-center justify-center text-white">
                   <i className="fas fa-arrow-left"></i>
                 </button>
                 <div className="flex items-center gap-4">
-                  <img
-                    src={selectedAlbumData.cover}
-                    alt={selectedAlbumData.name}
-                    className="w-28 h-28 rounded-xl object-cover shadow-xl"
-                  />
+                  <img src={selectedAlbumData.cover} alt={selectedAlbumData.name} className="w-28 h-28 rounded-xl object-cover shadow-xl" />
                   <div className="min-w-0">
                     <h1 className="text-3xl font-bold text-white line-clamp-2">{selectedAlbumData.name}</h1>
                     <p className="text-white/80 mt-2">{selectedAlbumData.artist}</p>
-                    <p className="text-white/70 text-sm mt-1">
-                      {selectedAlbumData.totalTracks} song{selectedAlbumData.totalTracks !== 1 ? 's' : ''}
-                    </p>
+                    <p className="text-white/70 text-sm mt-1">{selectedAlbumData.totalTracks} song{selectedAlbumData.totalTracks !== 1 ? 's' : ''}</p>
                   </div>
                 </div>
               </div>
               <div className="p-4 border-b border-[#333]">
-                <button
-                  onClick={() => selectedAlbumData.songs[0] && handlePlayTrackFromSong(selectedAlbumData.songs[0])}
-                  className="bg-[#1877F2] text-white px-6 py-3 rounded-full font-bold flex items-center gap-2"
-                >
+                <button onClick={() => selectedAlbumData.songs[0] && handlePlayTrackFromSong(selectedAlbumData.songs[0])} className="bg-[#1877F2] text-white px-6 py-3 rounded-full font-bold flex items-center gap-2">
                   <i className="fas fa-play"></i> Play All ({selectedAlbumData.totalTracks})
                 </button>
               </div>
@@ -3120,30 +3003,15 @@ useEffect(() => {
                   const uploaderProfile = users.find((u) => u.id === song.uploaderId);
                   const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
                   return (
-                    <div
-                      key={song.id}
-                      onClick={() => handlePlayTrackFromSong(song)}
-                      className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] cursor-pointer transition-colors"
-                    >
+                    <div key={song.id} onClick={() => handlePlayTrackFromSong(song)} className="flex items-center gap-4 p-4 hover:bg-[#3A3B3C] cursor-pointer transition-colors">
                       <div className="w-6 text-center text-[#B0B3B8] font-bold">{index + 1}</div>
-                      <img
-                        src={song.cover || DEFAULT_MUSIC_COVER}
-                        alt={song.title}
-                        className="w-12 h-12 rounded-lg object-cover"
-                      />
+                      <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-12 h-12 rounded-lg object-cover" />
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-white text-sm truncate">{song.title}</div>
                         <div className="text-xs text-[#888] truncate">{artistName}</div>
                       </div>
                       <span className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLike(String(song.id));
-                        }}
-                        className="text-lg hover:scale-110 transition-transform"
-                        title="Like"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); toggleLike(String(song.id)); }} className="text-lg hover:scale-110 transition-transform" title="Like">
                         <i className={`${isTrackLiked(String(song.id)) ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
                       </button>
                     </div>
@@ -3192,11 +3060,7 @@ useEffect(() => {
               <div className="flex flex-col items-center justify-center mb-10 mt-4 text-center">
                 <h2 className="text-3xl font-bold mb-3 bg-gradient-to-r from-white to-gray-400 text-transparent bg-clip-text">Creator Studio</h2>
                 <p className="text-[#888] mb-6 max-w-2xl">Upload your music and albums. Monitor your performance.</p>
-
-                <button
-                  onClick={() => setView('upload')}
-                  className="bg-gradient-to-r from-[#1877F2] to-[#0062E3] px-10 py-4 rounded-full font-bold flex items-center gap-3 hover:scale-105 transition-transform shadow-[0_4px_20px_rgba(24,119,242,0.5)] text-lg"
-                >
+                <button onClick={() => setView('upload')} className="bg-gradient-to-r from-[#1877F2] to-[#0062E3] px-10 py-4 rounded-full font-bold flex items-center gap-3 hover:scale-105 transition-transform shadow-[0_4px_20px_rgba(24,119,242,0.5)] text-lg">
                   <i className="fas fa-cloud-upload-alt text-2xl"></i> Upload New Content
                 </button>
               </div>
@@ -3204,128 +3068,46 @@ useEffect(() => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Likes on Your Content</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.userLikesReceived.toLocaleString()}</p>
-                    </div>
-                    <i className="fas fa-heart text-[#FF4D8D] text-xl"></i>
-                  </div>
-                  <p className="text-[#888] text-xs mt-2">Likes your content received</p>
-                </div>
-
-                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">Your Uploads</p>
-                      <p className="text-2xl font-bold text-white">{dashboardStats.userUploads}</p>
-                    </div>
+                    <div><p className="text-[#B0B3B8] text-sm">Your Uploads</p><p className="text-2xl font-bold text-white">{songs.filter(s => s.uploaderId === (currentUser as any).id).length}</p></div>
                     <i className="fas fa-upload text-[#45BD62] text-xl"></i>
                   </div>
-                  <p className="text-[#888] text-xs mt-2">{dashboardStats.userSongs} songs uploaded</p>
                 </div>
-
                 <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[#B0B3B8] text-sm">My Total Plays</p>
-                      <p className="text-2xl font-bold text-white">{myTotalPlays.toLocaleString()}</p>
-                    </div>
+                    <div><p className="text-[#B0B3B8] text-sm">Total Plays</p><p className="text-2xl font-bold text-white">{myTotalPlays.toLocaleString()}</p></div>
                     <i className="fas fa-play-circle text-[#07E8F8] text-xl"></i>
                   </div>
-                  <p className="text-[#888] text-xs mt-2">Plays you've made across UNERA</p>
+                </div>
+                <div className="bg-[#1E1E1E] p-6 rounded-2xl border border-[#333]">
+                  <div className="flex items-center justify-between">
+                    <div><p className="text-[#B0B3B8] text-sm">Likes Received</p><p className="text-2xl font-bold text-white">{songs.filter(s => s.uploaderId === (currentUser as any).id).reduce((sum, s) => sum + ((s.stats as any)?.likes || 0), 0)}</p></div>
+                    <i className="fas fa-heart text-[#FF4D8D] text-xl"></i>
+                  </div>
                 </div>
               </div>
 
               <div className="bg-[#1E1E1E] rounded-2xl border border-[#333] overflow-hidden">
-                <div className="p-6 border-b border-[#333]">
-                  <h3 className="text-xl font-bold text-white">Your Catalog</h3>
-                  <p className="text-[#888] text-sm">Manage your uploaded content</p>
-                </div>
-
+                <div className="p-6 border-b border-[#333]"><h3 className="text-xl font-bold text-white">Your Catalog</h3><p className="text-[#888] text-sm">Manage your uploaded content</p></div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead className="bg-[#252525] text-[#888] text-xs uppercase font-bold">
-                      <tr>
-                        <th className="p-4">Content</th>
-                        <th className="p-4">Type</th>
-                        <th className="p-4 text-right">Plays</th>
-                        <th className="p-4 text-right">Likes</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
+                      <tr><th className="p-4">Content</th><th className="p-4 text-right">Plays</th><th className="p-4 text-right">Likes</th><th className="p-4 text-right">Actions</th></tr>
                     </thead>
-
                     <tbody className="divide-y divide-[#333]">
                       {songs.filter((s) => s.uploaderId === (currentUser as any).id).map((item: any) => {
                         const playCount = getSongPlayCount(item, trackPlays);
                         return (
                           <tr key={item.id} className="hover:bg-[#2A2A2A]">
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <img src={item.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
-                                <div>
-                                  <div className="font-bold text-white text-sm">{item.title}</div>
-                                  <div className="text-xs text-[#888]">{item.artist}</div>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="p-4">
-                              <span className="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400">Music</span>
-                            </td>
-
+                            <td className="p-4"><div className="flex items-center gap-3"><img src={item.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" /><div><div className="font-bold text-white text-sm">{item.title}</div><div className="text-xs text-[#888]">{item.artist}</div></div></div></td>
                             <td className="p-4 text-right font-bold text-sm">{formatCompactNumber(playCount)}</td>
                             <td className="p-4 text-right font-bold text-sm">{(item.stats as any)?.likes || 0}</td>
-
-                            <td className="p-4 text-right">
-                              <button
-                                onClick={() => deleteSong(String(item.id))}
-                                className="text-red-500 hover:text-red-400 p-2"
-                                title="Delete"
-                              >
-                                <i className="fas fa-trash-alt"></i>
-                              </button>
-                            </td>
+                            <td className="p-4 text-right"><button onClick={() => deleteSong(String(item.id))} className="text-red-500 hover:text-red-400 p-2" title="Delete"><i className="fas fa-trash-alt"></i></button></td>
                           </tr>
                         );
                       })}
-
-                      {songs.filter((s) => s.uploaderId === (currentUser as any).id).length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="p-12 text-center text-[#666]">
-                            <div className="mb-3">
-                              <i className="fas fa-music text-4xl opacity-50"></i>
-                            </div>
-                            <p className="text-lg">No uploads yet.</p>
-                            <p className="text-sm">Start by clicking "Upload New Content" above.</p>
-                          </td>
-                        </tr>
-                      )}
+                      {songs.filter((s) => s.uploaderId === (currentUser as any).id).length === 0 && (<tr><td colSpan={4} className="p-12 text-center text-[#666]"><p>No uploads yet. Start by clicking "Upload New Content" above.</p></td></tr>)}
                     </tbody>
                   </table>
-                </div>
-              </div>
-
-              <div className="mt-8 bg-[#1E1E1E] rounded-2xl border border-[#333] p-6">
-                <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
-                <div className="space-y-3">
-                  {playHistory.slice(0, 5).map((track, index) => (
-                    <div key={index} className="flex items-center gap-3 p-3 hover:bg-[#2A2A2A] rounded-lg">
-                      <img src={track.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
-                      <div className="flex-1">
-                        <div className="font-medium text-white text-sm">{track.title}</div>
-                        <div className="text-xs text-[#888]">{track.artist}</div>
-                      </div>
-                      <div className="text-xs text-[#888]">
-                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  ))}
-                  {playHistory.length === 0 && (
-                    <div className="text-center py-4 text-[#666]">
-                      <i className="fas fa-history text-2xl mb-2"></i>
-                      <p>No recent plays</p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -3333,72 +3115,31 @@ useEffect(() => {
         )}
 
         {/* ARTIST VIEW */}
-        {view === 'artist' && selectedArtistUser && !showLoading && (
+        {view === 'artist' && !showLoading && (
           <div className="space-y-8">
             <div className="bg-[#242526] rounded-2xl overflow-hidden">
               <div className="h-48 relative">
-                <img src={(selectedArtistUser as any).coverImage || (selectedArtistUser as any).profileImage} className="w-full h-full object-cover" alt="" />
+                <img src="https://images.unsplash.com/photo-1514525253440-b393452e8d26?ixlib=rb-1.2.1&auto=format&fit=crop&w=1500&q=80" className="w-full h-full object-cover" alt="" />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A] to-transparent"></div>
-
                 <div className="absolute bottom-4 left-4 flex items-end gap-4">
-                  <img src={(selectedArtistUser as any).profileImage} className="w-20 h-20 rounded-full border-4 border-[#0A0A0A] shadow-xl object-cover" alt="" />
-                  <div className="mb-2">
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                      {selectedArtistUser.name}
-                      {(selectedArtistUser as any).isVerified && <i className="fas fa-check-circle text-[#1877F2] text-sm"></i>}
-                    </h1>
-                    <p className="text-[#CCC] text-sm">{((selectedArtistUser as any).followers?.length || 0)} Followers</p>
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-r from-[#1877F2] to-[#F3425F] flex items-center justify-center text-white text-3xl font-bold border-4 border-[#0A0A0A]">
+                    {selectedArtistId ? (users.find(u => u.id === selectedArtistId)?.name?.charAt(0) || 'A') : 'A'}
                   </div>
+                  <div className="mb-2"><h1 className="text-2xl font-bold text-white">{users.find(u => u.id === selectedArtistId)?.name || 'Artist'}</h1></div>
                 </div>
               </div>
-
               <div className="p-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-white mb-4">Popular Releases</h2>
-                  <div className="space-y-2">
-                    {songs
-                      .filter((s) => s.uploaderId === selectedArtistUser.id)
-                      .slice(0, 5)
-                      .map((song, i) => {
-                        const isLiked = isTrackLiked(String(song.id));
-                        const playCount = getSongPlayCount(song, trackPlays);
-                        return (
-                          <div
-                            key={song.id}
-                            className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer transition-colors group"
-                            onClick={() => handlePlayTrackFromSong(song)}
-                          >
-                            <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
-                            <div className="hidden group-hover:block w-4 text-center text-white">
-                              <i className="fas fa-play"></i>
-                            </div>
-
-                            <img src={song.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
-
-                            <div className="flex-1">
-                              <div className="font-bold text-white text-sm">{song.title}</div>
-                              <div className="text-xs text-[#888]">{formatCompactNumber(playCount)} plays</div>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                              <span className="text-sm text-[#B0B3B8]">{(song as any).duration || '3:00'}</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleLike(String(song.id));
-                                }}
-                                className="text-lg hover:scale-110 transition-transform"
-                                title="Like"
-                              >
-                                <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i>
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                    {songs.filter((s) => s.uploaderId === selectedArtistUser.id).length === 0 && <p className="text-[#666] text-center py-4">No tracks available from this artist.</p>}
-                  </div>
+                <h2 className="text-xl font-bold text-white mb-4">Popular Releases</h2>
+                <div className="space-y-2">
+                  {songs.filter(s => s.uploaderId === selectedArtistId).slice(0, 5).map((song, i) => (
+                    <div key={song.id} onClick={() => handlePlayTrackFromSong(song)} className="flex items-center gap-4 p-3 hover:bg-[#3A3B3C] rounded-xl cursor-pointer group">
+                      <div className="text-[#B0B3B8] font-bold w-4 text-center group-hover:hidden">{i + 1}</div>
+                      <div className="hidden group-hover:block w-4 text-center text-white"><i className="fas fa-play"></i></div>
+                      <img src={song.cover || DEFAULT_MUSIC_COVER} className="w-10 h-10 rounded object-cover" alt="" />
+                      <div className="flex-1"><div className="font-bold text-white text-sm">{song.title}</div><div className="text-xs text-[#888]">{formatCompactNumber(getSongPlayCount(song, trackPlays))} plays</div></div>
+                      <button onClick={(e) => { e.stopPropagation(); toggleLike(String(song.id)); }} className="text-lg hover:scale-110 transition-transform"><i className={`${isTrackLiked(String(song.id)) ? 'fas text-[#FF4D8D]' : 'far'} fa-heart`}></i></button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
