@@ -11,20 +11,24 @@ const cors = {
 export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: cors });
 
+const DEFAULT_SONG_COVER =
+  "https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp";
+
 const safeStr = (v: any) => String(v ?? "").trim();
+
 const safeNum = (v: any) => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
 };
 
-// ✅ DEFAULT SONG COVER (if no cover provided)
-const DEFAULT_SONG_COVER =
-  "https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp";
-
 const json = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      ...cors,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 
 /**
@@ -33,11 +37,12 @@ const json = (data: any, status = 200) =>
  */
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    if (!env.DB) {
+      return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    }
 
     const body = await request.json().catch(() => ({} as any));
 
-    // ✅ accept multiple possible keys from frontend
     const uploader_id = safeNum(
       body.uploader_id ?? body.user_id ?? body.artist_id ?? body.creator_id
     );
@@ -50,18 +55,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const album_name = safeStr(body.album_name ?? body.album) || null;
 
-    // ✅ DEFAULT cover image if missing
     const cover_image_url =
-      safeStr(body.cover_image_url ?? body.cover_url ?? body.cover) || DEFAULT_SONG_COVER;
+      safeStr(body.cover_image_url ?? body.cover_url ?? body.cover) ||
+      DEFAULT_SONG_COVER;
 
-    const audio_url = safeStr(body.audio_url ?? body.audio ?? body.url ?? body.media_url);
+    const audio_url = safeStr(
+      body.audio_url ?? body.audio ?? body.url ?? body.media_url
+    );
 
     const duration_seconds =
       safeNum(body.duration_seconds ?? body.duration ?? body.durationSecs) || null;
 
     const genre = safeStr(body.genre) || null;
 
-    // ✅ clear error response showing exactly what is missing
     const missing: string[] = [];
     if (!uploader_id) missing.push("uploader_id (or user_id)");
     if (!title) missing.push("title");
@@ -88,8 +94,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const result = await env.DB.prepare(`
       INSERT INTO songs
-      (uploader_id, title, artist_name, album_name, cover_image_url, audio_url, duration_seconds, genre)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (
+          uploader_id,
+          title,
+          artist_name,
+          album_name,
+          cover_image_url,
+          audio_url,
+          duration_seconds,
+          genre,
+          plays_count
+        )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
     `)
       .bind(
         uploader_id,
@@ -114,13 +130,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 /**
  * GET /api/songs
- * Fetch songs for dashboard
- *
- * ✅ ALSO returns default cover if DB has NULL/empty cover
+ * Fetch songs with real plays count
  */
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
   try {
-    if (!env.DB) return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    if (!env.DB) {
+      return json({ success: false, error: "DB binding missing (DB)" }, 500);
+    }
 
     const { results } = await env.DB.prepare(`
       SELECT
@@ -129,15 +145,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
         title,
         artist_name,
         album_name,
+
         CASE
           WHEN cover_image_url IS NULL OR TRIM(cover_image_url) = ''
           THEN '${DEFAULT_SONG_COVER}'
           ELSE cover_image_url
         END AS cover_image_url,
+
         audio_url,
         duration_seconds,
         genre,
-        created_at
+        created_at,
+
+        COALESCE(plays_count, 0) AS plays_count
+
       FROM songs
       ORDER BY created_at DESC
     `).all();
