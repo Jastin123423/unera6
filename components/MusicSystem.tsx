@@ -2186,11 +2186,12 @@ const handlePickTrackCover = () => {
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
                     </div>
-
-                    <div
-                      onClick={() => tempTrackCoverInputRef.current?.click()}
-                      className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
+                     <div
+                    onClick={handlePickTrackCover}
+                   className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
                     >
+   
+        
                       {tempTrackCoverFile ? (
                         <span className="text-[#1877F2] font-bold">
                           <i className="fas fa-image"></i> {tempTrackCoverFile.name}
