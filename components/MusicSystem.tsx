@@ -2261,6 +2261,11 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
+  
+const pendingUploadTypeRef = useRef<'audio' | 'cover' | null>(null);
+const [nativeAudioFile, setNativeAudioFile] = useState<File | null>(null);
+const [nativeCoverFile, setNativeCoverFile] = useState<File | null>(null);
+const [isNativePickerActive, setIsNativePickerActive] = useState(false);
 
   const [songs, setSongs] = useState<Song[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
