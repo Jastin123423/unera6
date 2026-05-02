@@ -1786,6 +1786,26 @@ useEffect(() => {
   }
 }, [initialNativeCoverFile]);
 
+  const handlePickAudio = () => {
+  if (isUneraNativeApp()) {
+    pendingUploadTypeRef.current = 'audio';
+    setIsNativePickerActive(true);
+    openNativeAudioPicker();
+  } else {
+    fileInputRef.current?.click();
+  }
+};
+
+const handlePickCover = () => {
+  if (isUneraNativeApp()) {
+    pendingUploadTypeRef.current = 'cover';
+    setIsNativePickerActive(true);
+    openNativeImagePicker();
+  } else {
+    coverInputRef.current?.click();
+  }
+};
+
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
       alert('Track title and audio file are required.');
