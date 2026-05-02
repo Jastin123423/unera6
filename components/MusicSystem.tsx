@@ -10,6 +10,17 @@ const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy
    NATIVE APP DETECTION & HELPERS
 ========================================================= */
 
+
+// Global reference for tracking pending upload type (must be outside component)
+let pendingUploadTypeRef: 'audio' | 'cover' | null = null;
+
+export const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
+  pendingUploadTypeRef = type;
+};
+
+export const getPendingUploadType = () => pendingUploadTypeRef;
+
+// Detect if running in UNERA Native App
 const isUneraNativeApp = (): boolean => {
   return Boolean(
     (window as any).UneraNative || 
@@ -18,38 +29,95 @@ const isUneraNativeApp = (): boolean => {
   );
 };
 
+// Open native audio picker (for songs/audio files)
 const openNativeAudioPicker = (): boolean => {
+  console.log('📱 Opening native audio picker...');
+  
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
-      JSON.stringify({ action: 'pick_audio', type: 'audio/*' })
+      JSON.stringify({ 
+        action: 'pick_audio', 
+        type: 'audio/*',
+        multiple: false 
+      })
     );
     return true;
   }
+  
   if ((window as any).ReactNativeWebView?.postMessage) {
     (window as any).ReactNativeWebView.postMessage(
-      JSON.stringify({ action: 'pick_audio', type: 'audio/*' })
+      JSON.stringify({ 
+        action: 'pick_audio', 
+        type: 'audio/*',
+        multiple: false 
+      })
     );
     return true;
   }
+  
+  console.log('📱 Not in native app, falling back to web input');
   return false;
 };
 
+// Open native image picker (for cover art)
 const openNativeImagePicker = (): boolean => {
+  console.log('📱 Opening native image picker...');
+  
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
-      JSON.stringify({ action: 'pick_image', type: 'image/*' })
+      JSON.stringify({ 
+        action: 'pick_image', 
+        type: 'image/*',
+        multiple: false 
+      })
     );
     return true;
   }
+  
   if ((window as any).ReactNativeWebView?.postMessage) {
     (window as any).ReactNativeWebView.postMessage(
-      JSON.stringify({ action: 'pick_image', type: 'image/*' })
+      JSON.stringify({ 
+        action: 'pick_image', 
+        type: 'image/*',
+        multiple: false 
+      })
     );
     return true;
   }
+  
+  console.log('📱 Not in native app, falling back to web input');
   return false;
 };
 
+// Test function for debugging native communication
+const testNativeCommunication = () => {
+  console.log('🔧 Testing native communication...');
+  console.log('📱 isUneraNativeApp:', isUneraNativeApp());
+  console.log('📱 window.UneraNative:', (window as any).UneraNative);
+  console.log('📱 window.ReactNativeWebView:', (window as any).ReactNativeWebView);
+  console.log('📱 pendingUploadType:', getPendingUploadType());
+  
+  // Dispatch test event
+  const testEvent = new CustomEvent('uneraNativeUpload', {
+    detail: {
+      type: 'audio',
+      url: 'https://example.com/test.mp3',
+      full: 'https://example.com/test.mp3',
+      feed: 'https://example.com/test.mp3',
+      mimeType: 'audio/mpeg'
+    }
+  });
+  window.dispatchEvent(testEvent);
+  console.log('🔧 Test event dispatched');
+};
+
+// Expose test function to window for debugging (development only)
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  (window as any).testNativeAudio = testNativeCommunication;
+}
+
+
+       
 /* =========================================================
    SPARK REACT ICON (same as Feed.tsx)
 ========================================================= */
