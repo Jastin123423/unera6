@@ -1935,228 +1935,229 @@ const handlePickCover = () => {
   };
 
   return (
-  <div className="w-full">
-  <div className="bg-transparent w-full max-w-5xl mx-auto overflow-hidden flex flex-col">
-    <div className="p-5 border-b border-[#333] bg-[#252525] rounded-t-2xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-[#FFF] text-2xl font-bold">Professional Upload</h2>
-          <p className="text-[#888] text-sm">Distribute your content to UNERA Music</p>
-        </div>
-        <i className="fas fa-times text-[#888] cursor-pointer text-xl hover:text-white transition-colors" onClick={onClose}></i>
-      </div>
-
-      <div className="flex p-1 bg-[#111] rounded-lg">
-        {['single', 'album'].map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m as any)}
-            className={`flex-1 py-2.5 rounded-md font-bold capitalize text-sm transition-all ${
-              mode === m ? 'bg-[#1877F2] text-white shadow-lg' : 'text-[#888] hover:text-white'
-            }`}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
-    </div>
-
-    <div className="p-6 overflow-y-auto flex-1 space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Main Artist Name</label>
-            <input
-              className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
-              value={artist}
-              onChange={(e) => setArtist(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Genre / Category</label>
-            <input
-              className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
-              placeholder="Pop, Hip Hop, R&B..."
-              value={genre}
-              onChange={(e) => setGenre(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">{mode === 'album' ? 'Album Artwork' : 'Artwork'}</label>
-            {/* ✅ Updated Cover Image Selection with native support */}
-            <div
-              onClick={handlePickCover}
-              className="w-full bg-[#151515] border border-[#333] rounded-lg h-[120px] flex flex-col items-center justify-center cursor-pointer hover:border-[#1877F2] group relative overflow-hidden"
-            >
-              {coverPreview ? (
-                <img src={coverPreview} className="w-full h-full object-cover" alt="Cover Preview" />
-              ) : (
-                <>
-                  <i className="fas fa-image text-2xl text-[#666] group-hover:text-white mb-2"></i>
-                  <span className="text-[#666] text-xs group-hover:text-white">
-                    {isNativePickerActive && pendingUploadTypeRef.current === 'cover' ? 'Opening picker...' : 'Upload Image (Optional)'}
-                  </span>
-                  <span className="text-[#666] text-xs group-hover:text-white mt-1">Default will be used if none</span>
-                </>
-              )}
-            </div>
-
-            {/* Hidden file input for web fallback */}
-            <input
-              type="file"
-              ref={coverInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) {
-                  setCoverFile(f);
-                  setCoverPreview(URL.createObjectURL(f));
-                }
-              }}
-            />
-          </div>
-
-          {/* ✅ Audio File Selection - only show in single mode */}
-          {mode === 'single' && (
+    <div className="w-full">
+      <div className="bg-transparent w-full max-w-5xl mx-auto overflow-hidden flex flex-col">
+        <div className="p-5 border-b border-[#333] bg-[#252525] rounded-t-2xl">
+          <div className="flex justify-between items-center mb-6">
             <div>
-              <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Audio File</label>
-              <div
-                onClick={handlePickAudio}
-                className="border-2 border-dashed border-[#333] bg-[#151515] rounded-lg h-[86px] flex items-center justify-center cursor-pointer hover:border-[#1877F2] group"
+              <h2 className="text-[#FFF] text-2xl font-bold">Professional Upload</h2>
+              <p className="text-[#888] text-sm">Distribute your content to UNERA Music</p>
+            </div>
+            <i className="fas fa-times text-[#888] cursor-pointer text-xl hover:text-white transition-colors" onClick={onClose}></i>
+          </div>
+
+          <div className="flex p-1 bg-[#111] rounded-lg">
+            {['single', 'album'].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m as any)}
+                className={`flex-1 py-2.5 rounded-md font-bold capitalize text-sm transition-all ${
+                  mode === m ? 'bg-[#1877F2] text-white shadow-lg' : 'text-[#888] hover:text-white'
+                }`}
               >
-                {audioFile ? (
-                  <div className="text-[#1877F2] font-semibold flex items-center gap-2">
-                    <i className="fas fa-check-circle"></i> {audioFile.name}
-                  </div>
-                ) : (
-                  <div className="text-[#666] group-hover:text-white flex items-center gap-2">
-                    <i className="fas fa-cloud-upload-alt"></i> 
-                    {isNativePickerActive && pendingUploadTypeRef.current === 'audio' ? 'Opening picker...' : 'Upload High Quality Audio'}
-                  </div>
-                )}
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Main Artist Name</label>
+                <input
+                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
+                  value={artist}
+                  onChange={(e) => setArtist(e.target.value)}
+                />
               </div>
 
-              {/* Hidden file input for web fallback */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept="audio/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setAudioFile(f);
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Album Tracks Section - only show in album mode */}
-      {mode === 'album' && (
-        <div className="border-t border-[#333] pt-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Album Name</label>
-              <input
-                className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
-                placeholder="Enter album title..."
-                value={albumTitle}
-                onChange={(e) => setAlbumTitle(e.target.value)}
-              />
+              <div>
+                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Genre / Category</label>
+                <input
+                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2]"
+                  placeholder="Pop, Hip Hop, R&B..."
+                  value={genre}
+                  onChange={(e) => setGenre(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="space-y-4">
-              <h4 className="text-white font-bold flex items-center gap-2">
-                <i className="fas fa-list-ol text-[#1877F2]"></i> Add Tracks to Album
-              </h4>
+              <div>
+                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">{mode === 'album' ? 'Album Artwork' : 'Artwork'}</label>
+                <div
+                  onClick={() => coverInputRef.current?.click()}
+                  className="w-full bg-[#151515] border border-[#333] rounded-lg h-[120px] flex flex-col items-center justify-center cursor-pointer hover:border-[#1877F2] group relative overflow-hidden"
+                >
+                  {coverPreview ? (
+                    <img src={coverPreview} className="w-full h-full object-cover" alt="Cover Preview" />
+                  ) : (
+                    <>
+                      <i className="fas fa-image text-2xl text-[#666] group-hover:text-white mb-2"></i>
+                      <span className="text-[#666] text-xs group-hover:text-white">Upload Image (Optional)</span>
+                      <span className="text-[#666] text-xs group-hover:text-white mt-1">Default will be used if none</span>
+                    </>
+                  )}
 
-              <div className="space-y-2 mb-4">
-                {albumTracks.map((t, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-[#151515] rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[#666] font-mono">{idx + 1}</span>
-                      <img src={t.coverFile ? URL.createObjectURL(t.coverFile) : (coverPreview || DEFAULT_MUSIC_COVER)} className="w-8 h-8 rounded object-cover" alt="" />
-                      <div>
-                        <span className="text-white font-semibold block">{t.title}</span>
-                        <span className="text-[#666] text-xs">{t.artist}</span>
-                      </div>
-                    </div>
-                    <i className="fas fa-trash text-red-500 cursor-pointer" onClick={() => setAlbumTracks(albumTracks.filter((_, i) => i !== idx))}></i>
-                  </div>
-                ))}
-                {albumTracks.length === 0 && <div className="text-[#666] text-sm text-center py-2">No tracks added yet.</div>}
+                  <input
+                    type="file"
+                    ref={coverInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        setCoverFile(f);
+                        setCoverPreview(URL.createObjectURL(f));
+                      }
+                    }}
+                  />
+                </div>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
-                  <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
-                </div>
-
+              {mode === 'single' && (
                 <div
-                  onClick={() => tempTrackCoverInputRef.current?.click()}
-                  className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-[#333] bg-[#151515] rounded-lg h-[86px] flex items-center justify-center cursor-pointer hover:border-[#1877F2] group"
                 >
-                  {tempTrackCoverFile ? (
-                    <span className="text-[#1877F2] font-bold">
-                      <i className="fas fa-image"></i> {tempTrackCoverFile.name}
-                    </span>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setAudioFile(f);
+                    }}
+                  />
+                  {audioFile ? (
+                    <div className="text-[#1877F2] font-semibold flex items-center gap-2">
+                      <i className="fas fa-check-circle"></i> {audioFile.name}
+                    </div>
                   ) : (
-                    'Select Track Cover (Optional)'
+                    <div className="text-[#666] group-hover:text-white flex items-center gap-2">
+                      <i className="fas fa-cloud-upload-alt"></i> Upload High Quality Audio
+                    </div>
                   )}
                 </div>
-                <input
-                  type="file"
-                  ref={tempTrackCoverInputRef}
-                  className="hidden"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setTempTrackCoverFile(f);
-                  }}
-                />
-
-                <div className="flex items-center gap-2 mt-2">
-                  <div
-                    onClick={() => trackInputRef.current?.click()}
-                    className="flex-1 bg-[#222] hover:bg-[#333] p-2 rounded text-center cursor-pointer text-sm text-[#888] hover:text-white transition-colors border border-[#444]"
-                  >
-                    {tempTrackFile ? (
-                      <span className="text-[#1877F2] font-bold">
-                        <i className="fas fa-file-audio"></i> {tempTrackFile.name}
-                      </span>
-                    ) : (
-                      'Select Audio File'
-                    )}
-                  </div>
-
-                  <button onClick={handleAddTrack} className="bg-[#1877F2] text-white px-6 py-2 rounded text-sm font-bold hover:bg-[#166FE5]">
-                    Add Track
-                  </button>
-                </div>
-
-                <input
-                  type="file"
-                  ref={trackInputRef}
-                  className="hidden"
-                  accept="audio/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setTempTrackFile(f);
-                  }}
-                />
-              </div>
+              )}
             </div>
           </div>
+
+          <div className="border-t border-[#333] pt-6">
+            {mode === 'single' && (
+              <div>
+                <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Song Name</label>
+                <input
+                  className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
+                  placeholder="Enter song title..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+            )}
+
+            {mode === 'album' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Album Name</label>
+                  <input
+                    className="w-full bg-[#151515] border border-[#333] p-3 rounded-lg text-white outline-none focus:border-[#1877F2] text-lg font-bold"
+                    placeholder="Enter album title..."
+                    value={albumTitle}
+                    onChange={(e) => setAlbumTitle(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-white font-bold flex items-center gap-2">
+                    <i className="fas fa-list-ol text-[#1877F2]"></i> Add Tracks to Album
+                  </h4>
+
+                  <div className="space-y-2 mb-4">
+                    {albumTracks.map((t, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-[#151515] rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[#666] font-mono">{idx + 1}</span>
+                          <img src={t.coverFile ? URL.createObjectURL(t.coverFile) : (coverPreview || DEFAULT_MUSIC_COVER)} className="w-8 h-8 rounded object-cover" alt="" />
+                          <div>
+                            <span className="text-white font-semibold block">{t.title}</span>
+                            <span className="text-[#666] text-xs">{t.artist}</span>
+                          </div>
+                        </div>
+                        <i className="fas fa-trash text-red-500 cursor-pointer" onClick={() => setAlbumTracks(albumTracks.filter((_, i) => i !== idx))}></i>
+                      </div>
+                    ))}
+                    {albumTracks.length === 0 && <div className="text-[#666] text-sm text-center py-2">No tracks added yet.</div>}
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
+                      <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
+                    </div>
+
+                    <div
+                      onClick={() => tempTrackCoverInputRef.current?.click()}
+                      className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
+                    >
+                      {tempTrackCoverFile ? (
+                        <span className="text-[#1877F2] font-bold">
+                          <i className="fas fa-image"></i> {tempTrackCoverFile.name}
+                        </span>
+                      ) : (
+                        'Select Track Cover (Optional)'
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      ref={tempTrackCoverInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setTempTrackCoverFile(f);
+                      }}
+                    />
+
+                    <div className="flex items-center gap-2 mt-2">
+                      <div
+                        onClick={() => trackInputRef.current?.click()}
+                        className="flex-1 bg-[#222] hover:bg-[#333] p-2 rounded text-center cursor-pointer text-sm text-[#888] hover:text-white transition-colors border border-[#444]"
+                      >
+                        {tempTrackFile ? (
+                          <span className="text-[#1877F2] font-bold">
+                            <i className="fas fa-file-audio"></i> {tempTrackFile.name}
+                          </span>
+                        ) : (
+                          'Select Audio File'
+                        )}
+                      </div>
+
+                      <button onClick={handleAddTrack} className="bg-[#1877F2] text-white px-6 py-2 rounded text-sm font-bold hover:bg-[#166FE5]">
+                        Add Track
+                      </button>
+                    </div>
+
+                    <input
+                      type="file"
+                      ref={trackInputRef}
+                      className="hidden"
+                      accept="audio/*"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setTempTrackFile(f);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
+
         <div className="p-5 border-t border-[#333] bg-[#252525] flex justify-end rounded-b-2xl">
           <button
             onClick={handleSubmit}
@@ -3031,30 +3032,27 @@ useEffect(() => {
         )}
 
         {/* UPLOAD FULL PAGE VIEW */}
-
-  {view === 'upload' && currentUser && (
-  <AudioUploadModal
-    currentUser={currentUser}
-    onClose={() => {
-      setView('dashboard');
-      setNativeAudioFile(null);
-      setNativeCoverFile(null);
-    }}
-    onUploaded={() => { 
-      fetchSongs(); 
-      setView('music'); 
-      setNativeAudioFile(null);
-      setNativeCoverFile(null);
-    }}
-    initialNativeAudioFile={nativeAudioFile}
-    initialNativeCoverFile={nativeCoverFile}
-    onClearNativeFiles={() => {
-      setNativeAudioFile(null);
-      setNativeCoverFile(null);
-    }}
-  />
-)}
-
+        {view === 'upload' && currentUser && !showLoading && (
+          <div className="space-y-8">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setView('dashboard')} className="w-11 h-11 rounded-full bg-[#242526] hover:bg-[#3A3B3C] flex items-center justify-center">
+                <i className="fas fa-arrow-left text-white"></i>
+              </button>
+              <div>
+                <h1 className="text-3xl font-extrabold text-white">Creator Upload Studio</h1>
+                <p className="text-[#A8AFBC] text-sm mt-1">Upload singles or albums to UNERA Music.</p>
+              </div>
+            </div>
+            <AudioUploadModal 
+              currentUser={currentUser} 
+              onClose={() => setView('dashboard')} 
+              onUploaded={() => { 
+                fetchSongs(); 
+                setView('music'); 
+              }} 
+            />
+          </div>
+        )}
 
         {/* DASHBOARD VIEW */}
         {view === 'dashboard' && currentUser && !showLoading && (
