@@ -1,6 +1,35 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Song, AudioTrack, User, ReactionType } from '../types';
 
+// ==================== NATIVE APP DETECTION ====================
+
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP
+  );
+};
+
+const openNativeAudioPicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_audio' })
+    );
+    return true;
+  }
+  return false;
+};
+
+const openNativeImagePicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_image' })
+    );
+    return true;
+  }
+  return false;
+};
+
 /* =========================================================
    CONSTANTS & DEFAULTS
 ========================================================= */
