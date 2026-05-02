@@ -2310,6 +2310,47 @@ const [isNativePickerActive, setIsNativePickerActive] = useState(false);
     return albums.find((a) => a.name === selectedAlbum) || null;
   }, [albums, selectedAlbum]);
 
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    if (!media) return;
+    
+    console.log('📱 MusicSystem: Native upload received:', media);
+    
+    if (media.type === 'audio' && pendingUploadTypeRef.current === 'audio') {
+      const audioUrl = media.full || media.feed || media.url;
+      if (audioUrl) {
+        fetch(audioUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], `native-audio-${Date.now()}.mp3`, { type: 'audio/mpeg' });
+            setNativeAudioFile(file);
+            setIsNativePickerActive(false);
+          })
+          .catch(err => console.error('Failed to process native audio:', err));
+      }
+    } else if (media.type === 'image' && pendingUploadTypeRef.current === 'cover') {
+      const imageUrl = media.full || media.feed || media.url;
+      if (imageUrl) {
+        fetch(imageUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const file = new File([blob], `native-cover-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            setNativeCoverFile(file);
+            setIsNativePickerActive(false);
+          })
+          .catch(err => console.error('Failed to process native cover:', err));
+      }
+    }
+    pendingUploadTypeRef.current = null;
+  };
+
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, []);
+
   useEffect(() => {
     setLikedTracks(initialLikedTracks || []);
   }, [initialLikedTracks]);
@@ -2341,6 +2382,7 @@ const [isNativePickerActive, setIsNativePickerActive] = useState(false);
     fetchMyLikes();
   }, [fetchMyLikes]);
 
+  
   const isTrackLiked = useCallback((id: string | number): boolean => {
     return likedTracks.includes(`music:${String(id)}`);
   }, [likedTracks]);
