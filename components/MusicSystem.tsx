@@ -2400,60 +2400,102 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
   const isAdmin = (currentUser as any)?.role === 'admin';
   const musicSeed = useMemo(() => Date.now(), []);
+   
 
-  // Native upload listener
-  useEffect(() => {
-    const handleNativeUpload = (event: any) => {
-      const media = event.detail;
-      console.log('📱 MusicSystem: Native upload received:', media);
-      
-      if (!media) return;
-      
-      // Detect if this is audio (by type, mimeType, or URL extension)
-      const url = media.full || media.feed || media.url || '';
-      const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
-      const isAudioByMime = media.mimeType?.startsWith('audio/');
-      const isExplicitAudio = media.type === 'audio';
-      const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
-      
-      const isImage = media.type === 'image' || media.mimeType?.startsWith('image/');
-      
-      if (isAudio && getPendingUploadType() === 'audio') {
-        const audioUrl = media.full || media.feed || media.url;
-        if (audioUrl) {
-          fetch(audioUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
-              const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
-              setNativeAudioFile(file);
-              console.log('✅ Audio file created:', file.name);
-            })
-            .catch(err => console.error('Failed to process native audio:', err));
-        }
-        setPendingUploadType(null);
-      } else if (isImage && getPendingUploadType() === 'cover') {
-        const imageUrl = media.full || media.feed || media.url;
-        if (imageUrl) {
-          fetch(imageUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-              const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
-              setNativeCoverFile(file);
-              console.log('✅ Cover file created:', file.name);
-            })
-            .catch(err => console.error('Failed to process native cover:', err));
-        }
-        setPendingUploadType(null);
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    console.log('📱 MusicSystem: Native upload received:', media);
+    
+    if (!media) return;
+    
+    // Detect if this is audio or image
+    const url = media.full || media.feed || media.url || '';
+    const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
+    const isAudioByMime = media.mimeType?.startsWith('audio/');
+    const isExplicitAudio = media.type === 'audio';
+    const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
+    
+    const isImage = media.type === 'image' || media.mimeType?.startsWith('image/');
+    
+    const pendingType = getPendingUploadType();
+    console.log('📱 Pending type:', pendingType);
+    
+    // Single music audio upload
+    if (isAudio && pendingType === 'audio') {
+      const audioUrl = media.full || media.feed || media.url;
+      if (audioUrl) {
+        fetch(audioUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+            const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
+            setNativeAudioFile(file);
+            console.log('✅ Single audio file created:', file.name);
+          })
+          .catch(err => console.error('Failed to process native audio:', err));
       }
-    };
+      setPendingUploadType(null);
+    } 
+    // Album track audio upload
+    else if (isAudio && pendingType === 'album_track_audio') {
+      const audioUrl = media.full || media.feed || media.url;
+      if (audioUrl) {
+        fetch(audioUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+            const file = new File([blob], `album-track-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
+            // This needs to set tempTrackFile - but we need access to setTempTrackFile
+            // We'll use a global callback or pass it through context
+            window.dispatchEvent(new CustomEvent('albumTrackAudioSelected', { detail: file }));
+            console.log('✅ Album track audio file created:', file.name);
+          })
+          .catch(err => console.error('Failed to process album track audio:', err));
+      }
+      setPendingUploadType(null);
+    }
+    // Main cover image upload
+    else if (isImage && pendingType === 'cover') {
+      const imageUrl = media.full || media.feed || media.url;
+      if (imageUrl) {
+        fetch(imageUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+            const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+            setNativeCoverFile(file);
+            console.log('✅ Cover file created:', file.name);
+          })
+          .catch(err => console.error('Failed to process native cover:', err));
+      }
+      setPendingUploadType(null);
+    }
+    // Album track cover upload
+    else if (isImage && pendingType === 'album_track_cover') {
+      const imageUrl = media.full || media.feed || media.url;
+      if (imageUrl) {
+        fetch(imageUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+            const file = new File([blob], `album-track-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+            // Dispatch event for album track cover
+            window.dispatchEvent(new CustomEvent('albumTrackCoverSelected', { detail: file }));
+            console.log('✅ Album track cover file created:', file.name);
+          })
+          .catch(err => console.error('Failed to process album track cover:', err));
+      }
+      setPendingUploadType(null);
+    }
+  };
 
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    return () => {
-      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-    };
-  }, []);
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, []);
+
 
   const albums = useMemo(() => {
     const grouped = new Map<string, Song[]>();
