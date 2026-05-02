@@ -1849,6 +1849,8 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
     }
   }, [initialNativeCoverFile, coverFile]);
 
+
+
   // Native pick handlers - BOTH use file picker, not recorder!
   const handlePickAudio = () => {
     if (isUneraNativeApp()) {
@@ -1867,15 +1869,27 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
       coverInputRef.current?.click();
     }
   };
+   
+// Replace the existing handlePickTrackAudio
+const handlePickTrackAudio = () => {
+  if (isUneraNativeApp()) {
+    setPendingUploadType('album_track_audio');
+    openNativeAudioPicker();
+  } else {
+    trackInputRef.current?.click();
+  }
+};
 
-  const handlePickTrackAudio = () => {
-    if (isUneraNativeApp()) {
-      setPendingUploadType('audio');
-      openNativeAudioPicker(); // Same function for tracks
-    } else {
-      trackInputRef.current?.click();
-    }
-  };
+// Add this new handler for track cover
+const handlePickTrackCover = () => {
+  if (isUneraNativeApp()) {
+    setPendingUploadType('album_track_cover');
+    openNativeImagePicker();
+  } else {
+    tempTrackCoverInputRef.current?.click();
+  }
+};
+
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
