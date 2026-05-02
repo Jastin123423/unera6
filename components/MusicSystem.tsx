@@ -7,6 +7,50 @@ import type { Song, AudioTrack, User, ReactionType } from '../types';
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
 
 /* =========================================================
+   NATIVE APP DETECTION & HELPERS
+========================================================= */
+
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP ||
+    (window as any).ReactNativeWebView
+  );
+};
+
+const openNativeAudioPicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_audio', type: 'audio/*' })
+    );
+    return true;
+  }
+  if ((window as any).ReactNativeWebView?.postMessage) {
+    (window as any).ReactNativeWebView.postMessage(
+      JSON.stringify({ action: 'pick_audio', type: 'audio/*' })
+    );
+    return true;
+  }
+  return false;
+};
+
+const openNativeImagePicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_image', type: 'image/*' })
+    );
+    return true;
+  }
+  if ((window as any).ReactNativeWebView?.postMessage) {
+    (window as any).ReactNativeWebView.postMessage(
+      JSON.stringify({ action: 'pick_image', type: 'image/*' })
+    );
+    return true;
+  }
+  return false;
+};
+
+/* =========================================================
    SPARK REACT ICON (same as Feed.tsx)
 ========================================================= */
 const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
@@ -1705,16 +1749,31 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 };
 
 /* =========================================================
-   UPLOAD MODAL (Full Page Version)
+   UPLOAD MODAL (Full Page Version with Native Support)
 ========================================================= */
 
 interface AudioUploadModalProps {
   currentUser: User;
   onClose: () => void;
   onUploaded: () => void;
+  initialNativeAudioFile?: File | null;
+  initialNativeCoverFile?: File | null;
 }
 
-const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
+// Define pendingUploadTypeRef outside the component for global access
+let pendingUploadTypeRef: 'audio' | 'cover' | null = null;
+const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
+  pendingUploadTypeRef = type;
+};
+const getPendingUploadType = () => pendingUploadTypeRef;
+
+const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ 
+  currentUser, 
+  onClose, 
+  onUploaded,
+  initialNativeAudioFile,
+  initialNativeCoverFile,
+}) => {
   const [mode, setMode] = useState<'single' | 'album'>('single');
   const [artist, setArtist] = useState((currentUser as any).name || (currentUser as any).username || '');
   const [genre, setGenre] = useState('');
@@ -1740,6 +1799,20 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const trackInputRef = useRef<HTMLInputElement>(null);
 
   const defaultCover = DEFAULT_MUSIC_COVER;
+
+  // Add effects to receive native files
+  useEffect(() => {
+    if (initialNativeAudioFile && !audioFile) {
+      setAudioFile(initialNativeAudioFile);
+    }
+  }, [initialNativeAudioFile, audioFile]);
+
+  useEffect(() => {
+    if (initialNativeCoverFile && !coverFile) {
+      setCoverFile(initialNativeCoverFile);
+      setCoverPreview(URL.createObjectURL(initialNativeCoverFile));
+    }
+  }, [initialNativeCoverFile, coverFile]);
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
@@ -1869,6 +1942,25 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
     if (mode === 'album') await uploadAlbum();
   };
 
+  // Native pick handlers
+  const handlePickAudio = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('audio');
+      openNativeAudioPicker();
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handlePickCover = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('cover');
+      openNativeImagePicker();
+    } else {
+      coverInputRef.current?.click();
+    }
+  };
+
   return (
     <div className="w-full">
       <div className="bg-transparent w-full max-w-5xl mx-auto overflow-hidden flex flex-col">
@@ -1923,7 +2015,7 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
               <div>
                 <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">{mode === 'album' ? 'Album Artwork' : 'Artwork'}</label>
                 <div
-                  onClick={() => coverInputRef.current?.click()}
+                  onClick={handlePickCover}
                   className="w-full bg-[#151515] border border-[#333] rounded-lg h-[120px] flex flex-col items-center justify-center cursor-pointer hover:border-[#1877F2] group relative overflow-hidden"
                 >
                   {coverPreview ? (
@@ -1931,51 +2023,55 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
                   ) : (
                     <>
                       <i className="fas fa-image text-2xl text-[#666] group-hover:text-white mb-2"></i>
-                      <span className="text-[#666] text-xs group-hover:text-white">Upload Image (Optional)</span>
-                      <span className="text-[#666] text-xs group-hover:text-white mt-1">Default will be used if none</span>
+                      <span className="text-[#666] text-xs group-hover:text-white">Tap to select image</span>
+                      <span className="text-[#666] text-xs group-hover:text-white mt-1">Camera or gallery</span>
                     </>
                   )}
-
-                  <input
-                    type="file"
-                    ref={coverInputRef}
-                    className="hidden"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) {
-                        setCoverFile(f);
-                        setCoverPreview(URL.createObjectURL(f));
-                      }
-                    }}
-                  />
                 </div>
+                <input
+                  type="file"
+                  ref={coverInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setCoverFile(f);
+                      setCoverPreview(URL.createObjectURL(f));
+                    }
+                  }}
+                />
               </div>
 
               {mode === 'single' && (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-[#333] bg-[#151515] rounded-lg h-[86px] flex items-center justify-center cursor-pointer hover:border-[#1877F2] group"
-                >
+                <div>
+                  <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Audio File</label>
+                  <div
+                    onClick={handlePickAudio}
+                    className="border-2 border-dashed border-[#333] bg-[#151515] rounded-lg h-[86px] flex items-center justify-center cursor-pointer hover:border-[#1877F2] group"
+                  >
+                    {audioFile ? (
+                      <div className="text-[#1877F2] font-semibold flex items-center gap-2">
+                        <i className="fas fa-check-circle"></i> {audioFile.name}
+                      </div>
+                    ) : (
+                      <div className="text-[#666] group-hover:text-white flex items-center gap-2">
+                        <i className="fas fa-cloud-upload-alt"></i> Tap to select audio file
+                      </div>
+                    )}
+                  </div>
                   <input
                     type="file"
                     ref={fileInputRef}
                     className="hidden"
                     accept="audio/*"
+                    capture="environment"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) setAudioFile(f);
                     }}
                   />
-                  {audioFile ? (
-                    <div className="text-[#1877F2] font-semibold flex items-center gap-2">
-                      <i className="fas fa-check-circle"></i> {audioFile.name}
-                    </div>
-                  ) : (
-                    <div className="text-[#666] group-hover:text-white flex items-center gap-2">
-                      <i className="fas fa-cloud-upload-alt"></i> Upload High Quality Audio
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -2059,7 +2155,14 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
 
                     <div className="flex items-center gap-2 mt-2">
                       <div
-                        onClick={() => trackInputRef.current?.click()}
+                        onClick={() => {
+                          if (isUneraNativeApp()) {
+                            setPendingUploadType('audio');
+                            openNativeAudioPicker();
+                          } else {
+                            trackInputRef.current?.click();
+                          }
+                        }}
                         className="flex-1 bg-[#222] hover:bg-[#333] p-2 rounded text-center cursor-pointer text-sm text-[#888] hover:text-white transition-colors border border-[#444]"
                       >
                         {tempTrackFile ? (
@@ -2240,9 +2343,53 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [likedTracks, setLikedTracks] = useState<string[]>(initialLikedTracks);
   const [downloads, setDownloads] = useState<string[]>([]);
 
+  // Native upload state
+  const [nativeAudioFile, setNativeAudioFile] = useState<File | null>(null);
+  const [nativeCoverFile, setNativeCoverFile] = useState<File | null>(null);
+
   const isAdmin = (currentUser as any)?.role === 'admin';
 
   const musicSeed = useMemo(() => Date.now(), []);
+
+  // Native upload listener
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      if (!media) return;
+      
+      console.log('📱 MusicSystem: Native upload received:', media);
+      
+      if (media.type === 'audio' && getPendingUploadType() === 'audio') {
+        const audioUrl = media.full || media.feed || media.url;
+        if (audioUrl) {
+          fetch(audioUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const file = new File([blob], `native-audio-${Date.now()}.mp3`, { type: 'audio/mpeg' });
+              setNativeAudioFile(file);
+            })
+            .catch(err => console.error('Failed to process native audio:', err));
+        }
+      } else if (media.type === 'image' && getPendingUploadType() === 'cover') {
+        const imageUrl = media.full || media.feed || media.url;
+        if (imageUrl) {
+          fetch(imageUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const file = new File([blob], `native-cover-${Date.now()}.jpg`, { type: 'image/jpeg' });
+              setNativeCoverFile(file);
+            })
+            .catch(err => console.error('Failed to process native cover:', err));
+        }
+      }
+      setPendingUploadType(null);
+    };
+
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => {
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    };
+  }, []);
 
   const albums = useMemo(() => {
     const grouped = new Map<string, Song[]>();
@@ -2931,13 +3078,21 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
                 <p className="text-[#A8AFBC] text-sm mt-1">Upload singles or albums to UNERA Music.</p>
               </div>
             </div>
-            <AudioUploadModal 
-              currentUser={currentUser} 
-              onClose={() => setView('dashboard')} 
+            <AudioUploadModal
+              currentUser={currentUser}
+              onClose={() => {
+                setView('dashboard');
+                setNativeAudioFile(null);
+                setNativeCoverFile(null);
+              }}
               onUploaded={() => { 
                 fetchSongs(); 
                 setView('music'); 
-              }} 
+                setNativeAudioFile(null);
+                setNativeCoverFile(null);
+              }}
+              initialNativeAudioFile={nativeAudioFile}
+              initialNativeCoverFile={nativeCoverFile}
             />
           </div>
         )}
