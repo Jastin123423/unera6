@@ -11,8 +11,8 @@ const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy
 ========================================================= */
 
 // Global reference for tracking pending upload type
-let pendingUploadTypeRef: 'audio' | 'cover' | null = null;
 
+let pendingUploadTypeRef: 'audio' | 'cover' | 'album_track_audio' | 'album_track_cover' | null = null;
 export const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
   pendingUploadTypeRef = type;
 };
