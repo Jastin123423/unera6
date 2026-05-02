@@ -2351,45 +2351,65 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
 
   const musicSeed = useMemo(() => Date.now(), []);
 
-  // Native upload listener
-  useEffect(() => {
-    const handleNativeUpload = (event: any) => {
-      const media = event.detail;
-      if (!media) return;
-      
-      console.log('📱 MusicSystem: Native upload received:', media);
-      
-      if (media.type === 'audio' && getPendingUploadType() === 'audio') {
-        const audioUrl = media.full || media.feed || media.url;
-        if (audioUrl) {
-          fetch(audioUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const file = new File([blob], `native-audio-${Date.now()}.mp3`, { type: 'audio/mpeg' });
-              setNativeAudioFile(file);
-            })
-            .catch(err => console.error('Failed to process native audio:', err));
-        }
-      } else if (media.type === 'image' && getPendingUploadType() === 'cover') {
-        const imageUrl = media.full || media.feed || media.url;
-        if (imageUrl) {
-          fetch(imageUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const file = new File([blob], `native-cover-${Date.now()}.jpg`, { type: 'image/jpeg' });
-              setNativeCoverFile(file);
-            })
-            .catch(err => console.error('Failed to process native cover:', err));
-        }
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    if (!media) return;
+    
+    console.log('📱 MusicSystem: Native upload received:', media);
+    console.log('📱 Media type:', media?.type);
+    console.log('📱 Available URLs:', { full: media?.full, feed: media?.feed, url: media?.url });
+    
+    // Better detection - check if it's audio by URL extension or mimeType
+    const url = media?.full || media?.feed || media?.url || '';
+    const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
+    const isAudioByMime = media?.mimeType?.startsWith('audio/');
+    const isExplicitAudio = media?.type === 'audio';
+    
+    const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
+    const isImage = media?.type === 'image' || media?.mimeType?.startsWith('image/');
+    
+    console.log('📱 Detection results:', { isExplicitAudio, isAudioByUrl, isAudioByMime, isAudio, isImage });
+    
+    if (isAudio && pendingUploadTypeRef.current === 'audio') {
+      const audioUrl = media.full || media.feed || media.url;
+      if (audioUrl) {
+        fetch(audioUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            // Determine file extension from URL or default to mp3
+            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+            const mimeType = media.mimeType || `audio/${ext}`;
+            const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: mimeType });
+            setNativeAudioFile(file);
+            console.log('✅ Audio file created:', file.name, file.type);
+          })
+          .catch(err => console.error('Failed to process native audio:', err));
       }
-      setPendingUploadType(null);
-    };
+    } else if (isImage && pendingUploadTypeRef.current === 'cover') {
+      const imageUrl = media.full || media.feed || media.url;
+      if (imageUrl) {
+        fetch(imageUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+            const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+            setNativeCoverFile(file);
+            console.log('✅ Cover file created:', file.name);
+          })
+          .catch(err => console.error('Failed to process native cover:', err));
+      }
+    }
+    pendingUploadTypeRef.current = null;
+  };
 
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    return () => {
-      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-    };
-  }, []);
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, []);
+
+
 
   const albums = useMemo(() => {
     const grouped = new Map<string, Song[]>();
