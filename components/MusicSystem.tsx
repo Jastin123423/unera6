@@ -1851,6 +1851,38 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
 
 
 
+// Listen for album track audio selection
+useEffect(() => {
+  const handleAlbumTrackAudio = (event: any) => {
+    const file = event.detail;
+    if (file) {
+      setTempTrackFile(file);
+      console.log('📀 Album track audio received:', file.name);
+    }
+  };
+
+  window.addEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
+  return () => {
+    window.removeEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
+  };
+}, []);
+
+// Listen for album track cover selection
+useEffect(() => {
+  const handleAlbumTrackCover = (event: any) => {
+    const file = event.detail;
+    if (file) {
+      setTempTrackCoverFile(file);
+      console.log('📀 Album track cover received:', file.name);
+    }
+  };
+
+  window.addEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
+  return () => {
+    window.removeEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
+  };
+}, []);
+
   // Native pick handlers - BOTH use file picker, not recorder!
   const handlePickAudio = () => {
     if (isUneraNativeApp()) {
