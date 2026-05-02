@@ -1,35 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Song, AudioTrack, User, ReactionType } from '../types';
 
-// ==================== NATIVE APP DETECTION ====================
-
-const isUneraNativeApp = (): boolean => {
-  return Boolean(
-    (window as any).UneraNative || 
-    (window as any).UNERA_IS_NATIVE_APP
-  );
-};
-
-const openNativeAudioPicker = (): boolean => {
-  if ((window as any).UneraNative?.postMessage) {
-    (window as any).UneraNative.postMessage(
-      JSON.stringify({ action: 'pick_audio' })
-    );
-    return true;
-  }
-  return false;
-};
-
-const openNativeImagePicker = (): boolean => {
-  if ((window as any).UneraNative?.postMessage) {
-    (window as any).UneraNative.postMessage(
-      JSON.stringify({ action: 'pick_image' })
-    );
-    return true;
-  }
-  return false;
-};
-
 /* =========================================================
    CONSTANTS & DEFAULTS
 ========================================================= */
@@ -1736,15 +1707,12 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 /* =========================================================
    UPLOAD MODAL (Full Page Version)
 ========================================================= */
+
 interface AudioUploadModalProps {
   currentUser: User;
   onClose: () => void;
   onUploaded: () => void;
-  initialNativeAudioFile?: File | null;
-  initialNativeCoverFile?: File | null;
-  onClearNativeFiles?: () => void;
 }
-
 
 const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
   const [mode, setMode] = useState<'single' | 'album'>('single');
@@ -1772,39 +1740,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const trackInputRef = useRef<HTMLInputElement>(null);
 
   const defaultCover = DEFAULT_MUSIC_COVER;
-  
-  useEffect(() => {
-  if (initialNativeAudioFile && !audioFile) {
-    setAudioFile(initialNativeAudioFile);
-  }
-}, [initialNativeAudioFile]);
-
-useEffect(() => {
-  if (initialNativeCoverFile && !coverFile) {
-    setCoverFile(initialNativeCoverFile);
-    setCoverPreview(URL.createObjectURL(initialNativeCoverFile));
-  }
-}, [initialNativeCoverFile]);
-
-  const handlePickAudio = () => {
-  if (isUneraNativeApp()) {
-    pendingUploadTypeRef.current = 'audio';
-    setIsNativePickerActive(true);
-    openNativeAudioPicker();
-  } else {
-    fileInputRef.current?.click();
-  }
-};
-
-const handlePickCover = () => {
-  if (isUneraNativeApp()) {
-    pendingUploadTypeRef.current = 'cover';
-    setIsNativePickerActive(true);
-    openNativeImagePicker();
-  } else {
-    coverInputRef.current?.click();
-  }
-};
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
@@ -2297,11 +2232,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
-  
-const pendingUploadTypeRef = useRef<'audio' | 'cover' | null>(null);
-const [nativeAudioFile, setNativeAudioFile] = useState<File | null>(null);
-const [nativeCoverFile, setNativeCoverFile] = useState<File | null>(null);
-const [isNativePickerActive, setIsNativePickerActive] = useState(false);
 
   const [songs, setSongs] = useState<Song[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
@@ -2346,47 +2276,6 @@ const [isNativePickerActive, setIsNativePickerActive] = useState(false);
     return albums.find((a) => a.name === selectedAlbum) || null;
   }, [albums, selectedAlbum]);
 
-useEffect(() => {
-  const handleNativeUpload = (event: any) => {
-    const media = event.detail;
-    if (!media) return;
-    
-    console.log('📱 MusicSystem: Native upload received:', media);
-    
-    if (media.type === 'audio' && pendingUploadTypeRef.current === 'audio') {
-      const audioUrl = media.full || media.feed || media.url;
-      if (audioUrl) {
-        fetch(audioUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const file = new File([blob], `native-audio-${Date.now()}.mp3`, { type: 'audio/mpeg' });
-            setNativeAudioFile(file);
-            setIsNativePickerActive(false);
-          })
-          .catch(err => console.error('Failed to process native audio:', err));
-      }
-    } else if (media.type === 'image' && pendingUploadTypeRef.current === 'cover') {
-      const imageUrl = media.full || media.feed || media.url;
-      if (imageUrl) {
-        fetch(imageUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const file = new File([blob], `native-cover-${Date.now()}.jpg`, { type: 'image/jpeg' });
-            setNativeCoverFile(file);
-            setIsNativePickerActive(false);
-          })
-          .catch(err => console.error('Failed to process native cover:', err));
-      }
-    }
-    pendingUploadTypeRef.current = null;
-  };
-
-  window.addEventListener('uneraNativeUpload', handleNativeUpload);
-  return () => {
-    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  };
-}, []);
-
   useEffect(() => {
     setLikedTracks(initialLikedTracks || []);
   }, [initialLikedTracks]);
@@ -2418,7 +2307,6 @@ useEffect(() => {
     fetchMyLikes();
   }, [fetchMyLikes]);
 
-  
   const isTrackLiked = useCallback((id: string | number): boolean => {
     return likedTracks.includes(`music:${String(id)}`);
   }, [likedTracks]);
