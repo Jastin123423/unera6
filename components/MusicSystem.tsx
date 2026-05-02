@@ -1772,6 +1772,19 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClos
   const trackInputRef = useRef<HTMLInputElement>(null);
 
   const defaultCover = DEFAULT_MUSIC_COVER;
+  
+  useEffect(() => {
+  if (initialNativeAudioFile && !audioFile) {
+    setAudioFile(initialNativeAudioFile);
+  }
+}, [initialNativeAudioFile]);
+
+useEffect(() => {
+  if (initialNativeCoverFile && !coverFile) {
+    setCoverFile(initialNativeCoverFile);
+    setCoverPreview(URL.createObjectURL(initialNativeCoverFile));
+  }
+}, [initialNativeCoverFile]);
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
