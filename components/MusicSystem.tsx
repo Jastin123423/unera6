@@ -1736,12 +1736,15 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 /* =========================================================
    UPLOAD MODAL (Full Page Version)
 ========================================================= */
-
 interface AudioUploadModalProps {
   currentUser: User;
   onClose: () => void;
   onUploaded: () => void;
+  initialNativeAudioFile?: File | null;
+  initialNativeCoverFile?: File | null;
+  onClearNativeFiles?: () => void;
 }
+
 
 const AudioUploadModal: React.FC<AudioUploadModalProps> = ({ currentUser, onClose, onUploaded }) => {
   const [mode, setMode] = useState<'single' | 'album'>('single');
