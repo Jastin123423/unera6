@@ -3031,27 +3031,30 @@ useEffect(() => {
         )}
 
         {/* UPLOAD FULL PAGE VIEW */}
-        {view === 'upload' && currentUser && !showLoading && (
-          <div className="space-y-8">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setView('dashboard')} className="w-11 h-11 rounded-full bg-[#242526] hover:bg-[#3A3B3C] flex items-center justify-center">
-                <i className="fas fa-arrow-left text-white"></i>
-              </button>
-              <div>
-                <h1 className="text-3xl font-extrabold text-white">Creator Upload Studio</h1>
-                <p className="text-[#A8AFBC] text-sm mt-1">Upload singles or albums to UNERA Music.</p>
-              </div>
-            </div>
-            <AudioUploadModal 
-              currentUser={currentUser} 
-              onClose={() => setView('dashboard')} 
-              onUploaded={() => { 
-                fetchSongs(); 
-                setView('music'); 
-              }} 
-            />
-          </div>
-        )}
+
+  {view === 'upload' && currentUser && (
+  <AudioUploadModal
+    currentUser={currentUser}
+    onClose={() => {
+      setView('dashboard');
+      setNativeAudioFile(null);
+      setNativeCoverFile(null);
+    }}
+    onUploaded={() => { 
+      fetchSongs(); 
+      setView('music'); 
+      setNativeAudioFile(null);
+      setNativeCoverFile(null);
+    }}
+    initialNativeAudioFile={nativeAudioFile}
+    initialNativeCoverFile={nativeCoverFile}
+    onClearNativeFiles={() => {
+      setNativeAudioFile(null);
+      setNativeCoverFile(null);
+    }}
+  />
+)}
+
 
         {/* DASHBOARD VIEW */}
         {view === 'dashboard' && currentUser && !showLoading && (
