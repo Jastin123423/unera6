@@ -5,6 +5,27 @@ import { StickerPicker, EmojiPicker } from "./Pickers";
 import { CallScreen } from "./CallScreen";
 
 /* ============================================================
+   ✅ CACHE HELPERS FOR LOCAL ATTACHMENT CACHING
+============================================================ */
+const CHAT_CACHE = "unera-chat-files-v1";
+
+const getCachedFileUrl = async (url: string): Promise<string> => {
+  const cache = await caches.open(CHAT_CACHE);
+  const cached = await cache.match(url);
+  
+  if (cached) {
+    const blob = await cached.blob();
+    return URL.createObjectURL(blob);
+  }
+  
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Download failed");
+  await cache.put(url, res.clone());
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+};
+
+/* ============================================================
    ✅ NATIVE APP DETECTION & PICKER HELPERS
 ============================================================ */
 const isUneraNativeApp = (): boolean => {
@@ -245,25 +266,33 @@ const forceDownload = async (url: string, filename = "download") => {
     a.remove();
   };
 
+  // Try to get cached version first
   try {
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) throw new Error("fetch failed");
-
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-
-    try {
-      clickAnchor(blobUrl, cleanName);
-    } finally {
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
-    }
+    const cachedUrl = await getCachedFileUrl(url);
+    clickAnchor(cachedUrl, cleanName);
     return;
   } catch {
+    // Fallback to direct download
     try {
-      clickAnchor(url, cleanName);
+      const res = await fetch(url, { method: "GET" });
+      if (!res.ok) throw new Error("fetch failed");
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      try {
+        clickAnchor(blobUrl, cleanName);
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+      }
       return;
     } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
+      try {
+        clickAnchor(url, cleanName);
+        return;
+      } catch {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
     }
   }
 };
@@ -555,14 +584,14 @@ const VoiceNoteWA: React.FC<{
 };
 
 /* ============================================================
-   ✅ Attachment Preview
+   ✅ Attachment Preview with cached URL support
 ============================================================ */
 const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({
   attachment,
   onView,
   isMine,
 }) => {
-  const url = attachment?.url || attachment?.attachment_url || attachment?.attachmentUrl;
+  const url = attachment?.cached_url || attachment?.url || attachment?.attachment_url || attachment?.attachmentUrl;
   const mime = attachment?.mime_type || attachment?.mimeType || attachment?.type || attachment?.attachment_type || "";
   const fileType = attachment?.file_type || attachment?.fileType || attachment?.attachment_type || attachment?.attachmentType || "";
 
@@ -786,6 +815,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [conversationId, setConversationId] = useState<number>(0);
   const [viewingAttachment, setViewingAttachment] = useState<any>(null);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
@@ -882,6 +912,31 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
   const currentUserId = safeNum((currentUser as any)?.id);
 
+  // ✅ SCROLL STATE - Don't force scroll when user is reading old messages
+  const shouldStickToBottomRef = useRef(true);
+  
+  const isNearBottom = () => {
+    const el = listRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 260;
+  };
+  
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      shouldStickToBottomRef.current = isNearBottom();
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  
+  useEffect(() => {
+    if (shouldStickToBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [msgs.length]);
+
   /* ============================================================
      ✅ NATIVE UPLOAD LISTENER
   ============================================================ */
@@ -892,6 +947,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
 
       try {
         setUploading(true);
+        setUploadProgress(5);
         setShowAttachmentMenu(false);
 
         const mime = media.mimeType || media.mime_type || '';
@@ -912,6 +968,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           ],
         });
 
+        setUploadProgress(100);
+        setTimeout(() => setUploadProgress(0), 400);
         setInputText('');
       } catch (e: any) {
         alert(e?.message || 'Failed to send native attachment');
@@ -1061,9 +1119,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
     fetchHistory();
 
     if (pollRef.current) window.clearInterval(pollRef.current);
+    // ✅ Only poll when user is at bottom (not reading old messages)
     pollRef.current = window.setInterval(() => {
-      if (document.visibilityState === "visible") fetchHistory();
-    }, 5000);
+      if (document.visibilityState === "visible" && shouldStickToBottomRef.current) {
+        fetchHistory();
+      }
+    }, 8000);
 
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
@@ -1434,7 +1495,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   }, []);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "auto" }); }, [recipient?.id]);
-  useEffect(() => { scrollToBottom(true); }, [msgs.length]);
 
   const normalized = useMemo(() => {
     const arr = Array.isArray(msgs) ? [...msgs] : [];
@@ -1513,8 +1573,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
           const filename = `voice-${Date.now()}.${ext}`;
           const file = new File([blob], filename, { type: mr.mimeType || "audio/webm" });
           setUploading(true);
+          setUploadProgress(5);
           const up = await uploadToR2(file, "chat");
+          setUploadProgress(92);
           await send({ recipient_id: (recipient as any)?.id, text_content: null, attachments: [{ url: up.url, file_type: up.file_type || "audio", mime_type: up.mime_type || file.type, filename: up.filename || filename, size_bytes: up.size_bytes ?? file.size, metadata: up.metadata || {} }] });
+          setUploadProgress(100);
+          setTimeout(() => setUploadProgress(0), 400);
           setRecordSeconds(0);
         } catch (e: any) { alert(e?.message || "Failed to send voice note"); } finally { setUploading(false); }
       };
@@ -1551,14 +1615,48 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !currentUserId) return;
-    setUploading(true); setShowAttachmentMenu(false);
+    
+    setUploading(true);
+    setUploadProgress(5);
+    setShowAttachmentMenu(false);
+    
     try {
       const uploaded: any[] = [];
-      for (let i = 0; i < files.length; i++) { const file = files[i]; const up = await uploadToR2(file, "chat"); uploaded.push(up); }
-      const payload: any = { recipient_id: (recipient as any)?.id, text_content: inputText.trim() || null, attachments: uploaded.map((u) => ({ url: u.url, file_type: u.file_type, mime_type: u.mime_type, filename: u.filename, size_bytes: u.size_bytes, metadata: u.metadata || {} })) };
+      const total = files.length;
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress(Math.round((i / total) * 80) + 5);
+        const up = await uploadToR2(file, "chat");
+        uploaded.push(up);
+        setUploadProgress(Math.round(((i + 1) / total) * 85));
+      }
+      
+      setUploadProgress(92);
+      
+      const payload: any = { 
+        recipient_id: (recipient as any)?.id, 
+        text_content: inputText.trim() || null, 
+        attachments: uploaded.map((u) => ({ 
+          url: u.url, 
+          file_type: u.file_type, 
+          mime_type: u.mime_type, 
+          filename: u.filename, 
+          size_bytes: u.size_bytes, 
+          metadata: u.metadata || {} 
+        })) 
+      };
+      
       await send(payload);
+      setUploadProgress(100);
+      setTimeout(() => setUploadProgress(0), 400);
       setInputText("");
-    } catch (error: any) { alert(error?.message || "Failed to upload file"); } finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+    } catch (error: any) { 
+      alert(error?.message || "Failed to upload file"); 
+    } finally { 
+      setUploading(false); 
+      if (fileInputRef.current) fileInputRef.current.value = ""; 
+    }
   };
 
   const sendText = async (text: string) => {
@@ -1590,6 +1688,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       await apiFetch(`/api/messages/${safeNum(m?.id)}`, { method: "DELETE", body: JSON.stringify({ delete_for_everyone: deleteForEveryone, user_id: currentUserId }) }, currentUserId);
       setMsgs((prev) => prev.filter((x: any) => safeNum(x?.id) !== safeNum(m?.id)));
     } catch (e: any) { alert(e?.message || "Failed to delete"); }
+  };
+
+  const openAttachmentWithCache = async (attachment: any) => {
+    const url = attachment?.url || attachment?.attachment_url;
+    if (!url) return;
+    
+    try {
+      const cachedUrl = await getCachedFileUrl(url);
+      setViewingAttachment({ 
+        ...attachment, 
+        cached_url: cachedUrl,
+      });
+    } catch {
+      setViewingAttachment(attachment);
+    }
   };
 
   const actionBtn = (icon: string, label: string, onClick: () => void, danger = false) => (
@@ -1639,8 +1752,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Uploading indicator */}
-      {uploading && (<div className="px-3 py-2 bg-[#1B74E4]/20 border-b border-[#333]"><div className="flex items-center gap-2 text-[#1B74E4]"><i className="fas fa-spinner fa-spin" /><span className="text-sm">Uploading...</span></div></div>)}
+      {/* ✅ Uploading progress bar */}
+      {uploading && (
+        <div className="h-[3px] bg-[#1e1e1e] border-b border-[#333]">
+          <div 
+            className="h-full bg-[#1B74E4] transition-all duration-300" 
+            style={{ width: `${Math.max(8, uploadProgress)}%` }} 
+          />
+        </div>
+      )}
 
       {/* Recording indicator */}
       {recording && (
@@ -1690,7 +1810,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                 )}
                 {gifUrls.length > 0 && gifUrls.map((url, idx) => (<GIFPreview key={`gif:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} onHold={(e) => startLongPressAny({ msg, mine, kind: "gif", gifUrl: url, evt: e })} />))}
                 {otherUrls.length > 0 && otherUrls.map((url, idx) => (<URLPreview key={`url:${url}:${idx}`} url={url} />))}
-                {attachments.length > 0 && (<div className="mt-[4px] space-y-1 w-full max-w-full">{attachments.map((a: any) => (<div key={`att:${safeNum(a?.id) || 0}:${safeStr(a?.url || a?.attachment_url)}`} onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}><AttachmentPreview attachment={a} onView={() => setViewingAttachment(a)} isMine={mine} /></div>))}</div>)}
+                {attachments.length > 0 && (<div className="mt-[4px] space-y-1 w-full max-w-full">{attachments.map((a: any) => (<div key={`att:${safeNum(a?.id) || 0}:${safeStr(a?.url || a?.attachment_url)}`} onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}><AttachmentPreview attachment={a} onView={() => openAttachmentWithCache(a)} isMine={mine} /></div>))}</div>)}
               </div>
             </div>
           );
@@ -1777,12 +1897,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         </div>
       )}
 
-      {/* Attachment Viewer Modal */}
+      {/* Attachment Viewer Modal with cached URL support */}
       {viewingAttachment && (
         <div className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4" onClick={() => setViewingAttachment(null)}>
           <div className="relative max-w-4xl w-full max-h-[90vh] flex items-center justify-center">
             <button onClick={() => setViewingAttachment(null)} className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80"><i className="fas fa-times text-white text-xl" /></button>
-            {(() => { const att = viewingAttachment; const url = att?.url || att?.attachment_url; const mime = att?.mime_type || att?.type || att?.attachment_type || ""; const fileType = att?.file_type || ""; const name = att?.filename || att?.name || "Attachment"; const size = att?.size_bytes ?? att?.size ?? att?.file_size; const isImg = fileType === "image" || String(mime).startsWith("image/"); const isVid = fileType === "video" || String(mime).startsWith("video/"); const isAud = fileType === "audio" || String(mime).startsWith("audio/"); if (isImg) return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />; if (isVid) return <video src={url} controls autoPlay className="max-w-full max-h-[90vh]"><source src={url} type={mime} />Your browser does not support the video tag.</video>; if (isAud) return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className="fas fa-microphone text-3xl text-[#1B74E4]" /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div><VoiceNoteWA src={url} isMine={false} /><button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className={`${getFileIcon(mime)} text-3xl text-[#1B74E4]`} /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div>{mime.startsWith("text/") || mime === "application/pdf" ? <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} /> : null}<button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); })()}
+            {(() => { const att = viewingAttachment; const url = att?.cached_url || att?.url || att?.attachment_url; const mime = att?.mime_type || att?.type || att?.attachment_type || ""; const fileType = att?.file_type || ""; const name = att?.filename || att?.name || "Attachment"; const size = att?.size_bytes ?? att?.size ?? att?.file_size; const isImg = fileType === "image" || String(mime).startsWith("image/"); const isVid = fileType === "video" || String(mime).startsWith("video/"); const isAud = fileType === "audio" || String(mime).startsWith("audio/"); if (isImg) return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />; if (isVid) return <video src={url} controls autoPlay className="max-w-full max-h-[90vh]"><source src={url} type={mime} />Your browser does not support the video tag.</video>; if (isAud) return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className="fas fa-microphone text-3xl text-[#1B74E4]" /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div><VoiceNoteWA src={url} isMine={false} /><button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className={`${getFileIcon(mime)} text-3xl text-[#1B74E4]`} /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div>{mime.startsWith("text/") || mime === "application/pdf" ? <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} /> : null}<button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); })()}
           </div>
         </div>
       )}
