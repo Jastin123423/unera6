@@ -347,13 +347,15 @@ const URLPreview: React.FC<{ url: string }> = ({ url }) => {
 };
 
 /* ============================================================
-   ✅ GIF Preview
+   ✅ GIF Preview with download indicator
 ============================================================ */
 const GIFPreview: React.FC<{
   url: string;
   onView: () => void;
   onHold: (evt: any) => void;
-}> = ({ url, onView, onHold }) => {
+  downloadState?: any;
+  onDownload?: (url: string, name: string) => void;
+}> = ({ url, onView, onHold, downloadState, onDownload }) => {
   const u = (url || "").toLowerCase();
 
   const directGif =
@@ -379,7 +381,32 @@ const GIFPreview: React.FC<{
   };
 
   const embedUrl = getEmbedUrl();
-  const wrapCls = "mt-1 rounded-2xl overflow-hidden border border-[#3E4042] bg-[#262626] w-[220px] max-w-full";
+  const wrapCls = "mt-1 rounded-2xl overflow-hidden border border-[#3E4042] bg-[#262626] w-[220px] max-w-full relative";
+
+  const DownloadButton = () => {
+    if (!onDownload) return null;
+    const isDownloading = downloadState?.downloading;
+    const progress = downloadState?.progress || 0;
+    const isCompleted = downloadState?.completed;
+
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDownload(url, "gif.gif");
+        }}
+        className="absolute bottom-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80 transition-colors z-10"
+      >
+        {isDownloading ? (
+          <span className="text-white text-xs font-bold">{progress}%</span>
+        ) : isCompleted ? (
+          <i className="fas fa-check text-green-500 text-sm" />
+        ) : (
+          <i className="fas fa-download text-white text-sm" />
+        )}
+      </button>
+    );
+  };
 
   if (directGif) {
     return (
@@ -393,6 +420,7 @@ const GIFPreview: React.FC<{
         onMouseDown={onHold}
       >
         <img src={url} alt="GIF" className="w-full h-[150px] object-cover" />
+        <DownloadButton />
       </div>
     );
   }
@@ -401,6 +429,7 @@ const GIFPreview: React.FC<{
     return (
       <div className={wrapCls} onClick={(e) => e.stopPropagation()} onTouchStart={onHold} onMouseDown={onHold}>
         <iframe src={embedUrl} className="w-full h-[150px]" frameBorder="0" allowFullScreen title="GIF" />
+        <DownloadButton />
       </div>
     );
   }
@@ -409,7 +438,7 @@ const GIFPreview: React.FC<{
 };
 
 /* ============================================================
-   ✅ Voice Note Player
+   ✅ Voice Note Player with download indicator
 ============================================================ */
 const hashToWave = (key: string, count = 28) => {
   let h = 2166136261;
@@ -474,7 +503,9 @@ const VoiceNoteWA: React.FC<{
   src: string;
   isMine?: boolean;
   durationHint?: number;
-}> = ({ src, isMine = true, durationHint }) => {
+  downloadState?: any;
+  onDownload?: (url: string, name: string) => void;
+}> = ({ src, isMine = true, durationHint, downloadState, onDownload }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const keyRef = useRef<string>(`voice-${src}-${Math.random()}`);
@@ -513,9 +544,12 @@ const VoiceNoteWA: React.FC<{
   const bg = isMine ? "#1B74E4" : "#3A3B3C";
   const waveOff = "rgba(255,255,255,0.35)";
   const waveOn = "rgba(255,255,255,0.95)";
+  const isDownloading = downloadState?.downloading;
+  const progress = downloadState?.progress || 0;
+  const isCompleted = downloadState?.completed;
 
   return (
-    <div className="w-full max-w-full" onClick={(e) => e.stopPropagation()}>
+    <div className="w-full max-w-full relative" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-3 px-3 py-2 rounded-2xl w-full" style={{ background: bg }}>
         <button
           type="button"
@@ -546,6 +580,24 @@ const VoiceNoteWA: React.FC<{
         <div className="text-[13px] font-semibold tabular-nums shrink-0 text-white">
           {formatDuration(safeDuration(duration))}
         </div>
+
+        {onDownload && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload(src, `voice-${Date.now()}.mp3`);
+            }}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+          >
+            {isDownloading ? (
+              <span className="text-white text-xs font-bold">{progress}%</span>
+            ) : isCompleted ? (
+              <i className="fas fa-check text-green-400 text-sm" />
+            ) : (
+              <i className="fas fa-download text-white text-sm" />
+            )}
+          </button>
+        )}
       </div>
 
       <audio
@@ -584,19 +636,24 @@ const VoiceNoteWA: React.FC<{
 };
 
 /* ============================================================
-   ✅ Attachment Preview with cached URL support
+   ✅ Attachment Preview with cached URL support & download progress
 ============================================================ */
-const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?: boolean }> = ({
-  attachment,
-  onView,
-  isMine,
-}) => {
+const AttachmentPreview: React.FC<{ 
+  attachment: any; 
+  onView: () => void; 
+  isMine?: boolean;
+  downloadState?: any;
+  onDownload?: (url: string, name: string) => void;
+}> = ({ attachment, onView, isMine, downloadState, onDownload }) => {
   const url = attachment?.cached_url || attachment?.url || attachment?.attachment_url || attachment?.attachmentUrl;
   const mime = attachment?.mime_type || attachment?.mimeType || attachment?.type || attachment?.attachment_type || "";
   const fileType = attachment?.file_type || attachment?.fileType || attachment?.attachment_type || attachment?.attachmentType || "";
 
   const name = attachment?.filename || attachment?.name || "Attachment";
   const size = attachment?.size_bytes ?? attachment?.size ?? attachment?.file_size;
+  const isDownloading = downloadState?.downloading;
+  const progress = downloadState?.progress || 0;
+  const isCompleted = downloadState?.completed;
 
   if (!url) return null;
 
@@ -610,35 +667,57 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     const originalUrl = attachment?.url || attachment?.attachment_url;
-    if (originalUrl) {
-      forceDownload(originalUrl, attachment?.filename || "download");
+    if (originalUrl && onDownload) {
+      onDownload(originalUrl, attachment?.filename || "download");
     }
   };
 
   if (isImage) {
     return (
-      <div
-        className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:opacity-90 transition-opacity w-full max-w-full"
-        onClick={onView}
-      >
-        <img src={url} alt={name} className="w-full max-h-[400px] object-contain bg-black/20" />
+      <div className="relative rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer hover:opacity-90 transition-opacity w-full max-w-full">
+        <img src={url} alt={name} className="w-full max-h-[400px] object-contain bg-black/20" onClick={onView} />
+        {onDownload && (
+          <button
+            onClick={handleDownload}
+            className="absolute bottom-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80 transition-colors z-10"
+          >
+            {isDownloading ? (
+              <span className="text-white text-xs font-bold">{progress}%</span>
+            ) : isCompleted ? (
+              <i className="fas fa-check text-green-500 text-sm" />
+            ) : (
+              <i className="fas fa-download text-white text-sm" />
+            )}
+          </button>
+        )}
       </div>
     );
   }
 
   if (isVideo) {
     return (
-      <div
-        className="rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer relative w-full max-w-full"
-        onClick={onView}
-      >
-        <video src={url} className="w-full max-h-[400px] object-contain bg-black/20" controls />
+      <div className="relative rounded-xl overflow-hidden border border-[#3E4042] cursor-pointer w-full max-w-full">
+        <video src={url} className="w-full max-h-[400px] object-contain bg-black/20" controls onClick={onView} />
+        {onDownload && (
+          <button
+            onClick={handleDownload}
+            className="absolute bottom-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80 transition-colors z-10"
+          >
+            {isDownloading ? (
+              <span className="text-white text-xs font-bold">{progress}%</span>
+            ) : isCompleted ? (
+              <i className="fas fa-check text-green-500 text-sm" />
+            ) : (
+              <i className="fas fa-download text-white text-sm" />
+            )}
+          </button>
+        )}
       </div>
     );
   }
 
   if (isAudio) {
-    return <VoiceNoteWA src={url} isMine={isMine} />;
+    return <VoiceNoteWA src={url} isMine={isMine} downloadState={downloadState} onDownload={onDownload} />;
   }
 
   return (
@@ -655,10 +734,20 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
         <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
         {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
       </div>
-      <i 
-        className="fas fa-download text-[#b0b3b8] shrink-0 cursor-pointer hover:text-[#1B74E4] transition-colors" 
-        onClick={handleDownload}
-      />
+      {onDownload && (
+        <button
+          onClick={handleDownload}
+          className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+        >
+          {isDownloading ? (
+            <span className="text-[#1B74E4] text-xs font-bold">{progress}%</span>
+          ) : isCompleted ? (
+            <i className="fas fa-check text-green-500 text-sm" />
+          ) : (
+            <i className="fas fa-download text-[#b0b3b8] text-sm hover:text-[#1B74E4] transition-colors" />
+          )}
+        </button>
+      )}
     </div>
   );
 };
@@ -841,6 +930,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
   const [recipientOnline, setRecipientOnline] = useState(false);
   const [recipientLastSeen, setRecipientLastSeen] = useState<string>("");
+  
+  // ✅ Native download tracking
+  const [nativeDownloads, setNativeDownloads] = useState<Record<string, {
+    progress: number;
+    downloading: boolean;
+    completed: boolean;
+    cached?: boolean;
+    localPath?: string;
+    error?: string;
+  }>>({});
 
   // Call states
   const [callOpen, setCallOpen] = useState(false);
@@ -947,6 +1046,129 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [msgs.length]);
+
+  /* ============================================================
+     ✅ NATIVE DOWNLOAD EVENT LISTENERS
+  ============================================================ */
+  useEffect(() => {
+    const keyOf = (d: any) => d?.url || d?.fileName || '';
+
+    const onStart = (e: any) => {
+      const d = e.detail || {};
+      const key = keyOf(d);
+      if (!key) return;
+
+      setNativeDownloads(prev => ({
+        ...prev,
+        [key]: {
+          progress: 0,
+          downloading: true,
+          completed: false,
+        },
+      }));
+    };
+
+    const onProgress = (e: any) => {
+      const d = e.detail || {};
+      const key = keyOf(d);
+      if (!key) return;
+
+      setNativeDownloads(prev => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          progress: Number(d.progress || 0),
+          downloading: true,
+          completed: false,
+          cached: Boolean(d.cached),
+        },
+      }));
+    };
+
+    const onComplete = (e: any) => {
+      const d = e.detail || {};
+      const key = keyOf(d);
+      if (!key) return;
+
+      setNativeDownloads(prev => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          progress: 100,
+          downloading: false,
+          completed: true,
+          cached: Boolean(d.cached),
+          localPath: d.localPath,
+        },
+      }));
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        setNativeDownloads(prev => {
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        });
+      }, 3000);
+    };
+
+    const onError = (e: any) => {
+      const d = e.detail || {};
+      const key = keyOf(d);
+      if (!key) return;
+
+      setNativeDownloads(prev => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          progress: 0,
+          downloading: false,
+          completed: false,
+          error: d.message || 'Download failed',
+        },
+      }));
+      
+      // Reset after 3 seconds
+      setTimeout(() => {
+        setNativeDownloads(prev => {
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        });
+      }, 3000);
+    };
+
+    window.addEventListener('uneraNativeDownloadStart', onStart as EventListener);
+    window.addEventListener('uneraNativeDownloadProgress', onProgress as EventListener);
+    window.addEventListener('uneraNativeDownloadComplete', onComplete as EventListener);
+    window.addEventListener('uneraNativeDownloadError', onError as EventListener);
+
+    return () => {
+      window.removeEventListener('uneraNativeDownloadStart', onStart as EventListener);
+      window.removeEventListener('uneraNativeDownloadProgress', onProgress as EventListener);
+      window.removeEventListener('uneraNativeDownloadComplete', onComplete as EventListener);
+      window.removeEventListener('uneraNativeDownloadError', onError as EventListener);
+    };
+  }, []);
+
+  /* ============================================================
+     ✅ NATIVE DOWNLOAD TRIGGER
+  ============================================================ */
+  const handleNativeDownload = useCallback((url: string, fileName?: string) => {
+    if (isUneraNativeApp() && (window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(
+        JSON.stringify({
+          action: "download_file",
+          url,
+          fileName: fileName || 'download',
+        })
+      );
+      return;
+    }
+    
+    // Fallback to web download
+    forceDownload(url, fileName);
+  }, []);
 
   /* ============================================================
      ✅ NATIVE UPLOAD LISTENER
@@ -1823,9 +2045,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                     {d && !isCallMessage && (<div className="flex justify-end items-center gap-1 mt-1"><span className={`text-[10px] ${mine ? "text-white/70" : "text-[#b0b3b8]"}`}>{formatTime(d)}{edited ? <span className="ml-1 opacity-80">(edited)</span> : null}</span><DeliveryTicks msg={msg} mine={mine} /></div>)}
                   </div>
                 )}
-                {gifUrls.length > 0 && gifUrls.map((url, idx) => (<GIFPreview key={`gif:${url}:${idx}`} url={url} onView={() => window.open(url, "_blank")} onHold={(e) => startLongPressAny({ msg, mine, kind: "gif", gifUrl: url, evt: e })} />))}
+                {gifUrls.length > 0 && gifUrls.map((url, idx) => {
+                  const downloadState = nativeDownloads[url];
+                  return (
+                    <GIFPreview 
+                      key={`gif:${url}:${idx}`} 
+                      url={url} 
+                      onView={() => window.open(url, "_blank")} 
+                      onHold={(e) => startLongPressAny({ msg, mine, kind: "gif", gifUrl: url, evt: e })}
+                      downloadState={downloadState}
+                      onDownload={handleNativeDownload}
+                    />
+                  );
+                })}
                 {otherUrls.length > 0 && otherUrls.map((url, idx) => (<URLPreview key={`url:${url}:${idx}`} url={url} />))}
-                {attachments.length > 0 && (<div className="mt-[4px] space-y-1 w-full max-w-full">{attachments.map((a: any) => (<div key={`att:${safeNum(a?.id) || 0}:${safeStr(a?.url || a?.attachment_url)}`} onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}><AttachmentPreview attachment={a} onView={() => openAttachmentWithCache(a)} isMine={mine} /></div>))}</div>)}
+                {attachments.length > 0 && (<div className="mt-[4px] space-y-1 w-full max-w-full">{attachments.map((a: any) => {
+                  const fileUrl = a?.url || a?.attachment_url;
+                  const downloadState = nativeDownloads[fileUrl];
+                  return (
+                    <div key={`att:${safeNum(a?.id) || 0}:${safeStr(fileUrl)}`} onTouchStart={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onMouseDown={(e) => startLongPressAny({ msg, mine, kind: "attachment", attachment: a, evt: e })} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}>
+                      <AttachmentPreview 
+                        attachment={a} 
+                        onView={() => openAttachmentWithCache(a)} 
+                        isMine={mine}
+                        downloadState={downloadState}
+                        onDownload={handleNativeDownload}
+                      />
+                    </div>
+                  );
+                })}</div>)}
               </div>
             </div>
           );
@@ -1909,7 +2157,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                   ? safeStr(actionModal.attachment?.filename || actionModal.attachment?.name || "download") 
                   : "gif.gif"; 
                 closeActionModal(); 
-                if (url) await forceDownload(url, name); 
+                if (url) handleNativeDownload(url, name); 
               })}
               {actionModal.mine && actionModal.kind === "message" ? actionBtn("fas fa-pen", "Edit", () => { const m = actionModal.msg; closeActionModal(); setReplyTo(null); setEditTarget(m); setInputText(safeStr(m?.text_content) || ""); setTimeout(() => { const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]'); el?.focus?.(); }, 50); }) : null}
               {actionBtn("fas fa-trash", "Delete", async () => { const m = actionModal.msg; closeActionModal(); await doDelete(m, false); }, true)}
@@ -1950,7 +2198,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                       </div>
                     </div>
                     <VoiceNoteWA src={url} isMine={false} />
-                    <button type="button" onClick={() => forceDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
+                    <button type="button" onClick={() => handleNativeDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
                   </div>
                 </div>
               ); 
@@ -1965,7 +2213,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
                       </div>
                     </div>
                     {mime.startsWith("text/") || mime === "application/pdf" ? <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} /> : null}
-                    <button type="button" onClick={() => forceDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
+                    <button type="button" onClick={() => handleNativeDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
                   </div>
                 </div>
               ); 
