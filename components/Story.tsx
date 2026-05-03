@@ -4,6 +4,40 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { rankStoriesForReel } from '../utils/ranking';
 import { apiFetch, avatarFrom, formatRelativeTime, RichText } from './Feed';
 
+// -------------------- NATIVE APP DETECTION --------------------
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative || 
+    (window as any).UNERA_IS_NATIVE_APP ||
+    (window as any).ReactNativeWebView
+  );
+};
+
+const callNativeMediaPicker = (mediaType: 'image' | 'video' | 'any'): boolean => {
+  if (!isUneraNativeApp()) return false;
+
+  const action = 
+    mediaType === 'image' ? 'pick_image' :
+    mediaType === 'video' ? 'pick_video' :
+    'pick_media';
+
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action, mediaType, multiple: true })
+    );
+    return true;
+  }
+
+  if ((window as any).ReactNativeWebView?.postMessage) {
+    (window as any).ReactNativeWebView.postMessage(
+      JSON.stringify({ action, mediaType, multiple: true })
+    );
+    return true;
+  }
+
+  return false;
+};
+
 // -------------------- TYPES --------------------
 export interface User {
   id: number;
@@ -244,7 +278,7 @@ const createVideoThumbnailFile = async (file: File) => {
   }
 };
 
-// ✅ UPDATED: Image upload returns full = feed
+// ✅ UPDATED: Image upload with native support - returns full = feed
 const uploadStoryImageSecret = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
   const fd = new FormData();
@@ -268,7 +302,7 @@ const uploadStoryImageSecret = async (file: File) => {
       {
         thumb: data?.uploaded?.thumbnail?.url || null,
         feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
-        full: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null, // ✅ full = feed
+        full: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
         type: 'image',
       },
     ],
@@ -1712,7 +1746,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     } catch (error) {
       console.error('Failed to delete story:', error);
       const toast = document.createElement('div');
-      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg z-[300]';
       toast.innerText = 'Failed to delete story';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
@@ -2580,6 +2614,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -2590,16 +2625,55 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     for (const p of arr) if (p.url && p.url.startsWith('blob:')) URL.revokeObjectURL(p.url);
   }, []);
 
+  // ✅ Native media picker handler
+  useEffect(() => {
+    const handleNativeMediaSelected = async (event: any) => {
+      const media = event.detail;
+      if (!media || !media.url) return;
+
+      const isVideo = media.mimeType?.startsWith('video/') || media.type === 'video';
+      const kind: 'image' | 'video' = isVideo ? 'video' : 'image';
+      
+      // Try to get the file from the native response
+      if (media.file) {
+        const file = media.file;
+        const url = URL.createObjectURL(file);
+        setPicks(prev => [...prev, { file, url, kind }]);
+        if (picks.length === 0) setActivePick(0);
+      } else if (media.url && !media.url.startsWith('blob:')) {
+        // If we only have a URL, fetch it as a blob
+        try {
+          const response = await fetch(media.url);
+          const blob = await response.blob();
+          const file = new File([blob], media.fileName || 'media.jpg', { type: blob.type });
+          const url = URL.createObjectURL(file);
+          setPicks(prev => [...prev, { file, url, kind }]);
+          if (picks.length === 0) setActivePick(0);
+        } catch (error) {
+          console.error('Failed to process native media:', error);
+        }
+      }
+      
+      setMode('media');
+    };
+
+    window.addEventListener('uneraNativeMediaSelected', handleNativeMediaSelected);
+    return () => {
+      window.removeEventListener('uneraNativeMediaSelected', handleNativeMediaSelected);
+    };
+  }, [picks.length]);
+
   const handleCreate = async () => {
     if (!canShare || creating) return;
     setCreating(true);
+    setUploadProgress(0);
     
-    // close immediately so user continues using app
     onClose();
     
     const run = async () => {
       try {
         if (mode === 'text') {
+          setUploadProgress(25);
           await onCreate({
             user_id: currentUser.id,
             type: 'text',
@@ -2608,10 +2682,14 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
           });
+          setUploadProgress(100);
           return;
         }
         
-        for (const p of picks) {
+        for (let i = 0; i < picks.length; i++) {
+          const p = picks[i];
+          setUploadProgress(Math.round(((i + 1) / picks.length) * 95));
+          
           if (p.kind === 'image') {
             const uploaded = await uploadStoryImageSecret(p.file);
             await onCreate({
@@ -2638,6 +2716,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             });
           }
         }
+        setUploadProgress(100);
       } catch (error: any) {
         console.error('Failed to create story:', error);
         const toast = document.createElement('div');
@@ -2647,6 +2726,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         setTimeout(() => toast.remove(), 2200);
       } finally {
         setCreating(false);
+        setUploadProgress(0);
       }
     };
     
@@ -2669,6 +2749,15 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       return merged;
     });
     setMode('media');
+  };
+
+  // ✅ Open native picker instead of web file picker when in native app
+  const handleAddMediaClick = () => {
+    if (isUneraNativeApp()) {
+      callNativeMediaPicker('any');
+    } else {
+      fileInputRef.current?.click();
+    }
   };
 
   const removePick = (index: number) => {
@@ -2731,6 +2820,16 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
+      {/* Progress bar for upload */}
+      {creating && uploadProgress > 0 && uploadProgress < 100 && (
+        <div className="fixed top-0 left-0 right-0 h-1 bg-white/20 z-[300]">
+          <div 
+            className="h-full bg-[#1877F2] transition-all duration-300"
+            style={{ width: `${uploadProgress}%` }}
+          />
+        </div>
+      )}
+
       <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
         <button
           onClick={onClose}
@@ -2742,10 +2841,13 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         <h3 className="font-black text-[18px]">Create Story</h3>
         <button
           onClick={handleCreate}
-          disabled={!canShare}
-          className="bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm disabled:opacity-50 disabled:bg-gray-600 transition-all"
+          disabled={!canShare || creating}
+          className={`bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm transition-all ${
+            !canShare || creating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[#166FE5] active:scale-95'
+          }`}
           aria-label="Share story"
         >
+          {creating ? <i className="fas fa-spinner fa-spin mr-2"></i> : null}
           Share
         </button>
       </div>
@@ -2766,12 +2868,12 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         ) : (
           <div
             className="w-full h-full flex items-center justify-center bg-[#000]"
-            onClick={() => picks.length === 0 && fileInputRef.current?.click()}
+            onClick={() => picks.length === 0 && handleAddMediaClick()}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {
               if ((e.key === 'Enter' || e.key === ' ') && picks.length === 0) {
-                fileInputRef.current?.click();
+                handleAddMediaClick();
               }
             }}
           >
@@ -2886,7 +2988,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               ))}
 
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleAddMediaClick}
                 className="w-16 h-16 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex-shrink-0 flex items-center justify-center"
                 aria-label="Add more media"
               >
@@ -2940,7 +3042,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleAddMediaClick}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               title="Add photos/videos"
               aria-label="Add media"
