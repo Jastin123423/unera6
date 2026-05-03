@@ -28,7 +28,6 @@ const getCachedFileUrl = async (url: string): Promise<string> => {
 /* ============================================================
    ✅ NATIVE APP DETECTION & PICKER HELPERS
 ============================================================ */
-
 const isUneraNativeApp = (): boolean => {
   return Boolean(
     (window as any).UneraNative || 
@@ -37,7 +36,34 @@ const isUneraNativeApp = (): boolean => {
   );
 };
 
-// Replace the existing forceDownload function
+const callNativePicker = (fileType: 'image' | 'video' | 'audio' | 'document' | 'any'): boolean => {
+  if (!isUneraNativeApp()) return false;
+
+  const action = 
+    fileType === 'image' ? 'pick_image' :
+    fileType === 'video' ? 'pick_video' :
+    'pick_file';
+
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action, fileType })
+    );
+    return true;
+  }
+
+  if ((window as any).ReactNativeWebView?.postMessage) {
+    (window as any).ReactNativeWebView.postMessage(
+      JSON.stringify({ action, fileType })
+    );
+    return true;
+  }
+
+  return false;
+};
+
+/* ============================================================
+   ✅ FORCE DOWNLOAD - FIX FOR BLOB URL IN WEBVIEW
+============================================================ */
 const forceDownload = async (url: string, filename = "download") => {
   if (!url) return;
   
@@ -80,6 +106,7 @@ const forceDownload = async (url: string, filename = "download") => {
     a.remove();
   }
 };
+
 /* ============================================================
    ✅ Upload function for R2 (returns rich data)
 ============================================================ */
@@ -268,52 +295,6 @@ const formatLastSeen = (iso: string) => {
   const day = d.toLocaleDateString(undefined, { month: "short", day: "2-digit" });
   const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   return `Last seen ${day}, ${time}`;
-};
-
-const forceDownload = async (url: string, filename = "download") => {
-  if (!url) return;
-
-  const cleanName = (filename || "download").replace(/[\/\\?%*:|"<>]/g, "_");
-
-  const clickAnchor = (href: string, name?: string) => {
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = name || cleanName;
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
-
-  // Try to get cached version first
-  try {
-    const cachedUrl = await getCachedFileUrl(url);
-    clickAnchor(cachedUrl, cleanName);
-    return;
-  } catch {
-    // Fallback to direct download
-    try {
-      const res = await fetch(url, { method: "GET" });
-      if (!res.ok) throw new Error("fetch failed");
-
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
-      try {
-        clickAnchor(blobUrl, cleanName);
-      } finally {
-        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
-      }
-      return;
-    } catch {
-      try {
-        clickAnchor(url, cleanName);
-        return;
-      } catch {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
-    }
-  }
 };
 
 /* ============================================================
@@ -626,6 +607,14 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
     String(url).toLowerCase().includes(".m4a") || String(url).toLowerCase().includes(".mp3") ||
     String(url).toLowerCase().includes(".aac");
 
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const originalUrl = attachment?.url || attachment?.attachment_url;
+    if (originalUrl) {
+      forceDownload(originalUrl, attachment?.filename || "download");
+    }
+  };
+
   if (isImage) {
     return (
       <div
@@ -666,7 +655,10 @@ const AttachmentPreview: React.FC<{ attachment: any; onView: () => void; isMine?
         <div className="text-[#e4e6eb] font-medium truncate">{name}</div>
         {size ? <div className="text-[#b0b3b8] text-xs">{formatFileSize(size)}</div> : null}
       </div>
-      <i className="fas fa-download text-[#b0b3b8] shrink-0" />
+      <i 
+        className="fas fa-download text-[#b0b3b8] shrink-0 cursor-pointer hover:text-[#1B74E4] transition-colors" 
+        onClick={handleDownload}
+      />
     </div>
   );
 };
@@ -1718,9 +1710,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
       setViewingAttachment({ 
         ...attachment, 
         cached_url: cachedUrl,
+        original_url: url, // Store original URL for downloads
       });
     } catch {
-      setViewingAttachment(attachment);
+      setViewingAttachment({ 
+        ...attachment,
+        original_url: url,
+      });
     }
   };
 
@@ -1905,7 +1901,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
             </div>
             <div className="space-y-1">
               {actionBtn("fas fa-reply", "Reply", () => { const m = actionModal.msg; closeActionModal(); setEditTarget(null); setReplyTo(m); })}
-              {actionModal.kind !== "message" && actionBtn("fas fa-download", "Download", async () => { const url = actionModal.kind === "gif" ? safeStr(actionModal.gifUrl) : safeStr(actionModal.attachment?.url || actionModal.attachment?.attachment_url); const name = actionModal.kind === "attachment" ? safeStr(actionModal.attachment?.filename || actionModal.attachment?.name || "download") : "gif.gif"; closeActionModal(); if (url) await forceDownload(url, name); })}
+              {actionModal.kind !== "message" && actionBtn("fas fa-download", "Download", async () => { 
+                const url = actionModal.kind === "gif" 
+                  ? safeStr(actionModal.gifUrl) 
+                  : safeStr(actionModal.attachment?.url || actionModal.attachment?.attachment_url); 
+                const name = actionModal.kind === "attachment" 
+                  ? safeStr(actionModal.attachment?.filename || actionModal.attachment?.name || "download") 
+                  : "gif.gif"; 
+                closeActionModal(); 
+                if (url) await forceDownload(url, name); 
+              })}
               {actionModal.mine && actionModal.kind === "message" ? actionBtn("fas fa-pen", "Edit", () => { const m = actionModal.msg; closeActionModal(); setReplyTo(null); setEditTarget(m); setInputText(safeStr(m?.text_content) || ""); setTimeout(() => { const el = document.querySelector<HTMLInputElement>('input[placeholder="Edit message"], input[placeholder="Message"]'); el?.focus?.(); }, 50); }) : null}
               {actionBtn("fas fa-trash", "Delete", async () => { const m = actionModal.msg; closeActionModal(); await doDelete(m, false); }, true)}
               {actionModal.mine ? actionBtn("fas fa-trash-can", "Delete for everyone", async () => { const m = actionModal.msg; closeActionModal(); await doDelete(m, true); }, true) : null}
@@ -1921,7 +1926,50 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ currentUser, recipient, 
         <div className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4" onClick={() => setViewingAttachment(null)}>
           <div className="relative max-w-4xl w-full max-h-[90vh] flex items-center justify-center">
             <button onClick={() => setViewingAttachment(null)} className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/60 rounded-full flex items-center justify-center hover:bg-black/80"><i className="fas fa-times text-white text-xl" /></button>
-            {(() => { const att = viewingAttachment; const url = att?.cached_url || att?.url || att?.attachment_url; const mime = att?.mime_type || att?.type || att?.attachment_type || ""; const fileType = att?.file_type || ""; const name = att?.filename || att?.name || "Attachment"; const size = att?.size_bytes ?? att?.size ?? att?.file_size; const isImg = fileType === "image" || String(mime).startsWith("image/"); const isVid = fileType === "video" || String(mime).startsWith("video/"); const isAud = fileType === "audio" || String(mime).startsWith("audio/"); if (isImg) return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />; if (isVid) return <video src={url} controls autoPlay className="max-w-full max-h-[90vh]"><source src={url} type={mime} />Your browser does not support the video tag.</video>; if (isAud) return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className="fas fa-microphone text-3xl text-[#1B74E4]" /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div><VoiceNoteWA src={url} isMine={false} /><button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); return (<div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}><div className="flex flex-col gap-4"><div className="flex items-center gap-3"><i className={`${getFileIcon(mime)} text-3xl text-[#1B74E4]`} /><div className="min-w-0"><div className="text-white font-semibold truncate">{name}</div>{size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}</div></div>{mime.startsWith("text/") || mime === "application/pdf" ? <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} /> : null}<button type="button" onClick={() => forceDownload(url, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button></div></div>); })()}
+            {(() => { 
+              const att = viewingAttachment; 
+              const url = att?.cached_url || att?.url || att?.attachment_url; 
+              const originalUrl = att?.original_url || att?.url || att?.attachment_url;
+              const mime = att?.mime_type || att?.type || att?.attachment_type || ""; 
+              const fileType = att?.file_type || ""; 
+              const name = att?.filename || att?.name || "Attachment"; 
+              const size = att?.size_bytes ?? att?.size ?? att?.file_size; 
+              const isImg = fileType === "image" || String(mime).startsWith("image/"); 
+              const isVid = fileType === "video" || String(mime).startsWith("video/"); 
+              const isAud = fileType === "audio" || String(mime).startsWith("audio/"); 
+              if (isImg) return <img src={url} alt={name} className="max-w-full max-h-[90vh] object-contain" />; 
+              if (isVid) return <video src={url} controls autoPlay className="max-w-full max-h-[90vh]"><source src={url} type={mime} />Your browser does not support the video tag.</video>; 
+              if (isAud) return (
+                <div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                      <i className="fas fa-microphone text-3xl text-[#1B74E4]" />
+                      <div className="min-w-0">
+                        <div className="text-white font-semibold truncate">{name}</div>
+                        {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
+                      </div>
+                    </div>
+                    <VoiceNoteWA src={url} isMine={false} />
+                    <button type="button" onClick={() => forceDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
+                  </div>
+                </div>
+              ); 
+              return (
+                <div className="bg-[#242526] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3">
+                      <i className={`${getFileIcon(mime)} text-3xl text-[#1B74E4]`} />
+                      <div className="min-w-0">
+                        <div className="text-white font-semibold truncate">{name}</div>
+                        {size ? <div className="text-[#b0b3b8] text-sm">{formatFileSize(size)}</div> : null}
+                      </div>
+                    </div>
+                    {mime.startsWith("text/") || mime === "application/pdf" ? <iframe src={url} className="w-full h-[60vh] rounded-lg" title={name} /> : null}
+                    <button type="button" onClick={() => forceDownload(originalUrl, name)} className="bg-[#1B74E4] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#1A6ED8] text-center">Download</button>
+                  </div>
+                </div>
+              ); 
+            })()}
           </div>
         </div>
       )}
