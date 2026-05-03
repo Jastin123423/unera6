@@ -28,6 +28,7 @@ const getCachedFileUrl = async (url: string): Promise<string> => {
 /* ============================================================
    ✅ NATIVE APP DETECTION & PICKER HELPERS
 ============================================================ */
+
 const isUneraNativeApp = (): boolean => {
   return Boolean(
     (window as any).UneraNative || 
@@ -36,31 +37,49 @@ const isUneraNativeApp = (): boolean => {
   );
 };
 
-const callNativePicker = (fileType: 'image' | 'video' | 'audio' | 'document' | 'any'): boolean => {
-  if (!isUneraNativeApp()) return false;
-
-  const action = 
-    fileType === 'image' ? 'pick_image' :
-    fileType === 'video' ? 'pick_video' :
-    'pick_file';
-
-  if ((window as any).UneraNative?.postMessage) {
+// Replace the existing forceDownload function
+const forceDownload = async (url: string, filename = "download") => {
+  if (!url) return;
+  
+  const cleanName = (filename || "download").replace(/[\/\\?%*:|"<>]/g, "_");
+  
+  // ✅ Native app: let Flutter download/open/cache it
+  if (isUneraNativeApp() && (window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
-      JSON.stringify({ action, fileType })
+      JSON.stringify({
+        action: "download_file",
+        url,
+        fileName: cleanName,
+      })
     );
-    return true;
+    return;
   }
-
-  if ((window as any).ReactNativeWebView?.postMessage) {
-    (window as any).ReactNativeWebView.postMessage(
-      JSON.stringify({ action, fileType })
-    );
-    return true;
+  
+  // ✅ Web browser fallback - try blob download first
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Download failed");
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = cleanName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+  } catch {
+    // Fallback: direct download with target="_blank"
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = cleanName;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
-
-  return false;
 };
-
 /* ============================================================
    ✅ Upload function for R2 (returns rich data)
 ============================================================ */
