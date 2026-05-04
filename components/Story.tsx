@@ -3340,4 +3340,373 @@ return (
         )}
       </div>
 
-      <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap
+              <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap-4">
+          {mode === 'text' && (
+            <div className="flex gap-3 overflow-x-auto scrollbar-hide px-2 py-1">
+              {STORY_COLORS.map((col, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setBackground(col)}
+                  className={`w-10 h-10 rounded-full flex-shrink-0 cursor-pointer border-2 transition-transform hover:scale-110 ${
+                    background === col
+                      ? 'border-white scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]'
+                      : 'border-transparent'
+                  }`}
+                  style={{ background: col }}
+                  aria-label={`Background color ${idx + 1}`}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between px-2">
+            <div className="flex gap-2 bg-white/5 p-1 rounded-2xl border border-white/10">
+              <button
+                onClick={() => setMode('text')}
+                className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
+                  mode === 'text' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
+                }`}
+                aria-label="Text story mode"
+              >
+                <i className="fas fa-font"></i> Text
+              </button>
+              <button
+                onClick={() => setMode('media')}
+                className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
+                  mode === 'media' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
+                }`}
+                aria-label="Media story mode"
+              >
+                <i className="fas fa-photo-video"></i> Media
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Camera Button */}
+              <button
+                onClick={openCamera}
+                className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
+                aria-label="Camera"
+              >
+                <i className="fas fa-camera text-lg"></i>
+              </button>
+
+              <button
+                onClick={handlePickStoryMedia}
+                className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
+                title="Add photos/videos"
+                aria-label="Add media"
+              >
+                <i className="fas fa-plus text-lg"></i>
+              </button>
+
+              {/* Music icon - opens the Add Music page, not direct native picker */}
+              <button
+                onClick={() => setShowMusicPicker(true)}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                  selectedMusic
+                    ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20'
+                }`}
+                aria-label="Add music"
+              >
+                <i className="fas fa-music text-lg"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Music Picker Modal */}
+        {showMusicPicker && (
+          <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
+            <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
+              <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
+                <i className="fas fa-chevron-down mr-2"></i>Close
+              </button>
+              <h3 className="font-bold text-white">Add Music</h3>
+              <div className="w-10"></div>
+            </div>
+
+            <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
+              {/* Upload Music button - uses native picker */}
+              <button
+                onClick={handlePickStoryAudio}
+                className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
+                aria-label="Upload music"
+              >
+                <div className="w-12 h-12 bg-[#1877F2] rounded-full flex items-center justify-center shadow-lg">
+                  <i className="fas fa-cloud-upload-alt text-white"></i>
+                </div>
+                <div>
+                  <p className="text-white font-bold">Upload Music</p>
+                  <p className="text-[#B0B3B8] text-xs">Choose a file from your device</p>
+                </div>
+              </button>
+
+              <input
+                type="file"
+                ref={audioInputRef}
+                className="hidden"
+                accept="audio/*"
+                onChange={handleAudioUpload}
+                aria-label="Select audio file"
+              />
+
+              <div className="h-px bg-[#3E4042] my-2"></div>
+              <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest px-1">
+                UNERA Music Trends
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {songs.map((song) => (
+                  <div
+                    key={song.id}
+                    className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
+                  >
+                    <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-white font-bold truncate">{song.title}</p>
+                      <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => togglePreviewSong(song)}
+                        className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center"
+                        aria-label={previewSongId === song.id ? "Pause preview" : "Play preview"}
+                      >
+                        <i className={`fas ${previewSongId === song.id ? 'fa-pause' : 'fa-play'} text-white`}></i>
+                      </button>
+                      <button
+                        onClick={() => {
+                          previewAudioRef.current?.pause();
+                          previewAudioRef.current = null;
+                          setPreviewSongId(null);
+                          setSelectedMusic({
+                            url: song.audio_url,
+                            title: song.title,
+                            artist: song.artist_name,
+                            cover: song.cover_image_url,
+                            start: 0,
+                            end: 15,
+                            duration: song.duration || 0,
+                          });
+                          setAudioFile(null);
+                          setShowMusicPicker(false);
+                        }}
+                        className="px-4 py-2 rounded-full bg-[#45BD62] text-white font-bold text-sm"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+};
+
+// ==================== STORY VIEWER MODAL ====================
+interface StoryViewerModalProps {
+  story: StoryType;
+  onClose: () => void;
+  onProfileClick: (id: number) => void;
+  currentUser?: User | null;
+  onFollow?: (userId: number) => void;
+  checkIsFollowing?: (userId: number) => boolean;
+  followLoading?: { [key: number]: boolean };
+  allStories?: StoryType[];
+  onFetchViewers?: (storyId: number) => Promise<StoryViewer[]>;
+  onFetchReactions?: (storyId: number) => Promise<{ reactions: any[]; counts: Record<string, number> }>;
+  viewersCount?: number;
+  onReply?: (storyId: number, text: string) => void;
+  onLike?: (storyId: number) => void;
+  onReaction?: (storyId: number, reaction: string) => void;
+  onShare?: (storyId: number) => void;
+  onComment?: (storyId: number) => void;
+  muted?: boolean;
+  onToggleMute?: () => void;
+  onDeleteStory?: (storyId: number) => Promise<void> | void;
+  deleteLoading?: boolean;
+}
+
+export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
+  const {
+    story,
+    onClose,
+    onProfileClick,
+    currentUser,
+    onFollow,
+    checkIsFollowing,
+    followLoading,
+    allStories = [],
+    onFetchViewers,
+    onFetchReactions,
+    viewersCount,
+    onReply,
+    onLike,
+    onReaction,
+    onShare,
+    onComment,
+    muted = true,
+    onToggleMute,
+    onDeleteStory,
+    deleteLoading = false,
+  } = props;
+
+  const storyGroups = useMemo(() => {
+    const source = allStories?.length ? allStories : [story];
+    const map = new Map<number, StoryType[]>();
+    
+    source.forEach((s) => {
+      const uid = Number(s.user_id || 0);
+      if (!uid) return;
+      if (!map.has(uid)) map.set(uid, []);
+      map.get(uid)!.push(s);
+    });
+    
+    return Array.from(map.entries())
+      .map(([userId, stories]) => ({
+        userId,
+        stories: stories
+          .slice()
+          .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at)),
+      }))
+      .sort((a, b) => {
+        const aTime = parseServerTime(a.stories[0]?.created_at);
+        const bTime = parseServerTime(b.stories[0]?.created_at);
+        return bTime - aTime;
+      });
+  }, [allStories, story]);
+
+  const [groupIndex, setGroupIndex] = useState(() => {
+    const idx = storyGroups.findIndex((g) =>
+      g.stories.some((s) => Number(s.id) === Number(story.id))
+    );
+    return idx >= 0 ? idx : 0;
+  });
+
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const initialGroup = storyGroups[
+      (() => {
+        const idx = storyGroups.findIndex((g) =>
+          g.stories.some((s) => Number(s.id) === Number(story.id))
+        );
+        return idx >= 0 ? idx : 0;
+      })()
+    ];
+    const idx = initialGroup?.stories?.findIndex((s) => Number(s.id) === Number(story.id)) ?? 0;
+    return idx >= 0 ? idx : 0;
+  });
+
+  const userStories = useMemo(() => {
+    return storyGroups[groupIndex]?.stories || [];
+  }, [storyGroups, groupIndex]);
+
+  const activeStory = userStories[activeIndex] || story;
+
+  const modalUser: User = useMemo(() => {
+    return mergeUserSafe(activeStory.user, {
+      id: activeStory.user_id,
+      name: pickBestName(
+        (activeStory as any)?.user?.name,
+        (activeStory as any)?.author_name,
+        (activeStory as any)?.author_username,
+        'User'
+      ),
+      username: pickBestName(
+        (activeStory as any)?.user?.username,
+        (activeStory as any)?.author_username,
+        'user'
+      ),
+      email: '',
+      profile_image_url:
+        pickBestImage(
+          (activeStory as any)?.user?.profile_image_url,
+          (activeStory as any)?.author_image
+        ) || getDefaultProfilePicture('User', activeStory.user_id),
+      cover_image_url: '',
+      followers: Array.isArray(activeStory.user?.followers) ? activeStory.user!.followers : [],
+      following: Array.isArray(activeStory.user?.following) ? activeStory.user!.following : [],
+      is_verified: false,
+      role: 'user',
+      is_online: false,
+      location: '',
+      bio: '',
+      created_at: null,
+    });
+  }, [activeStory]);
+
+  const handleNext = () => {
+    const nextStoryIndex = activeIndex + 1;
+    if (nextStoryIndex < userStories.length) {
+      setActiveIndex(nextStoryIndex);
+      return;
+    }
+    
+    const nextGroupIndex = groupIndex + 1;
+    if (nextGroupIndex < storyGroups.length) {
+      setGroupIndex(nextGroupIndex);
+      setActiveIndex(0);
+      return;
+    }
+    
+    onClose();
+  };
+
+  const handlePrev = () => {
+    const prevStoryIndex = activeIndex - 1;
+    if (prevStoryIndex >= 0) {
+      setActiveIndex(prevStoryIndex);
+      return;
+    }
+    
+    const prevGroupIndex = groupIndex - 1;
+    if (prevGroupIndex >= 0) {
+      const prevGroupStories = storyGroups[prevGroupIndex]?.stories || [];
+      setGroupIndex(prevGroupIndex);
+      setActiveIndex(Math.max(0, prevGroupStories.length - 1));
+      return;
+    }
+    
+    onClose();
+  };
+
+  const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
+  const handleLike = (storyId: number) => onLike?.(storyId);
+  const handleReaction = (storyId: number, reaction: string) => onReaction?.(storyId, reaction);
+  const handleShare = (storyId: number) => onShare?.(storyId);
+  const handleComment = (storyId: number) => onComment?.(storyId);
+
+  const isFollowing = modalUser.id && checkIsFollowing ? checkIsFollowing(Number(modalUser.id)) : false;
+
+  return (
+    <StoryViewer
+      story={activeStory}
+      user={modalUser}
+      currentUser={currentUser || null}
+      onClose={onClose}
+      onNext={handleNext}
+      onPrev={handlePrev}
+      onReply={handleReply}
+      onLike={handleLike}
+      onReaction={handleReaction}
+      onShare={handleShare}
+      onComment={handleComment}
+      onFetchReactions={onFetchReactions}
+      onFollow={onFollow}
+      isFollowing={isFollowing}
+      allStories={userStories}
+      onFetchViewers={onFetchViewers}
+      viewersCount={viewersCount}
+      onProfileClick={onProfileClick}
+      muted={muted}
+      onToggleMute={onToggleMute}
+      onDeleteStory={onDeleteStory}
+      deleteLoading={deleteLoading}
+    />
+  );
+};
