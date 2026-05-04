@@ -2724,6 +2724,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   
   // Camera state
   const [cameraMode, setCameraMode] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<BlobPart[]>([]);
@@ -2761,15 +2762,17 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     const file = new File([blob], `story-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
     const url = URL.createObjectURL(file);
     setPicks(prev => [...prev, { file, url, kind: 'image' }]);
+    setActivePick(picks.length);
     setMode('media');
     closeCamera();
   };
 
   const openCamera = async () => {
     try {
+      setCameraReady(false);
       setCameraMode(true);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: { facingMode: 'user' },
         audio: true,
       });
       setCameraStream(stream);
@@ -2778,9 +2781,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           cameraVideoRef.current.srcObject = stream;
           cameraVideoRef.current.play().catch(() => {});
         }
-      }, 50);
+      }, 100);
     } catch (e: any) {
-      alert(e?.message || 'Camera permission denied');
+      alert('Camera failed: ' + (e?.message || 'Permission denied'));
       setCameraMode(false);
     }
   };
@@ -2837,6 +2840,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     } catch {}
     setCameraStream(null);
     setCameraMode(false);
+    setCameraReady(false);
     setIsRecording(false);
     setCameraModeType('photo');
     if (musicPreviewRef.current) {
@@ -2862,6 +2866,27 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     previewAudioRef.current = audio;
     setPreviewSongId(song.id);
   };
+
+  // Native music picker listener
+  useEffect(() => {
+    const handler = (e: any) => {
+      const data = e.detail;
+      if (!data) return;
+      if (data.type === 'uneraMusicSelected') {
+        setSelectedMusic({
+          url: data.url,
+          title: data.title,
+          artist: data.artist,
+          cover: data.cover,
+          start: data.start || 0,
+          end: data.end || 15,
+          duration: data.duration || 0,
+        });
+      }
+    };
+    window.addEventListener('uneraNativeMusic', handler);
+    return () => window.removeEventListener('uneraNativeMusic', handler);
+  }, []);
 
   // Native upload listener
   useEffect(() => {
@@ -3117,6 +3142,14 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     audioInputRef.current?.click();
   };
 
+  const openMusicPicker = () => {
+    if (isUneraNativeApp()) {
+      callUneraNative({ action: 'open_music_picker' });
+    } else {
+      setShowMusicPicker(true);
+    }
+  };
+
   useEffect(() => {
     return () => {
       cleanupPickUrls(picks);
@@ -3150,7 +3183,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   // Camera screen
   if (cameraMode) {
     return (
-      <div className="fixed inset-0 z-[500] bg-black flex flex-col">
+      <div className="fixed inset-0 z-[500] bg-black flex flex-col overflow-hidden">
         <div className="absolute top-0 left-0 right-0 z-30 p-4 flex items-center justify-between">
           <button onClick={closeCamera} className="w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center">
             <i className="fas fa-times text-xl"></i>
@@ -3163,7 +3196,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <i className="fas fa-wand-magic-sparkles"></i> Effects
             </button>
             <button
-              onClick={() => setShowMusicPicker(true)}
+              onClick={openMusicPicker}
               className={`px-4 h-11 rounded-full flex items-center gap-2 font-bold ${
                 selectedMusic ? 'bg-[#45BD62] text-white' : 'bg-black/50 text-white'
               }`}
@@ -3174,7 +3207,32 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
         </div>
 
-        <video ref={cameraVideoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+        <video
+          ref={cameraVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            cameraReady ? 'opacity-100' : 'opacity-0'
+          }`}
+          onLoadedMetadata={() => setCameraReady(true)}
+          onCanPlay={() => setCameraReady(true)}
+        />
+
+        {!cameraReady && (
+          <div className="absolute inset-0 bg-gradient-to-b from-[#111] via-[#18191A] to-black flex flex-col items-center justify-center z-10">
+            <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-4">
+              <i className="fas fa-camera text-white text-3xl animate-pulse"></i>
+            </div>
+
+            <div className="text-white font-black text-xl">Opening camera</div>
+            <div className="text-white/50 text-sm mt-1">Please wait...</div>
+
+            <div className="mt-6 w-40 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full w-1/2 bg-[#1877F2] rounded-full animate-pulse"></div>
+            </div>
+          </div>
+        )}
 
         <div className="absolute bottom-32 left-0 right-0 z-30 flex items-center justify-center gap-3">
           <button
@@ -3438,7 +3496,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setCameraMode(true)}
+              onClick={openCamera}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               aria-label="Camera"
             >
@@ -3454,9 +3512,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <i className="fas fa-plus text-lg"></i>
             </button>
 
-            {/* Music icon - opens the Add Music page */}
+            {/* Music icon - opens native music picker or fallback */}
             <button
-              onClick={() => setShowMusicPicker(true)}
+              onClick={openMusicPicker}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                 selectedMusic
                   ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
@@ -3470,7 +3528,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
-      {/* Music Picker - Opens above camera (z-[700]) */}
+      {/* Music Picker - Web fallback */}
       {showMusicPicker && (
         <div className="fixed inset-0 z-[700] bg-[#18191A] animate-slide-up flex flex-col font-sans">
           <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
