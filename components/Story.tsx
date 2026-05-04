@@ -105,6 +105,9 @@ export interface StoryType {
   background_style: string | null;
   music_url: string | null;
   music_title: string | null;
+  music_start?: number | null;
+  music_end?: number | null;
+  music_duration?: number | null;
   created_at: string;
   expires_at?: string | null;
   is_active?: boolean;
@@ -139,6 +142,9 @@ export interface CreateStoryData {
   music_url?: string;
   music_title?: string;
   audio_file?: File;
+  music_start?: number;
+  music_end?: number;
+  music_duration?: number;
 }
 
 // ==================== STORY UPLOAD HELPERS ====================
@@ -625,6 +631,7 @@ interface StoryCommentsSheetProps {
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
   followLoading?: { [key: number]: boolean };
+  onCountChange?: (count: number) => void;
 }
 
 export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
@@ -638,6 +645,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   onFollow,
   checkIsFollowing,
   followLoading = {},
+  onCountChange,
 }) => {
   const [comments, setComments] = useState<any[]>([]);
   const [text, setText] = useState('');
@@ -653,6 +661,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     const cached = getStoryCommentsCache(storyId);
     if (!force && cached) {
       setComments(cached);
+      onCountChange?.(cached.length);
       return;
     }
     setLoading(true);
@@ -661,12 +670,13 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       const commentsList = Array.isArray(data?.comments) ? data.comments : [];
       setComments(commentsList);
       setStoryCommentsCache(storyId, commentsList);
+      onCountChange?.(commentsList.length);
     } catch (error) {
       console.error('Failed to fetch story discussions:', error);
     } finally {
       setLoading(false);
     }
-  }, [storyId]);
+  }, [storyId, onCountChange]);
 
   useEffect(() => {
     if (isOpen && storyId) {
@@ -709,6 +719,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setComments(prev => {
       const next = [optimisticComment, ...prev];
       setStoryCommentsCache(storyId, next);
+      onCountChange?.(next.length);
       return next;
     });
     setText('');
@@ -728,6 +739,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       setComments(prev => {
         const next = prev.map(c => c.id === optimisticComment.id ? newComment : c);
         setStoryCommentsCache(storyId, next);
+        onCountChange?.(next.length);
         return next;
       });
     } catch (error) {
@@ -735,6 +747,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       setComments(prev => {
         const next = prev.filter(c => c.id !== optimisticComment.id);
         setStoryCommentsCache(storyId, next);
+        onCountChange?.(next.length);
         return next;
       });
       const toast = document.createElement('div');
@@ -783,6 +796,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setComments(prev => {
       const next = prev.filter(c => c.id !== commentId && c.parent_id !== commentId);
       setStoryCommentsCache(storyId, next);
+      onCountChange?.(next.length);
       return next;
     });
 
@@ -1107,7 +1121,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   );
   
   const [reactionCount, setReactionCount] = useState<number>(story.reactions_count || 0);
-  const [commentCount, setCommentCount] = useState<number>(story.comments_count || 0);
+  const [commentCount, setCommentCount] = useState<number>(Number((story as any).comments_count || (story as any).discussions_count || 0));
   const [shareCount, setShareCount] = useState<number>(story.shares_count || 0);
   const [reactionList, setReactionList] = useState<any[]>([]);
   const [loadingReactions, setLoadingReactions] = useState(false);
@@ -1155,6 +1169,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     if (story.media_url) return story.media_url;
     return '';
   }, []);
+
+  useEffect(() => {
+    setCommentCount(Number((story as any).comments_count || (story as any).discussions_count || 0));
+  }, [story.id, (story as any).comments_count, (story as any).discussions_count]);
 
   // Lock page scroll when story viewer is open
   useEffect(() => {
@@ -1635,6 +1653,55 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     setMediaReady(story.type === 'text');
   }, [story.id, story.user_id, allStories]);
 
+  // Updated music playback effect with start/end timing
+  useEffect(() => {
+    if (story.music_url && !isBlob(story.music_url)) {
+      const audio = new Audio(story.music_url);
+      audioRef.current = audio;
+      const start = Number((story as any).music_start || 0);
+      const end = Number((story as any).music_end || 0);
+      audio.volume = muted ? 0 : 0.5;
+      audio.currentTime = start;
+      
+      const onTimeUpdate = () => {
+        if (end > start && audio.currentTime >= end) {
+          audio.pause();
+          audio.currentTime = start;
+        }
+      };
+      
+      audio.addEventListener('timeupdate', onTimeUpdate);
+      audio.play().catch(() => {});
+      
+      return () => {
+        audio.removeEventListener('timeupdate', onTimeUpdate);
+        audio.pause();
+        audioRef.current = null;
+      };
+    }
+  }, [story.id, story.music_url, (story as any).music_start, (story as any).music_end]);
+
+  // Volume sync
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = muted ? 0 : 0.5;
+    }
+  }, [muted]);
+
+  useEffect(() => {
+    if (!storyIsVideo) return;
+    const v = videoRef.current;
+    if (!v) return;
+
+    if (isPaused) {
+      v.pause();
+    } else {
+      const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
+      v.muted = forceMuteVideo ? true : muted;
+      v.play().catch(() => {});
+    }
+  }, [isPaused, storyIsVideo, muted, story.music_url]);
+
   const userStories = frozenUserStoriesRef.current;
   const currentIndex = userStories.findIndex((s) => Number(s.id) === Number(story.id));
 
@@ -1698,34 +1765,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       }
     };
   }, [story.id, isPaused, storyDurationMs, mediaReady]);
-
-  useEffect(() => {
-    if (story.music_url && !isBlob(story.music_url)) {
-      audioRef.current = new Audio(story.music_url);
-      audioRef.current.volume = muted ? 0 : 0.5;
-      audioRef.current.play().catch(() => {});
-    }
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, [story.id, story.music_url, muted]);
-
-  useEffect(() => {
-    if (!storyIsVideo) return;
-    const v = videoRef.current;
-    if (!v) return;
-
-    if (isPaused) {
-      v.pause();
-    } else {
-      const forceMuteVideo = !!(story.music_url && !isBlob(story.music_url));
-      v.muted = forceMuteVideo ? true : muted;
-      v.play().catch(() => {});
-    }
-  }, [isPaused, storyIsVideo, muted, story.music_url]);
 
   const handleShare = () => {
     if (onShare) {
@@ -2676,787 +2715,40 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [background, setBackground] = useState(STORY_COLORS[0]);
   const [picks, setPicks] = useState<MediaPick[]>([]);
   const [activePick, setActivePick] = useState(0);
-  const [selectedMusic, setSelectedMusic] = useState<{
-    url: string;
-    title: string;
-    artist: string;
-    cover?: string;
+  const [selectedMusic, setSelectedMusic] = useState<{ 
+    url: string; 
+    title: string; 
+    artist: string; 
+    cover?: string; 
+    start?: number; 
+    end?: number; 
+    duration?: number; 
   } | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [creating, setCreating] = useState(false);
   const [nativeUploading, setNativeUploading] = useState(false);
+  
+  // Camera states
+  const [cameraMode, setCameraMode] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [recordedChunks, setRecordedChunks] = useState<BlobPart[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const musicPreviewRef = useRef<HTMLAudioElement | null>(null);
+  
+  // Music preview states
+  const [previewSongId, setPreviewSongId] = useState<number | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
   const canShare = (mode === 'text' && !!text.trim()) || (mode === 'media' && picks.length > 0);
-
-  // Native upload listener
-  useEffect(() => {
-    const handleNativeUpload = (event: any) => {
-      const media: NativeMediaMeta = event.detail;
-      if (!media) return;
-
-      // Handle audio upload
-      if (
-        media.type === 'audio' ||
-        String(media.mimeType || '').startsWith('audio/')
-      ) {
-        const audioUrl = media.full || media.url || media.feed || '';
-        if (!audioUrl) return;
-        setSelectedMusic({
-          url: audioUrl,
-          title: media.fileName || 'Uploaded Music',
-          artist: 'Local Upload',
-        });
-        setAudioFile(null);
-        setShowMusicPicker(false);
-        setNativeUploading(false);
-        return;
-      }
-
-      // Handle image/video upload
-      const mediaUrl = media.feed || media.full || media.url || media.thumb || '';
-      if (!mediaUrl) return;
-
-      const kind: 'image' | 'video' = media.type === 'video' || String(media.mimeType || '').startsWith('video/') ? 'video' : 'image';
-      const pick: MediaPick = {
-        url: media.thumb || media.feed || media.full || mediaUrl,
-        kind,
-        nativeMeta: {
-          thumb: media.thumb || null,
-          feed: media.feed || null,
-          full: media.full || media.url || media.feed || null,
-          url: media.url || media.full || media.feed || null,
-          type: kind,
-          mimeType: media.mimeType,
-          fileName: media.fileName,
-        },
-      };
-      setPicks(prev => {
-        const next = [...prev, pick].slice(0, 30);
-        if (prev.length === 0) setActivePick(0);
-        return next;
-      });
-      setMode('media');
-      setNativeUploading(false);
-    };
-
-    const handleStart = () => setNativeUploading(true);
-    const handleDone = () => setNativeUploading(false);
-
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    window.addEventListener('uneraNativeUploadStart', handleStart);
-    window.addEventListener('uneraNativeUploadCancel', handleDone);
-    window.addEventListener('uneraNativeUploadError', handleDone);
-
-    return () => {
-      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-      window.removeEventListener('uneraNativeUploadStart', handleStart);
-      window.removeEventListener('uneraNativeUploadCancel', handleDone);
-      window.removeEventListener('uneraNativeUploadError', handleDone);
-    };
-  }, []);
-
-  const cleanupPickUrls = useCallback((arr: MediaPick[]) => {
-    for (const p of arr) if (p.url && p.url.startsWith('blob:') && !p.nativeMeta) URL.revokeObjectURL(p.url);
-  }, []);
-
-  const handleCreate = async () => {
-    if (!canShare || creating) return;
-    setCreating(true);
-    
-    onClose();
-    
-    const run = async () => {
-      try {
-        if (mode === 'text') {
-          await onCreate({
-            user_id: currentUser.id,
-            type: 'text',
-            text_content: text,
-            background_style: background,
-            music_url: selectedMusic?.url,
-            music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-          });
-          return;
-        }
-        
-        for (const p of picks) {
-          if (p.nativeMeta) {
-            const meta = p.nativeMeta;
-            const fullUrl = meta.full || meta.url || meta.feed || meta.thumb || null;
-            const feedUrl = meta.feed || fullUrl;
-            const thumbUrl = meta.thumb || feedUrl || fullUrl;
-            await onCreate({
-              user_id: currentUser.id,
-              type: p.kind,
-              media_url: p.kind === 'image' ? feedUrl : fullUrl,
-              media_urls: [p.kind === 'image' ? feedUrl : fullUrl].filter(Boolean),
-              media_types: [p.kind],
-              media_meta: [
-                {
-                  thumb: thumbUrl,
-                  feed: p.kind === 'image' ? feedUrl : null,
-                  full: p.kind === 'image' ? feedUrl : fullUrl,
-                  type: p.kind,
-                },
-              ],
-              music_url: selectedMusic?.url,
-              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            });
-            continue;
-          }
-          if (!p.file) continue;
-          if (p.kind === 'image') {
-            const uploaded = await uploadStoryImageSecret(p.file);
-            await onCreate({
-              user_id: currentUser.id,
-              type: 'image',
-              media_url: uploaded.media_url,
-              media_urls: uploaded.media_urls,
-              media_types: uploaded.media_types,
-              media_meta: uploaded.media_meta,
-              music_url: selectedMusic?.url,
-              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            });
-          } else {
-            const uploaded = await uploadStoryVideoSecret(p.file);
-            await onCreate({
-              user_id: currentUser.id,
-              type: 'video',
-              media_url: uploaded.media_url,
-              media_urls: uploaded.media_urls,
-              media_types: uploaded.media_types,
-              media_meta: uploaded.media_meta,
-              music_url: selectedMusic?.url,
-              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            });
-          }
-        }
-      } catch (error: any) {
-        console.error('Failed to create story:', error);
-        const toast = document.createElement('div');
-        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg z-[400]';
-        toast.innerText = error?.message || 'Failed to create story';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2200);
-      } finally {
-        setCreating(false);
-      }
-    };
-    
-    void run();
-  };
-
-  const addFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const newItems: MediaPick[] = [];
-
-    Array.from(files).forEach((file) => {
-      const kind: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
-      const url = URL.createObjectURL(file);
-      newItems.push({ file, url, kind });
-    });
-
-    setPicks(prev => {
-      const merged = [...prev, ...newItems].slice(0, 30);
-      if (prev.length === 0) setActivePick(0);
-      return merged;
-    });
-    setMode('media');
-  };
-
-  const removePick = (index: number) => {
-    setPicks(prev => {
-      const next = prev.slice();
-      const removed = next.splice(index, 1);
-      cleanupPickUrls(removed);
-      
-      const newLength = next.length;
-      setActivePick(current => {
-        if (newLength === 0) return 0;
-        if (current >= newLength) return newLength - 1;
-        if (current > index) return current - 1;
-        return current;
-      });
-      
-      return next;
-    });
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    addFiles(e.target.files);
-    e.currentTarget.value = '';
-  };
-
-  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAudioFile(file);
-      setSelectedMusic({
-        url: URL.createObjectURL(file),
-        title: file.name.split('.')[0],
-        artist: 'Local Upload',
-      });
-      setShowMusicPicker(false);
-      e.currentTarget.value = '';
-    }
-  };
-
-  const handlePickStoryImage = () => {
-    if (callUneraNative({ action: 'pick_image' })) return;
-    fileInputRef.current?.click();
-  };
-
-  const handlePickStoryVideo = () => {
-    if (callUneraNative({ action: 'pick_video' })) return;
-    fileInputRef.current?.click();
-  };
-
-  const handlePickStoryMedia = () => {
-    if (isUneraNativeApp()) {
-      callUneraNative({ action: 'pick_image' });
-      return;
-    }
-    fileInputRef.current?.click();
-  };
-
-  const handlePickStoryAudio = () => {
-    if (callUneraNative({ action: 'pick_file', fileType: 'audio' })) return;
-    audioInputRef.current?.click();
-  };
-
-  useEffect(() => {
-    return () => {
-      cleanupPickUrls(picks);
-      if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
-        URL.revokeObjectURL(selectedMusic.url);
-      }
-    };
-  }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'Enter' && canShare) handleCreate();
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, canShare, handleCreate]);
-
-  const active = picks[activePick];
-
-  return (
-    <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
-      <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
-        <button
-          onClick={onClose}
-          className="text-white font-bold text-sm bg-white/10 px-4 py-2 rounded-full hover:bg-white/20 transition-all"
-          aria-label="Discard and close"
-        >
-          Discard
-        </button>
-        <h3 className="font-black text-[18px]">Create Story</h3>
-        <button
-          onClick={handleCreate}
-          disabled={!canShare}
-          className="bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm disabled:opacity-50 disabled:bg-gray-600 transition-all"
-          aria-label="Share story"
-        >
-          Share
-        </button>
-      </div>
-
-      <div
-        className="flex-1 flex items-center justify-center relative overflow-hidden mt-16 mb-24"
-        style={{ background: mode === 'text' ? background : '#000' }}
-      >
-        {mode === 'text' ? (
-          <textarea
-            autoFocus
-            placeholder="Start typing..."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="bg-transparent text-white text-4xl font-bold text-center w-full max-w-lg outline-none resize-none placeholder-white/40 px-10 h-[40vh] flex items-center justify-center"
-            aria-label="Story text"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center bg-[#000]"
-            onClick={() => picks.length === 0 && handlePickStoryMedia()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if ((e.key === 'Enter' || e.key === ' ') && picks.length === 0) {
-                handlePickStoryMedia();
-              }
-            }}
-          >
-            {picks.length > 0 && active ? (
-              <div className="relative w-full h-full">
-                {active.kind === 'video' ? (
-                  <video
-                    src={active.url}
-                    className="w-full h-full object-contain bg-black"
-                    playsInline
-                    controls
-                  />
-                ) : (
-                  <img src={active.url} className="w-full h-full object-contain" alt="" />
-                )}
-
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removePick(activePick);
-                  }}
-                  className="absolute top-4 left-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white"
-                  aria-label="Remove media"
-                >
-                  <i className="fas fa-trash-alt"></i>
-                </button>
-
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/35 border border-white/10 backdrop-blur-md px-3 py-2 rounded-full flex items-center gap-1.5">
-                  {picks.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActivePick(i);
-                      }}
-                      className={`w-2 h-2 rounded-full ${i === activePick ? 'bg-white' : 'bg-white/40'}`}
-                      aria-label={`Story ${i + 1}`}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center cursor-pointer group">
-                <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-white/20 transition-all">
-                  <i className="fas fa-photo-video text-3xl text-white"></i>
-                </div>
-                <p className="font-black text-xl text-white">Select Photos / Videos</p>
-                <p className="text-white/60 text-sm mt-2">
-                  Choose multiple items like Facebook stories
-                </p>
-              </div>
-            )}
-
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*,video/*"
-              multiple
-              onChange={handleFileChange}
-              aria-label="Select media files"
-            />
-          </div>
-        )}
-
-        {selectedMusic && (
-          <div className="absolute top-20 z-30 bg-white/10 backdrop-blur-xl px-4 py-2.5 rounded-2xl border border-white/20 flex items-center gap-3 shadow-2xl animate-pulse">
-            <div className="w-10 h-10 bg-[#1877F2] rounded-lg flex items-center justify-center">
-              <i className="fas fa-music text-white"></i>
-            </div>
-            <div>
-              <p className="text-xs font-black text-white leading-tight">{selectedMusic.title}</p>
-              <p className="text-[10px] text-white/70">{selectedMusic.artist}</p>
-            </div>
-            <button
-              onClick={() => {
-                if (selectedMusic.url.startsWith('blob:')) URL.revokeObjectURL(selectedMusic.url);
-                setSelectedMusic(null);
-                setAudioFile(null);
-              }}
-              className="text-white/50 hover:text-white"
-              aria-label="Remove music"
-            >
-              <i className="fas fa-times-circle"></i>
-            </button>
-          </div>
-        )}
-
-        {mode === 'media' && picks.length > 1 && (
-          <div className="absolute bottom-16 left-0 right-0 px-4">
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-              {picks.map((p, i) => (
-                <button
-                  key={i}
-                  onClick={() => setActivePick(i)}
-                  className={`relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border ${
-                    i === activePick ? 'border-[#1877F2]' : 'border-white/10'
-                  }`}
-                  aria-label={`Select story ${i + 1}`}
-                >
-                  {p.kind === 'video' ? (
-                    <video src={p.url} className="w-full h-full object-cover" muted playsInline />
-                  ) : (
-                    <img src={p.url} className="w-full h-full object-cover" alt="" />
-                  )}
-                  {p.kind === 'video' && (
-                    <div className="absolute bottom-1 right-1 bg-black/50 rounded-full w-6 h-6 flex items-center justify-center">
-                      <i className="fas fa-play text-white text-[10px]"></i>
-                    </div>
-                  )}
-                </button>
-              ))}
-
-              <button
-                onClick={handlePickStoryMedia}
-                className="w-16 h-16 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex-shrink-0 flex items-center justify-center"
-                aria-label="Add more media"
-              >
-                <i className="fas fa-plus text-white"></i>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap-4">
-        {mode === 'text' && (
-          <div className="flex gap-3 overflow-x-auto scrollbar-hide px-2 py-1">
-            {STORY_COLORS.map((col, idx) => (
-              <button
-                key={idx}
-                onClick={() => setBackground(col)}
-                className={`w-10 h-10 rounded-full flex-shrink-0 cursor-pointer border-2 transition-transform hover:scale-110 ${
-                  background === col
-                    ? 'border-white scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]'
-                    : 'border-transparent'
-                }`}
-                style={{ background: col }}
-                aria-label={`Background color ${idx + 1}`}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between px-2">
-          <div className="flex gap-2 bg-white/5 p-1 rounded-2xl border border-white/10">
-            <button
-              onClick={() => setMode('text')}
-              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
-                mode === 'text' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
-              }`}
-              aria-label="Text story mode"
-            >
-              <i className="fas fa-font"></i> Text
-            </button>
-            <button
-              onClick={() => setMode('media')}
-              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
-                mode === 'media' ? 'bg-[#1877F2] text-white shadow-lg' : 'text-white/60'
-              }`}
-              aria-label="Media story mode"
-            >
-              <i className="fas fa-photo-video"></i> Media
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePickStoryMedia}
-              className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
-              title="Add photos/videos"
-              aria-label="Add media"
-            >
-              <i className="fas fa-plus text-lg"></i>
-            </button>
-
-            {/* Music icon - opens the Add Music page, not direct native picker */}
-            <button
-              onClick={() => setShowMusicPicker(true)}
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                selectedMusic
-                  ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
-                  : 'bg-white/10 text-white/80 hover:bg-white/20'
-              }`}
-              aria-label="Add music"
-            >
-              <i className="fas fa-music text-lg"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Native upload indicator removed - no longer shown */}
-
-      {showMusicPicker && (
-        <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
-          <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
-            <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
-              <i className="fas fa-chevron-down mr-2"></i>Close
-            </button>
-            <h3 className="font-bold text-white">Add Music</h3>
-            <div className="w-10"></div>
-          </div>
-
-          <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
-            {/* Upload Music button - uses native picker */}
-            <button
-              onClick={handlePickStoryAudio}
-              className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
-              aria-label="Upload music"
-            >
-              <div className="w-12 h-12 bg-[#1877F2] rounded-full flex items-center justify-center shadow-lg">
-                <i className="fas fa-cloud-upload-alt text-white"></i>
-              </div>
-              <div>
-                <p className="text-white font-bold">Upload Music</p>
-                <p className="text-[#B0B3B8] text-xs">Choose a file from your device</p>
-              </div>
-            </button>
-
-            <input
-              type="file"
-              ref={audioInputRef}
-              className="hidden"
-              accept="audio/*"
-              onChange={handleAudioUpload}
-              aria-label="Select audio file"
-            />
-
-            <div className="h-px bg-[#3E4042] my-2"></div>
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest px-1">
-              UNERA Music Trends
-            </p>
-
-            <div className="flex flex-col gap-2">
-              {songs.map((song) => (
-                <button
-                  key={song.id}
-                  onClick={() => {
-                    setSelectedMusic({
-                      url: song.audio_url,
-                      title: song.title,
-                      artist: song.artist_name,
-                      cover: song.cover_image_url,
-                    });
-                    setAudioFile(null);
-                    setShowMusicPicker(false);
-                  }}
-                  className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
-                  aria-label={`Select ${song.title} by ${song.artist_name}`}
-                >
-                  <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-white font-bold truncate">{song.title}</p>
-                    <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
-                  </div>
-                  <i className="fas fa-play-circle text-2xl text-[#1877F2]"></i>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ==================== STORY VIEWER MODAL ====================
-interface StoryViewerModalProps {
-  story: StoryType;
-  onClose: () => void;
-  onProfileClick: (id: number) => void;
-  currentUser?: User | null;
-  onFollow?: (userId: number) => void;
-  checkIsFollowing?: (userId: number) => boolean;
-  followLoading?: { [key: number]: boolean };
-  allStories?: StoryType[];
-  onFetchViewers?: (storyId: number) => Promise<StoryViewer[]>;
-  onFetchReactions?: (storyId: number) => Promise<{ reactions: any[]; counts: Record<string, number> }>;
-  viewersCount?: number;
-  onReply?: (storyId: number, text: string) => void;
-  onLike?: (storyId: number) => void;
-  onReaction?: (storyId: number, reaction: string) => void;
-  onShare?: (storyId: number) => void;
-  onComment?: (storyId: number) => void;
-  muted?: boolean;
-  onToggleMute?: () => void;
-  onDeleteStory?: (storyId: number) => Promise<void> | void;
-  deleteLoading?: boolean;
-}
-
-export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
-  const {
-    story,
-    onClose,
-    onProfileClick,
-    currentUser,
-    onFollow,
-    checkIsFollowing,
-    followLoading,
-    allStories = [],
-    onFetchViewers,
-    onFetchReactions,
-    viewersCount,
-    onReply,
-    onLike,
-    onReaction,
-    onShare,
-    onComment,
-    muted = true,
-    onToggleMute,
-    onDeleteStory,
-    deleteLoading = false,
-  } = props;
-
-  const storyGroups = useMemo(() => {
-    const source = allStories?.length ? allStories : [story];
-    const map = new Map<number, StoryType[]>();
-    
-    source.forEach((s) => {
-      const uid = Number(s.user_id || 0);
-      if (!uid) return;
-      if (!map.has(uid)) map.set(uid, []);
-      map.get(uid)!.push(s);
-    });
-    
-    return Array.from(map.entries())
-      .map(([userId, stories]) => ({
-        userId,
-        stories: stories
-          .slice()
-          .sort((a, b) => parseServerTime(b.created_at) - parseServerTime(a.created_at)),
-      }))
-      .sort((a, b) => {
-        const aTime = parseServerTime(a.stories[0]?.created_at);
-        const bTime = parseServerTime(b.stories[0]?.created_at);
-        return bTime - aTime;
-      });
-  }, [allStories, story]);
-
-  const [groupIndex, setGroupIndex] = useState(() => {
-    const idx = storyGroups.findIndex((g) =>
-      g.stories.some((s) => Number(s.id) === Number(story.id))
-    );
-    return idx >= 0 ? idx : 0;
-  });
-
-  const [activeIndex, setActiveIndex] = useState(() => {
-    const initialGroup = storyGroups[
-      (() => {
-        const idx = storyGroups.findIndex((g) =>
-          g.stories.some((s) => Number(s.id) === Number(story.id))
-        );
-        return idx >= 0 ? idx : 0;
-      })()
-    ];
-    const idx = initialGroup?.stories?.findIndex((s) => Number(s.id) === Number(story.id)) ?? 0;
-    return idx >= 0 ? idx : 0;
-  });
-
-  const userStories = useMemo(() => {
-    return storyGroups[groupIndex]?.stories || [];
-  }, [storyGroups, groupIndex]);
-
-  const activeStory = userStories[activeIndex] || story;
-
-  const modalUser: User = useMemo(() => {
-    return mergeUserSafe(activeStory.user, {
-      id: activeStory.user_id,
-      name: pickBestName(
-        (activeStory as any)?.user?.name,
-        (activeStory as any)?.author_name,
-        (activeStory as any)?.author_username,
-        'User'
-      ),
-      username: pickBestName(
-        (activeStory as any)?.user?.username,
-        (activeStory as any)?.author_username,
-        'user'
-      ),
-      email: '',
-      profile_image_url:
-        pickBestImage(
-          (activeStory as any)?.user?.profile_image_url,
-          (activeStory as any)?.author_image
-        ) || getDefaultProfilePicture('User', activeStory.user_id),
-      cover_image_url: '',
-      followers: Array.isArray(activeStory.user?.followers) ? activeStory.user!.followers : [],
-      following: Array.isArray(activeStory.user?.following) ? activeStory.user!.following : [],
-      is_verified: false,
-      role: 'user',
-      is_online: false,
-      location: '',
-      bio: '',
-      created_at: null,
-    });
-  }, [activeStory]);
-
-  const handleNext = () => {
-    const nextStoryIndex = activeIndex + 1;
-    if (nextStoryIndex < userStories.length) {
-      setActiveIndex(nextStoryIndex);
-      return;
-    }
-    
-    const nextGroupIndex = groupIndex + 1;
-    if (nextGroupIndex < storyGroups.length) {
-      setGroupIndex(nextGroupIndex);
-      setActiveIndex(0);
-      return;
-    }
-    
-    onClose();
-  };
-
-  const handlePrev = () => {
-    const prevStoryIndex = activeIndex - 1;
-    if (prevStoryIndex >= 0) {
-      setActiveIndex(prevStoryIndex);
-      return;
-    }
-    
-    const prevGroupIndex = groupIndex - 1;
-    if (prevGroupIndex >= 0) {
-      const prevGroupStories = storyGroups[prevGroupIndex]?.stories || [];
-      setGroupIndex(prevGroupIndex);
-      setActiveIndex(Math.max(0, prevGroupStories.length - 1));
-      return;
-    }
-    
-    onClose();
-  };
-
-  const handleReply = (storyId: number, text: string) => onReply?.(storyId, text);
-  const handleLike = (storyId: number) => onLike?.(storyId);
-  const handleReaction = (storyId: number, reaction: string) => onReaction?.(storyId, reaction);
-  const handleShare = (storyId: number) => onShare?.(storyId);
-  const handleComment = (storyId: number) => onComment?.(storyId);
-
-  const isFollowing = modalUser.id && checkIsFollowing ? checkIsFollowing(Number(modalUser.id)) : false;
-
-  return (
-    <StoryViewer
-      story={activeStory}
-      user={modalUser}
-      currentUser={currentUser || null}
-      onClose={onClose}
-      onNext={handleNext}
-      onPrev={handlePrev}
-      onReply={handleReply}
-      onLike={handleLike}
-      onReaction={handleReaction}
-      onShare={handleShare}
-      onComment={handleComment}
-      onFetchReactions={onFetchReactions}
-      onFollow={onFollow}
-      isFollowing={isFollowing}
-      allStories={userStories}
-      onFetchViewers={onFetchViewers}
-      viewersCount={viewersCount}
-      onProfileClick={onProfileClick}
-      muted={muted}
-      onToggleMute={onToggleMute}
-      onDeleteStory={onDeleteStory}
-      deleteLoading={deleteLoading}
-    />
-  );
-};
+  
+  // Camera functions
+  const openCamera = async () => {
+    try {
+      setCameraMode(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
