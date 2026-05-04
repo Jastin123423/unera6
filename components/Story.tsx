@@ -4,45 +4,43 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { rankStoriesForReel } from '../utils/ranking';
 import { apiFetch, avatarFrom, formatRelativeTime, RichText } from './Feed';
 
-// -------------------- NATIVE APP DETECTION --------------------
+// -------------------- NATIVE APP HELPERS --------------------
 const isUneraNativeApp = (): boolean => {
   return Boolean(
-    (window as any).UneraNative || 
+    (window as any).UneraNative ||
     (window as any).UNERA_IS_NATIVE_APP ||
-    (window as any).ReactNativeWebView
+    (window as any).flutter_inappwebview
   );
 };
 
-const callNativeMediaPicker = (mediaType: 'image' | 'video' | 'any'): boolean => {
+const callUneraNative = (payload: any): boolean => {
   if (!isUneraNativeApp()) return false;
-
-  const action = 'pick_media';
-  
   if ((window as any).UneraNative?.postMessage) {
-    (window as any).UneraNative.postMessage(
-      JSON.stringify({ 
-        action, 
-        mediaType, 
-        multiple: true,
-        allowedTypes: mediaType === 'any' ? ['image', 'video'] : [mediaType]
-      })
-    );
+    (window as any).UneraNative.postMessage(JSON.stringify(payload));
     return true;
   }
-
-  if ((window as any).ReactNativeWebView?.postMessage) {
-    (window as any).ReactNativeWebView.postMessage(
-      JSON.stringify({ 
-        action, 
-        mediaType, 
-        multiple: true,
-        allowedTypes: mediaType === 'any' ? ['image', 'video'] : [mediaType]
-      })
-    );
-    return true;
-  }
-
   return false;
+};
+
+type NativeMediaMeta = {
+  thumb?: string | null;
+  feed?: string | null;
+  full?: string | null;
+  url?: string | null;
+  type?: 'image' | 'video' | 'audio' | string;
+  mimeType?: string;
+  fileName?: string;
+};
+
+// -------------------- STORY COMMENTS CACHE --------------------
+const storyCommentsCache = new Map<number, any[]>();
+
+const setStoryCommentsCache = (storyId: number, comments: any[]) => {
+  storyCommentsCache.set(Number(storyId), Array.isArray(comments) ? comments : []);
+};
+
+const getStoryCommentsCache = (storyId: number) => {
+  return storyCommentsCache.get(Number(storyId)) || null;
 };
 
 // -------------------- TYPES --------------------
@@ -117,6 +115,8 @@ export interface StoryType {
   
   views_count?: number;
   reactions_count?: number;
+  comments_count?: number;
+  shares_count?: number;
   my_reaction?: string | null;
   reaction_breakdown?: Record<string, number>;
 }
@@ -285,6 +285,7 @@ const createVideoThumbnailFile = async (file: File) => {
   }
 };
 
+// ✅ UPDATED: Image upload returns full = feed
 const uploadStoryImageSecret = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
   const fd = new FormData();
@@ -299,6 +300,7 @@ const uploadStoryImageSecret = async (file: File) => {
     throw new Error(data?.error || 'Story image upload failed');
   }
   
+  // ✅ full = feed for optimized images
   return {
     media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
     media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
@@ -648,15 +650,21 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const fetchComments = useCallback(async () => {
+  const fetchComments = useCallback(async (force = false) => {
     if (!storyId) return;
+    const cached = getStoryCommentsCache(storyId);
+    if (!force && cached) {
+      setComments(cached);
+      return;
+    }
     setLoading(true);
     try {
       const data = await apiFetch(`/api/stories/${storyId}/comments?limit=100`);
       const commentsList = Array.isArray(data?.comments) ? data.comments : [];
       setComments(commentsList);
+      setStoryCommentsCache(storyId, commentsList);
     } catch (error) {
-      console.error('Failed to fetch story comments:', error);
+      console.error('Failed to fetch story discussions:', error);
     } finally {
       setLoading(false);
     }
@@ -700,7 +708,11 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       profile_image_url: currentUser.profile_image_url,
     };
 
-    setComments(prev => [optimisticComment, ...prev]);
+    setComments(prev => {
+      const next = [optimisticComment, ...prev];
+      setStoryCommentsCache(storyId, next);
+      return next;
+    });
     setText('');
     setReplyTo(null);
 
@@ -715,10 +727,18 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       });
       
       const newComment = data?.comment || optimisticComment;
-      setComments(prev => prev.map(c => c.id === optimisticComment.id ? newComment : c));
+      setComments(prev => {
+        const next = prev.map(c => c.id === optimisticComment.id ? newComment : c);
+        setStoryCommentsCache(storyId, next);
+        return next;
+      });
     } catch (error) {
       console.error('Failed to post comment:', error);
-      setComments(prev => prev.filter(c => c.id !== optimisticComment.id));
+      setComments(prev => {
+        const next = prev.filter(c => c.id !== optimisticComment.id);
+        setStoryCommentsCache(storyId, next);
+        return next;
+      });
       const toast = document.createElement('div');
       toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Failed to post comment';
@@ -732,17 +752,21 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   const handleLikeComment = async (commentId: number) => {
     if (!currentUser) return;
 
-    setComments(prev => prev.map(c => {
-      if (c.id === commentId) {
-        const liked = !c.liked_by_me;
-        return {
-          ...c,
-          liked_by_me: liked,
-          likes_count: liked ? (c.likes_count || 0) + 1 : Math.max(0, (c.likes_count || 0) - 1),
-        };
-      }
-      return c;
-    }));
+    setComments(prev => {
+      const next = prev.map(c => {
+        if (c.id === commentId) {
+          const liked = !c.liked_by_me;
+          return {
+            ...c,
+            liked_by_me: liked,
+            likes_count: liked ? (c.likes_count || 0) + 1 : Math.max(0, (c.likes_count || 0) - 1),
+          };
+        }
+        return c;
+      });
+      setStoryCommentsCache(storyId, next);
+      return next;
+    });
 
     try {
       await apiFetch(`/api/stories/comments/${commentId}/like`, {
@@ -751,14 +775,18 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       });
     } catch (error) {
       console.error('Failed to like comment:', error);
-      fetchComments();
+      fetchComments(true);
     }
   };
 
   const handleDeleteComment = async (commentId: number) => {
     if (!currentUser) return;
 
-    setComments(prev => prev.filter(c => c.id !== commentId && c.parent_id !== commentId));
+    setComments(prev => {
+      const next = prev.filter(c => c.id !== commentId && c.parent_id !== commentId);
+      setStoryCommentsCache(storyId, next);
+      return next;
+    });
 
     try {
       await apiFetch(`/api/stories/${storyId}/comments`, {
@@ -770,7 +798,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       });
     } catch (error) {
       console.error('Failed to delete comment:', error);
-      fetchComments();
+      fetchComments(true);
     }
   };
 
@@ -894,10 +922,10 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
           >
             <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
           </button>
-          <div className="text-[#E4E6EB] font-bold text-[20px]">Story Comments</div>
+          <div className="text-[#E4E6EB] font-bold text-[20px]">Story Discussions</div>
         </div>
         <div className="text-[#B0B3B8] text-[14px]">
-          {formatCount(comments.length)} comments
+          {formatCount(comments.length)} discussions
         </div>
       </div>
 
@@ -905,12 +933,12 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
         {loading ? (
           <div className="text-center py-10 text-[#B0B3B8]">
             <i className="fas fa-spinner fa-spin text-2xl"></i>
-            <p className="mt-2">Loading comments...</p>
+            <p className="mt-2">Loading discussions...</p>
           </div>
         ) : threads.length === 0 ? (
           <div className="text-center py-10">
-            <div className="text-[#B0B3B8] text-[17px] mb-2">No comments yet</div>
-            <p className="text-[#B0B3B8] text-[14px]">Be the first to comment on this story!</p>
+            <div className="text-[#B0B3B8] text-[17px] mb-2">No discussions yet</div>
+            <p className="text-[#B0B3B8] text-[14px]">Be the first to start a discussion!</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -931,12 +959,13 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
                       className="ml-12 text-[#1877F2] font-bold text-[13px] hover:underline"
                       onClick={() => toggleThread(rootId, true)}
                     >
-                      View {hiddenCount} more repl{hiddenCount === 1 ? 'y' : 'ies'}
+                      View previous {hiddenCount} repl{hiddenCount === 1 ? 'y' : 'ies'}
                     </button>
                   )}
                   
-                  {visibleReplies.map((reply, idx) => (
-                    <div key={reply.id}>
+                  {visibleReplies.map((reply) => (
+                    <div key={reply.id} className="ml-12 relative">
+                      <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
                       {renderComment(reply, true, 1)}
                     </div>
                   ))}
@@ -983,7 +1012,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
               ref={inputRef}
               type="text"
               className="w-full bg-[#3A3B3C] text-white rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[15px]"
-              placeholder={replyTo ? `Reply to ${resolveAuthor(replyTo).name}...` : "Write a comment..."}
+              placeholder={replyTo ? `Reply to ${resolveAuthor(replyTo).name}...` : "Write a discussion..."}
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
@@ -1079,8 +1108,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   );
   
   const [reactionCount, setReactionCount] = useState<number>(story.reactions_count || 0);
-  const [commentCount, setCommentCount] = useState<number>(0);
-  const [shareCount, setShareCount] = useState<number>(0);
+  const [commentCount, setCommentCount] = useState<number>(story.comments_count || 0);
+  const [shareCount, setShareCount] = useState<number>(story.shares_count || 0);
   const [reactionList, setReactionList] = useState<any[]>([]);
   const [loadingReactions, setLoadingReactions] = useState(false);
 
@@ -1119,6 +1148,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
+  // ✅ UPDATED: Get the best quality URL for display with proper fallback chain
   const getDisplayMediaUrl = useCallback((story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.feed) return meta.feed;
@@ -1148,6 +1178,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, []);
 
+  // Block wheel scrolling for desktop and some Android webviews
   useEffect(() => {
     const preventWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -1274,8 +1305,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
+    // SIMPLIFIED: Only horizontal swipe for same user navigation
     const SWIPE_X = 40;
     
+    // horizontal swipe = same user stories
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 28) {
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
@@ -1342,6 +1375,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
+  // ✅ Cache the display URL when story changes
   useEffect(() => {
     const displayUrl = getDisplayMediaUrl(story);
     if (displayUrl && !isBlob(displayUrl)) {
@@ -1513,6 +1547,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       }
     };
 
+    // ✅ UPDATED: Use getDisplayMediaUrl for preloading
     if (currentIndex >= 0) {
       const next1Story = userStories[currentIndex + 1];
       const next2Story = userStories[currentIndex + 2];
@@ -1745,7 +1780,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     } catch (error) {
       console.error('Failed to delete story:', error);
       const toast = document.createElement('div');
-      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg z-[300]';
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
       toast.innerText = 'Failed to delete story';
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 2000);
@@ -1793,6 +1828,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        {/* Horizontal Navigation Buttons - Same User */}
         <button
           type="button"
           aria-label="Previous story (same user)"
@@ -1881,49 +1917,50 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               )}
           </div>
 
-          {isAuthor ? (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {onToggleMute && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  openViewers();
+                  onToggleMute();
                 }}
-                className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-4 py-2 rounded-full shadow-lg"
-                aria-label="View viewers"
+                className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full"
+                aria-label={muted ? "Unmute" : "Mute"}
               >
-                <i className="fas fa-eye text-white/90"></i>
-                <span className="text-white font-black text-xs">
-                  {uniqueViewers > 0 ? uniqueViewers : cachedViewsCountRef.current || 0}
-                </span>
+                <i className={`fas ${muted ? 'fa-volume-mute' : 'fa-volume-up'} text-white/80`}></i>
               </button>
-              
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowDeleteConfirm(true);
-                }}
-                className="flex items-center gap-2 bg-[#F3425F] hover:bg-[#E41E3F] transition-all px-3 py-2 rounded-full shadow-lg"
-                aria-label="Delete story"
-                disabled={deleteLoading || deletingStory}
-              >
-                <i className={`fas ${deletingStory ? 'fa-spinner fa-spin' : 'fa-trash'} text-white/90`}></i>
-              </button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {onToggleMute && (
+            )}
+            
+            {isAuthor ? (
+              <>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onToggleMute();
+                    openViewers();
                   }}
-                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full"
-                  aria-label={muted ? "Unmute" : "Mute"}
+                  className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] transition-all px-4 py-2 rounded-full shadow-lg"
+                  aria-label="View viewers"
                 >
-                  <i className={`fas ${muted ? 'fa-volume-mute' : 'fa-volume-up'} text-white/80`}></i>
+                  <i className="fas fa-eye text-white/90"></i>
+                  <span className="text-white font-black text-xs">
+                    {uniqueViewers > 0 ? uniqueViewers : cachedViewsCountRef.current || 0}
+                  </span>
                 </button>
-              )}
-              {onFetchViewers && (
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDeleteConfirm(true);
+                  }}
+                  className="flex items-center gap-2 bg-[#F3425F] hover:bg-[#E41E3F] transition-all px-3 py-2 rounded-full shadow-lg"
+                  aria-label="Delete story"
+                  disabled={deleteLoading || deletingStory}
+                >
+                  <i className={`fas ${deletingStory ? 'fa-spinner fa-spin' : 'fa-trash'} text-white/90`}></i>
+                </button>
+              </>
+            ) : (
+              onFetchViewers && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1937,9 +1974,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                     {Number.isFinite(Number(viewersCount)) ? viewersCount : ''}
                   </span>
                 </button>
-              )}
-            </div>
-          )}
+              )
+            )}
+          </div>
         </div>
 
         <div className="flex-1 bg-[#111] relative">
@@ -2061,10 +2098,12 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           )}
         </div>
 
+        {/* Horizontal Bottom Actions - React, Discuss, Share */}
         <div 
           className="absolute bottom-0 left-0 right-0 p-3 z-20 bg-gradient-to-t from-black/80 to-transparent pt-10"
           data-no-nav="true"
         >
+          {/* Reaction row with counts */}
           {reactionCount > 0 && (
             <div 
               className="flex items-center justify-between px-2 mb-2 cursor-pointer"
@@ -2103,29 +2142,20 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
+          {/* Three horizontal buttons with numbers */}
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={handleReactionClick}
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
             >
               {activeReaction ? (
-                <>
-                  <span className="text-[22px] transition-transform duration-300">
-                    {activeReaction.emoji}
-                  </span>
-                  <span
-                    className="text-[17px] font-bold transition-colors duration-300"
-                    style={{ color: activeReaction.color }}
-                  >
-                    React
-                  </span>
-                </>
+                <span className="text-[22px]">{activeReaction.emoji}</span>
               ) : (
-                <>
-                  <SparkReactIcon size={26} />
-                  <span className="text-[17px] font-bold text-white/80">React</span>
-                </>
+                <SparkReactIcon size={26} />
               )}
+              <span className="text-[17px] font-bold text-white/90">
+                {reactionCount > 0 ? fmtCount(reactionCount) : ''}
+              </span>
             </button>
 
             <button
@@ -2133,7 +2163,9 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
             >
               <DiscussSignalIcon size={26} color="#1877F2" />
-              <span className="text-[17px] font-bold text-white/80">Discuss</span>
+              <span className="text-[17px] font-bold text-white/90">
+                {commentCount > 0 ? fmtCount(commentCount) : ''}
+              </span>
             </button>
 
             <button
@@ -2141,11 +2173,14 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
               className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-white/10 transition-all duration-200 active:scale-95"
             >
               <i className="fas fa-share text-[20px] text-white/80"></i>
-              <span className="text-[17px] font-bold text-white/80">Share</span>
+              <span className="text-[17px] font-bold text-white/90">
+                {shareCount > 0 ? fmtCount(shareCount) : ''}
+              </span>
             </button>
           </div>
         </div>
 
+        {/* Viewers Modal */}
         {showViewers && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={closeViewers} />
@@ -2231,6 +2266,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
+        {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={() => setShowDeleteConfirm(false)} />
@@ -2352,9 +2388,17 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     [stories]
   );
 
+  // ✅ FIXED: Ranking with user's own story first
   const uniqueUserStories: StoryType[] = useMemo(() => {
-    const ranked = rankStoriesForReel(stories, currentUser) || [];
-    return ranked.slice().sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
+    const meId = Number(currentUser?.id || 0);
+    const myStories = stories
+      .filter((s) => meId && Number(s.user_id) === meId)
+      .slice()
+      .sort((a, b) => toTime(b.created_at) - toTime(a.created_at));
+    const otherStories = stories.filter((s) => !meId || Number(s.user_id) !== meId);
+    const rankedOthers = rankStoriesForReel(otherStories, currentUser) || [];
+    const myLatest = myStories[0] ? [myStories[0]] : [];
+    return [...myLatest, ...rankedOthers];
   }, [stories, currentUser?.id, (currentUser as any)?.following]);
 
   const userStoryCounts = useMemo(() => {
@@ -2363,6 +2407,7 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     return m;
   }, [sortedStories]);
 
+  // ✅ UPDATED: Get thumbnail URL with proper fallback chain
   const getDisplayThumbnail = (story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.thumb) return meta.thumb;
@@ -2584,7 +2629,7 @@ interface CreateStoryModalProps {
   onCreate: (story: any) => Promise<void> | void;
 }
 
-type MediaPick = { file: File; url: string; kind: 'image' | 'video' };
+type MediaPick = { file?: File; url: string; kind: 'image' | 'video'; nativeMeta?: NativeMediaMeta };
 
 export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   currentUser,
@@ -2606,79 +2651,94 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [nativeUploading, setNativeUploading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
   const canShare = (mode === 'text' && !!text.trim()) || (mode === 'media' && picks.length > 0);
 
-  const cleanupPickUrls = useCallback((arr: MediaPick[]) => {
-    for (const p of arr) if (p.url && p.url.startsWith('blob:')) URL.revokeObjectURL(p.url);
-  }, []);
-
-  // ✅ NATIVE UPLOAD LISTENER - FIXED to use 'uneraNativeUpload' event
+  // Native upload listener
   useEffect(() => {
-    const handleNativeUpload = async (event: any) => {
-      const media = event.detail;
-      console.log('📱 StoryReel: Native media received:', media);
-      
-      if (!media || !media.url) return;
+    const handleNativeUpload = (event: any) => {
+      const media: NativeMediaMeta = event.detail;
+      if (!media) return;
 
-      // Check if this is media for stories (has image/video type)
-      const isStoryMedia = media.type === 'image' || 
-                           media.type === 'video' ||
-                           media.mimeType?.startsWith('image/') ||
-                           media.mimeType?.startsWith('video/');
-      
-      if (!isStoryMedia) return; // Skip non-media files (like documents)
-      
-      const isVideo = media.mimeType?.startsWith('video/') || media.type === 'video';
-      const kind: 'image' | 'video' = isVideo ? 'video' : 'image';
-      
-      const mediaUrl = media.full || media.feed || media.url;
-      if (mediaUrl) {
-        try {
-          // If we have a direct file from native
-          if (media.file) {
-            const file = media.file;
-            const url = URL.createObjectURL(file);
-            setPicks(prev => [...prev, { file, url, kind }]);
-            if (picks.length === 0) setActivePick(0);
-          } else {
-            // Fetch the blob from URL
-            const response = await fetch(mediaUrl);
-            const blob = await response.blob();
-            const fileName = media.fileName || media.filename || `story-${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`;
-            const file = new File([blob], fileName, { type: blob.type });
-            const url = URL.createObjectURL(file);
-            setPicks(prev => [...prev, { file, url, kind }]);
-            if (picks.length === 0) setActivePick(0);
-          }
-          setMode('media');
-        } catch (error) {
-          console.error('Failed to process native media:', error);
-        }
+      // Handle audio upload
+      if (
+        media.type === 'audio' ||
+        String(media.mimeType || '').startsWith('audio/')
+      ) {
+        const audioUrl = media.full || media.url || media.feed || '';
+        if (!audioUrl) return;
+        setSelectedMusic({
+          url: audioUrl,
+          title: media.fileName || 'Uploaded Music',
+          artist: 'Local Upload',
+        });
+        setAudioFile(null);
+        setShowMusicPicker(false);
+        setNativeUploading(false);
+        return;
       }
+
+      // Handle image/video upload
+      const mediaUrl = media.feed || media.full || media.url || media.thumb || '';
+      if (!mediaUrl) return;
+
+      const kind: 'image' | 'video' = media.type === 'video' || String(media.mimeType || '').startsWith('video/') ? 'video' : 'image';
+      const pick: MediaPick = {
+        url: media.thumb || media.feed || media.full || mediaUrl,
+        kind,
+        nativeMeta: {
+          thumb: media.thumb || null,
+          feed: media.feed || null,
+          full: media.full || media.url || media.feed || null,
+          url: media.url || media.full || media.feed || null,
+          type: kind,
+          mimeType: media.mimeType,
+          fileName: media.fileName,
+        },
+      };
+      setPicks(prev => {
+        const next = [...prev, pick].slice(0, 30);
+        if (prev.length === 0) setActivePick(0);
+        return next;
+      });
+      setMode('media');
+      setNativeUploading(false);
     };
+
+    const handleStart = () => setNativeUploading(true);
+    const handleDone = () => setNativeUploading(false);
 
     window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    window.addEventListener('uneraNativeUploadStart', handleStart);
+    window.addEventListener('uneraNativeUploadCancel', handleDone);
+    window.addEventListener('uneraNativeUploadError', handleDone);
+
     return () => {
       window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+      window.removeEventListener('uneraNativeUploadStart', handleStart);
+      window.removeEventListener('uneraNativeUploadCancel', handleDone);
+      window.removeEventListener('uneraNativeUploadError', handleDone);
     };
-  }, [picks.length]);
+  }, []);
+
+  const cleanupPickUrls = useCallback((arr: MediaPick[]) => {
+    for (const p of arr) if (p.url && p.url.startsWith('blob:') && !p.nativeMeta) URL.revokeObjectURL(p.url);
+  }, []);
 
   const handleCreate = async () => {
     if (!canShare || creating) return;
     setCreating(true);
-    setUploadProgress(0);
     
+    // close immediately so user continues using app
     onClose();
     
     const run = async () => {
       try {
         if (mode === 'text') {
-          setUploadProgress(25);
           await onCreate({
             user_id: currentUser.id,
             type: 'text',
@@ -2687,14 +2747,35 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
           });
-          setUploadProgress(100);
           return;
         }
         
-        for (let i = 0; i < picks.length; i++) {
-          const p = picks[i];
-          setUploadProgress(Math.round(((i + 1) / picks.length) * 95));
-          
+        for (const p of picks) {
+          if (p.nativeMeta) {
+            const meta = p.nativeMeta;
+            const fullUrl = meta.full || meta.url || meta.feed || meta.thumb || null;
+            const feedUrl = meta.feed || fullUrl;
+            const thumbUrl = meta.thumb || feedUrl || fullUrl;
+            await onCreate({
+              user_id: currentUser.id,
+              type: p.kind,
+              media_url: p.kind === 'image' ? feedUrl : fullUrl,
+              media_urls: [p.kind === 'image' ? feedUrl : fullUrl].filter(Boolean),
+              media_types: [p.kind],
+              media_meta: [
+                {
+                  thumb: thumbUrl,
+                  feed: p.kind === 'image' ? feedUrl : null,
+                  full: p.kind === 'image' ? feedUrl : fullUrl,
+                  type: p.kind,
+                },
+              ],
+              music_url: selectedMusic?.url,
+              music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            });
+            continue;
+          }
+          if (!p.file) continue;
           if (p.kind === 'image') {
             const uploaded = await uploadStoryImageSecret(p.file);
             await onCreate({
@@ -2721,7 +2802,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             });
           }
         }
-        setUploadProgress(100);
       } catch (error: any) {
         console.error('Failed to create story:', error);
         const toast = document.createElement('div');
@@ -2731,7 +2811,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         setTimeout(() => toast.remove(), 2200);
       } finally {
         setCreating(false);
-        setUploadProgress(0);
       }
     };
     
@@ -2754,15 +2833,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       return merged;
     });
     setMode('media');
-  };
-
-  // ✅ Open native picker instead of web file picker when in native app
-  const handleAddMediaClick = () => {
-    if (isUneraNativeApp()) {
-      callNativeMediaPicker('any');
-    } else {
-      fileInputRef.current?.click();
-    }
   };
 
   const removePick = (index: number) => {
@@ -2802,6 +2872,30 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
   };
 
+  // Native media picker handlers
+  const handlePickStoryImage = () => {
+    if (callUneraNative({ action: 'pick_image' })) return;
+    fileInputRef.current?.click();
+  };
+
+  const handlePickStoryVideo = () => {
+    if (callUneraNative({ action: 'pick_video' })) return;
+    fileInputRef.current?.click();
+  };
+
+  const handlePickStoryMedia = () => {
+    if (isUneraNativeApp()) {
+      callUneraNative({ action: 'pick_image' });
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handlePickStoryAudio = () => {
+    if (callUneraNative({ action: 'pick_file', fileType: 'audio' })) return;
+    audioInputRef.current?.click();
+  };
+
   useEffect(() => {
     return () => {
       cleanupPickUrls(picks);
@@ -2825,15 +2919,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
-      {creating && uploadProgress > 0 && uploadProgress < 100 && (
-        <div className="fixed top-0 left-0 right-0 h-1 bg-white/20 z-[300]">
-          <div 
-            className="h-full bg-[#1877F2] transition-all duration-300"
-            style={{ width: `${uploadProgress}%` }}
-          />
-        </div>
-      )}
-
       <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
         <button
           onClick={onClose}
@@ -2845,13 +2930,10 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         <h3 className="font-black text-[18px]">Create Story</h3>
         <button
           onClick={handleCreate}
-          disabled={!canShare || creating}
-          className={`bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm transition-all ${
-            !canShare || creating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[#166FE5] active:scale-95'
-          }`}
+          disabled={!canShare}
+          className="bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm disabled:opacity-50 disabled:bg-gray-600 transition-all"
           aria-label="Share story"
         >
-          {creating ? <i className="fas fa-spinner fa-spin mr-2"></i> : null}
           Share
         </button>
       </div>
@@ -2872,12 +2954,12 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         ) : (
           <div
             className="w-full h-full flex items-center justify-center bg-[#000]"
-            onClick={() => picks.length === 0 && handleAddMediaClick()}
+            onClick={() => picks.length === 0 && handlePickStoryMedia()}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {
               if ((e.key === 'Enter' || e.key === ' ') && picks.length === 0) {
-                handleAddMediaClick();
+                handlePickStoryMedia();
               }
             }}
           >
@@ -2992,7 +3074,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               ))}
 
               <button
-                onClick={handleAddMediaClick}
+                onClick={handlePickStoryMedia}
                 className="w-16 h-16 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex-shrink-0 flex items-center justify-center"
                 aria-label="Add more media"
               >
@@ -3046,7 +3128,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleAddMediaClick}
+              onClick={handlePickStoryMedia}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               title="Add photos/videos"
               aria-label="Add media"
@@ -3055,7 +3137,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             </button>
 
             <button
-              onClick={() => setShowMusicPicker(true)}
+              onClick={handlePickStoryAudio}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                 selectedMusic
                   ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
@@ -3069,6 +3151,16 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
+      {/* Native upload indicator */}
+      {nativeUploading && (
+        <div className="fixed inset-0 z-[500] bg-black/70 flex items-center justify-center">
+          <div className="bg-[#242526] border border-white/10 rounded-2xl px-6 py-5 flex flex-col items-center gap-3 shadow-2xl">
+            <div className="w-10 h-10 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin" />
+            <div className="text-white font-bold text-sm">Uploading...</div>
+          </div>
+        </div>
+      )}
+
       {showMusicPicker && (
         <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
           <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
@@ -3081,7 +3173,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
             <button
-              onClick={() => audioInputRef.current?.click()}
+              onClick={handlePickStoryAudio}
               className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
               aria-label="Upload music"
             >
@@ -3189,6 +3281,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     deleteLoading = false,
   } = props;
 
+  // Group stories by user
   const storyGroups = useMemo(() => {
     const source = allStories?.length ? allStories : [story];
     const map = new Map<number, StoryType[]>();
@@ -3214,6 +3307,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       });
   }, [allStories, story]);
 
+  // Set initial group and story only once
   const [groupIndex, setGroupIndex] = useState(() => {
     const idx = storyGroups.findIndex((g) =>
       g.stories.some((s) => Number(s.id) === Number(story.id))
@@ -3240,6 +3334,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
 
   const activeStory = userStories[activeIndex] || story;
 
+  // Build user from activeStory
   const modalUser: User = useMemo(() => {
     return mergeUserSafe(activeStory.user, {
       id: activeStory.user_id,
@@ -3272,6 +3367,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     });
   }, [activeStory]);
 
+  // Auto-advance to next user when same-user stories end
   const handleNext = () => {
     const nextStoryIndex = activeIndex + 1;
     if (nextStoryIndex < userStories.length) {
@@ -3289,6 +3385,7 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     onClose();
   };
 
+  // Auto-advance to previous user when going back from first story
   const handlePrev = () => {
     const prevStoryIndex = activeIndex - 1;
     if (prevStoryIndex >= 0) {
