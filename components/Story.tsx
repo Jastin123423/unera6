@@ -2747,8 +2747,597 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
   const canShare = (mode === 'text' && !!text.trim()) || (mode === 'media' && picks.length > 0);
   
-  // Camera functions
-  const openCamera = async () => {
+// Camera functions
+const openCamera = async () => {
+  try {
+    setCameraMode(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: true, 
+      audio: true,
+    });
+    setCameraStream(stream);
+    setTimeout(() => {
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+        cameraVideoRef.current.play().catch(() => {});
+      }
+    }, 50);
+  } catch (e: any) {
+    alert(e?.message || 'Camera permission denied');
+    setCameraMode(false);
+  }
+};
+
+const startStoryRecording = () => {
+  if (!cameraStream) return;
+  const chunks: BlobPart[] = [];
+  setRecordedChunks([]);
+  const recorder = new MediaRecorder(cameraStream, {
+    mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') 
+      ? 'video/webm;codecs=vp8,opus' 
+      : 'video/webm',
+  });
+  mediaRecorderRef.current = recorder;
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+  };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    const file = new File([blob], `story-camera-${Date.now()}.webm`, { 
+      type: recorder.mimeType || 'video/webm',
+    });
+    const url = URL.createObjectURL(file);
+    setPicks((prev) => [
+      ...prev,
+      { file, url, kind: 'video' },
+    ]);
+    setActivePick(picks.length);
+    setMode('media');
+    closeCamera();
+  };
+  
+  if (selectedMusic?.url) {
+    musicPreviewRef.current = new Audio(selectedMusic.url);
+    musicPreviewRef.current.currentTime = selectedMusic.start || 0;
+    musicPreviewRef.current.volume = 0.8;
+    musicPreviewRef.current.play().catch(() => {});
+  }
+  
+  recorder.start(250);
+  setIsRecording(true);
+};
+
+const stopStoryRecording = () => {
+  mediaRecorderRef.current?.stop();
+  setIsRecording(false);
+  if (musicPreviewRef.current) {
+    musicPreviewRef.current.pause();
+    musicPreviewRef.current = null;
+  }
+};
+
+const closeCamera = () => {
+  try {
+    cameraStream?.getTracks().forEach((t) => t.stop());
+  } catch {}
+  setCameraStream(null);
+  setCameraMode(false);
+  setIsRecording(false);
+  if (musicPreviewRef.current) {
+    musicPreviewRef.current.pause();
+    musicPreviewRef.current = null;
+  }
+};
+
+const togglePreviewSong = (song: Song) => {
+  if (previewSongId === song.id) {
+    previewAudioRef.current?.pause();
+    previewAudioRef.current = null;
+    setPreviewSongId(null);
+    return;
+  }
+  previewAudioRef.current?.pause();
+  const audio = new Audio(song.audio_url);
+  audio.currentTime = 0;
+  audio.volume = 0.8;
+  audio.play().catch(() => {});
+  previewAudioRef.current = audio;
+  setPreviewSongId(song.id);
+};
+
+// Native upload listener
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media: NativeMediaMeta = event.detail;
+    if (!media) return;
+
+    // Handle audio upload
+    if (
+      media.type === 'audio' ||
+      String(media.mimeType || '').startsWith('audio/')
+    ) {
+      const audioUrl = media.full || media.url || media.feed || '';
+      if (!audioUrl) return;
+      setSelectedMusic({
+        url: audioUrl,
+        title: media.fileName || 'Uploaded Music',
+        artist: 'Local Upload',
+        start: 0,
+        end: 15,
+        duration: 0,
+      });
+      setAudioFile(null);
+      setShowMusicPicker(false);
+      setNativeUploading(false);
+      return;
+    }
+
+    // Handle image/video upload
+    const mediaUrl = media.feed || media.full || media.url || media.thumb || '';
+    if (!mediaUrl) return;
+
+    const kind: 'image' | 'video' = media.type === 'video' || String(media.mimeType || '').startsWith('video/') ? 'video' : 'image';
+    const pick: MediaPick = {
+      url: media.thumb || media.feed || media.full || mediaUrl,
+      kind,
+      nativeMeta: {
+        thumb: media.thumb || null,
+        feed: media.feed || null,
+        full: media.full || media.url || media.feed || null,
+        url: media.url || media.full || media.feed || null,
+        type: kind,
+        mimeType: media.mimeType,
+        fileName: media.fileName,
+      },
+    };
+    setPicks(prev => {
+      const next = [...prev, pick].slice(0, 30);
+      if (prev.length === 0) setActivePick(0);
+      return next;
+    });
+    setMode('media');
+    setNativeUploading(false);
+  };
+
+  const handleStart = () => setNativeUploading(true);
+  const handleDone = () => setNativeUploading(false);
+
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  window.addEventListener('uneraNativeUploadStart', handleStart);
+  window.addEventListener('uneraNativeUploadCancel', handleDone);
+  window.addEventListener('uneraNativeUploadError', handleDone);
+
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    window.removeEventListener('uneraNativeUploadStart', handleStart);
+    window.removeEventListener('uneraNativeUploadCancel', handleDone);
+    window.removeEventListener('uneraNativeUploadError', handleDone);
+  };
+}, []);
+
+const cleanupPickUrls = useCallback((arr: MediaPick[]) => {
+  for (const p of arr) if (p.url && p.url.startsWith('blob:') && !p.nativeMeta) URL.revokeObjectURL(p.url);
+}, []);
+
+const handleCreate = async () => {
+  if (!canShare || creating) return;
+  setCreating(true);
+  
+  onClose();
+  
+  const run = async () => {
     try {
-      setCameraMode(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
+      if (mode === 'text') {
+        await onCreate({
+          user_id: currentUser.id,
+          type: 'text',
+          text_content: text,
+          background_style: background,
+          music_url: selectedMusic?.url,
+          music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+          music_start: selectedMusic?.start ?? 0,
+          music_end: selectedMusic?.end ?? 15,
+          music_duration: selectedMusic?.duration,
+        });
+        return;
+      }
+      
+      for (const p of picks) {
+        if (p.nativeMeta) {
+          const meta = p.nativeMeta;
+          const fullUrl = meta.full || meta.url || meta.feed || meta.thumb || null;
+          const feedUrl = meta.feed || fullUrl;
+          const thumbUrl = meta.thumb || feedUrl || fullUrl;
+          await onCreate({
+            user_id: currentUser.id,
+            type: p.kind,
+            media_url: p.kind === 'image' ? feedUrl : fullUrl,
+            media_urls: [p.kind === 'image' ? feedUrl : fullUrl].filter(Boolean),
+            media_types: [p.kind],
+            media_meta: [
+              {
+                thumb: thumbUrl,
+                feed: p.kind === 'image' ? feedUrl : null,
+                full: p.kind === 'image' ? feedUrl : fullUrl,
+                type: p.kind,
+              },
+            ],
+            music_url: selectedMusic?.url,
+            music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            music_start: selectedMusic?.start ?? 0,
+            music_end: selectedMusic?.end ?? 15,
+            music_duration: selectedMusic?.duration,
+          });
+          continue;
+        }
+        if (!p.file) continue;
+        if (p.kind === 'image') {
+          const uploaded = await uploadStoryImageSecret(p.file);
+          await onCreate({
+            user_id: currentUser.id,
+            type: 'image',
+            media_url: uploaded.media_url,
+            media_urls: uploaded.media_urls,
+            media_types: uploaded.media_types,
+            media_meta: uploaded.media_meta,
+            music_url: selectedMusic?.url,
+            music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            music_start: selectedMusic?.start ?? 0,
+            music_end: selectedMusic?.end ?? 15,
+            music_duration: selectedMusic?.duration,
+          });
+        } else {
+          const uploaded = await uploadStoryVideoSecret(p.file);
+          await onCreate({
+            user_id: currentUser.id,
+            type: 'video',
+            media_url: uploaded.media_url,
+            media_urls: uploaded.media_urls,
+            media_types: uploaded.media_types,
+            media_meta: uploaded.media_meta,
+            music_url: selectedMusic?.url,
+            music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            music_start: selectedMusic?.start ?? 0,
+            music_end: selectedMusic?.end ?? 15,
+            music_duration: selectedMusic?.duration,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to create story:', error);
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#F3425F] text-white px-6 py-2 rounded-full font-bold shadow-lg z-[400]';
+      toast.innerText = error?.message || 'Failed to create story';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2200);
+    } finally {
+      setCreating(false);
+    }
+  };
+  
+  void run();
+};
+
+const addFiles = (files: FileList | null) => {
+  if (!files || files.length === 0) return;
+  const newItems: MediaPick[] = [];
+
+  Array.from(files).forEach((file) => {
+    const kind: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
+    const url = URL.createObjectURL(file);
+    newItems.push({ file, url, kind });
+  });
+
+  setPicks(prev => {
+    const merged = [...prev, ...newItems].slice(0, 30);
+    if (prev.length === 0) setActivePick(0);
+    return merged;
+  });
+  setMode('media');
+};
+
+const removePick = (index: number) => {
+  setPicks(prev => {
+    const next = prev.slice();
+    const removed = next.splice(index, 1);
+    cleanupPickUrls(removed);
+    
+    const newLength = next.length;
+    setActivePick(current => {
+      if (newLength === 0) return 0;
+      if (current >= newLength) return newLength - 1;
+      if (current > index) return current - 1;
+      return current;
+    });
+    
+    return next;
+  });
+};
+
+const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  addFiles(e.target.files);
+  e.currentTarget.value = '';
+};
+
+const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (file) {
+    setAudioFile(file);
+    setSelectedMusic({
+      url: URL.createObjectURL(file),
+      title: file.name.split('.')[0],
+      artist: 'Local Upload',
+      start: 0,
+      end: 15,
+      duration: 0,
+    });
+    setShowMusicPicker(false);
+    e.currentTarget.value = '';
+  }
+};
+
+const handlePickStoryImage = () => {
+  if (callUneraNative({ action: 'pick_image' })) return;
+  fileInputRef.current?.click();
+};
+
+const handlePickStoryVideo = () => {
+  if (callUneraNative({ action: 'pick_video' })) return;
+  fileInputRef.current?.click();
+};
+
+const handlePickStoryMedia = () => {
+  if (isUneraNativeApp()) {
+    callUneraNative({ action: 'pick_image' });
+    return;
+  }
+  fileInputRef.current?.click();
+};
+
+const handlePickStoryAudio = () => {
+  if (callUneraNative({ action: 'pick_file', fileType: 'audio' })) return;
+  audioInputRef.current?.click();
+};
+
+useEffect(() => {
+  return () => {
+    cleanupPickUrls(picks);
+    if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
+      URL.revokeObjectURL(selectedMusic.url);
+    }
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if (musicPreviewRef.current) {
+      musicPreviewRef.current.pause();
+      musicPreviewRef.current = null;
+    }
+  };
+}, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
+
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') onClose();
+    if (e.key === 'Enter' && canShare) handleCreate();
+  };
+  
+  window.addEventListener('keydown', handleKeyDown);
+  return () => window.removeEventListener('keydown', handleKeyDown);
+}, [onClose, canShare, handleCreate]);
+
+const active = picks[activePick];
+
+return (
+  <>
+    {/* Camera Mode Screen */}
+    {cameraMode && (
+      <div className="fixed inset-0 z-[500] bg-black flex flex-col">
+        <div className="absolute top-0 left-0 right-0 z-30 p-4 flex items-center justify-between">
+          <button 
+            onClick={closeCamera} 
+            className="w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center"
+          >
+            <i className="fas fa-times text-xl"></i>
+          </button>
+          <button 
+            onClick={() => setShowMusicPicker(true)} 
+            className={`px-4 h-11 rounded-full flex items-center gap-2 font-bold ${
+              selectedMusic ? 'bg-[#45BD62] text-white' : 'bg-black/50 text-white'
+            }`}
+          >
+            <i className="fas fa-music"></i>
+            {selectedMusic ? 'Music added' : 'Add Music'}
+          </button>
+        </div>
+        <video 
+          ref={cameraVideoRef} 
+          className="w-full h-full object-cover" 
+          playsInline 
+          muted 
+          autoPlay 
+        />
+        <div className="absolute bottom-10 left-0 right-0 flex items-center justify-center">
+          <button 
+            onClick={isRecording ? stopStoryRecording : startStoryRecording} 
+            className={`w-20 h-20 rounded-full border-4 border-white flex items-center justify-center ${
+              isRecording ? 'bg-[#F3425F]' : 'bg-white/20'
+            }`}
+          >
+            <div className={`${
+              isRecording ? 'w-8 h-8 rounded-md bg-white' : 'w-14 h-14 rounded-full bg-[#F3425F]'
+            }`} />
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Main Create Story Modal */}
+    <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
+      <div className="flex justify-between items-center p-4 bg-black/60 backdrop-blur-lg absolute top-0 w-full z-40 border-b border-white/5">
+        <button
+          onClick={onClose}
+          className="text-white font-bold text-sm bg-white/10 px-4 py-2 rounded-full hover:bg-white/20 transition-all"
+          aria-label="Discard and close"
+        >
+          Discard
+        </button>
+        <h3 className="font-black text-[18px]">Create Story</h3>
+        <button
+          onClick={handleCreate}
+          disabled={!canShare}
+          className="bg-[#1877F2] text-white px-6 py-2 rounded-full font-black text-sm disabled:opacity-50 disabled:bg-gray-600 transition-all"
+          aria-label="Share story"
+        >
+          Share
+        </button>
+      </div>
+
+      <div
+        className="flex-1 flex items-center justify-center relative overflow-hidden mt-16 mb-24"
+        style={{ background: mode === 'text' ? background : '#000' }}
+      >
+        {mode === 'text' ? (
+          <textarea
+            autoFocus
+            placeholder="Start typing..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="bg-transparent text-white text-4xl font-bold text-center w-full max-w-lg outline-none resize-none placeholder-white/40 px-10 h-[40vh] flex items-center justify-center"
+            aria-label="Story text"
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center bg-[#000]"
+            onClick={() => picks.length === 0 && handlePickStoryMedia()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && picks.length === 0) {
+                handlePickStoryMedia();
+              }
+            }}
+          >
+            {picks.length > 0 && active ? (
+              <div className="relative w-full h-full">
+                {active.kind === 'video' ? (
+                  <video
+                    src={active.url}
+                    className="w-full h-full object-contain bg-black"
+                    playsInline
+                    controls
+                  />
+                ) : (
+                  <img src={active.url} className="w-full h-full object-contain" alt="" />
+                )}
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removePick(activePick);
+                  }}
+                  className="absolute top-4 left-4 w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white"
+                  aria-label="Remove media"
+                >
+                  <i className="fas fa-trash-alt"></i>
+                </button>
+
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/35 border border-white/10 backdrop-blur-md px-3 py-2 rounded-full flex items-center gap-1.5">
+                  {picks.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePick(i);
+                      }}
+                      className={`w-2 h-2 rounded-full ${i === activePick ? 'bg-white' : 'bg-white/40'}`}
+                      aria-label={`Story ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center cursor-pointer group">
+                <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-white/20 transition-all">
+                  <i className="fas fa-photo-video text-3xl text-white"></i>
+                </div>
+                <p className="font-black text-xl text-white">Select Photos / Videos</p>
+                <p className="text-white/60 text-sm mt-2">
+                  Choose multiple items like Facebook stories
+                </p>
+              </div>
+            )}
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*,video/*"
+              multiple
+              onChange={handleFileChange}
+              aria-label="Select media files"
+            />
+          </div>
+        )}
+
+        {selectedMusic && (
+          <div className="absolute top-20 z-30 bg-white/10 backdrop-blur-xl px-4 py-2.5 rounded-2xl border border-white/20 flex items-center gap-3 shadow-2xl animate-pulse">
+            <div className="w-10 h-10 bg-[#1877F2] rounded-lg flex items-center justify-center">
+              <i className="fas fa-music text-white"></i>
+            </div>
+            <div>
+              <p className="text-xs font-black text-white leading-tight">{selectedMusic.title}</p>
+              <p className="text-[10px] text-white/70">{selectedMusic.artist}</p>
+            </div>
+            <button
+              onClick={() => {
+                if (selectedMusic.url.startsWith('blob:')) URL.revokeObjectURL(selectedMusic.url);
+                setSelectedMusic(null);
+                setAudioFile(null);
+              }}
+              className="text-white/50 hover:text-white"
+              aria-label="Remove music"
+            >
+              <i className="fas fa-times-circle"></i>
+            </button>
+          </div>
+        )}
+
+        {mode === 'media' && picks.length > 1 && (
+          <div className="absolute bottom-16 left-0 right-0 px-4">
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+              {picks.map((p, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActivePick(i)}
+                  className={`relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 border ${
+                    i === activePick ? 'border-[#1877F2]' : 'border-white/10'
+                  }`}
+                  aria-label={`Select story ${i + 1}`}
+                >
+                  {p.kind === 'video' ? (
+                    <video src={p.url} className="w-full h-full object-cover" muted playsInline />
+                  ) : (
+                    <img src={p.url} className="w-full h-full object-cover" alt="" />
+                  )}
+                  {p.kind === 'video' && (
+                    <div className="absolute bottom-1 right-1 bg-black/50 rounded-full w-6 h-6 flex items-center justify-center">
+                      <i className="fas fa-play text-white text-[10px]"></i>
+                    </div>
+                  )}
+                </button>
+              ))}
+
+              <button
+                onClick={handlePickStoryMedia}
+                className="w-16 h-16 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex-shrink-0 flex items-center justify-center"
+                aria-label="Add more media"
+              >
+                <i className="fas fa-plus text-white"></i>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="absolute bottom-0 w-full bg-black/80 backdrop-blur-2xl border-t border-white/10 z-40 p-4 pb-8 flex flex-col gap
