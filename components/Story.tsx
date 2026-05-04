@@ -108,9 +108,6 @@ export interface StoryType {
     feed?: string | null;
     full?: string | null;
     type?: string;
-    poster?: string | null;
-    sound_id?: number | null;
-    effect_id?: number | null;
   }>;
   text_content: string | null;
   background_style: string | null;
@@ -147,9 +144,6 @@ export interface CreateStoryData {
     feed?: string | null;
     full?: string | null;
     type?: string;
-    poster?: string | null;
-    sound_id?: number | null;
-    effect_id?: number | null;
   }>;
   text_content?: string;
   background_style?: string;
@@ -163,7 +157,6 @@ export interface CreateStoryData {
 
 // ==================== STORY UPLOAD HELPERS ====================
 const STORY_VIDEO_MAX_SECONDS = 90;
-const DEFAULT_STORY_THUMB = 'https://via.placeholder.com/360x640/1a1a1a/ffffff?text=Story';
 
 const fileExtFromName = (name?: string) => {
   const s = String(name || '').trim();
@@ -335,7 +328,7 @@ const uploadStoryImageSecret = async (file: File) => {
   };
 };
 
-const uploadStoryVideoSecret = async (file: File, thumbDataUrl?: string | null) => {
+const uploadStoryVideoSecret = async (file: File) => {
   const objectUrl = URL.createObjectURL(file);
   try {
     const video = await loadVideoElement(objectUrl);
@@ -346,14 +339,7 @@ const uploadStoryVideoSecret = async (file: File, thumbDataUrl?: string | null) 
     URL.revokeObjectURL(objectUrl);
   }
   
-  let thumbFile: File;
-  if (thumbDataUrl) {
-    const blob = await fetch(thumbDataUrl).then(r => r.blob());
-    thumbFile = new File([blob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
-  } else {
-    thumbFile = await createVideoThumbnailFile(file);
-  }
-  
+  const thumbFile = await createVideoThumbnailFile(file);
   const fd = new FormData();
   fd.append('original', file);
   fd.append('thumbnail', thumbFile);
@@ -375,7 +361,6 @@ const uploadStoryVideoSecret = async (file: File, thumbDataUrl?: string | null) 
         feed: null,
         full: data?.uploaded?.original?.url || null,
         type: 'video',
-        poster: data?.uploaded?.thumbnail?.url || null,
       },
     ],
   };
@@ -1198,13 +1183,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     return '';
   }, []);
 
-  const getPosterUrl = useCallback((story: StoryType): string => {
-    const meta = story.media_meta?.[0];
-    if (meta?.poster) return meta.poster;
-    if (meta?.thumb) return meta.thumb;
-    return '';
-  }, []);
-
   // Lock page scroll when story viewer is open
   useEffect(() => {
     const prevBodyOverflow = document.body.style.overflow;
@@ -1891,7 +1869,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   } : null;
 
   const displayMediaUrl = getDisplayMediaUrl(story);
-  const posterUrl = getPosterUrl(story);
 
   return (
     <div className="fixed inset-0 z-[250] bg-black animate-fade-in">
@@ -2106,7 +2083,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <video
                   ref={videoRef}
                   src={displayMediaUrl}
-                  poster={posterUrl || undefined}
                   className="w-full h-full object-cover z-10"
                   playsInline
                   autoPlay
@@ -2517,7 +2493,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
   const getDisplayThumbnail = (story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.thumb) return meta.thumb;
-    if (meta?.poster) return meta.poster;
     if (meta?.feed) return meta.feed;
     if (meta?.full) return meta.full;
     if (story.media_url) return story.media_url;
@@ -2638,11 +2613,13 @@ export const StoryReel: React.FC<StoryReelProps> = ({
             ) : thumbnailUrl && !isBlob(thumbnailUrl) ? (
               isVid ? (
                 <div className="absolute w-full h-full">
-                  <img
-                    src={thumbnailUrl}
-                    alt="Story"
-                    className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                  />
+                  {thumbnailUrl ? (
+                    <img src={thumbnailUrl} alt="Video story" className="absolute w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  ) : (
+                    <div className="absolute w-full h-full bg-black flex items-center justify-center">
+                      <i className="fas fa-play text-white text-3xl"></i>
+                    </div>
+                  )}
                   <div className="absolute bottom-0 right-0 m-3 bg-black/40 border border-white/10 rounded-full px-2 py-1 text-white text-[10px] font-black flex items-center gap-1">
                     <i className="fas fa-play text-[9px]"></i> Video
                   </div>
@@ -2735,7 +2712,7 @@ interface CreateStoryModalProps {
   onCreate: (story: any) => Promise<void> | void;
 }
 
-type MediaPick = { file?: File; url: string; kind: 'image' | 'video'; nativeMeta?: NativeMediaMeta };
+type MediaPick = { file?: File; url: string; kind: 'image' | 'video'; thumbUrl?: string; effectId?: string; nativeMeta?: NativeMediaMeta; };
 
 export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   currentUser,
@@ -2764,16 +2741,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [showEffects, setShowEffects] = useState(false);
   const [previewSongId, setPreviewSongId] = useState<number | null>(null);
   const [selectedFilterId, setSelectedFilterId] = useState('none');
-  
-  // New camera states
-  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
-  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
-  const [recordedVideoThumb, setRecordedVideoThumb] = useState<string | null>(null);
-  const [selectedSound, setSelectedSound] = useState<any>(null);
-  const [activeEffect, setActiveEffect] = useState<any>(null);
-  const [showTimer, setShowTimer] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
-  const [showSoundPicker, setShowSoundPicker] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recordTimerRef = useRef<number | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -2781,7 +2751,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const canShare = (mode === 'text' && !!text.trim()) || (mode === 'media' && picks.length > 0);
 
@@ -2793,51 +2762,45 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       }, type, quality);
     });
 
-  // Video thumbnail generator
-  const createVideoThumbnail = (videoUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.src = videoUrl;
-      video.crossOrigin = 'anonymous';
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        video.currentTime = Math.min(0.8, video.duration || 0.8);
-      };
-      video.onseeked = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = 360;
-          canvas.height = 640;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Canvas not available');
-          const vw = video.videoWidth;
-          const vh = video.videoHeight;
-          const scale = Math.max(canvas.width / vw, canvas.height / vh);
-          const sw = canvas.width / scale;
-          const sh = canvas.height / scale;
-          const sx = (vw - sw) / 2;
-          const sy = (vh - sh) / 2;
-          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/webp', 0.82));
-        } catch (err) {
-          reject(err);
-        }
-      };
-      video.onerror = reject;
-    });
+  const createLocalVideoThumbnail = async (file: File) => {
+    const thumbFile = await createVideoThumbnailFile(file);
+    return { file: thumbFile, url: URL.createObjectURL(thumbFile) };
   };
 
-  const handleRecordingFinished = async (blob: Blob) => {
-    const videoUrl = URL.createObjectURL(blob);
-    setRecordedVideoUrl(videoUrl);
+  const openCamera = async (facing: 'user' | 'environment' = cameraFacingMode) => {
     try {
-      const thumb = await createVideoThumbnail(videoUrl);
-      setRecordedVideoThumb(thumb);
-    } catch {
-      setRecordedVideoThumb(null);
+      setCameraReady(false);
+      setCameraMode(true);
+      try {
+        cameraStream?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing,
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+        },
+        audio: true,
+      });
+      setCameraFacingMode(facing);
+      setCameraStream(stream);
+      setTimeout(() => {
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          cameraVideoRef.current.muted = true;
+          cameraVideoRef.current.playsInline = true;
+          cameraVideoRef.current.play().catch(() => {});
+        }
+      }, 80);
+    } catch (e: any) {
+      alert('Camera failed: ' + (e?.message || 'Permission denied'));
+      setCameraMode(false);
     }
+  };
+
+  const flipCamera = async () => {
+    const next = cameraFacingMode === 'user' ? 'environment' : 'user';
+    await openCamera(next);
   };
 
   const takeStoryPhoto = async () => {
@@ -2848,68 +2811,29 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     canvas.height = video.videoHeight || 1280;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const filter = getUneraFilterById(selectedFilterId);
-    ctx.filter = filter?.cssFilter || 'none';
+    ctx.filter = getUneraFilterById(selectedFilterId).cssFilter || 'none';
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.filter = 'none';
     const blob = await canvasToBlobLocal(canvas, 'image/jpeg', 0.92);
     const file = new File([blob], `story-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
     const url = URL.createObjectURL(file);
-    setPicks(prev => [...prev, { file, url, kind: 'image' }]);
-    setActivePick(picks.length);
+    setPicks((prev) => {
+      const next = [
+        ...prev,
+        { file, url, kind: 'image' as const, thumbUrl: url, effectId: selectedFilterId },
+      ];
+      setActivePick(next.length - 1);
+      return next;
+    });
     setMode('media');
     closeCamera();
   };
 
-  const startCamera = async () => {
-    try {
-      setCameraReady(false);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: cameraFacing,
-          width: { ideal: 720 },
-          height: { ideal: 1280 },
-        },
-        audio: true,
-      });
-      cameraStreamRef.current = stream;
-      setCameraStream(stream);
-      if (cameraVideoRef.current) {
-        cameraVideoRef.current.srcObject = stream;
-        cameraVideoRef.current.play().catch(() => {});
-      }
-      setTimeout(() => setCameraReady(true), 100);
-    } catch (e: any) {
-      console.error('Camera error:', e);
-      if (!cameraReady) {
-        alert('Camera failed: ' + (e?.message || 'Permission denied'));
-        closeCamera();
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (cameraMode) {
-      startCamera();
-    }
-    return () => {
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [cameraMode, cameraFacing]);
-
-  const openCamera = () => {
-    setCameraMode(true);
-  };
-
   const startStoryRecording = () => {
-    if (!cameraStreamRef.current) return;
+    if (!cameraStream) return;
     const chunks: BlobPart[] = [];
     setRecordedChunks([]);
-    setRecordedVideoUrl(null);
-    setRecordedVideoThumb(null);
-    const recorder = new MediaRecorder(cameraStreamRef.current, {
+    setRecordSeconds(0);
+    const recorder = new MediaRecorder(cameraStream, {
       mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
         ? 'video/webm;codecs=vp8,opus'
         : 'video/webm',
@@ -2918,29 +2842,54 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunks.push(e.data);
     };
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-      handleRecordingFinished(blob);
+    recorder.onstop = async () => {
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+        const file = new File([blob], `story-camera-${Date.now()}.webm`, {
+          type: recorder.mimeType || 'video/webm',
+        });
+        const url = URL.createObjectURL(file);
+        // ✅ Web-created thumbnail, prevents player from showing in story reel/card
+        const thumb = await createLocalVideoThumbnail(file);
+        setPicks((prev) => {
+          const next = [
+            ...prev,
+            { file, url, kind: 'video' as const, thumbUrl: thumb.url, effectId: selectedFilterId },
+          ];
+          setActivePick(next.length - 1);
+          return next;
+        });
+        setMode('media');
+        closeCamera();
+      } catch (e) {
+        console.error('Failed to finish recording:', e);
+        closeCamera();
+      }
     };
     if (selectedMusic?.url) {
       musicPreviewRef.current = new Audio(selectedMusic.url);
-      musicPreviewRef.current.currentTime = selectedMusic.start || 0;
+      musicPreviewRef.current.currentTime = selectedMusic.start ?? 5;
       musicPreviewRef.current.volume = 0.8;
-      musicPreviewRef.current.play().catch(() => {
-        const unlock = () => {
-          musicPreviewRef.current?.play().catch(() => {});
-          window.removeEventListener('touchstart', unlock);
-          window.removeEventListener('click', unlock);
-        };
-        window.addEventListener('touchstart', unlock, { once: true });
-        window.addEventListener('click', unlock, { once: true });
-      });
+      musicPreviewRef.current.muted = false;
+      musicPreviewRef.current.play().catch(() => {});
     }
     recorder.start(250);
     setIsRecording(true);
+    if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
+    recordTimerRef.current = window.setInterval(() => {
+      setRecordSeconds((s) => {
+        const next = s + 1;
+        if (next >= 90) stopStoryRecording();
+        return next;
+      });
+    }, 1000);
   };
 
   const stopStoryRecording = () => {
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
     mediaRecorderRef.current?.stop();
     setIsRecording(false);
     if (musicPreviewRef.current) {
@@ -2949,72 +2898,25 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
   };
 
-  const confirmRecordedVideo = () => {
-    if (recordedVideoUrl && recordedVideoThumb) {
-      // Convert data URL to blob
-      fetch(recordedVideoThumb)
-        .then(res => res.blob())
-        .then(thumbBlob => {
-          const thumbFile = new File([thumbBlob], `thumbnail-${Date.now()}.webp`, { type: 'image/webp' });
-          fetch(recordedVideoUrl)
-            .then(res => res.blob())
-            .then(videoBlob => {
-              const videoFile = new File([videoBlob], `story-camera-${Date.now()}.webm`, { type: 'video/webm' });
-              setPicks(prev => [...prev, { file: videoFile, url: recordedVideoUrl, kind: 'video' }]);
-              setActivePick(picks.length);
-              setMode('media');
-              closeCamera();
-            });
-        });
-    }
-  };
-
   const closeCamera = () => {
-    if (cameraStreamRef.current) {
-      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
-      cameraStreamRef.current = null;
+    try {
+      cameraStream?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
     }
     setCameraStream(null);
     setCameraMode(false);
     setCameraReady(false);
     setIsRecording(false);
+    setRecordSeconds(0);
     setCameraModeType('photo');
-    setRecordedVideoUrl(null);
-    setRecordedVideoThumb(null);
+    setShowEffects(false);
     if (musicPreviewRef.current) {
       musicPreviewRef.current.pause();
       musicPreviewRef.current = null;
     }
-  };
-
-  const switchCamera = () => {
-    setCameraFacing((prev) => (prev === 'user' ? 'environment' : 'user'));
-  };
-
-  const togglePreviewSong = (song: Song) => {
-    if (previewSongId === song.id) {
-      previewAudioRef.current?.pause();
-      previewAudioRef.current = null;
-      setPreviewSongId(null);
-      return;
-    }
-    previewAudioRef.current?.pause();
-    previewAudioRef.current = null;
-    const audio = new Audio(song.audio_url);
-    audio.currentTime = 0;
-    audio.volume = 1;
-    audio.muted = false;
-    audio.play().catch(() => {
-      const unlock = () => {
-        audio.play().catch(() => {});
-        window.removeEventListener('touchstart', unlock);
-        window.removeEventListener('click', unlock);
-      };
-      window.addEventListener('touchstart', unlock, { once: true });
-      window.addEventListener('click', unlock, { once: true });
-    });
-    previewAudioRef.current = audio;
-    setPreviewSongId(song.id);
   };
 
   // Native upload listener
@@ -3107,9 +3009,11 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             background_style: background,
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-            music_start: selectedMusic?.start ?? 0,
-            music_end: selectedMusic?.end ?? 15,
-            music_duration: selectedMusic?.duration,
+            music_start: selectedMusic?.start ?? 5,
+            music_end: selectedMusic?.end ?? null,
+            music_duration: selectedMusic?.duration ?? 0,
+            effect_id: selectedFilterId || 'none',
+            duration: 90,
           });
           return;
         }
@@ -3119,7 +3023,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             const meta = p.nativeMeta;
             const fullUrl = meta.full || meta.url || meta.feed || meta.thumb || null;
             const feedUrl = meta.feed || fullUrl;
-            const thumbUrl = meta.thumb || feedUrl || fullUrl;
+            const thumbUrl = p.thumbUrl || meta.thumb || feedUrl || fullUrl;
             await onCreate({
               user_id: currentUser.id,
               type: p.kind,
@@ -3132,14 +3036,15 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                   feed: p.kind === 'image' ? feedUrl : null,
                   full: p.kind === 'image' ? feedUrl : fullUrl,
                   type: p.kind,
-                  poster: p.kind === 'video' ? thumbUrl : null,
                 },
               ],
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-              music_start: selectedMusic?.start ?? 0,
-              music_end: selectedMusic?.end ?? 15,
-              music_duration: selectedMusic?.duration,
+              music_start: selectedMusic?.start ?? 5,
+              music_end: selectedMusic?.end ?? null,
+              music_duration: selectedMusic?.duration ?? 0,
+              effect_id: p.effectId || selectedFilterId || 'none',
+              duration: 90,
             });
             continue;
           }
@@ -3155,25 +3060,32 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               media_meta: uploaded.media_meta,
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-              music_start: selectedMusic?.start ?? 0,
-              music_end: selectedMusic?.end ?? 15,
-              music_duration: selectedMusic?.duration,
+              music_start: selectedMusic?.start ?? 5,
+              music_end: selectedMusic?.end ?? null,
+              music_duration: selectedMusic?.duration ?? 0,
+              effect_id: p.effectId || selectedFilterId || 'none',
+              duration: 90,
             });
           } else {
-            const thumbDataUrl = p.url.includes('blob:') ? null : undefined;
-            const uploaded = await uploadStoryVideoSecret(p.file, thumbDataUrl);
+            const uploaded = await uploadStoryVideoSecret(p.file);
             await onCreate({
               user_id: currentUser.id,
               type: 'video',
               media_url: uploaded.media_url,
               media_urls: uploaded.media_urls,
               media_types: uploaded.media_types,
-              media_meta: uploaded.media_meta,
+              media_meta: uploaded.media_meta.map((m: any) => ({
+                ...m,
+                thumb: m.thumb || p.thumbUrl || null,
+                type: 'video',
+              })),
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
-              music_start: selectedMusic?.start ?? 0,
-              music_end: selectedMusic?.end ?? 15,
-              music_duration: selectedMusic?.duration,
+              music_start: selectedMusic?.start ?? 5,
+              music_end: selectedMusic?.end ?? null,
+              music_duration: selectedMusic?.duration ?? 0,
+              effect_id: p.effectId || selectedFilterId || 'none',
+              duration: 90,
             });
           }
         }
@@ -3374,11 +3286,8 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         previewAudioRef.current.pause();
         previewAudioRef.current = null;
       }
-      if (recordedVideoUrl) {
-        URL.revokeObjectURL(recordedVideoUrl);
-      }
     };
-  }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls, recordedVideoUrl]);
+  }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3386,17 +3295,14 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         if (cameraMode) closeCamera();
         else if (showMusicPicker) setShowMusicPicker(false);
         else if (showEffects) setShowEffects(false);
-        else if (showFilters) setShowFilters(false);
-        else if (showTimer) setShowTimer(false);
-        else if (showSoundPicker) setShowSoundPicker(false);
         else onClose();
       }
-      if (e.key === 'Enter' && canShare && !cameraMode && !showMusicPicker && !showEffects && !showFilters && !showTimer && !showSoundPicker) handleCreate();
+      if (e.key === 'Enter' && canShare && !cameraMode && !showMusicPicker && !showEffects) handleCreate();
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, canShare, handleCreate, cameraMode, showMusicPicker, showEffects, showFilters, showTimer, showSoundPicker]);
+  }, [onClose, canShare, handleCreate, cameraMode, showMusicPicker, showEffects]);
 
   const active = picks[activePick];
 
@@ -3404,87 +3310,59 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   if (cameraMode) {
     return (
       <div className="fixed inset-0 z-[500] bg-black flex flex-col overflow-hidden">
-        {/* Add Sound button */}
-        <button
-          type="button"
-          onClick={() => setShowSoundPicker(true)}
-          className="absolute top-8 left-1/2 -translate-x-1/2 z-30 bg-black/40 backdrop-blur-md px-4 py-2 rounded-xl text-white font-semibold flex items-center gap-2"
-        >
-          <i className="fas fa-music"></i>
-          <span>{selectedSound ? selectedSound.title : 'Add sound'}</span>
-        </button>
-
         <div className="absolute top-0 left-0 right-0 z-30 p-4 flex items-center justify-between">
           <button onClick={closeCamera} className="w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center">
             <i className="fas fa-times text-xl"></i>
           </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowEffects(true)}
+              className="px-4 h-11 rounded-full flex items-center gap-2 font-bold bg-black/50 text-white"
+            >
+              <i className="fas fa-wand-magic-sparkles"></i> Effects
+            </button>
+            <button
+              onClick={openMusicPicker}
+              className={`px-4 h-11 rounded-full flex items-center gap-2 font-bold ${
+                selectedMusic ? 'bg-[#45BD62] text-white' : 'bg-black/50 text-white'
+              }`}
+            >
+              <i className="fas fa-music"></i>
+              {selectedMusic ? 'Music added' : 'Add Music'}
+            </button>
+          </div>
         </div>
 
-        {/* TikTok-style right icons */}
-        <div className="absolute right-4 top-24 z-30 flex flex-col items-center gap-6 text-white">
-          <button
-            type="button"
-            onClick={switchCamera}
-            className="w-11 h-11 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center"
-          >
+        {/* TikTok-style right-side icons */}
+        <div className="absolute right-4 top-28 z-40 flex flex-col items-center gap-5">
+          <button onClick={flipCamera} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Flip camera">
             <i className="fas fa-sync-alt text-2xl"></i>
           </button>
-          <button
-            type="button"
-            onClick={() => setShowEffects(true)}
-            className="w-11 h-11 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center"
-          >
-            <i className="fas fa-magic text-2xl"></i>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowTimer(true)}
-            className="w-11 h-11 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center"
-          >
-            <i className="fas fa-stopwatch text-2xl"></i>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFilters(true)}
-            className="w-11 h-11 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center"
-          >
+          <button onClick={() => setShowEffects(true)} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Effects">
             <i className="fas fa-wand-magic-sparkles text-2xl"></i>
+          </button>
+          <button onClick={openMusicPicker} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Add music">
+            <i className="fas fa-music text-2xl"></i>
           </button>
         </div>
 
-        {/* Camera preview or recorded video preview */}
-        {recordedVideoUrl && recordedVideoThumb && !isRecording ? (
-          <div className="relative w-full h-full">
-            <img
-              src={recordedVideoThumb}
-              className="w-full h-full object-cover"
-              alt="Video preview"
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-16 h-16 rounded-full bg-black/45 flex items-center justify-center">
-                <i className="fas fa-play text-white text-2xl ml-1"></i>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="absolute inset-0 bg-black">
-            <video
-              ref={cameraVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-cover transition-opacity duration-300 ${
-                cameraReady ? 'opacity-100' : 'opacity-0'
-              }`}
-              style={buildUneraFilterStyle(selectedFilterId)}
-              onLoadedMetadata={() => setCameraReady(true)}
-              onCanPlay={() => setCameraReady(true)}
-            />
-            <UneraFilterOverlay filterId={selectedFilterId} />
-          </div>
-        )}
+        <div className="absolute inset-0 bg-black">
+          <video
+            ref={cameraVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              cameraReady ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={buildUneraFilterStyle(selectedFilterId)}
+            onLoadedMetadata={() => setCameraReady(true)}
+            onCanPlay={() => setCameraReady(true)}
+          />
+          <UneraFilterOverlay filterId={selectedFilterId} />
+        </div>
 
-        {!cameraReady && !recordedVideoUrl && (
+        {!cameraReady && (
           <div className="absolute inset-0 bg-gradient-to-b from-[#111] via-[#18191A] to-black flex flex-col items-center justify-center z-10">
             <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-4">
               <i className="fas fa-camera text-white text-3xl animate-pulse"></i>
@@ -3519,36 +3397,16 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
 
         <div className="absolute bottom-10 left-0 right-0 flex items-center justify-center">
-          {recordedVideoUrl && !isRecording ? (
-            <div className="flex gap-8">
-              <button
-                onClick={() => {
-                  setRecordedVideoUrl(null);
-                  setRecordedVideoThumb(null);
-                }}
-                className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center"
-              >
-                <i className="fas fa-trash text-white text-2xl"></i>
-              </button>
-              <button
-                onClick={confirmRecordedVideo}
-                className="w-16 h-16 rounded-full bg-[#45BD62] flex items-center justify-center"
-              >
-                <i className="fas fa-check text-white text-2xl"></i>
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={cameraModeType === 'photo' ? takeStoryPhoto : isRecording ? stopStoryRecording : startStoryRecording}
-              className={`w-20 h-20 rounded-full border-4 border-white flex items-center justify-center ${
-                isRecording ? 'bg-[#F3425F]' : 'bg-white/20'
-              }`}
-            >
-              <div className={`${
-                isRecording ? 'w-8 h-8 rounded-md bg-white' : 'w-14 h-14 rounded-full bg-[#F3425F]'
-              }`} />
-            </button>
-          )}
+          <button
+            onClick={cameraModeType === 'photo' ? takeStoryPhoto : isRecording ? stopStoryRecording : startStoryRecording}
+            className={`w-20 h-20 rounded-full border-4 border-white flex items-center justify-center ${
+              isRecording ? 'bg-[#F3425F]' : 'bg-white/20'
+            }`}
+          >
+            <div className={`${
+              isRecording ? 'w-8 h-8 rounded-md bg-white' : 'w-14 h-14 rounded-full bg-[#F3425F]'
+            }`} />
+          </button>
         </div>
 
         {showEffects && (
@@ -3559,71 +3417,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             }}
             onClose={() => setShowEffects(false)}
           />
-        )}
-
-        {showFilters && (
-          <Filters
-            selectedFilterId={selectedFilterId}
-            onSelectFilter={(filter: UneraFilter) => {
-              setSelectedFilterId(filter.id);
-            }}
-            onClose={() => setShowFilters(false)}
-          />
-        )}
-
-        {showTimer && (
-          <div className="fixed inset-0 z-[750] bg-[#18191A] text-white flex flex-col">
-            <div className="p-4 flex items-center justify-between border-b border-white/10">
-              <button onClick={() => setShowTimer(false)} className="text-white font-bold">
-                Close
-              </button>
-              <div className="font-black">Timer</div>
-              <div className="w-12" />
-            </div>
-            <div className="flex-1 flex items-center justify-center text-white/60">
-              Timer feature coming soon...
-            </div>
-          </div>
-        )}
-
-        {showSoundPicker && (
-          <div className="fixed inset-0 z-[750] bg-[#18191A] text-white flex flex-col">
-            <div className="p-4 flex items-center justify-between border-b border-white/10">
-              <button onClick={() => setShowSoundPicker(false)} className="text-white font-bold">
-                Close
-              </button>
-              <div className="font-black">Add Sound</div>
-              <div className="w-12" />
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {songs.map((song) => (
-                <button
-                  key={song.id}
-                  onClick={() => {
-                    setSelectedSound(song);
-                    setSelectedMusic({
-                      url: song.audio_url,
-                      title: song.title,
-                      artist: song.artist_name,
-                      cover: song.cover_image_url,
-                      start: 0,
-                      end: 15,
-                      duration: song.duration || 0,
-                    });
-                    setShowSoundPicker(false);
-                  }}
-                  className="w-full p-3 mb-2 bg-[#242526] rounded-xl flex items-center gap-3"
-                >
-                  <img src={song.cover_image_url} className="w-12 h-12 rounded-lg object-cover" alt="" />
-                  <div className="flex-1 text-left">
-                    <p className="font-bold">{song.title}</p>
-                    <p className="text-sm text-white/60">{song.artist_name}</p>
-                  </div>
-                  <i className="fas fa-music text-[#1877F2]"></i>
-                </button>
-              ))}
-            </div>
-          </div>
         )}
 
         {showMusicPicker && renderMusicPicker()}
@@ -3680,12 +3473,16 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             {picks.length > 0 && active ? (
               <div className="relative w-full h-full">
                 {active.kind === 'video' ? (
-                  <video
-                    src={active.url}
-                    className="w-full h-full object-contain bg-black"
-                    playsInline
-                    controls
-                  />
+                  active.thumbUrl ? (
+                    <img src={active.thumbUrl} className="w-full h-full object-contain bg-black" alt="" />
+                  ) : (
+                    <video
+                      src={active.url}
+                      className="w-full h-full object-contain bg-black"
+                      playsInline
+                      controls
+                    />
+                  )
                 ) : (
                   <img src={active.url} className="w-full h-full object-contain" alt="" />
                 )}
@@ -3775,7 +3572,18 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
                   aria-label={`Select story ${i + 1}`}
                 >
                   {p.kind === 'video' ? (
-                    <video src={p.url} className="w-full h-full object-cover" muted playsInline />
+                    <div className="relative w-full h-full">
+                      {p.thumbUrl ? (
+                        <img src={p.thumbUrl} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        <video src={p.url} className="w-full h-full object-cover" muted playsInline />
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
+                          <i className="fas fa-play text-white text-xs"></i>
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <img src={p.url} className="w-full h-full object-cover" alt="" />
                   )}
@@ -3842,7 +3650,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={openCamera}
+              onClick={() => openCamera()}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               aria-label="Camera"
             >
