@@ -4,6 +4,14 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { rankStoriesForReel } from '../utils/ranking';
 import { apiFetch, avatarFrom, formatRelativeTime, RichText } from './Feed';
 
+// -------------------- ADDED: Import filters --------------------
+import Filters, { 
+  UneraFilter, 
+  buildUneraFilterStyle, 
+  UneraFilterOverlay, 
+  getUneraFilterById 
+} from './filters';
+
 // -------------------- NATIVE APP HELPERS --------------------
 const isUneraNativeApp = (): boolean => {
   return Boolean(
@@ -2731,6 +2739,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [cameraModeType, setCameraModeType] = useState<'photo' | 'video'>('photo');
   const [showEffects, setShowEffects] = useState(false);
   const [previewSongId, setPreviewSongId] = useState<number | null>(null);
+  const [selectedFilterId, setSelectedFilterId] = useState('none');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -2757,7 +2766,10 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     canvas.height = video.videoHeight || 1280;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const filter = getUneraFilterById(selectedFilterId);
+    ctx.filter = filter?.cssFilter || 'none';
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.filter = 'none';
     const blob = await canvasToBlobLocal(canvas, 'image/jpeg', 0.92);
     const file = new File([blob], `story-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
     const url = URL.createObjectURL(file);
@@ -2819,7 +2831,15 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       musicPreviewRef.current = new Audio(selectedMusic.url);
       musicPreviewRef.current.currentTime = selectedMusic.start || 0;
       musicPreviewRef.current.volume = 0.8;
-      musicPreviewRef.current.play().catch(() => {});
+      musicPreviewRef.current.play().catch(() => {
+        const unlock = () => {
+          musicPreviewRef.current?.play().catch(() => {});
+          window.removeEventListener('touchstart', unlock);
+          window.removeEventListener('click', unlock);
+        };
+        window.addEventListener('touchstart', unlock, { once: true });
+        window.addEventListener('click', unlock, { once: true });
+      });
     }
     recorder.start(250);
     setIsRecording(true);
@@ -2862,31 +2882,18 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     audio.currentTime = 0;
     audio.volume = 1;
     audio.muted = false;
-    audio.play().catch(() => {});
+    audio.play().catch(() => {
+      const unlock = () => {
+        audio.play().catch(() => {});
+        window.removeEventListener('touchstart', unlock);
+        window.removeEventListener('click', unlock);
+      };
+      window.addEventListener('touchstart', unlock, { once: true });
+      window.addEventListener('click', unlock, { once: true });
+    });
     previewAudioRef.current = audio;
     setPreviewSongId(song.id);
   };
-
-  // Native music picker listener
-  useEffect(() => {
-    const handler = (e: any) => {
-      const data = e.detail;
-      if (!data) return;
-      if (data.type === 'uneraMusicSelected') {
-        setSelectedMusic({
-          url: data.url,
-          title: data.title,
-          artist: data.artist,
-          cover: data.cover,
-          start: data.start || 0,
-          end: data.end || 15,
-          duration: data.duration || 0,
-        });
-      }
-    };
-    window.addEventListener('uneraNativeMusic', handler);
-    return () => window.removeEventListener('uneraNativeMusic', handler);
-  }, []);
 
   // Native upload listener
   useEffect(() => {
@@ -3143,12 +3150,95 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   };
 
   const openMusicPicker = () => {
-    if (isUneraNativeApp()) {
-      callUneraNative({ action: 'open_music_picker' });
-    } else {
-      setShowMusicPicker(true);
-    }
+    setShowMusicPicker(true);
   };
+
+  const renderMusicPicker = () => (
+    <div className="fixed inset-0 z-[900] bg-[#18191A] animate-slide-up flex flex-col font-sans">
+      <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
+        <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
+          <i className="fas fa-chevron-down mr-2"></i>Close
+        </button>
+        <h3 className="font-bold text-white">Add Music</h3>
+        <div className="w-10"></div>
+      </div>
+
+      <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
+        {/* Upload Music button - uses native picker */}
+        <button
+          onClick={handlePickStoryAudio}
+          className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
+          aria-label="Upload music"
+        >
+          <div className="w-12 h-12 bg-[#1877F2] rounded-full flex items-center justify-center shadow-lg">
+            <i className="fas fa-cloud-upload-alt text-white"></i>
+          </div>
+          <div>
+            <p className="text-white font-bold">Upload Music</p>
+            <p className="text-[#B0B3B8] text-xs">Choose a file from your device</p>
+          </div>
+        </button>
+
+        <input
+          type="file"
+          ref={audioInputRef}
+          className="hidden"
+          accept="audio/*"
+          onChange={handleAudioUpload}
+          aria-label="Select audio file"
+        />
+
+        <div className="h-px bg-[#3E4042] my-2"></div>
+        <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest px-1">
+          UNERA Music Trends
+        </p>
+
+        <div className="flex flex-col gap-2">
+          {songs.map((song) => (
+            <div
+              key={song.id}
+              className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
+            >
+              <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
+              <div className="flex-1 overflow-hidden">
+                <p className="text-white font-bold truncate">{song.title}</p>
+                <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => togglePreviewSong(song)}
+                  className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center"
+                >
+                  <i className={`fas ${previewSongId === song.id ? 'fa-pause' : 'fa-play'} text-white`}></i>
+                </button>
+                <button
+                  onClick={() => {
+                    previewAudioRef.current?.pause();
+                    previewAudioRef.current = null;
+                    setPreviewSongId(null);
+                    setSelectedMusic({
+                      url: song.audio_url,
+                      title: song.title,
+                      artist: song.artist_name,
+                      cover: song.cover_image_url,
+                      start: 0,
+                      end: 15,
+                      duration: song.duration || 0,
+                    });
+                    setAudioFile(null);
+                    setShowMusicPicker(false);
+                  }}
+                  className="px-4 py-2 rounded-full bg-[#45BD62] text-white font-bold text-sm"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     return () => {
@@ -3207,17 +3297,21 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
         </div>
 
-        <video
-          ref={cameraVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
-            cameraReady ? 'opacity-100' : 'opacity-0'
-          }`}
-          onLoadedMetadata={() => setCameraReady(true)}
-          onCanPlay={() => setCameraReady(true)}
-        />
+        <div className="absolute inset-0 bg-black">
+          <video
+            ref={cameraVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              cameraReady ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={buildUneraFilterStyle(selectedFilterId)}
+            onLoadedMetadata={() => setCameraReady(true)}
+            onCanPlay={() => setCameraReady(true)}
+          />
+          <UneraFilterOverlay filterId={selectedFilterId} />
+        </div>
 
         {!cameraReady && (
           <div className="absolute inset-0 bg-gradient-to-b from-[#111] via-[#18191A] to-black flex flex-col items-center justify-center z-10">
@@ -3266,21 +3360,17 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </button>
         </div>
 
-        {/* Effects placeholder */}
         {showEffects && (
-          <div className="fixed inset-0 z-[750] bg-[#18191A] text-white flex flex-col">
-            <div className="p-4 flex items-center justify-between border-b border-white/10">
-              <button onClick={() => setShowEffects(false)} className="text-white font-bold">
-                Close
-              </button>
-              <div className="font-black">Effects</div>
-              <div className="w-12" />
-            </div>
-            <div className="flex-1 flex items-center justify-center text-white/60">
-              Filters page will be connected next.
-            </div>
-          </div>
+          <Filters
+            selectedFilterId={selectedFilterId}
+            onSelectFilter={(filter: UneraFilter) => {
+              setSelectedFilterId(filter.id);
+            }}
+            onClose={() => setShowEffects(false)}
+          />
         )}
+
+        {showMusicPicker && renderMusicPicker()}
       </div>
     );
   }
@@ -3512,7 +3602,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <i className="fas fa-plus text-lg"></i>
             </button>
 
-            {/* Music icon - opens native music picker or fallback */}
+            {/* Music icon - opens music picker in React */}
             <button
               onClick={openMusicPicker}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
@@ -3529,92 +3619,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       </div>
 
       {/* Music Picker - Web fallback */}
-      {showMusicPicker && (
-        <div className="fixed inset-0 z-[700] bg-[#18191A] animate-slide-up flex flex-col font-sans">
-          <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
-            <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
-              <i className="fas fa-chevron-down mr-2"></i>Close
-            </button>
-            <h3 className="font-bold text-white">Add Music</h3>
-            <div className="w-10"></div>
-          </div>
-
-          <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
-            {/* Upload Music button - uses native picker */}
-            <button
-              onClick={handlePickStoryAudio}
-              className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
-              aria-label="Upload music"
-            >
-              <div className="w-12 h-12 bg-[#1877F2] rounded-full flex items-center justify-center shadow-lg">
-                <i className="fas fa-cloud-upload-alt text-white"></i>
-              </div>
-              <div>
-                <p className="text-white font-bold">Upload Music</p>
-                <p className="text-[#B0B3B8] text-xs">Choose a file from your device</p>
-              </div>
-            </button>
-
-            <input
-              type="file"
-              ref={audioInputRef}
-              className="hidden"
-              accept="audio/*"
-              onChange={handleAudioUpload}
-              aria-label="Select audio file"
-            />
-
-            <div className="h-px bg-[#3E4042] my-2"></div>
-            <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest px-1">
-              UNERA Music Trends
-            </p>
-
-            <div className="flex flex-col gap-2">
-              {songs.map((song) => (
-                <div
-                  key={song.id}
-                  className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
-                >
-                  <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-white font-bold truncate">{song.title}</p>
-                    <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => togglePreviewSong(song)}
-                      className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center"
-                    >
-                      <i className={`fas ${previewSongId === song.id ? 'fa-pause' : 'fa-play'} text-white`}></i>
-                    </button>
-                    <button
-                      onClick={() => {
-                        previewAudioRef.current?.pause();
-                        previewAudioRef.current = null;
-                        setPreviewSongId(null);
-                        setSelectedMusic({
-                          url: song.audio_url,
-                          title: song.title,
-                          artist: song.artist_name,
-                          cover: song.cover_image_url,
-                          start: 0,
-                          end: 15,
-                          duration: song.duration || 0,
-                        });
-                        setAudioFile(null);
-                        setShowMusicPicker(false);
-                      }}
-                      className="px-4 py-2 rounded-full bg-[#45BD62] text-white font-bold text-sm"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {showMusicPicker && renderMusicPicker()}
     </div>
   );
 };
