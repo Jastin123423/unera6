@@ -285,7 +285,6 @@ const createVideoThumbnailFile = async (file: File) => {
   }
 };
 
-// ✅ UPDATED: Image upload returns full = feed
 const uploadStoryImageSecret = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
   const fd = new FormData();
@@ -300,7 +299,6 @@ const uploadStoryImageSecret = async (file: File) => {
     throw new Error(data?.error || 'Story image upload failed');
   }
   
-  // ✅ full = feed for optimized images
   return {
     media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
     media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
@@ -1101,6 +1099,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingStory, setDeletingStory] = useState(false);
+  const [downloadingStory, setDownloadingStory] = useState(false);
   
   const [showReactions, setShowReactions] = useState(false);
   const [userReaction, setUserReaction] = useState<string | null>(
@@ -1148,7 +1147,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // ✅ UPDATED: Get the best quality URL for display with proper fallback chain
   const getDisplayMediaUrl = useCallback((story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.feed) return meta.feed;
@@ -1305,10 +1303,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
-    // SIMPLIFIED: Only horizontal swipe for same user navigation
     const SWIPE_X = 40;
     
-    // horizontal swipe = same user stories
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 28) {
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
@@ -1375,7 +1371,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
-  // ✅ Cache the display URL when story changes
   useEffect(() => {
     const displayUrl = getDisplayMediaUrl(story);
     if (displayUrl && !isBlob(displayUrl)) {
@@ -1420,6 +1415,35 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     navigationTimeoutRef.current = setTimeout(() => {
       isNavigatingRef.current = false;
     }, 300);
+  };
+
+  const handleDownloadStory = async () => {
+    if (downloadingStory) return;
+    
+    const url = getDisplayMediaUrl(story);
+    if (!url) return;
+    
+    setDownloadingStory(true);
+    
+    try {
+      if (isUneraNativeApp()) {
+        callUneraNative({
+          action: 'download_file',
+          url,
+          fileName: `unera-story-${story.id}.${storyIsVideo ? 'mp4' : 'jpg'}`,
+          folder: 'UNERA',
+        });
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `unera-story-${story.id}.${storyIsVideo ? 'mp4' : 'jpg'}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } finally {
+      setTimeout(() => setDownloadingStory(false), 1200);
+    }
   };
 
   useEffect(() => {
@@ -1547,7 +1571,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       }
     };
 
-    // ✅ UPDATED: Use getDisplayMediaUrl for preloading
     if (currentIndex >= 0) {
       const next1Story = userStories[currentIndex + 1];
       const next2Story = userStories[currentIndex + 2];
@@ -1930,6 +1953,18 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
                 <i className={`fas ${muted ? 'fa-volume-mute' : 'fa-volume-up'} text-white/80`}></i>
               </button>
             )}
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadStory();
+              }}
+              className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/15 rounded-full"
+              aria-label="Download story"
+              disabled={downloadingStory}
+            >
+              <i className={`fas ${downloadingStory ? 'fa-spinner fa-spin' : 'fa-download'} text-white/80`}></i>
+            </button>
             
             {isAuthor ? (
               <>
@@ -2407,7 +2442,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     return m;
   }, [sortedStories]);
 
-  // ✅ UPDATED: Get thumbnail URL with proper fallback chain
   const getDisplayThumbnail = (story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.thumb) return meta.thumb;
@@ -2733,7 +2767,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     if (!canShare || creating) return;
     setCreating(true);
     
-    // close immediately so user continues using app
     onClose();
     
     const run = async () => {
@@ -2872,7 +2905,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     }
   };
 
-  // Native media picker handlers
   const handlePickStoryImage = () => {
     if (callUneraNative({ action: 'pick_image' })) return;
     fileInputRef.current?.click();
@@ -3136,8 +3168,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <i className="fas fa-plus text-lg"></i>
             </button>
 
+            {/* Music icon - opens the Add Music page, not direct native picker */}
             <button
-              onClick={handlePickStoryAudio}
+              onClick={() => setShowMusicPicker(true)}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                 selectedMusic
                   ? 'bg-[#45BD62] text-white shadow-[0_0_15px_rgba(69,189,98,0.4)]'
@@ -3151,15 +3184,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
-      {/* Native upload indicator */}
-      {nativeUploading && (
-        <div className="fixed inset-0 z-[500] bg-black/70 flex items-center justify-center">
-          <div className="bg-[#242526] border border-white/10 rounded-2xl px-6 py-5 flex flex-col items-center gap-3 shadow-2xl">
-            <div className="w-10 h-10 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin" />
-            <div className="text-white font-bold text-sm">Uploading...</div>
-          </div>
-        </div>
-      )}
+      {/* Native upload indicator removed - no longer shown */}
 
       {showMusicPicker && (
         <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
@@ -3172,6 +3197,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
 
           <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
+            {/* Upload Music button - uses native picker */}
             <button
               onClick={handlePickStoryAudio}
               className="p-4 bg-[#263951] rounded-xl flex items-center gap-4 cursor-pointer hover:bg-[#2A3F5A] transition-all border border-[#2D88FF]/20"
@@ -3281,7 +3307,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     deleteLoading = false,
   } = props;
 
-  // Group stories by user
   const storyGroups = useMemo(() => {
     const source = allStories?.length ? allStories : [story];
     const map = new Map<number, StoryType[]>();
@@ -3307,7 +3332,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       });
   }, [allStories, story]);
 
-  // Set initial group and story only once
   const [groupIndex, setGroupIndex] = useState(() => {
     const idx = storyGroups.findIndex((g) =>
       g.stories.some((s) => Number(s.id) === Number(story.id))
@@ -3334,7 +3358,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
 
   const activeStory = userStories[activeIndex] || story;
 
-  // Build user from activeStory
   const modalUser: User = useMemo(() => {
     return mergeUserSafe(activeStory.user, {
       id: activeStory.user_id,
@@ -3367,7 +3390,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     });
   }, [activeStory]);
 
-  // Auto-advance to next user when same-user stories end
   const handleNext = () => {
     const nextStoryIndex = activeIndex + 1;
     if (nextStoryIndex < userStories.length) {
@@ -3385,7 +3407,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     onClose();
   };
 
-  // Auto-advance to previous user when going back from first story
   const handlePrev = () => {
     const prevStoryIndex = activeIndex - 1;
     if (prevStoryIndex >= 0) {
