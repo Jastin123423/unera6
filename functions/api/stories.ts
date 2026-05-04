@@ -27,7 +27,22 @@ const toInt = (v: any, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const toStr = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
+const toNum = (v: any, fallback = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const toNullableNum = (v: any) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const clamp = (n: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, n));
+
+const toStr = (v: any, fallback = "") =>
+  typeof v === "string" ? v : fallback;
 
 const isHttpUrl = (v: any) => {
   if (typeof v !== "string") return false;
@@ -40,9 +55,8 @@ const isHttpUrl = (v: any) => {
 };
 
 const normalizeStringArray = (v: any): string[] => {
-  if (Array.isArray(v)) {
-    return v.map((x) => String(x || "").trim()).filter(Boolean);
-  }
+  if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
+
   if (typeof v === "string") {
     try {
       const parsed = JSON.parse(v);
@@ -51,17 +65,20 @@ const normalizeStringArray = (v: any): string[] => {
       }
     } catch {}
   }
+
   return [];
 };
 
 const normalizeMediaMetaArray = (v: any): any[] => {
   if (Array.isArray(v)) return v.filter(Boolean);
+
   if (typeof v === "string") {
     try {
       const parsed = JSON.parse(v);
       if (Array.isArray(parsed)) return parsed.filter(Boolean);
     } catch {}
   }
+
   return [];
 };
 
@@ -73,6 +90,7 @@ const normalizeMediaType = (v: any, fallback = "image") => {
 
 const inferTypeFromUrl = (url: string) => {
   const u = String(url || "").toLowerCase();
+
   if (
     u.includes(".mp4") ||
     u.includes(".webm") ||
@@ -82,6 +100,7 @@ const inferTypeFromUrl = (url: string) => {
   ) {
     return "video";
   }
+
   if (
     u.includes(".mp3") ||
     u.includes(".wav") ||
@@ -91,6 +110,7 @@ const inferTypeFromUrl = (url: string) => {
   ) {
     return "audio";
   }
+
   return "image";
 };
 
@@ -103,11 +123,19 @@ const normalizeStoryMedia = (item: any) => {
     const normalized = mediaMeta
       .map((m: any) => {
         const thumb = String(m?.thumb || m?.thumbnail_url || "").trim();
+
         const feed = String(
           m?.feed || m?.feed_url || m?.url || m?.full || m?.full_url || ""
         ).trim();
+
         const full = String(
-          m?.full || m?.full_url || m?.feed || m?.feed_url || m?.url || m?.thumb || ""
+          m?.full ||
+            m?.full_url ||
+            m?.feed ||
+            m?.feed_url ||
+            m?.url ||
+            m?.thumb ||
+            ""
         ).trim();
 
         const chosenType = normalizeMediaType(
@@ -148,8 +176,10 @@ const normalizeStoryMedia = (item: any) => {
   }
 
   const singleUrl = String(item?.media_url || "").trim();
+
   if (isHttpUrl(singleUrl)) {
     const t = normalizeMediaType(item?.type, inferTypeFromUrl(singleUrl));
+
     return [
       {
         thumb: t === "image" ? singleUrl : null,
@@ -165,8 +195,18 @@ const normalizeStoryMedia = (item: any) => {
 
 const addNormalizedStoryMedia = (story: any) => {
   const media = normalizeStoryMedia(story);
+
   return {
     ...story,
+
+    effect_id: story?.effect_id || "none",
+
+    music_start: toNum(story?.music_start, 5),
+    music_end: toNullableNum(story?.music_end),
+    music_duration: toNum(story?.music_duration, 0),
+
+    duration: clamp(toNum(story?.duration, 90), 1, 90),
+
     media,
     media_count: media.length,
     thumb_url: media[0]?.thumb || null,
@@ -174,6 +214,44 @@ const addNormalizedStoryMedia = (story: any) => {
     full_url: media[0]?.full || null,
   };
 };
+
+const selectStorySql = `
+  SELECT
+    s.*,
+    u.username as author_name,
+    u.profile_image_url as author_image,
+
+    (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
+    (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
+    (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
+    (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
+
+    (SELECT sr.reaction
+       FROM story_reactions sr
+      WHERE sr.story_id = s.id
+        AND sr.user_id = ?
+      LIMIT 1
+    ) AS my_reaction,
+
+    EXISTS(
+      SELECT 1
+      FROM story_views sv2
+      WHERE sv2.story_id = s.id
+        AND sv2.user_id = ?
+    ) AS viewed_by_me,
+
+    (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
+
+    (SELECT 1
+       FROM story_reactions sr
+      WHERE sr.story_id = s.id
+        AND sr.user_id = ?
+      LIMIT 1
+    ) AS liked_by_me
+
+  FROM stories s
+  LEFT JOIN users u ON u.id = s.user_id
+`;
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -196,6 +274,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const music_url = body.music_url ? toStr(body.music_url).trim() : null;
     const music_title = body.music_title ? toStr(body.music_title).trim() : null;
 
+    // ✅ Backend-controlled defaults
+    const effect_id = toStr(body.effect_id || "none", "none").trim() || "none";
+
+    // Start music from better part
+    const music_start = clamp(toNum(body.music_start, 5), 0, 90);
+
+    // null = frontend plays until story ends
+    const music_end = toNullableNum(body.music_end);
+
+    const music_duration = Math.max(0, toNum(body.music_duration, 0));
+
+    // ✅ 1.5 minutes max story duration
+    const duration = clamp(toNum(body.duration, 90), 1, 90);
+
     if (!user_id) return json({ success: false, error: "user_id is required" }, 400);
 
     if (type !== "text" && type !== "image" && type !== "video") {
@@ -211,6 +303,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .filter((u) => isHttpUrl(u));
 
     const filtered_types: string[] = [];
+
     for (let i = 0; i < filtered_urls.length; i++) {
       const t = String(media_types_arr[i] || "").trim();
       filtered_types.push(t || "");
@@ -231,7 +324,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       .filter((u: string) => isHttpUrl(u));
 
     const mediaMetaTypes = media_meta_arr.map((item: any) =>
-      String(item?.type || inferTypeFromUrl(item?.full || item?.feed || item?.thumb || "")).trim()
+      String(
+        item?.type ||
+          inferTypeFromUrl(item?.full || item?.feed || item?.thumb || "")
+      ).trim()
     );
 
     const final_multi_urls =
@@ -263,11 +359,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     let result: D1Result<any>;
 
+    // ✅ New table with effect/music/duration columns
     try {
       const stmt = `
         INSERT INTO stories
-        (user_id, type, media_url, media_urls, media_types, media_meta, text_content, background_style, music_url, music_title, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '9999-12-31')
+        (
+          user_id,
+          type,
+          media_url,
+          media_urls,
+          media_types,
+          media_meta,
+          text_content,
+          background_style,
+          music_url,
+          music_title,
+          music_start,
+          music_end,
+          music_duration,
+          effect_id,
+          duration,
+          expires_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '9999-12-31')
       `;
 
       result = await env.DB.prepare(stmt)
@@ -281,125 +395,94 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           text_content,
           background_style,
           music_url,
-          music_title
+          music_title,
+          music_start,
+          music_end,
+          music_duration,
+          effect_id,
+          duration
         )
         .run();
     } catch {
-      const stmt = `
-        INSERT INTO stories
-        (user_id, type, media_url, text_content, background_style, music_url, music_title, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, '9999-12-31')
-      `;
+      // ✅ Older table with media_meta but no new columns
+      try {
+        const stmt = `
+          INSERT INTO stories
+          (
+            user_id,
+            type,
+            media_url,
+            media_urls,
+            media_types,
+            media_meta,
+            text_content,
+            background_style,
+            music_url,
+            music_title,
+            expires_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '9999-12-31')
+        `;
 
-      result = await env.DB.prepare(stmt)
-        .bind(
-          user_id,
-          type,
-          final_media_url,
-          text_content,
-          background_style,
-          music_url,
-          music_title
-        )
-        .run();
+        result = await env.DB.prepare(stmt)
+          .bind(
+            user_id,
+            type,
+            final_media_url,
+            media_urls_json,
+            media_types_json,
+            media_meta_json,
+            text_content,
+            background_style,
+            music_url,
+            music_title
+          )
+          .run();
+      } catch {
+        // ✅ Very old table fallback
+        const stmt = `
+          INSERT INTO stories
+          (
+            user_id,
+            type,
+            media_url,
+            text_content,
+            background_style,
+            music_url,
+            music_title,
+            expires_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, '9999-12-31')
+        `;
+
+        result = await env.DB.prepare(stmt)
+          .bind(
+            user_id,
+            type,
+            final_media_url,
+            text_content,
+            background_style,
+            music_url,
+            music_title
+          )
+          .run();
+      }
     }
 
     const story_id = Number(result.meta?.last_row_id);
 
-    let story: any = null;
+    let story: any = await env.DB.prepare(
+      `
+      ${selectStorySql}
+      WHERE s.id = ?
+      LIMIT 1
+      `
+    )
+      .bind(user_id, user_id, user_id, story_id)
+      .first();
 
-    try {
-      story = await env.DB.prepare(
-        `
-        SELECT
-          s.*,
-          u.username as author_name,
-          u.profile_image_url as author_image,
-
-          (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
-          (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
-          (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
-
-          (SELECT sr.reaction
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS my_reaction,
-
-          EXISTS(
-            SELECT 1
-            FROM story_views sv2
-            WHERE sv2.story_id = s.id
-              AND sv2.user_id = ?
-          ) AS viewed_by_me,
-
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
-          (SELECT 1
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS liked_by_me
-
-        FROM stories s
-        LEFT JOIN users u ON u.id = s.user_id
-        WHERE s.id = ?
-        LIMIT 1
-        `
-      )
-        .bind(user_id, user_id, user_id, story_id)
-        .first();
-    } catch {
-      story = await env.DB.prepare(
-        `
-        SELECT
-          s.*,
-          u.username as author_name,
-          u.profile_image_url as author_image,
-
-          (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
-          (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
-          (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
-
-          (SELECT sr.reaction
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS my_reaction,
-
-          EXISTS(
-            SELECT 1
-            FROM story_views sv2
-            WHERE sv2.story_id = s.id
-              AND sv2.user_id = ?
-          ) AS viewed_by_me,
-
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
-          (SELECT 1
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS liked_by_me
-
-        FROM stories s
-        LEFT JOIN users u ON u.id = s.user_id
-        WHERE s.id = ?
-        LIMIT 1
-        `
-      )
-        .bind(user_id, user_id, user_id, story_id)
-        .first();
-
-      if (story) {
-        story.media_urls = null;
-        story.media_types = null;
-        story.media_meta = null;
-      }
+    if (!story) {
+      return json({ success: false, error: "Story created but not found" }, 500);
     }
 
     return json({ success: true, story: addNormalizedStoryMedia(story) }, 201);
@@ -424,104 +507,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     let results: any[] = [];
 
-    try {
-      const q = `
-        SELECT
-          s.*,
-          u.username as author_name,
-          u.profile_image_url as author_image,
+    const q = `
+      ${selectStorySql}
+      ORDER BY s.created_at DESC
+      LIMIT 500
+    `;
 
-          (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
-          (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
-          (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
+    const res = await env.DB
+      .prepare(q)
+      .bind(viewerId || 0, viewerId || 0, viewerId || 0)
+      .all();
 
-          (SELECT sr.reaction
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS my_reaction,
-
-          EXISTS(
-            SELECT 1
-            FROM story_views sv2
-            WHERE sv2.story_id = s.id
-              AND sv2.user_id = ?
-          ) AS viewed_by_me,
-
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
-          (SELECT 1
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS liked_by_me
-
-        FROM stories s
-        LEFT JOIN users u ON u.id = s.user_id
-        ORDER BY s.created_at DESC
-        LIMIT 500
-      `;
-
-      const res = await env.DB
-        .prepare(q)
-        .bind(viewerId || 0, viewerId || 0, viewerId || 0)
-        .all();
-
-      results = Array.isArray(res.results) ? res.results : [];
-    } catch {
-      const q = `
-        SELECT
-          s.*,
-          u.username as author_name,
-          u.profile_image_url as author_image,
-
-          (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) AS views_count,
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reactions_count,
-          (SELECT COUNT(*) FROM story_comments sc WHERE sc.story_id = s.id AND sc.is_deleted = 0) AS comments_count,
-          (SELECT COUNT(*) FROM story_shares ss WHERE ss.story_id = s.id) AS shares_count,
-
-          (SELECT sr.reaction
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS my_reaction,
-
-          EXISTS(
-            SELECT 1
-            FROM story_views sv2
-            WHERE sv2.story_id = s.id
-              AND sv2.user_id = ?
-          ) AS viewed_by_me,
-
-          (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS likes_count,
-          (SELECT 1
-             FROM story_reactions sr
-            WHERE sr.story_id = s.id
-              AND sr.user_id = ?
-            LIMIT 1
-          ) AS liked_by_me
-
-        FROM stories s
-        LEFT JOIN users u ON u.id = s.user_id
-        ORDER BY s.created_at DESC
-        LIMIT 500
-      `;
-
-      const res = await env.DB
-        .prepare(q)
-        .bind(viewerId || 0, viewerId || 0, viewerId || 0)
-        .all();
-
-      results = (Array.isArray(res.results) ? res.results : []).map((x: any) => ({
-        ...x,
-        media_urls: null,
-        media_types: null,
-        media_meta: null,
-      }));
-    }
+    results = Array.isArray(res.results) ? res.results : [];
 
     return json(results.map(addNormalizedStoryMedia));
   } catch (err: any) {
