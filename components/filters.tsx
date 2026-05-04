@@ -29,7 +29,7 @@ export type UneraFilter = {
 };
 
 const PREVIEW =
-  "https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp";
+  "https://media.unera.social/file_0000000089ac71f6832fa066b0321098.png";
 
 export const UNERA_FILTERS: UneraFilter[] = [
   {
