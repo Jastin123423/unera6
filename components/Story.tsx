@@ -16,21 +16,28 @@ const isUneraNativeApp = (): boolean => {
 const callNativeMediaPicker = (mediaType: 'image' | 'video' | 'any'): boolean => {
   if (!isUneraNativeApp()) return false;
 
-  const action = 
-    mediaType === 'image' ? 'pick_image' :
-    mediaType === 'video' ? 'pick_video' :
-    'pick_media';
-
+  const action = 'pick_media';
+  
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
-      JSON.stringify({ action, mediaType, multiple: true })
+      JSON.stringify({ 
+        action, 
+        mediaType, 
+        multiple: true,
+        allowedTypes: mediaType === 'any' ? ['image', 'video'] : [mediaType]
+      })
     );
     return true;
   }
 
   if ((window as any).ReactNativeWebView?.postMessage) {
     (window as any).ReactNativeWebView.postMessage(
-      JSON.stringify({ action, mediaType, multiple: true })
+      JSON.stringify({ 
+        action, 
+        mediaType, 
+        multiple: true,
+        allowedTypes: mediaType === 'any' ? ['image', 'video'] : [mediaType]
+      })
     );
     return true;
   }
@@ -278,7 +285,6 @@ const createVideoThumbnailFile = async (file: File) => {
   }
 };
 
-// ✅ UPDATED: Image upload with native support - returns full = feed
 const uploadStoryImageSecret = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeImageVariants(file);
   const fd = new FormData();
@@ -293,7 +299,6 @@ const uploadStoryImageSecret = async (file: File) => {
     throw new Error(data?.error || 'Story image upload failed');
   }
   
-  // ✅ full = feed for optimized images
   return {
     media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
     media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
@@ -1114,7 +1119,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     id: Number(story.user_id) || 0,
   });
 
-  // ✅ UPDATED: Get the best quality URL for display with proper fallback chain
   const getDisplayMediaUrl = useCallback((story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.feed) return meta.feed;
@@ -1144,7 +1148,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, []);
 
-  // Block wheel scrolling for desktop and some Android webviews
   useEffect(() => {
     const preventWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -1271,10 +1274,8 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     const dy = e.clientY - start.y;
     const dt = Date.now() - start.t;
 
-    // SIMPLIFIED: Only horizontal swipe for same user navigation
     const SWIPE_X = 40;
     
-    // horizontal swipe = same user stories
     if (Math.abs(dx) > SWIPE_X && Math.abs(dy) < 28) {
       if (dx < 0) safeNavigate('next');
       else safeNavigate('prev');
@@ -1341,7 +1342,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     }
   }, [story.id, story.views_count, viewersCount, story.analytics?.total_views]);
 
-  // ✅ Cache the display URL when story changes
   useEffect(() => {
     const displayUrl = getDisplayMediaUrl(story);
     if (displayUrl && !isBlob(displayUrl)) {
@@ -1513,7 +1513,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
       }
     };
 
-    // ✅ UPDATED: Use getDisplayMediaUrl for preloading
     if (currentIndex >= 0) {
       const next1Story = userStories[currentIndex + 1];
       const next2Story = userStories[currentIndex + 2];
@@ -1794,7 +1793,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
-        {/* Horizontal Navigation Buttons - Same User */}
         <button
           type="button"
           aria-label="Previous story (same user)"
@@ -2063,12 +2061,10 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           )}
         </div>
 
-        {/* Horizontal Bottom Actions - React, Discuss, Share */}
         <div 
           className="absolute bottom-0 left-0 right-0 p-3 z-20 bg-gradient-to-t from-black/80 to-transparent pt-10"
           data-no-nav="true"
         >
-          {/* Reaction row with counts */}
           {reactionCount > 0 && (
             <div 
               className="flex items-center justify-between px-2 mb-2 cursor-pointer"
@@ -2107,7 +2103,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
           )}
 
-          {/* Three horizontal buttons */}
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={handleReactionClick}
@@ -2151,7 +2146,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         </div>
 
-        {/* Viewers Modal */}
         {showViewers && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={closeViewers} />
@@ -2237,7 +2231,6 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           </div>
         )}
 
-        {/* Delete Confirmation Modal */}
         {showDeleteConfirm && (
           <div className="absolute inset-0 z-[500] bg-black/70 backdrop-blur-sm">
             <div className="absolute inset-0" onClick={() => setShowDeleteConfirm(false)} />
@@ -2370,7 +2363,6 @@ export const StoryReel: React.FC<StoryReelProps> = ({
     return m;
   }, [sortedStories]);
 
-  // ✅ UPDATED: Get thumbnail URL with proper fallback chain
   const getDisplayThumbnail = (story: StoryType): string => {
     const meta = story.media_meta?.[0];
     if (meta?.thumb) return meta.thumb;
@@ -2625,41 +2617,54 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
     for (const p of arr) if (p.url && p.url.startsWith('blob:')) URL.revokeObjectURL(p.url);
   }, []);
 
-  // ✅ Native media picker handler
+  // ✅ NATIVE UPLOAD LISTENER - FIXED to use 'uneraNativeUpload' event
   useEffect(() => {
-    const handleNativeMediaSelected = async (event: any) => {
+    const handleNativeUpload = async (event: any) => {
       const media = event.detail;
+      console.log('📱 StoryReel: Native media received:', media);
+      
       if (!media || !media.url) return;
 
+      // Check if this is media for stories (has image/video type)
+      const isStoryMedia = media.type === 'image' || 
+                           media.type === 'video' ||
+                           media.mimeType?.startsWith('image/') ||
+                           media.mimeType?.startsWith('video/');
+      
+      if (!isStoryMedia) return; // Skip non-media files (like documents)
+      
       const isVideo = media.mimeType?.startsWith('video/') || media.type === 'video';
       const kind: 'image' | 'video' = isVideo ? 'video' : 'image';
       
-      // Try to get the file from the native response
-      if (media.file) {
-        const file = media.file;
-        const url = URL.createObjectURL(file);
-        setPicks(prev => [...prev, { file, url, kind }]);
-        if (picks.length === 0) setActivePick(0);
-      } else if (media.url && !media.url.startsWith('blob:')) {
-        // If we only have a URL, fetch it as a blob
+      const mediaUrl = media.full || media.feed || media.url;
+      if (mediaUrl) {
         try {
-          const response = await fetch(media.url);
-          const blob = await response.blob();
-          const file = new File([blob], media.fileName || 'media.jpg', { type: blob.type });
-          const url = URL.createObjectURL(file);
-          setPicks(prev => [...prev, { file, url, kind }]);
-          if (picks.length === 0) setActivePick(0);
+          // If we have a direct file from native
+          if (media.file) {
+            const file = media.file;
+            const url = URL.createObjectURL(file);
+            setPicks(prev => [...prev, { file, url, kind }]);
+            if (picks.length === 0) setActivePick(0);
+          } else {
+            // Fetch the blob from URL
+            const response = await fetch(mediaUrl);
+            const blob = await response.blob();
+            const fileName = media.fileName || media.filename || `story-${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`;
+            const file = new File([blob], fileName, { type: blob.type });
+            const url = URL.createObjectURL(file);
+            setPicks(prev => [...prev, { file, url, kind }]);
+            if (picks.length === 0) setActivePick(0);
+          }
+          setMode('media');
         } catch (error) {
           console.error('Failed to process native media:', error);
         }
       }
-      
-      setMode('media');
     };
 
-    window.addEventListener('uneraNativeMediaSelected', handleNativeMediaSelected);
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
     return () => {
-      window.removeEventListener('uneraNativeMediaSelected', handleNativeMediaSelected);
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
     };
   }, [picks.length]);
 
@@ -2820,7 +2825,6 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
-      {/* Progress bar for upload */}
       {creating && uploadProgress > 0 && uploadProgress < 100 && (
         <div className="fixed top-0 left-0 right-0 h-1 bg-white/20 z-[300]">
           <div 
@@ -3185,7 +3189,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     deleteLoading = false,
   } = props;
 
-  // Group stories by user
   const storyGroups = useMemo(() => {
     const source = allStories?.length ? allStories : [story];
     const map = new Map<number, StoryType[]>();
@@ -3211,7 +3214,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
       });
   }, [allStories, story]);
 
-  // Set initial group and story only once
   const [groupIndex, setGroupIndex] = useState(() => {
     const idx = storyGroups.findIndex((g) =>
       g.stories.some((s) => Number(s.id) === Number(story.id))
@@ -3238,7 +3240,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
 
   const activeStory = userStories[activeIndex] || story;
 
-  // Build user from activeStory
   const modalUser: User = useMemo(() => {
     return mergeUserSafe(activeStory.user, {
       id: activeStory.user_id,
@@ -3271,7 +3272,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     });
   }, [activeStory]);
 
-  // Auto-advance to next user when same-user stories end
   const handleNext = () => {
     const nextStoryIndex = activeIndex + 1;
     if (nextStoryIndex < userStories.length) {
@@ -3289,7 +3289,6 @@ export const StoryViewerModal: React.FC<StoryViewerModalProps> = (props) => {
     onClose();
   };
 
-  // Auto-advance to previous user when going back from first story
   const handlePrev = () => {
     const prevStoryIndex = activeIndex - 1;
     if (prevStoryIndex >= 0) {
