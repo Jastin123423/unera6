@@ -105,6 +105,9 @@ export interface StoryType {
   background_style: string | null;
   music_url: string | null;
   music_title: string | null;
+  music_start?: number | null;
+  music_end?: number | null;
+  music_duration?: number | null;
   created_at: string;
   expires_at?: string | null;
   is_active?: boolean;
@@ -138,6 +141,9 @@ export interface CreateStoryData {
   background_style?: string;
   music_url?: string;
   music_title?: string;
+  music_start?: number;
+  music_end?: number;
+  music_duration?: number;
   audio_file?: File;
 }
 
@@ -625,6 +631,7 @@ interface StoryCommentsSheetProps {
   onFollow?: (id: number) => void;
   checkIsFollowing?: (id: number) => boolean;
   followLoading?: { [key: number]: boolean };
+  onCountChange?: (count: number) => void;
 }
 
 export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
@@ -638,6 +645,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
   onFollow,
   checkIsFollowing,
   followLoading = {},
+  onCountChange,
 }) => {
   const [comments, setComments] = useState<any[]>([]);
   const [text, setText] = useState('');
@@ -653,6 +661,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     const cached = getStoryCommentsCache(storyId);
     if (!force && cached) {
       setComments(cached);
+      onCountChange?.(cached.length);
       return;
     }
     setLoading(true);
@@ -661,12 +670,13 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       const commentsList = Array.isArray(data?.comments) ? data.comments : [];
       setComments(commentsList);
       setStoryCommentsCache(storyId, commentsList);
+      onCountChange?.(commentsList.length);
     } catch (error) {
       console.error('Failed to fetch story discussions:', error);
     } finally {
       setLoading(false);
     }
-  }, [storyId]);
+  }, [storyId, onCountChange]);
 
   useEffect(() => {
     if (isOpen && storyId) {
@@ -709,6 +719,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setComments(prev => {
       const next = [optimisticComment, ...prev];
       setStoryCommentsCache(storyId, next);
+      onCountChange?.(next.length);
       return next;
     });
     setText('');
@@ -728,6 +739,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       setComments(prev => {
         const next = prev.map(c => c.id === optimisticComment.id ? newComment : c);
         setStoryCommentsCache(storyId, next);
+        onCountChange?.(next.length);
         return next;
       });
     } catch (error) {
@@ -735,6 +747,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
       setComments(prev => {
         const next = prev.filter(c => c.id !== optimisticComment.id);
         setStoryCommentsCache(storyId, next);
+        onCountChange?.(next.length);
         return next;
       });
       const toast = document.createElement('div');
@@ -783,6 +796,7 @@ export const StoryCommentsSheet: React.FC<StoryCommentsSheetProps> = ({
     setComments(prev => {
       const next = prev.filter(c => c.id !== commentId && c.parent_id !== commentId);
       setStoryCommentsCache(storyId, next);
+      onCountChange?.(next.length);
       return next;
     });
 
@@ -1107,7 +1121,7 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
   );
   
   const [reactionCount, setReactionCount] = useState<number>(story.reactions_count || 0);
-  const [commentCount, setCommentCount] = useState<number>(story.comments_count || 0);
+  const [commentCount, setCommentCount] = useState<number>(Number((story as any).comments_count || (story as any).discussions_count || 0));
   const [shareCount, setShareCount] = useState<number>(story.shares_count || 0);
   const [reactionList, setReactionList] = useState<any[]>([]);
   const [loadingReactions, setLoadingReactions] = useState(false);
@@ -1146,6 +1160,11 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     image: '',
     id: Number(story.user_id) || 0,
   });
+
+  // Update comment count when story changes
+  useEffect(() => {
+    setCommentCount(Number((story as any).comments_count || (story as any).discussions_count || 0));
+  }, [story.id, (story as any).comments_count, (story as any).discussions_count]);
 
   const getDisplayMediaUrl = useCallback((story: StoryType): string => {
     const meta = story.media_meta?.[0];
@@ -1699,19 +1718,40 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
     };
   }, [story.id, isPaused, storyDurationMs, mediaReady]);
 
+  // Updated music playback with start/end times
   useEffect(() => {
     if (story.music_url && !isBlob(story.music_url)) {
-      audioRef.current = new Audio(story.music_url);
-      audioRef.current.volume = muted ? 0 : 0.5;
-      audioRef.current.play().catch(() => {});
-    }
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
+      const audio = new Audio(story.music_url);
+      audioRef.current = audio;
+      const start = Number((story as any).music_start || 0);
+      const end = Number((story as any).music_end || 0);
+      audio.volume = muted ? 0 : 0.5;
+      audio.currentTime = start;
+      
+      const onTimeUpdate = () => {
+        if (end > start && audio.currentTime >= end) {
+          audio.pause();
+          audio.currentTime = start;
+        }
+      };
+      
+      audio.addEventListener('timeupdate', onTimeUpdate);
+      audio.play().catch(() => {});
+      
+      return () => {
+        audio.removeEventListener('timeupdate', onTimeUpdate);
+        audio.pause();
         audioRef.current = null;
-      }
-    };
-  }, [story.id, story.music_url, muted]);
+      };
+    }
+  }, [story.id, story.music_url, (story as any).music_start, (story as any).music_end]);
+
+  // Volume sync
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = muted ? 0 : 0.5;
+    }
+  }, [muted]);
 
   useEffect(() => {
     if (!storyIsVideo) return;
@@ -2676,21 +2716,152 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
   const [background, setBackground] = useState(STORY_COLORS[0]);
   const [picks, setPicks] = useState<MediaPick[]>([]);
   const [activePick, setActivePick] = useState(0);
-  const [selectedMusic, setSelectedMusic] = useState<{
-    url: string;
-    title: string;
-    artist: string;
-    cover?: string;
-  } | null>(null);
+  const [selectedMusic, setSelectedMusic] = useState<{ url: string; title: string; artist: string; cover?: string; start?: number; end?: number; duration?: number; } | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [creating, setCreating] = useState(false);
   const [nativeUploading, setNativeUploading] = useState(false);
-
+  
+  // Camera state
+  const [cameraMode, setCameraMode] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [recordedChunks, setRecordedChunks] = useState<BlobPart[]>([]);
+  const [cameraModeType, setCameraModeType] = useState<'photo' | 'video'>('photo');
+  const [showEffects, setShowEffects] = useState(false);
+  const [previewSongId, setPreviewSongId] = useState<number | null>(null);
+  
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  const musicPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
   const canShare = (mode === 'text' && !!text.trim()) || (mode === 'media' && picks.length > 0);
+
+  const canvasToBlobLocal = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+    new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Canvas export failed'));
+      }, type, quality);
+    });
+
+  const takeStoryPhoto = async () => {
+    const video = cameraVideoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 720;
+    canvas.height = video.videoHeight || 1280;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlobLocal(canvas, 'image/jpeg', 0.92);
+    const file = new File([blob], `story-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    const url = URL.createObjectURL(file);
+    setPicks(prev => [...prev, { file, url, kind: 'image' }]);
+    setMode('media');
+    closeCamera();
+  };
+
+  const openCamera = async () => {
+    try {
+      setCameraMode(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      setCameraStream(stream);
+      setTimeout(() => {
+        if (cameraVideoRef.current) {
+          cameraVideoRef.current.srcObject = stream;
+          cameraVideoRef.current.play().catch(() => {});
+        }
+      }, 50);
+    } catch (e: any) {
+      alert(e?.message || 'Camera permission denied');
+      setCameraMode(false);
+    }
+  };
+
+  const startStoryRecording = () => {
+    if (!cameraStream) return;
+    const chunks: BlobPart[] = [];
+    setRecordedChunks([]);
+    const recorder = new MediaRecorder(cameraStream, {
+      mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : 'video/webm',
+    });
+    mediaRecorderRef.current = recorder;
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+      const file = new File([blob], `story-camera-${Date.now()}.webm`, {
+        type: recorder.mimeType || 'video/webm',
+      });
+      const url = URL.createObjectURL(file);
+      setPicks((prev) => [
+        ...prev,
+        { file, url, kind: 'video' },
+      ]);
+      setActivePick(picks.length);
+      setMode('media');
+      closeCamera();
+    };
+    if (selectedMusic?.url) {
+      musicPreviewRef.current = new Audio(selectedMusic.url);
+      musicPreviewRef.current.currentTime = selectedMusic.start || 0;
+      musicPreviewRef.current.volume = 0.8;
+      musicPreviewRef.current.play().catch(() => {});
+    }
+    recorder.start(250);
+    setIsRecording(true);
+  };
+
+  const stopStoryRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+    if (musicPreviewRef.current) {
+      musicPreviewRef.current.pause();
+      musicPreviewRef.current = null;
+    }
+  };
+
+  const closeCamera = () => {
+    try {
+      cameraStream?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    setCameraStream(null);
+    setCameraMode(false);
+    setIsRecording(false);
+    setCameraModeType('photo');
+    if (musicPreviewRef.current) {
+      musicPreviewRef.current.pause();
+      musicPreviewRef.current = null;
+    }
+  };
+
+  const togglePreviewSong = (song: Song) => {
+    if (previewSongId === song.id) {
+      previewAudioRef.current?.pause();
+      previewAudioRef.current = null;
+      setPreviewSongId(null);
+      return;
+    }
+    previewAudioRef.current?.pause();
+    previewAudioRef.current = null;
+    const audio = new Audio(song.audio_url);
+    audio.currentTime = 0;
+    audio.volume = 1;
+    audio.muted = false;
+    audio.play().catch(() => {});
+    previewAudioRef.current = audio;
+    setPreviewSongId(song.id);
+  };
 
   // Native upload listener
   useEffect(() => {
@@ -2709,6 +2880,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           url: audioUrl,
           title: media.fileName || 'Uploaded Music',
           artist: 'Local Upload',
+          start: 0,
+          end: 15,
+          duration: 0,
         });
         setAudioFile(null);
         setShowMusicPicker(false);
@@ -2779,6 +2953,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
             background_style: background,
             music_url: selectedMusic?.url,
             music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+            music_start: selectedMusic?.start ?? 0,
+            music_end: selectedMusic?.end ?? 15,
+            music_duration: selectedMusic?.duration,
           });
           return;
         }
@@ -2805,6 +2982,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               ],
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+              music_start: selectedMusic?.start ?? 0,
+              music_end: selectedMusic?.end ?? 15,
+              music_duration: selectedMusic?.duration,
             });
             continue;
           }
@@ -2820,6 +3000,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               media_meta: uploaded.media_meta,
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+              music_start: selectedMusic?.start ?? 0,
+              music_end: selectedMusic?.end ?? 15,
+              music_duration: selectedMusic?.duration,
             });
           } else {
             const uploaded = await uploadStoryVideoSecret(p.file);
@@ -2832,6 +3015,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               media_meta: uploaded.media_meta,
               music_url: selectedMusic?.url,
               music_title: selectedMusic ? `${selectedMusic.title} - ${selectedMusic.artist}` : undefined,
+              music_start: selectedMusic?.start ?? 0,
+              music_end: selectedMusic?.end ?? 15,
+              music_duration: selectedMusic?.duration,
             });
           }
         }
@@ -2899,6 +3085,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         url: URL.createObjectURL(file),
         title: file.name.split('.')[0],
         artist: 'Local Upload',
+        start: 0,
+        end: 15,
+        duration: 0,
       });
       setShowMusicPicker(false);
       e.currentTarget.value = '';
@@ -2934,20 +3123,109 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
       if (selectedMusic?.url && selectedMusic.url.startsWith('blob:')) {
         URL.revokeObjectURL(selectedMusic.url);
       }
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
     };
   }, [picks, selectedMusic?.url, audioFile, cleanupPickUrls]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'Enter' && canShare) handleCreate();
+      if (e.key === 'Escape') {
+        if (cameraMode) closeCamera();
+        else if (showMusicPicker) setShowMusicPicker(false);
+        else if (showEffects) setShowEffects(false);
+        else onClose();
+      }
+      if (e.key === 'Enter' && canShare && !cameraMode && !showMusicPicker && !showEffects) handleCreate();
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, canShare, handleCreate]);
+  }, [onClose, canShare, handleCreate, cameraMode, showMusicPicker, showEffects]);
 
   const active = picks[activePick];
+
+  // Camera screen
+  if (cameraMode) {
+    return (
+      <div className="fixed inset-0 z-[500] bg-black flex flex-col">
+        <div className="absolute top-0 left-0 right-0 z-30 p-4 flex items-center justify-between">
+          <button onClick={closeCamera} className="w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center">
+            <i className="fas fa-times text-xl"></i>
+          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowEffects(true)}
+              className="px-4 h-11 rounded-full flex items-center gap-2 font-bold bg-black/50 text-white"
+            >
+              <i className="fas fa-wand-magic-sparkles"></i> Effects
+            </button>
+            <button
+              onClick={() => setShowMusicPicker(true)}
+              className={`px-4 h-11 rounded-full flex items-center gap-2 font-bold ${
+                selectedMusic ? 'bg-[#45BD62] text-white' : 'bg-black/50 text-white'
+              }`}
+            >
+              <i className="fas fa-music"></i>
+              {selectedMusic ? 'Music added' : 'Add Music'}
+            </button>
+          </div>
+        </div>
+
+        <video ref={cameraVideoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+
+        <div className="absolute bottom-32 left-0 right-0 z-30 flex items-center justify-center gap-3">
+          <button
+            onClick={() => setCameraModeType('photo')}
+            className={`px-5 py-2 rounded-full font-bold ${
+              cameraModeType === 'photo' ? 'bg-white text-black' : 'bg-black/50 text-white'
+            }`}
+          >
+            Photo
+          </button>
+          <button
+            onClick={() => setCameraModeType('video')}
+            className={`px-5 py-2 rounded-full font-bold ${
+              cameraModeType === 'video' ? 'bg-white text-black' : 'bg-black/50 text-white'
+            }`}
+          >
+            Video
+          </button>
+        </div>
+
+        <div className="absolute bottom-10 left-0 right-0 flex items-center justify-center">
+          <button
+            onClick={cameraModeType === 'photo' ? takeStoryPhoto : isRecording ? stopStoryRecording : startStoryRecording}
+            className={`w-20 h-20 rounded-full border-4 border-white flex items-center justify-center ${
+              isRecording ? 'bg-[#F3425F]' : 'bg-white/20'
+            }`}
+          >
+            <div className={`${
+              isRecording ? 'w-8 h-8 rounded-md bg-white' : 'w-14 h-14 rounded-full bg-[#F3425F]'
+            }`} />
+          </button>
+        </div>
+
+        {/* Effects placeholder */}
+        {showEffects && (
+          <div className="fixed inset-0 z-[750] bg-[#18191A] text-white flex flex-col">
+            <div className="p-4 flex items-center justify-between border-b border-white/10">
+              <button onClick={() => setShowEffects(false)} className="text-white font-bold">
+                Close
+              </button>
+              <div className="font-black">Effects</div>
+              <div className="w-12" />
+            </div>
+            <div className="flex-1 flex items-center justify-center text-white/60">
+              Filters page will be connected next.
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex flex-col font-sans animate-fade-in text-white overflow-hidden">
@@ -3057,7 +3335,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
         )}
 
-        {selectedMusic && (
+        {selectedMusic && !cameraMode && (
           <div className="absolute top-20 z-30 bg-white/10 backdrop-blur-xl px-4 py-2.5 rounded-2xl border border-white/20 flex items-center gap-3 shadow-2xl animate-pulse">
             <div className="w-10 h-10 bg-[#1877F2] rounded-lg flex items-center justify-center">
               <i className="fas fa-music text-white"></i>
@@ -3080,7 +3358,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
           </div>
         )}
 
-        {mode === 'media' && picks.length > 1 && (
+        {mode === 'media' && picks.length > 1 && !cameraMode && (
           <div className="absolute bottom-16 left-0 right-0 px-4">
             <div className="flex gap-2 overflow-x-auto scrollbar-hide">
               {picks.map((p, i) => (
@@ -3160,6 +3438,14 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setCameraMode(true)}
+              className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
+              aria-label="Camera"
+            >
+              <i className="fas fa-camera text-lg"></i>
+            </button>
+            
+            <button
               onClick={handlePickStoryMedia}
               className="w-12 h-12 rounded-full flex items-center justify-center transition-all bg-white/10 text-white/80 hover:bg-white/20"
               title="Add photos/videos"
@@ -3168,7 +3454,7 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
               <i className="fas fa-plus text-lg"></i>
             </button>
 
-            {/* Music icon - opens the Add Music page, not direct native picker */}
+            {/* Music icon - opens the Add Music page */}
             <button
               onClick={() => setShowMusicPicker(true)}
               className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
@@ -3184,10 +3470,9 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
         </div>
       </div>
 
-      {/* Native upload indicator removed - no longer shown */}
-
+      {/* Music Picker - Opens above camera (z-[700]) */}
       {showMusicPicker && (
-        <div className="fixed inset-0 z-[250] bg-[#18191A] animate-slide-up flex flex-col font-sans">
+        <div className="fixed inset-0 z-[700] bg-[#18191A] animate-slide-up flex flex-col font-sans">
           <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
             <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
               <i className="fas fa-chevron-down mr-2"></i>Close
@@ -3228,28 +3513,45 @@ export const CreateStoryModal: React.FC<CreateStoryModalProps> = ({
 
             <div className="flex flex-col gap-2">
               {songs.map((song) => (
-                <button
+                <div
                   key={song.id}
-                  onClick={() => {
-                    setSelectedMusic({
-                      url: song.audio_url,
-                      title: song.title,
-                      artist: song.artist_name,
-                      cover: song.cover_image_url,
-                    });
-                    setAudioFile(null);
-                    setShowMusicPicker(false);
-                  }}
                   className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
-                  aria-label={`Select ${song.title} by ${song.artist_name}`}
                 >
                   <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
                   <div className="flex-1 overflow-hidden">
                     <p className="text-white font-bold truncate">{song.title}</p>
                     <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
                   </div>
-                  <i className="fas fa-play-circle text-2xl text-[#1877F2]"></i>
-                </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => togglePreviewSong(song)}
+                      className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center"
+                    >
+                      <i className={`fas ${previewSongId === song.id ? 'fa-pause' : 'fa-play'} text-white`}></i>
+                    </button>
+                    <button
+                      onClick={() => {
+                        previewAudioRef.current?.pause();
+                        previewAudioRef.current = null;
+                        setPreviewSongId(null);
+                        setSelectedMusic({
+                          url: song.audio_url,
+                          title: song.title,
+                          artist: song.artist_name,
+                          cover: song.cover_image_url,
+                          start: 0,
+                          end: 15,
+                          duration: song.duration || 0,
+                        });
+                        setAudioFile(null);
+                        setShowMusicPicker(false);
+                      }}
+                      className="px-4 py-2 rounded-full bg-[#45BD62] text-white font-bold text-sm"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
