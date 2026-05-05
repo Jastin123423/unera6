@@ -7654,6 +7654,30 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
       </div>
     );
   }, [events, onRSVPEvent]);
+
+    //===REEL GALLERY CREATOR ===
+
+    {/* Reel Gallery Creator */}
+{showReelGallery && (
+  <ReelGalleryCreator
+    sound={selectedReelSoundForGallery}
+    onClose={() => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+    }}
+    onDone={(payload) => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+      setSelectedReelSound(payload.sound || null);
+      setPendingReelFile(payload.file);
+      setPendingReelThumbnailFile(payload.thumbnailFile);
+      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
+      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
+      setPendingReelEffectId(payload.effectId || 'none');
+      setShowRecorder(true);
+    }}
+  />
+)}
     
 // ============================================================================
 // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
@@ -8494,28 +8518,6 @@ const openEvent = useCallback((eventId: string | number) => {
   );
 }, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);        
 
-
-{/* Reel Gallery Creator */}
-{showReelGallery && (
-  <ReelGalleryCreator
-    sound={selectedReelSoundForGallery}
-    onClose={() => {
-      setShowReelGallery(false);
-      setSelectedReelSoundForGallery(undefined);
-    }}
-    onDone={(payload) => {
-      setShowReelGallery(false);
-      setSelectedReelSoundForGallery(undefined);
-      setSelectedReelSound(payload.sound || null);
-      setPendingReelFile(payload.file);
-      setPendingReelThumbnailFile(payload.thumbnailFile);
-      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
-      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
-      setPendingReelEffectId(payload.effectId || 'none');
-      setShowRecorder(true);
-    }}
-  />
-)}
 
   
    //====NOTIFICATION DELETE ===     
