@@ -1591,7 +1591,7 @@ const normalizeGroup = (g: any): Group => {
 };
       
   //=======GALLERY CREATOR COMPONENT ======
-// Reel Gallery Creator Component - Minimal bridge to Flutter
+// Reel Gallery Creator Component - Stable bridge to Flutter
 const ReelGalleryCreator: React.FC<{
   sound?: UseSoundPayload;
   onClose: () => void;
@@ -1604,58 +1604,86 @@ const ReelGalleryCreator: React.FC<{
     nativeVideoMeta?: any;
   }) => void;
 }> = ({ sound, onClose, onDone }) => {
-  // Listen for native uploads
+  const openedRef = useRef(false);
+  const closedRef = useRef(false);
+
   useEffect(() => {
+    const finishClose = () => {
+      if (closedRef.current) return;
+      closedRef.current = true;
+      onClose();
+    };
+
     const handleNativeUpload = (event: any) => {
       const media = event.detail;
-      if (!media || media.type !== 'video') return;
-      
+      if (!media || media.type !== "video") return;
+
+      closedRef.current = true;
+
       onDone({
         file: undefined,
         thumbnailFile: undefined,
         sound,
-        effectId: media.effectId || 'none',
+        effectId: media.effectId || "none",
         nativeVideoUrl: media.full || media.feed || media.url,
         nativeVideoMeta: {
-          thumb: media.thumb || media.thumbnail || '',
-          feed: media.feed || media.full || media.url || '',
-          full: media.full || media.feed || media.url || '',
-          type: 'video',
-          mimeType: media.mimeType || 'video/mp4',
+          thumb: media.thumb || media.thumbnail || "",
+          feed: media.feed || media.full || media.url || "",
+          full: media.full || media.feed || media.url || "",
+          type: "video",
+          mimeType: media.mimeType || "video/mp4",
           fileName: media.fileName || `reel-${Date.now()}.mp4`,
         },
       });
     };
-    
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    return () => window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  }, [sound, onDone]);
 
-  // Open native gallery immediately when component mounts
-  useEffect(() => {
-    if ((window as any).UneraNative?.postMessage) {
-      (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_reel_gallery_native',
-        sound: sound ? {
-          songName: sound.songName,
-          audioUrl: sound.audioUrl,
-          audioStart: sound.audioStart,
-          audioEnd: sound.audioEnd,
-          songId: sound.songId,
-        } : null
-      }));
-    } else {
-      alert('Native app required for reel creation');
-      onClose();
-    }
-  }, [sound, onClose]);
+    const handleCancel = () => finishClose();
+    const handleError = () => finishClose();
 
-  // Show simple loading screen while native gallery opens
+    window.addEventListener("uneraNativeUpload", handleNativeUpload);
+    window.addEventListener("uneraNativeUploadCancel", handleCancel);
+    window.addEventListener("uneraNativeUploadError", handleError);
+
+    const timer = window.setTimeout(() => {
+      if (openedRef.current) return;
+      openedRef.current = true;
+
+      const native = (window as any).UneraNative;
+
+      if (native?.postMessage) {
+        native.postMessage(
+          JSON.stringify({
+            action: "open_reel_gallery_native",
+            sound: sound
+              ? {
+                  songName: sound.songName,
+                  audioUrl: sound.audioUrl,
+                  audioStart: sound.audioStart,
+                  audioEnd: sound.audioEnd,
+                  songId: sound.songId,
+                }
+              : null,
+          })
+        );
+      } else {
+        alert("Native app required for reel creation");
+        finishClose();
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("uneraNativeUpload", handleNativeUpload);
+      window.removeEventListener("uneraNativeUploadCancel", handleCancel);
+      window.removeEventListener("uneraNativeUploadError", handleError);
+    };
+  }, [sound, onClose, onDone]);
+
   return (
     <div className="fixed inset-0 z-[10000] bg-black flex items-center justify-center">
       <div className="text-center">
-        <div className="w-12 h-12 border-3 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-white">Opening gallery...</p>
+        <div className="w-12 h-12 border-[3px] border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-white font-bold">Opening gallery...</p>
       </div>
     </div>
   );
