@@ -9924,6 +9924,28 @@ return (
     }}
   />
 )}
+    {/* Reel Gallery Creator */}
+{showReelGallery && (
+  <ReelGalleryCreator
+    sound={selectedReelSoundForGallery}
+    onClose={() => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+    }}
+    onDone={(payload) => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+      setSelectedReelSound(payload.sound || null);
+      setPendingReelFile(payload.file);
+      setPendingReelThumbnailFile(payload.thumbnailFile);
+      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
+      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
+      setPendingReelEffectId(payload.effectId || 'none');
+      setShowRecorder(true);
+    }}
+  />
+)}
+
       {showAdAnalytics && adAnalyticsId && (
         <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
           <div className="bg-[#242526] rounded-xl max-w-2xl w-full p-6">
