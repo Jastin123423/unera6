@@ -9398,7 +9398,6 @@ return (
         )}
 
         {view === 'recorder' && (
-
 <Recorder
   currentUser={currentUser}
   selectedSound={selectedReelSound}
@@ -9419,27 +9418,28 @@ return (
   }))}
   onSelectSound={setSelectedReelSound}
   initialVideoFile={pendingReelFile}
+  initialThumbnailFile={pendingReelThumbnailFile}
   initialVideoUrl={nativeReelVideoUrl}
   initialNativeMediaMeta={nativeReelMediaMeta}
+  initialEffectId={pendingReelEffectId}
   startInPreview={!!pendingReelFile || !!nativeReelVideoUrl}
   onBack={() => {
     setPendingReelFile(null);
+    setPendingReelThumbnailFile(null);
     setNativeReelVideoUrl('');
     setNativeReelMediaMeta(null);
+    setPendingReelEffectId('none');
     setSelectedReelSound(null);
     setShowRecorder(false);
-    setRecorderActiveTab('record');
-    setRecordingTime(0);
-    setRecordedVideoBlob(null);
-    setIsRecording(false);
-    if (mediaRecorderRef.current) {
+    // Reset any recording state if needed
+    if (mediaRecorderRef?.current) {
       mediaRecorderRef.current = null;
     }
-    if (streamRef.current) {
+    if (streamRef?.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    if (recordingTimerRef.current) {
+    if (recordingTimerRef?.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
@@ -9447,6 +9447,8 @@ return (
   onSubmit={async (reelData) => {
     await createReel({
       ...reelData,
+      videoFile: reelData.videoFile || pendingReelFile || undefined,
+      thumbnailFile: reelData.thumbnailFile || pendingReelThumbnailFile || undefined,
       audioUrl:
         reelData.audioUrl ||
         (selectedReelSound?.songId &&
@@ -9457,14 +9459,17 @@ return (
       songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
       audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
       audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-      // ✅ Pass native video data through
+      effectId: reelData.effectId || pendingReelEffectId,
       nativeVideoUrl: reelData.nativeVideoUrl,
       nativeVideoMeta: reelData.nativeVideoMeta,
     });
 
+    // Clear all pending states after successful submission
     setPendingReelFile(null);
+    setPendingReelThumbnailFile(null);
     setNativeReelVideoUrl('');
     setNativeReelMediaMeta(null);
+    setPendingReelEffectId('none');
     setSelectedReelSound(null);
     setShowRecorder(false);
   }}
