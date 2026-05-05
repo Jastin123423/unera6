@@ -1591,13 +1591,14 @@ const normalizeGroup = (g: any): Group => {
 };
       
   //=======GALLERY CREATOR COMPONENT ======
-// Reel Gallery Creator Component - Professional version
+
+    // Reel Gallery Creator Component - Professional version
 const ReelGalleryCreator: React.FC<{
   sound?: UseSoundPayload;
   onClose: () => void;
   onDone: (payload: {
-    file: File;
-    thumbnailFile: File;
+    file?: File;
+    thumbnailFile?: File;
     sound?: UseSoundPayload;
     effectId?: string;
     nativeVideoUrl?: string;
@@ -1636,17 +1637,20 @@ const ReelGalleryCreator: React.FC<{
       
       console.log('📱 Native reel video received:', media);
       
+      // ✅ Safer version - no null as any
       onDone({
-        file: null as any, // Native handles upload
-        thumbnailFile: null as any,
+        file: undefined,
+        thumbnailFile: undefined,
         sound,
-        effectId: 'none',
+        effectId: media.effectId || 'none',
         nativeVideoUrl: media.full || media.feed || media.url,
         nativeVideoMeta: {
-          thumb: media.thumb || '',
-          feed: media.feed || media.full || '',
-          full: media.full || media.feed || '',
+          thumb: media.thumb || media.thumbnail || '',
+          feed: media.feed || media.full || media.url || '',
+          full: media.full || media.feed || media.url || '',
           type: 'video',
+          mimeType: media.mimeType || 'video/mp4',
+          fileName: media.fileName || `reel-${Date.now()}.mp4`,
         },
       });
     };
@@ -1665,8 +1669,19 @@ const ReelGalleryCreator: React.FC<{
   const handleCameraClick = () => {
     // Try native first, fallback to web camera
     if (!openNativeReelCamera()) {
-      // Web fallback - could use ReelCameraCreator
       alert('Please use the native app for camera recording');
+    }
+  };
+
+  const handleChangeSound = () => {
+    // Open sound picker
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(JSON.stringify({
+        action: 'open_sound_picker',
+        currentSound: sound
+      }));
+    } else {
+      alert('Sound selection coming soon');
     }
   };
 
@@ -1703,7 +1718,12 @@ const ReelGalleryCreator: React.FC<{
               <p className="text-white font-bold text-sm">{sound.songName || 'Original Sound'}</p>
               <p className="text-white/40 text-xs">Selected sound</p>
             </div>
-            <button className="text-[#1877F2] text-sm font-bold">Change</button>
+            <button 
+              onClick={handleChangeSound}
+              className="text-[#1877F2] text-sm font-bold"
+            >
+              Change
+            </button>
           </div>
         </div>
       )}
@@ -1736,16 +1756,30 @@ const ReelGalleryCreator: React.FC<{
             <span className="text-white font-bold text-xs">Camera</span>
           </button>
 
-          {/* Gallery placeholder tiles - Native will populate these */}
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-            <button
-              key={i}
-              onClick={handleGalleryClick}
-              className="aspect-square bg-white/5 rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all"
-            >
-              <i className="fas fa-image text-white/40 text-2xl"></i>
-            </button>
-          ))}
+          {/* Gallery tiles - These will be populated by Flutter native in production */}
+          {recentVideos.length > 0 ? (
+            recentVideos.map((video, idx) => (
+              <button
+                key={idx}
+                onClick={handleGalleryClick}
+                className="aspect-square bg-cover bg-center rounded-xl overflow-hidden active:scale-95 transition-all"
+                style={{ backgroundImage: `url(${video.thumb})` }}
+              />
+            ))
+          ) : (
+            // Placeholder tiles
+            <>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <button
+                  key={i}
+                  onClick={handleGalleryClick}
+                  className="aspect-square bg-white/5 rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all"
+                >
+                  <i className="fas fa-image text-white/40 text-2xl"></i>
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
 
