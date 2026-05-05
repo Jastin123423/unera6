@@ -1592,7 +1592,7 @@ const normalizeGroup = (g: any): Group => {
       
   //=======GALLERY CREATOR COMPONENT ======
 
-    // Reel Gallery Creator Component - Professional version
+// Reel Gallery Creator Component - Professional version
 const ReelGalleryCreator: React.FC<{
   sound?: UseSoundPayload;
   onClose: () => void;
@@ -1612,7 +1612,7 @@ const ReelGalleryCreator: React.FC<{
   const openNativeReelGallery = () => {
     if ((window as any).UneraNative?.postMessage) {
       (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_reel_gallery'
+        action: 'open_reel_gallery_native'  // ✅ Updated to match Flutter
       }));
       return true;
     }
@@ -1622,7 +1622,7 @@ const ReelGalleryCreator: React.FC<{
   const openNativeReelCamera = () => {
     if ((window as any).UneraNative?.postMessage) {
       (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_reel_camera'
+        action: 'open_reel_camera'  // ✅ Updated to match Flutter
       }));
       return true;
     }
@@ -1794,7 +1794,7 @@ const ReelGalleryCreator: React.FC<{
     </div>
   );
 };
-
+    
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
@@ -4808,158 +4808,6 @@ const createMarketplacePost = useCallback(
       usersInFlightRef.current = false;
     }
   }, []);
-
-
-// Reel Gallery Creator Component
-const ReelGalleryCreator: React.FC<{
-  sound?: UseSoundPayload;
-  onClose: () => void;
-  onDone: (payload: {
-    file: File;
-    thumbnailFile: File;
-    sound?: UseSoundPayload;
-    effectId?: string;
-    nativeVideoUrl?: string;
-    nativeVideoMeta?: any;
-  }) => void;
-}> = ({ sound, onClose, onDone }) => {
-  const [showCamera, setShowCamera] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const createVideoThumbnailFromFile = async (file: File): Promise<File> => {
-    const url = URL.createObjectURL(file);
-    try {
-      const video = document.createElement('video');
-      video.src = url;
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      
-      await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject(new Error('Could not load video metadata'));
-      });
-      
-      video.currentTime = Math.min(0.5, Math.max(0.1, (video.duration || 1) * 0.15));
-      
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve();
-        setTimeout(resolve, 600);
-      });
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 720;
-      canvas.height = video.videoHeight || 1280;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas not supported');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Thumbnail export failed'))),
-          'image/webp',
-          0.72
-        );
-      });
-      
-      return new File([blob], `reel-thumb-${Date.now()}.webp`, { type: 'image/webp' });
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('video/')) {
-      alert('Please select a video file');
-      return;
-    }
-
-    const thumbnailFile = await createVideoThumbnailFromFile(file);
-    
-    onDone({
-      file,
-      thumbnailFile,
-      sound,
-      effectId: 'none',
-    });
-  };
-
-  if (showCamera) {
-    return (
-      <ReelCameraCreator
-        initialSound={sound}
-        onClose={() => setShowCamera(false)}
-        onDone={(payload) => {
-          onDone({
-            file: payload.file,
-            thumbnailFile: payload.thumbnailFile,
-            sound: payload.sound || sound,
-            effectId: payload.effectId,
-          });
-        }}
-      />
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-[10000] bg-[#121212] flex flex-col">
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <button onClick={onClose} className="text-white text-xl">
-          <i className="fas fa-times"></i>
-        </button>
-        <h3 className="text-white font-black text-lg">Create Reel</h3>
-        <div className="w-6" />
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        {sound && (
-          <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
-            <div className="flex items-center gap-3">
-              <i className="fas fa-music text-[#1877F2] text-xl"></i>
-              <div>
-                <p className="text-white font-bold">{sound.songName || 'Original Sound'}</p>
-                <p className="text-white/50 text-xs">Sound selected</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setShowCamera(true)}
-            className="aspect-[9/16] rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
-              <i className="fas fa-camera text-white text-2xl"></i>
-            </div>
-            <span className="text-white font-bold text-sm">Camera</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="aspect-[9/16] rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-              <i className="fas fa-image text-white text-2xl"></i>
-            </div>
-            <span className="text-white font-bold text-sm">Gallery</span>
-          </button>
-        </div>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-      </div>
-    </div>
-  );
-};
   
 
   // fetchReels
