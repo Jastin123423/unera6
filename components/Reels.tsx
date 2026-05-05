@@ -2,115 +2,11 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
 
-// ==================== ADDED: Import filters ====================
-import Filters, { 
-  UneraFilter, 
-  buildUneraFilterStyle, 
-  UneraFilterOverlay, 
-  getUneraFilterById 
-} from './filters';
-
-// ==================== NATIVE APP HELPERS ====================
-const isUneraNativeApp = (): boolean => {
-  return Boolean(
-    (window as any).UneraNative ||
-    (window as any).UNERA_IS_NATIVE_APP ||
-    (window as any).flutter_inappwebview
-  );
-};
-
-const callUneraNative = (payload: any): boolean => {
-  if (!isUneraNativeApp()) return false;
-  if ((window as any).UneraNative?.postMessage) {
-    (window as any).UneraNative.postMessage(JSON.stringify(payload));
-    return true;
-  }
-  return false;
-};
-
-// ==================== VIDEO HELPERS ====================
-const REEL_VIDEO_MAX_SECONDS = 90;
-
-const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
-  new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('Canvas export failed'));
-    }, type, quality);
-  });
-
-const loadVideoElement = (src: string) =>
-  new Promise<HTMLVideoElement>((resolve, reject) => {
-    const v = document.createElement('video');
-    v.preload = 'metadata';
-    v.playsInline = true;
-    v.muted = true;
-    v.src = src;
-    const cleanup = () => {
-      v.onloadedmetadata = null;
-      v.onerror = null;
-    };
-    v.onloadedmetadata = () => {
-      cleanup();
-      resolve(v);
-    };
-    v.onerror = () => {
-      cleanup();
-      reject(new Error('Failed to load video'));
-    };
-  });
-
-const createVideoThumbnailFile = async (file: File) => {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const video = await loadVideoElement(objectUrl);
-    
-    if (Number.isFinite(video.duration) && video.duration > REEL_VIDEO_MAX_SECONDS) {
-      throw new Error('Reel videos must be 1 minute 30 seconds or less');
-    }
-
-    const seekTo = Math.min(Math.max(video.duration * 0.2, 0.1), Math.max(video.duration - 0.1, 0.1));
-    
-    await new Promise<void>((resolve, reject) => {
-      const onSeeked = () => {
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-      const onError = () => {
-        video.removeEventListener('error', onError);
-        reject(new Error('Could not seek video for thumbnail'));
-      };
-      video.addEventListener('seeked', onSeeked, { once: true });
-      video.addEventListener('error', onError, { once: true });
-      try {
-        video.currentTime = seekTo;
-      } catch {
-        resolve();
-      }
-    });
-
-    const max = 320;
-    const scale = max / Math.max(video.videoWidth || max, video.videoHeight || max);
-    const width = Math.max(1, Math.round((video.videoWidth || max) * Math.min(scale, 1)));
-    const height = Math.max(1, Math.round((video.videoHeight || max) * Math.min(scale, 1)));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    canvas.getContext('2d')!.drawImage(video, 0, 0, width, height);
-
-    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
-    return new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-};
-
-// ==================== MEDIA CACHE SYSTEM ====================
+// ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
 const mediaWarmPromises = new Map<string, Promise<string>>();
 const CACHE_MAX_SIZE = 10;
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): Promise<string> {
   if (!url) throw new Error('Missing media URL');
@@ -132,7 +28,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
 
   const p = fetch(url, {
     cache: 'force-cache',
-    headers: { Accept: '*/*' },
+    headers: { Accept: '*/*' }, // fixed header
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
@@ -176,7 +72,7 @@ interface Sound {
   coverImage?: string;
   soundKey?: string;
   originalUrl?: string;
-  songId?: string | number | null;
+  songId?: string | number | null; // ✅ added
 }
 
 type NetworkLevel = 'low' | 'medium' | 'high';
@@ -196,398 +92,6 @@ type UseSoundPayload = {
   songId?: string | number; 
   soundKey?: string; 
   isTrimmedAudio?: boolean; 
-};
-
-// ==================== CREATE REEL CAMERA MODAL ====================
-interface CreateReelCameraModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onRecordingComplete: (videoFile: File, thumbnailFile: File, duration: number) => void;
-  selectedMusic?: {
-    url: string;
-    title: string;
-    artist: string;
-    start?: number;
-    end?: number;
-    duration?: number;
-  } | null;
-}
-
-const CreateReelCameraModal: React.FC<CreateReelCameraModalProps> = ({
-  isOpen,
-  onClose,
-  onRecordingComplete,
-  selectedMusic: initialMusic,
-}) => {
-  // Camera state
-  const [cameraReady, setCameraReady] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [cameraModeType, setCameraModeType] = useState<'photo' | 'video'>('video');
-  const [showEffects, setShowEffects] = useState(false);
-  const [selectedFilterId, setSelectedFilterId] = useState('none');
-  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [selectedMusic, setSelectedMusic] = useState(initialMusic);
-  const [showMusicPicker, setShowMusicPicker] = useState(false);
-  const [songs, setSongs] = useState<any[]>([]);
-  const [previewSongId, setPreviewSongId] = useState<number | null>(null);
-  
-  const recordTimerRef = useRef<number | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-  const musicPreviewRef = useRef<HTMLAudioElement | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Fetch songs for music picker
-  useEffect(() => {
-    if (showMusicPicker && songs.length === 0) {
-      fetch('/api/songs')
-        .then(res => res.json())
-        .then(data => setSongs(data.songs || []))
-        .catch(console.error);
-    }
-  }, [showMusicPicker, songs.length]);
-
-  const openCamera = async (facing: 'user' | 'environment' = cameraFacingMode) => {
-    try {
-      setCameraReady(false);
-      try {
-        cameraStream?.getTracks().forEach((t) => t.stop());
-      } catch {}
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facing,
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
-        },
-        audio: true,
-      });
-      setCameraFacingMode(facing);
-      setCameraStream(stream);
-      setTimeout(() => {
-        if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-          cameraVideoRef.current.muted = true;
-          cameraVideoRef.current.playsInline = true;
-          cameraVideoRef.current.play().catch(() => {});
-        }
-      }, 80);
-    } catch (e: any) {
-      alert('Camera failed: ' + (e?.message || 'Permission denied'));
-    }
-  };
-
-  const flipCamera = async () => {
-    const next = cameraFacingMode === 'user' ? 'environment' : 'user';
-    await openCamera(next);
-  };
-
-  const startRecording = () => {
-    if (!cameraStream) return;
-    
-    const chunks: BlobPart[] = [];
-    setRecordSeconds(0);
-    
-    const recorder = new MediaRecorder(cameraStream, {
-      mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-        ? 'video/webm;codecs=vp8,opus'
-        : 'video/webm',
-    });
-    
-    mediaRecorderRef.current = recorder;
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-    
-    recorder.onstop = async () => {
-      try {
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-        const videoFile = new File([blob], `reel-camera-${Date.now()}.webm`, {
-          type: recorder.mimeType || 'video/webm',
-        });
-        
-        const thumbnailFile = await createVideoThumbnailFile(videoFile);
-        const duration = recordSeconds;
-        
-        // Close camera and call the callback with the recorded files
-        closeCamera();
-        onRecordingComplete(videoFile, thumbnailFile, duration);
-      } catch (e) {
-        console.error('Failed to finish recording:', e);
-        closeCamera();
-      }
-    };
-    
-    if (selectedMusic?.url) {
-      musicPreviewRef.current = new Audio(selectedMusic.url);
-      musicPreviewRef.current.currentTime = selectedMusic.start ?? 5;
-      musicPreviewRef.current.volume = 0.8;
-      musicPreviewRef.current.muted = false;
-      musicPreviewRef.current.play().catch(() => {});
-    }
-    
-    recorder.start(250);
-    setIsRecording(true);
-    
-    if (recordTimerRef.current) window.clearInterval(recordTimerRef.current);
-    recordTimerRef.current = window.setInterval(() => {
-      setRecordSeconds((s) => {
-        const next = s + 1;
-        if (next >= 90) stopRecording();
-        return next;
-      });
-    }, 1000);
-  };
-
-  const stopRecording = () => {
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-    if (musicPreviewRef.current) {
-      musicPreviewRef.current.pause();
-      musicPreviewRef.current = null;
-    }
-  };
-
-  const closeCamera = () => {
-    try {
-      cameraStream?.getTracks().forEach((t) => t.stop());
-    } catch {}
-    if (recordTimerRef.current) {
-      window.clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    setCameraStream(null);
-    setCameraReady(false);
-    setIsRecording(false);
-    setRecordSeconds(0);
-    setShowEffects(false);
-    if (musicPreviewRef.current) {
-      musicPreviewRef.current.pause();
-      musicPreviewRef.current = null;
-    }
-    onClose();
-  };
-
-  const togglePreviewSong = (song: any) => {
-    if (previewSongId === song.id) {
-      previewAudioRef.current?.pause();
-      previewAudioRef.current = null;
-      setPreviewSongId(null);
-      return;
-    }
-    previewAudioRef.current?.pause();
-    previewAudioRef.current = null;
-    const audio = new Audio(song.audio_url);
-    audio.currentTime = 0;
-    audio.volume = 1;
-    audio.muted = false;
-    audio.play().catch(() => {});
-    previewAudioRef.current = audio;
-    setPreviewSongId(song.id);
-  };
-
-  const renderMusicPicker = () => (
-    <div className="fixed inset-0 z-[900] bg-[#18191A] animate-slide-up flex flex-col font-sans">
-      <div className="p-4 border-b border-[#3E4042] flex justify-between items-center bg-[#242526]">
-        <button onClick={() => setShowMusicPicker(false)} className="text-[#B0B3B8] font-bold">
-          <i className="fas fa-chevron-down mr-2"></i>Close
-        </button>
-        <h3 className="font-bold text-white">Add Music</h3>
-        <div className="w-10"></div>
-      </div>
-
-      <div className="p-4 flex flex-col gap-4 overflow-y-auto flex-1">
-        <div className="h-px bg-[#3E4042] my-2"></div>
-        <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest px-1">
-          UNERA Music Trends
-        </p>
-
-        <div className="flex flex-col gap-2">
-          {songs.map((song) => (
-            <div
-              key={song.id}
-              className="p-3 bg-[#242526] hover:bg-[#3A3B3C] rounded-xl flex items-center gap-4 cursor-pointer transition-all border border-transparent hover:border-[#1877F2]/30"
-            >
-              <img src={song.cover_image_url} className="w-14 h-14 rounded-lg object-cover shadow-md" alt="" />
-              <div className="flex-1 overflow-hidden">
-                <p className="text-white font-bold truncate">{song.title}</p>
-                <p className="text-[#B0B3B8] text-sm truncate">{song.artist_name}</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => togglePreviewSong(song)}
-                  className="w-10 h-10 rounded-full bg-[#1877F2] flex items-center justify-center"
-                >
-                  <i className={`fas ${previewSongId === song.id ? 'fa-pause' : 'fa-play'} text-white`}></i>
-                </button>
-                <button
-                  onClick={() => {
-                    previewAudioRef.current?.pause();
-                    previewAudioRef.current = null;
-                    setPreviewSongId(null);
-                    setSelectedMusic({
-                      url: song.audio_url,
-                      title: song.title,
-                      artist: song.artist_name,
-                      cover: song.cover_image_url,
-                      start: 0,
-                      end: 15,
-                      duration: song.duration || 0,
-                    });
-                    setShowMusicPicker(false);
-                  }}
-                  className="px-4 py-2 rounded-full bg-[#45BD62] text-white font-bold text-sm"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (previewAudioRef.current) {
-        previewAudioRef.current.pause();
-        previewAudioRef.current = null;
-      }
-    };
-  }, []);
-
-  // Start camera when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      openCamera();
-    }
-    return () => {
-      closeCamera();
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[500] bg-black flex flex-col overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 z-30 p-4 flex items-center justify-between">
-        <button onClick={closeCamera} className="w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center">
-          <i className="fas fa-times text-xl"></i>
-        </button>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowEffects(true)}
-            className="px-4 h-11 rounded-full flex items-center gap-2 font-bold bg-black/50 text-white"
-          >
-            <i className="fas fa-wand-magic-sparkles"></i> Effects
-          </button>
-          <button
-            onClick={() => setShowMusicPicker(true)}
-            className={`px-4 h-11 rounded-full flex items-center gap-2 font-bold ${
-              selectedMusic ? 'bg-[#45BD62] text-white' : 'bg-black/50 text-white'
-            }`}
-          >
-            <i className="fas fa-music"></i>
-            {selectedMusic ? 'Music added' : 'Add Music'}
-          </button>
-        </div>
-      </div>
-
-      {/* TikTok-style right-side icons */}
-      <div className="absolute right-4 top-28 z-40 flex flex-col items-center gap-5">
-        <button onClick={flipCamera} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Flip camera">
-          <i className="fas fa-sync-alt text-2xl"></i>
-        </button>
-        <button onClick={() => setShowEffects(true)} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Effects">
-          <i className="fas fa-wand-magic-sparkles text-2xl"></i>
-        </button>
-        <button onClick={() => setShowMusicPicker(true)} className="w-12 h-12 rounded-full bg-black/35 flex items-center justify-center text-white active:scale-95" aria-label="Add music">
-          <i className="fas fa-music text-2xl"></i>
-        </button>
-      </div>
-
-      <div className="absolute inset-0 bg-black">
-        <video
-          ref={cameraVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
-            cameraReady ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={buildUneraFilterStyle(selectedFilterId)}
-          onLoadedMetadata={() => setCameraReady(true)}
-          onCanPlay={() => setCameraReady(true)}
-        />
-        <UneraFilterOverlay filterId={selectedFilterId} />
-      </div>
-
-      {!cameraReady && (
-        <div className="absolute inset-0 bg-gradient-to-b from-[#111] via-[#18191A] to-black flex flex-col items-center justify-center z-10">
-          <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-4">
-            <i className="fas fa-camera text-white text-3xl animate-pulse"></i>
-          </div>
-          <div className="text-white font-black text-xl">Opening camera</div>
-          <div className="text-white/50 text-sm mt-1">Please wait...</div>
-          <div className="mt-6 w-40 h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full w-1/2 bg-[#1877F2] rounded-full animate-pulse"></div>
-          </div>
-        </div>
-      )}
-
-      {/* Recording timer */}
-      {isRecording && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 bg-red-500/80 backdrop-blur-md px-4 py-2 rounded-full">
-          <span className="text-white font-black text-sm">
-            {Math.floor(recordSeconds / 60)}:{(recordSeconds % 60).toString().padStart(2, '0')}
-          </span>
-        </div>
-      )}
-
-      <div className="absolute bottom-32 left-0 right-0 z-30 flex items-center justify-center gap-3">
-        <button
-          onClick={() => setCameraModeType('video')}
-          className={`px-5 py-2 rounded-full font-bold ${
-            cameraModeType === 'video' ? 'bg-white text-black' : 'bg-black/50 text-white'
-          }`}
-        >
-          Video
-        </button>
-      </div>
-
-      <div className="absolute bottom-10 left-0 right-0 flex items-center justify-center">
-        <button
-          onClick={isRecording ? stopRecording : startRecording}
-          className={`w-20 h-20 rounded-full border-4 border-white flex items-center justify-center ${
-            isRecording ? 'bg-[#F3425F]' : 'bg-white/20'
-          }`}
-        >
-          <div className={`${
-            isRecording ? 'w-8 h-8 rounded-md bg-white' : 'w-14 h-14 rounded-full bg-[#F3425F]'
-          }`} />
-        </button>
-      </div>
-
-      {showEffects && (
-        <Filters
-          selectedFilterId={selectedFilterId}
-          onSelectFilter={(filter: UneraFilter) => {
-            setSelectedFilterId(filter.id);
-          }}
-          onClose={() => setShowEffects(false)}
-        />
-      )}
-
-      {showMusicPicker && renderMusicPicker()}
-    </div>
-  );
 };
 
 // ==================== HELPER: Get reel user ID ====================
@@ -653,8 +157,19 @@ const SparkReactIcon: React.FC<{ size?: number }> = ({ size = 28 }) => (
         </feMerge>
       </filter>
     </defs>
-    <circle cx="32" cy="32" r="18" fill="url(#reelSparkGrad)" opacity="0.14" />
-    <g stroke="url(#reelSparkGrad)" strokeWidth="5.2" strokeLinecap="round" filter="url(#reelSparkGlow)">
+    <circle
+      cx="32"
+      cy="32"
+      r="18"
+      fill="url(#reelSparkGrad)"
+      opacity="0.14"
+    />
+    <g
+      stroke="url(#reelSparkGrad)"
+      strokeWidth="5.2"
+      strokeLinecap="round"
+      filter="url(#reelSparkGlow)"
+    >
       <line x1="32" y1="10" x2="32" y2="18" />
       <line x1="32" y1="46" x2="32" y2="54" />
       <line x1="10" y1="32" x2="18" y2="32" />
@@ -674,7 +189,13 @@ const DiscussSignalIcon: React.FC<{ size?: number; color?: string }> = ({
   color = '#1877F2',
 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <g fill="none" stroke={color} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+    <g
+      fill="none"
+      stroke={color}
+      strokeWidth="4.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M14 20c0-5 4-9 9-9h18c7 0 13 6 13 13v6c0 7-6 13-13 13H30l-9 7v-7h-1c-6 0-10-4-10-10V20z" />
       <circle cx="27" cy="30" r="2.2" />
       <circle cx="33" cy="30" r="2.2" />
@@ -708,51 +229,6 @@ const getFirstReactorName = (reactions: any[], users: User[]): string => {
   if (user?.name) return user.name;
   if (firstReaction.user?.name) return firstReaction.user.name;
   return 'Someone';
-};
-
-// Helper to get top reaction emojis
-const topReactionEmojis = (reactions: any[], limit: number = 2): string[] => {
-  if (!reactions || reactions.length === 0) return [];
-  
-  const counts = new Map<string, number>();
-  for (const r of reactions) {
-    const type = String(r?.type || '').toLowerCase();
-    if (!type) continue;
-    counts.set(type, (counts.get(type) || 0) + 1);
-  }
-  
-  const emojiMap: Record<string, string> = {
-    like: '👍',
-    love: '❤️',
-    haha: '😂',
-    wow: '😮',
-    sad: '😢',
-    angry: '😡',
-    fire: '🔥',
-    party: '🎉',
-    clap: '👏',
-    star: '⭐',
-    thinking: '🤔',
-    crying: '😭',
-    heart_eyes: '🥰',
-    kiss: '😘',
-    sunglasses: '😎',
-    rocket: '🚀',
-    trophy: '🏆',
-    crown: '👑',
-    unicorn: '🦄',
-    rainbow: '🌈',
-    money: '💰',
-    muscle: '💪',
-    brain: '🧠',
-    lightning: '⚡',
-    gem: '💎',
-  };
-  
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([type]) => emojiMap[type] || '👍');
 };
 
 // ==================== REEL REACTIONS SHEET ====================
@@ -2275,7 +1751,8 @@ interface ReelsFeedProps {
   initialReelId?: number | null;
   onBack?: () => void;
   onVideoClick?: (sound?: UseSoundPayload) => void;
-  onNavigateToRecorder?: (videoFile: File, thumbnailFile: File, duration: number, selectedMusic?: any) => void;
+  // ✅ NEW: Native upload handler
+  onNativeUploadClick?: () => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -2296,7 +1773,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
   onVideoClick,
-  onNavigateToRecorder,
+  onNativeUploadClick,  // ✅ NEW
 }) => {
 
   // ==================== STATE ====================
@@ -2324,10 +1801,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [selectedReelForReactions, setSelectedReelForReactions] = useState<Reel | null>(null);
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [selectedReelForShare, setSelectedReelForShare] = useState<Reel | null>(null);
-
-  // Camera modal state
-  const [showCameraModal, setShowCameraModal] = useState(false);
-  const [selectedMusicForCamera, setSelectedMusicForCamera] = useState<any>(null);
 
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -2363,7 +1836,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return value.slice(0, max) + '...';
   };
 
-  // Extract real songId from reel
+  // ✅ Updated: Extract real songId from reel
   const extractSoundFromReel = useCallback(
     (reel: Reel): Sound => {
       const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
@@ -2390,7 +1863,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [users]
   );
 
-  // Use sound.songId instead of sound.id
+  // ✅ Updated: Use sound.songId instead of sound.id
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
       songName: sound.name || 'Original Sound',
@@ -2764,21 +2237,17 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
-  // Handle camera button click - opens camera modal
-  const handleCameraClick = useCallback(() => {
-    stopActivePlayback();
-    setShowCameraModal(true);
-  }, [stopActivePlayback]);
-
-  // Handle recording completion - navigates to existing Recorder page
-  const handleRecordingComplete = useCallback((videoFile: File, thumbnailFile: File, duration: number) => {
-    setShowCameraModal(false);
-    
-    // Navigate to Recorder page with the recorded files
-    if (onNavigateToRecorder) {
-      onNavigateToRecorder(videoFile, thumbnailFile, duration, selectedMusicForCamera);
-    }
-  }, [onNavigateToRecorder, selectedMusicForCamera]);
+const handleCameraClick = useCallback(() => {
+  stopActivePlayback();
+  
+  // ✅ Check if native upload handler exists and use it
+  if (onNativeUploadClick) {
+    onNativeUploadClick();
+  } else if (onVideoClick) {
+    onVideoClick();
+  }
+}, [onVideoClick, onNativeUploadClick, stopActivePlayback]);
+  
 
   // ==================== UPDATED handleVideoClick ====================
   const handleVideoClick = useCallback(
@@ -3200,7 +2669,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showComments || selectedSoundData || showReelMenu || editingReel || showCameraModal) return;
+      if (showComments || selectedSoundData || showReelMenu || editingReel) return;
 
       if (e.key === 'ArrowDown' || e.key === 'PageDown') {
         e.preventDefault();
@@ -3225,7 +2694,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     selectedSoundData,
     showReelMenu,
     editingReel,
-    showCameraModal,
     goToNextReel,
     goToPreviousReel,
     activeReelId,
@@ -3240,14 +2708,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     >
       {/* Hidden audio element for external soundtrack */}
       <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
-
-      {/* Camera Modal for Recording */}
-      <CreateReelCameraModal
-        isOpen={showCameraModal}
-        onClose={() => setShowCameraModal(false)}
-        onRecordingComplete={handleRecordingComplete}
-        selectedMusic={selectedMusicForCamera}
-      />
 
       <div
         className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
@@ -3404,8 +2864,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         if (e.touches.length > 1) e.preventDefault();
                       }}
                     />
-           
-                                  {showError && (
+
+                    {showError && (
                       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
                         <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
                           <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
@@ -3731,4 +3191,4 @@ export {
 
 export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
 
-export default ReelsFeed;       
+export default ReelsFeed;
