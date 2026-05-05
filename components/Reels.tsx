@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
+import Filters, { UneraFilter, buildUneraFilterStyle, UneraFilterOverlay } from './filters';
 
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
@@ -28,7 +29,7 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
 
   const p = fetch(url, {
     cache: 'force-cache',
-    headers: { Accept: '*/*' }, // fixed header
+    headers: { Accept: '*/*' },
   })
     .then(async (res) => {
       if (!res.ok) throw new Error(`Failed to fetch media: ${res.status}`);
@@ -56,6 +57,297 @@ async function fetchAsBlobUrl(url: string, type: 'video' | 'audio' = 'audio'): P
   return p;
 }
 
+// ==================== NATIVE DOWNLOAD HELPERS ====================
+const isUneraNativeApp = (): boolean => {
+  return Boolean(
+    (window as any).UneraNative ||
+    (window as any).UNERA_IS_NATIVE_APP ||
+    (window as any).flutter_inappwebview
+  );
+};
+
+const callUneraNative = (payload: any): boolean => {
+  if (!isUneraNativeApp()) return false;
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(JSON.stringify(payload));
+    return true;
+  }
+  return false;
+};
+
+const safeDownloadFile = async ({
+  url,
+  fileName,
+}: {
+  url: string;
+  fileName: string;
+}) => {
+  if (!url) return;
+  if (
+    callUneraNative({
+      action: 'download_file',
+      url,
+      fileName,
+      folder: 'UNERA',
+    })
+  ) {
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
+// ==================== CREATE VIDEO THUMBNAIL HELPER ====================
+const createVideoThumbnailFromFile = async (file: File): Promise<File> => {
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('Could not load video metadata'));
+    });
+    video.currentTime = Math.min(0.5, Math.max(0.1, (video.duration || 1) * 0.15));
+    await new Promise<void>((resolve) => {
+      video.onseeked = () => resolve();
+      setTimeout(resolve, 600);
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 720;
+    canvas.height = video.videoHeight || 1280;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas not supported');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Thumbnail export failed'))),
+        'image/webp',
+        0.72
+      );
+    });
+    return new File([blob], `reel-thumb-${Date.now()}.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+// ==================== REEL CAMERA CREATOR ====================
+const ReelCameraCreator: React.FC<{
+  initialSound?: UseSoundPayload;
+  onClose: () => void;
+  onDone: (payload: {
+    file: File;
+    thumbnailFile: File;
+    sound?: UseSoundPayload;
+    effectId?: string;
+  }) => void;
+}> = ({ initialSound, onClose, onDone }) => {
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [flashOn, setFlashOn] = useState(false);
+  const [effectId, setEffectId] = useState('none');
+  const [showFilters, setShowFilters] = useState(false);
+  
+  const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopCamera = useCallback(() => {
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    streamRef.current = null;
+    if (musicRef.current) {
+      musicRef.current.pause();
+      musicRef.current = null;
+    }
+  }, []);
+
+  const openCamera = useCallback(async () => {
+    setCameraReady(false);
+    stopCamera();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode,
+        width: { ideal: 1080 },
+        height: { ideal: 1920 },
+      },
+      audio: true,
+    });
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play().catch(() => {});
+    }
+    setCameraReady(true);
+  }, [facingMode, stopCamera]);
+
+  useEffect(() => {
+    openCamera().catch((err) => {
+      alert(err?.message || 'Camera failed');
+      onClose();
+    });
+    return () => stopCamera();
+  }, [openCamera, stopCamera, onClose]);
+
+  const rotateCamera = async () => {
+    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+  };
+
+  const startMusic = () => {
+    if (!initialSound?.audioUrl) return;
+    const audio = new Audio(initialSound.audioUrl);
+    audio.currentTime = Number(initialSound.audioStart || 5);
+    audio.volume = 0.9;
+    audio.muted = false;
+    audio.play().catch(() => {});
+    musicRef.current = audio;
+  };
+
+  const stopMusic = () => {
+    if (musicRef.current) {
+      musicRef.current.pause();
+      musicRef.current = null;
+    }
+  };
+
+  const startRecording = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    chunksRef.current = [];
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+      ? 'video/webm;codecs=vp8,opus'
+      : 'video/webm';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    recorderRef.current = recorder;
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorder.onstop = async () => {
+      stopMusic();
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      const file = new File([blob], `unera-reel-${Date.now()}.webm`, { type: mimeType });
+      const thumbnailFile = await createVideoThumbnailFromFile(file);
+      onDone({
+        file,
+        thumbnailFile,
+        sound: initialSound,
+        effectId,
+      });
+      stopCamera();
+    };
+    startMusic();
+    recorder.start(250);
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    setIsRecording(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[10000] bg-black text-white overflow-hidden">
+      <div className="absolute inset-0">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+            cameraReady ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={buildUneraFilterStyle(effectId)}
+        />
+        <UneraFilterOverlay filterId={effectId} />
+      </div>
+
+      {!cameraReady && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#18191A]">
+          <i className="fas fa-camera text-4xl text-white/80 animate-pulse"></i>
+          <p className="mt-4 text-white font-black">Opening camera...</p>
+        </div>
+      )}
+
+      <div className="absolute top-6 left-4 right-4 z-20 flex items-center justify-between">
+        <button
+          onClick={onClose}
+          className="w-12 h-12 rounded-full bg-black/45 flex items-center justify-center"
+        >
+          <i className="fas fa-times text-2xl"></i>
+        </button>
+        {initialSound?.songName && (
+          <div className="px-4 h-11 rounded-full bg-black/45 flex items-center gap-2 font-bold max-w-[210px]">
+            <i className="fas fa-music"></i>
+            <span className="truncate">{initialSound.songName}</span>
+          </div>
+        )}
+        <button
+          onClick={rotateCamera}
+          className="w-12 h-12 rounded-full bg-black/45 flex items-center justify-center"
+        >
+          <i className="fas fa-sync-alt text-xl"></i>
+        </button>
+      </div>
+
+      <div className="absolute right-4 top-[120px] z-20 flex flex-col gap-5">
+        <button onClick={rotateCamera} className="w-12 h-12 rounded-full bg-black/35">
+          <i className="fas fa-sync-alt text-xl"></i>
+        </button>
+        <button
+          onClick={() => setFlashOn((v) => !v)}
+          className="w-12 h-12 rounded-full bg-black/35"
+        >
+          <i className={`fas ${flashOn ? 'fa-bolt' : 'fa-bolt-lightning'} text-xl`}></i>
+        </button>
+        <button
+          onClick={() => setShowFilters(true)}
+          className="w-12 h-12 rounded-full bg-black/35"
+          aria-label="Effects"
+        >
+          <i className="fas fa-wand-magic-sparkles text-xl"></i>
+        </button>
+      </div>
+
+      <div className="absolute bottom-12 left-0 right-0 z-20 flex flex-col items-center">
+        <div className="mb-5 text-white font-black tracking-[0.2em] text-sm">REEL</div>
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          className="w-24 h-24 rounded-full border-[5px] border-white flex items-center justify-center active:scale-95"
+        >
+          <div
+            className={`transition-all ${
+              isRecording
+                ? 'w-10 h-10 rounded-lg bg-[#F3425F]'
+                : 'w-16 h-16 rounded-full bg-[#F3425F]'
+            }`}
+          />
+        </button>
+      </div>
+
+      {showFilters && (
+        <Filters
+          selectedFilterId={effectId}
+          onSelectFilter={(filter: UneraFilter) => {
+            setEffectId(filter.id);
+          }}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
+    </div>
+  );
+};
+
 // ==================== TYPES ====================
 interface Sound {
   id: string | number;
@@ -72,7 +364,7 @@ interface Sound {
   coverImage?: string;
   soundKey?: string;
   originalUrl?: string;
-  songId?: string | number | null; // ✅ added
+  songId?: string | number | null;
 }
 
 type NetworkLevel = 'low' | 'medium' | 'high';
@@ -83,15 +375,18 @@ type ReelVideoSources = {
   hd?: string;
 };
 
-type UseSoundPayload = { 
-  songName: string; 
-  audioUrl: string; 
-  originalUrl?: string; 
-  audioStart?: number; 
-  audioEnd?: number; 
-  songId?: string | number; 
-  soundKey?: string; 
-  isTrimmedAudio?: boolean; 
+type UseSoundPayload = {
+  songName: string;
+  audioUrl: string;
+  originalUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+  recordedFile?: File;
+  thumbnailFile?: File;
+  effectId?: string;
 };
 
 // ==================== HELPER: Get reel user ID ====================
@@ -1751,8 +2046,6 @@ interface ReelsFeedProps {
   initialReelId?: number | null;
   onBack?: () => void;
   onVideoClick?: (sound?: UseSoundPayload) => void;
-  // ✅ NEW: Native upload handler
-  onNativeUploadClick?: () => void;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -1773,7 +2066,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
   onVideoClick,
-  onNativeUploadClick,  // ✅ NEW
 }) => {
 
   // ==================== STATE ====================
@@ -1802,6 +2094,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [selectedReelForShare, setSelectedReelForShare] = useState<Reel | null>(null);
 
+  // Download states
+  const [downloadingReelId, setDownloadingReelId] = useState<number | null>(null);
+
+  // Reel Camera states
+  const [showReelCamera, setShowReelCamera] = useState(false);
+  const [reelCameraSound, setReelCameraSound] = useState<UseSoundPayload | undefined>(undefined);
+
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
   const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
@@ -1828,6 +2127,20 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
+  // ==================== DOWNLOAD HANDLER ====================
+  const handleDownloadReel = useCallback(async (reel: Reel) => {
+    if (downloadingReelId === reel.id) return;
+    const sources = getReelVideoSources(reel);
+    const url = resolvedVideoUrls[reel.id] || sources.hd || sources.medium || sources.low || (reel as any).video_url || (reel as any).videoUrl || '';
+    if (!url) return;
+    setDownloadingReelId(reel.id);
+    try {
+      await safeDownloadFile({ url, fileName: `unera-reel-${reel.id}.mp4` });
+    } finally {
+      setTimeout(() => setDownloadingReelId(null), 1300);
+    }
+  }, [downloadingReelId, resolvedVideoUrls]);
+
   // ==================== HELPER FUNCTIONS ====================
   
   const truncateName = (name?: string, max = 9) => {
@@ -1836,7 +2149,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return value.slice(0, max) + '...';
   };
 
-  // ✅ Updated: Extract real songId from reel
   const extractSoundFromReel = useCallback(
     (reel: Reel): Sound => {
       const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
@@ -1863,7 +2175,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [users]
   );
 
-  // ✅ Updated: Use sound.songId instead of sound.id
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
       songName: sound.name || 'Original Sound',
@@ -1896,7 +2207,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }, 5000);
   }, []);
 
-  // ==================== UPDATED resolveReelMedia ====================
   const resolveReelMedia = useCallback(
     async (reel: Reel) => {
       const id = reel.id;
@@ -1923,7 +2233,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [networkLevel, resolvedVideoUrls, resolvedAudioUrls]
   );
 
-  // ==================== UPDATED warmReelMedia ====================
   const warmReelMedia = useCallback(
     async (reel: Reel) => {
       try {
@@ -2098,7 +2407,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, resolvedAudioUrls]
   );
 
-  // ==================== UPDATED stopActivePlayback ====================
   const stopActivePlayback = useCallback(() => {
     if (pendingPlayTimeoutRef.current) {
       clearTimeout(pendingPlayTimeoutRef.current);
@@ -2115,7 +2423,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     stopSoundtrack();
   }, [stopSoundtrack]);
 
-  // ==================== UPDATED playOnly ====================
   const playOnly = useCallback(
     async (id: number) => {
       const requestId = ++playRequestRef.current;
@@ -2237,19 +2544,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
-const handleCameraClick = useCallback(() => {
-  stopActivePlayback();
-  
-  // ✅ Check if native upload handler exists and use it
-  if (onNativeUploadClick) {
-    onNativeUploadClick();
-  } else if (onVideoClick) {
-    onVideoClick();
-  }
-}, [onVideoClick, onNativeUploadClick, stopActivePlayback]);
-  
+  const handleCameraClick = useCallback(() => {
+    stopActivePlayback();
+    setReelCameraSound(undefined);
+    setShowReelCamera(true);
+  }, [stopActivePlayback]);
 
-  // ==================== UPDATED handleVideoClick ====================
   const handleVideoClick = useCallback(
     (reelId: number) => {
       const video = videoRefs.current[reelId];
@@ -2281,7 +2581,7 @@ const handleCameraClick = useCallback(() => {
     [playOnly, reels, startSoundtrackForReel, stopSoundtrack]
   );
 
-  // ==================== New Handlers for Reactions Sheet and Share ====================
+  // New Handlers for Reactions Sheet and Share
   const handleOpenReactions = useCallback((reel: Reel) => {
     setSelectedReelForReactions(reel);
     setShowReactionsSheet(true);
@@ -2294,901 +2594,23 @@ const handleCameraClick = useCallback(() => {
 
   const handleShareComplete = useCallback(async (destination: string, data?: any) => {
     if (data?.success && selectedReelForShare) {
-      // Call parent share handler
       onShare(selectedReelForShare.id, 'feed');
     }
     setShowShareSheet(false);
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
 
-  // ==================== Use sound handlers ====================
+  // Use sound handlers
   const handleUseSoundFromReel = useCallback(
     (reel: Reel) => {
       const sound = extractSoundFromReel(reel);
       const payload = buildUseSoundPayload(sound);
       stopActivePlayback();
       setSelectedSoundData(null);
-      onVideoClick?.(payload);
+      setReelCameraSound(payload);
+      setShowReelCamera(true);
     },
-    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback, onVideoClick]
+    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback]
   );
 
-  const handleSoundClick = useCallback(
-    (reel: Reel) => {
-      const sound = extractSoundFromReel(reel);
-      setSelectedSoundData(sound);
-    },
-    [extractSoundFromReel]
-  );
-
-  const openEditReel = useCallback(() => {
-    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
-    if (!reel) return;
-
-    setEditingReel(reel);
-    setEditingReelCaption(reel.caption || '');
-    setEditingReelLocation((reel as any).location || '');
-    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
-    setShowReelMenu(false);
-  }, [reels, menuReelId]);
-
-  const handleSaveReelEdit = useCallback(async () => {
-    if (!editingReel) return;
-
-    try {
-      setSavingReelEdit(true);
-      await Promise.resolve(
-        onEditReel(editingReel.id, {
-          caption: editingReelCaption,
-          location: editingReelLocation,
-          visibility: editingReelVisibility,
-        })
-      );
-      setEditingReel(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to update reel');
-    } finally {
-      setSavingReelEdit(false);
-    }
-  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
-
-  const handleDeleteOwnedReel = useCallback(async () => {
-    if (!menuReelId) return;
-
-    const ok = window.confirm('Delete this reel?');
-    if (!ok) return;
-
-    try {
-      await Promise.resolve(onDeleteReel(menuReelId));
-      setShowReelMenu(false);
-      setMenuReelId(null);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to delete reel');
-    }
-  }, [menuReelId, onDeleteReel]);
-
-  const handleReaction = useCallback((reelId: number, emoji: string) => {
-    if (reactingReelId === reelId) return;
-    setReactingReelId(reelId);
-    onReact(reelId, emoji as any);
-    setTimeout(() => setReactingReelId(null), 300);
-    setShowReactionPicker(null);
-  }, [onReact, reactingReelId]);
-
-  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
-
-  // ==================== EFFECTS ====================
   
-  useEffect(() => {
-    const nav = navigator as any;
-    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
-    if (!conn?.addEventListener) return;
-
-    const handleChange = () => {
-      const next = getNetworkLevel();
-      setNetworkLevel(next);
-      setResolvedVideoUrls({});
-    };
-
-    conn.addEventListener('change', handleChange);
-    return () => conn.removeEventListener('change', handleChange);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      preloadLinksRef.current.forEach((link) => link.remove());
-      preloadLinksRef.current.clear();
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      Object.values(bufferingTimeoutsRef.current).forEach((t) => {
-        if (t) clearTimeout(t);
-      });
-    };
-  }, []);
-
-  // Improved warm preload
-  useEffect(() => {
-    if (!activeReelId || reels.length === 0) return;
-
-    const currentIndex = reels.findIndex((r) => r.id === activeReelId);
-    if (currentIndex === -1) return;
-
-    if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
-
-    warmupTimerRef.current = setTimeout(() => {
-      const targets = [
-        reels[currentIndex],
-        reels[currentIndex + 1],
-        reels[currentIndex + 2],
-        reels[currentIndex + 3],
-        reels[currentIndex - 1],
-      ].filter(Boolean) as Reel[];
-
-      targets.forEach((targetReel) => {
-        warmReelMedia(targetReel);
-        resolveReelMedia(targetReel);
-      });
-    }, 80);
-
-    return () => {
-      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
-    };
-  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
-
-  useEffect(() => {
-    if (!activeReelId) return;
-    const reel = reels.find((r) => r.id === activeReelId);
-    if (reel) resolveReelMedia(reel);
-  }, [activeReelId, reels, resolveReelMedia]);
-
-  useEffect(() => {
-    activeIdRef.current = playingReelId;
-  }, [playingReelId]);
-
-  useEffect(() => {
-    if (!initialReelId || reels.length === 0) return;
-
-    const timer = setTimeout(() => {
-      playOnly(initialReelId);
-      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
-      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [initialReelId, reels, playOnly]);
-
-  // ==================== UPDATED unlock effect ====================
-  useEffect(() => {
-    const unlock = () => {
-      userInteractedRef.current = true;
-      const id = activeIdRef.current ?? activeReelId;
-      if (!id) return;
-      const video = videoRefs.current[id];
-      const reel = reels.find((r) => r.id === id);
-      if (!video || !reel) return;
-
-      const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
-
-      if (hasExternalSound) {
-        video.muted = true;
-        video.volume = 0;
-        if (video.paused) {
-          video.play().catch(() => {});
-        }
-        startSoundtrackForReel(id);
-      } else {
-        video.muted = false;
-        video.volume = 1;
-        if (video.paused) {
-          video.play().catch(() => {});
-        }
-      }
-    };
-    window.addEventListener('click', unlock, { once: true });
-    window.addEventListener('touchstart', unlock, { once: true });
-    return () => {
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('touchstart', unlock);
-    };
-  }, [activeReelId, reels, startSoundtrackForReel]);
-
-  useEffect(() => {
-    const rootEl = scrollerRef.current;
-    if (!rootEl) return;
-
-    observerRef.current?.disconnect();
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        let best: { id: number; ratio: number } | null = null;
-
-        entries.forEach((entry) => {
-          const id = Number(entry.target.getAttribute('data-reel-id'));
-          if (!best || entry.intersectionRatio > best.ratio) {
-            best = { id, ratio: entry.intersectionRatio };
-          }
-        });
-
-        if (best && best.ratio > 0.6 && activeIdRef.current !== best.id) {
-          playOnly(best.id);
-        }
-      },
-      {
-        root: rootEl,
-        threshold: [0.4, 0.6, 0.8],
-      }
-    );
-
-    const els = rootEl.querySelectorAll('[data-reel-id]');
-    els.forEach((el) => observerRef.current?.observe(el));
-
-    return () => observerRef.current?.disconnect();
-  }, [reels, playOnly]);
-
-  // ==================== UPDATED pause when comments open ====================
-  useEffect(() => {
-    if (!showComments) return;
-    const activeId = activeIdRef.current;
-    if (activeId) {
-      const video = videoRefs.current[activeId];
-      if (video) {
-        try {
-          video.pause();
-        } catch {}
-      }
-    }
-    stopSoundtrack();
-  }, [showComments, stopSoundtrack]);
-
-  // ==================== UPDATED resume after comments close ====================
-  useEffect(() => {
-    if (showComments) return;
-    const activeId = activeIdRef.current;
-    if (!activeId) return;
-    const video = videoRefs.current[activeId];
-    const reel = reels.find((r) => r.id === activeId);
-    if (!video || !reel) return;
-
-    const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
-
-    if (hasExternalSound) {
-      video.muted = true;
-      video.volume = 0;
-    } else if (userInteractedRef.current) {
-      video.muted = false;
-      video.volume = 1;
-    } else {
-      video.muted = true;
-      video.volume = 0;
-    }
-
-    video.play().then(() => {
-      if (hasExternalSound && userInteractedRef.current) {
-        startSoundtrackForReel(activeId);
-      }
-    }).catch(() => {});
-  }, [showComments, reels, startSoundtrackForReel]);
-
-  // ==================== UPDATED visibility change effect ====================
-  useEffect(() => {
-    const stopPlayback = () => {
-      Object.values(videoRefs.current).forEach((video) => {
-        if (!video) return;
-        try {
-          video.pause();
-        } catch {}
-      });
-      stopSoundtrack();
-    };
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPlayback();
-      } else if (!showComments && activeIdRef.current) {
-        const id = activeIdRef.current;
-        const video = videoRefs.current[id];
-        const reel = reels.find((r) => r.id === id);
-        if (video && reel) {
-          const hasExternalSound = !!(reel.audioUrl || (reel as any)?.audio_url);
-          if (hasExternalSound) {
-            video.muted = true;
-            video.volume = 0;
-          } else if (userInteractedRef.current) {
-            video.muted = false;
-            video.volume = 1;
-          } else {
-            video.muted = true;
-            video.volume = 0;
-          }
-          video.play().then(() => {
-            if (hasExternalSound && userInteractedRef.current) {
-              startSoundtrackForReel(id);
-            }
-          }).catch(() => {});
-        }
-      }
-    };
-    const handlePageHide = () => {
-      stopPlayback();
-    };
-    window.addEventListener('pagehide', handlePageHide);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [showComments, reels, startSoundtrackForReel, stopSoundtrack]);
-
-  useEffect(() => {
-    if (selectedSoundData) {
-      const activeId = activeIdRef.current;
-      if (activeId) {
-        const video = videoRefs.current[activeId];
-        if (video) {
-          try {
-            video.pause();
-          } catch {}
-        }
-      }
-      stopSoundtrack();
-    }
-  }, [selectedSoundData, stopSoundtrack]);
-
-  useEffect(() => {
-    if (!showReelMenu && !editingReel) return;
-    const activeId = activeIdRef.current;
-    if (activeId) {
-      const video = videoRefs.current[activeId];
-      if (video) {
-        try {
-          video.pause();
-        } catch {}
-      }
-    }
-    stopSoundtrack();
-  }, [showReelMenu, editingReel, stopSoundtrack]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopActivePlayback();
-    };
-  }, [stopActivePlayback]);
-
-  // Before unload stop
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      stopActivePlayback();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [stopActivePlayback]);
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (showComments || selectedSoundData || showReelMenu || editingReel) return;
-
-      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
-        e.preventDefault();
-        goToNextReel();
-      }
-
-      if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-        e.preventDefault();
-        goToPreviousReel();
-      }
-
-      if (e.key === ' ') {
-        e.preventDefault();
-        if (activeReelId) handleVideoClick(activeReelId);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    showComments,
-    selectedSoundData,
-    showReelMenu,
-    editingReel,
-    goToNextReel,
-    goToPreviousReel,
-    activeReelId,
-    handleVideoClick,
-  ]);
-
-  // ==================== RENDER ====================
-  return (
-    <div
-      className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {/* Hidden audio element for external soundtrack */}
-      <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
-
-      <div
-        className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
-      >
-        <button
-          onClick={onBack || (() => window.history.back())}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
-        >
-          <i className="fas fa-arrow-left text-white text-sm" />
-        </button>
-
-        <div className="flex items-center gap-3">
-          <h2 className="text-white text-[20px] font-black tracking-tight">Reels</h2>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleCameraClick}
-            className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
-            aria-label="Create reel"
-          >
-            <i className="fas fa-camera text-white text-xl" />
-          </button>
-
-          <button
-            className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
-            title="Views"
-          >
-            <i className="fas fa-eye text-[14px]" />
-            <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
-          </button>
-
-          <button
-            onClick={() => {
-              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-              if (!reel) return;
-              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-              if (ownerId !== Number(currentUser?.id)) return;
-              setMenuReelId(reel.id);
-              setShowReelMenu(true);
-            }}
-            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
-          >
-            <i className="fas fa-ellipsis-h text-white text-base" />
-          </button>
-        </div>
-      </div>
-
-      <div className="w-full h-full">
-        <div
-          ref={scrollerRef}
-          className="reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-black"
-        >
-          {reels.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-white p-8">
-              <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
-                <i className="fas fa-video text-3xl text-[#1877F2]"></i>
-              </div>
-              <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
-              <p className="text-[#B0B3B8] text-sm mb-8 text-center">No reels available right now.</p>
-            </div>
-          ) : (
-            reels.map((reel: Reel, reelIndex) => {
-              const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
-              if (!author) return null;
-
-              const isFollowing = checkIsFollowing(Number(author.id));
-              const isLoadingFollow = !!followLoading[Number(author.id)];
-              const hasReacted = reel.reactions?.some(
-                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
-              );
-              const isReacting = reactingReelId === reel.id;
-              const currentUserReaction = reel.reactions?.find(
-                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
-              )?.type;
-
-              // Get first reactor's name for the reaction text
-              const firstReactorName = getFirstReactorName(reel.reactions || [], users);
-
-              const videoSources = getReelVideoSources(reel);
-              const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
-              const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
-              const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
-              const showError = activeReelId === reel.id && videoErrors[reel.id];
-
-              return (
-                <div
-                  key={reel.id}
-                  id={`reel-${reel.id}`}
-                  data-reel-id={reel.id}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="reel-container w-full h-[100dvh] snap-start relative bg-black overflow-hidden"
-                >
-                  <div className="reel-video-shell w-full h-full relative bg-black">
-                    <video
-                      ref={(el) => {
-                        if (el) videoRefs.current[reel.id] = el;
-                      }}
-                      src={isNearActive ? videoUrl : undefined}
-                      poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
-                      preload={isNearActive ? 'auto' : 'metadata'}
-                      playsInline
-                      loop
-                      controls={false}
-                      disablePictureInPicture
-                      controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
-                      style={{
-                        WebkitTouchCallout: 'none',
-                        WebkitUserSelect: 'none',
-                        userSelect: 'none',
-                      }}
-                      muted={playingReelId !== reel.id}
-                      draggable={false}
-                      tabIndex={-1}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onTimeUpdate={(e) => {
-                        const video = e.currentTarget;
-                        const duration = video.duration || 0;
-                        const current = video.currentTime || 0;
-                        const progress = duration > 0 ? Math.min(current / duration, 1) : 0;
-                        setReelProgress((prev) => {
-                          if (prev[reel.id] === progress) return prev;
-                          return { ...prev, [reel.id]: progress };
-                        });
-                      }}
-                      onLoadStart={() => {
-                        if (bufferingTimeoutsRef.current[reel.id]) {
-                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
-                        }
-                        setVideoErrors((prev) => ({ ...prev, [reel.id]: false }));
-                      }}
-                      onWaiting={() => {
-                        if (bufferingTimeoutsRef.current[reel.id]) {
-                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
-                        }
-                      }}
-                      onStalled={() => {}}
-                      onCanPlay={() => {}}
-                      onCanPlayThrough={() => {}}
-                      onPlaying={() => {}}
-                      onSeeked={() => {}}
-                      onError={() => {
-                        setVideoErrors((prev) => ({ ...prev, [reel.id]: true }));
-                      }}
-                    />
-
-                    <div
-                      className="absolute inset-0 z-10"
-                      onClick={() => handleVideoClick(reel.id)}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onTouchStart={(e) => {
-                        if (e.touches.length > 1) e.preventDefault();
-                      }}
-                    />
-
-                    {showError && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
-                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
-                          <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
-                          <p className="text-white text-sm font-bold">Video failed to load</p>
-                          <button
-                            onClick={() => playOnly(reel.id)}
-                            className="px-4 py-2 rounded-xl bg-[#1877F2] text-white text-sm font-bold"
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
-                      <div className="mb-4 pointer-events-auto">
-                        <div className="flex items-center gap-3 mb-2">
-                          <img
-                            src={author.profile_image_url || author.profileImage}
-                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer shrink-0"
-                            alt=""
-                            onClick={() => onProfileClick(author.id)}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className="text-white font-bold text-[22px] cursor-pointer hover:underline truncate"
-                                onClick={() => onProfileClick(author.id)}
-                              >
-                                {truncateName(author.name, 9)}
-                              </span>
-                              {author.is_verified && (
-                                <i className="fas fa-check-circle text-[#1877F2] text-xs shrink-0"></i>
-                              )}
-                              {currentUser?.id !== author.id && (
-                                <button
-                                  onClick={() => onFollow(author.id)}
-                                  disabled={isLoadingFollow}
-                                  className="ml-2 h-10 px-5 rounded-[12px] border border-white/35 text-white text-[15px] font-bold bg-transparent active:scale-95 transition-all shrink-0"
-                                >
-                                  {isLoadingFollow ? '...' : isFollowing ? 'Following' : 'Follow'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {!!reel.caption && (
-                          <p className="text-white text-[22px] leading-snug line-clamp-2 mb-2">
-                            {reel.caption}
-                          </p>
-                        )}
-
-                        <div className="pointer-events-auto">
-                          <div
-                            className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
-                            onClick={() => handleSoundClick(reel)}
-                          >
-                            <i className="fas fa-music text-[#1877F2]" />
-                            <span className="font-semibold truncate max-w-[200px]">
-                              {reel.songName || (reel as any).song_name || 'Original Sound'}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleUseSoundFromReel(reel)}
-                            className="mt-2 px-4 py-2 rounded-full bg-[#1877F2] text-white text-xs font-black uppercase tracking-[0.12em] active:scale-95 transition-all"
-                          >
-                            Use this sound
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Reaction count with emoji display - SHOWING ACTUAL NAME */}
-                      {reel.reactions && reel.reactions.length > 0 && (
-                        <div 
-                          className="mt-2 px-2 cursor-pointer hover:opacity-80 transition-opacity pointer-events-auto mb-3"
-                          onClick={() => handleOpenReactions(reel)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="flex -space-x-2">
-                              {topReactionEmojis(reel.reactions, 2).map((emoji, i) => (
-                                <span
-                                  key={i}
-                                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                                  style={{ zIndex: 10 - i }}
-                                >
-                                  {emoji}
-                                </span>
-                              ))}
-                            </div>
-                            <span className="text-white/70 text-sm font-medium">
-                              {reel.reactions.length === 1 
-                                ? `${formatCount(reel.reactions.length)} · ${firstReactorName}`
-                                : `${formatCount(reel.reactions.length)} · ${firstReactorName} and ${formatCount(reel.reactions.length - 1)} other${reel.reactions.length - 1 !== 1 ? 's' : ''}`
-                              }
-                            </span>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-around py-2 pointer-events-auto">
-                        <ReelReactionButton
-                          reelId={reel.id}
-                          hasReacted={hasReacted || false}
-                          reactionCount={reel.reactions?.length || 0}
-                          currentUserReaction={currentUserReaction}
-                          onReact={onReact}
-                          isLoading={isReacting}
-                        />
-
-                        <ReelDiscussButton
-                          commentCount={reel.comments?.length || 0}
-                          onClick={() => {
-                            setActiveReelId(reel.id);
-                            setShowComments(true);
-                          }}
-                        />
-
-                        <button
-                          onClick={() => handleOpenShare(reel)}
-                          className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
-                        >
-                          <i className="fas fa-share text-lg text-white" />
-                          <span className="text-white text-sm font-bold ml-1">
-                            {formatCount(reel.shares || 0)}
-                          </span>
-                        </button>
-                      </div>
-
-                      {/* Progress bar below action buttons */}
-                      <div className="mt-2 px-1 pointer-events-none">
-                        <div className="w-full h-[3px] bg-white/20 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
-                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
-                        onClick={() => handleVideoClick(reel.id)}
-                      >
-                        <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
-                          <i className="fas fa-play text-white text-2xl ml-1"></i>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {activeReelId && (
-        <ReelCommentsSheet
-          isOpen={showComments}
-          onClose={() => setShowComments(false)}
-          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []}
-          users={users}
-          currentUser={currentUser}
-          onAddComment={(payload) => onComment(activeReelId, payload)}
-          onEditComment={onEditComment}
-          onDeleteComment={onDeleteComment}
-        />
-      )}
-
-      {/* Reactions Sheet - Using ReelReactionsSheet */}
-      {selectedReelForReactions && (
-        <ReelReactionsSheet
-          isOpen={showReactionsSheet}
-          onClose={() => {
-            setShowReactionsSheet(false);
-            setSelectedReelForReactions(null);
-          }}
-          reel={selectedReelForReactions}
-          users={users}
-          onProfileClick={onProfileClick}
-        />
-      )}
-
-      {/* Share Bottom Sheet */}
-      {selectedReelForShare && (
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => {
-            setShowShareSheet(false);
-            setSelectedReelForShare(null);
-          }}
-          post={{
-            id: selectedReelForShare.id,
-            author: users.find(u => u.id === getReelUserId(selectedReelForShare)),
-            content: selectedReelForShare.caption,
-            media_url: selectedReelForShare.thumbnail_url || selectedReelForShare.videoUrl,
-            created_at: selectedReelForShare.created_at,
-            source: 'reel',
-            item_type: 'reel',
-            reel_id: selectedReelForShare.id,
-          }}
-          currentUser={currentUser}
-          users={users}
-          groups={[]}
-          brands={[]}
-          chats={[]}
-          onShareComplete={handleShareComplete}
-        />
-      )}
-
-      {selectedSoundData && (
-        <SoundDetailView
-          sound={selectedSoundData}
-          onClose={() => setSelectedSoundData(null)}
-          onReelClick={(id) => {
-            setSelectedSoundData(null);
-            playOnly(id);
-          }}
-          onUseSound={(sound) => {
-            const payload = buildUseSoundPayload(sound);
-            stopActivePlayback();
-            setSelectedSoundData(null);
-            onVideoClick?.(payload);
-          }}
-        />
-      )}
-
-      <ReelOwnerMenu
-        isOpen={showReelMenu}
-        onClose={() => {
-          setShowReelMenu(false);
-          setMenuReelId(null);
-        }}
-        onEdit={openEditReel}
-        onDelete={handleDeleteOwnedReel}
-      />
-
-      <EditReelModal
-        reel={editingReel}
-        caption={editingReelCaption}
-        location={editingReelLocation}
-        visibility={editingReelVisibility}
-        saving={savingReelEdit}
-        setCaption={setEditingReelCaption}
-        setLocation={setEditingReelLocation}
-        setVisibility={setEditingReelVisibility}
-        onClose={() => setEditingReel(null)}
-        onSave={handleSaveReelEdit}
-      />
-    </div>
-  );
-};
-
-// ==================== STYLES ====================
-const styles = `
-@keyframes slide-up {
-  0% { transform: translateY(100%); }
-  100% { transform: translateY(0); }
-}
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
-}
-
-@keyframes fade-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
-}
-
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.animate-spin-slow {
-  animation: spin-slow 20s linear infinite;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.reel-video-shell,
-.reel-video-shell * {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.reel-video-shell video {
-  pointer-events: none;
-}
-
-.reel-container {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
-`;
-
-if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
-  const styleSheet = document.createElement('style');
-  styleSheet.id = 'reels-styles';
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
-}
-
-// ==================== EXPORTS ====================
-export {
-  fetchAsBlobUrl,
-  formatViewCount,
-  getNetworkLevel,
-  getReelVideoSources,
-  pickBestVideoUrl,
-};
-
-export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
-
-export default ReelsFeed;
