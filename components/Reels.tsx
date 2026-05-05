@@ -75,32 +75,6 @@ const callUneraNative = (payload: any): boolean => {
   return false;
 };
 
-const safeDownloadFile = async ({
-  url,
-  fileName,
-}: {
-  url: string;
-  fileName: string;
-}) => {
-  if (!url) return;
-  if (
-    callUneraNative({
-      action: 'download_file',
-      url,
-      fileName,
-      folder: 'UNERA',
-    })
-  ) {
-    return;
-  }
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-};
-
 // ==================== CREATE VIDEO THUMBNAIL HELPER ====================
 const createVideoThumbnailFromFile = async (file: File): Promise<File> => {
   const url = URL.createObjectURL(file);
@@ -2094,12 +2068,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [selectedReelForShare, setSelectedReelForShare] = useState<Reel | null>(null);
 
-  // Download states
+  // Download states with progress
   const [downloadingReelId, setDownloadingReelId] = useState<number | null>(null);
-
-  // Reel Camera states
-  const [showReelCamera, setShowReelCamera] = useState(false);
-  const [reelCameraSound, setReelCameraSound] = useState<UseSoundPayload | undefined>(undefined);
+  const [downloadProgress, setDownloadProgress] = useState<Record<number, number>>({});
 
   const [networkLevel, setNetworkLevel] = useState<NetworkLevel>(getNetworkLevel());
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
@@ -2127,19 +2098,98 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [reels, activeReelId]
   );
 
-  // ==================== DOWNLOAD HANDLER ====================
+  // ==================== DOWNLOAD HANDLER WITH PROGRESS ====================
   const handleDownloadReel = useCallback(async (reel: Reel) => {
     if (downloadingReelId === reel.id) return;
     const sources = getReelVideoSources(reel);
     const url = resolvedVideoUrls[reel.id] || sources.hd || sources.medium || sources.low || (reel as any).video_url || (reel as any).videoUrl || '';
     if (!url) return;
+    
     setDownloadingReelId(reel.id);
+    setDownloadProgress(prev => ({ ...prev, [reel.id]: 1 }));
+    
     try {
-      await safeDownloadFile({ url, fileName: `unera-reel-${reel.id}.mp4` });
+      if (isUneraNativeApp()) {
+        callUneraNative({
+          action: 'download_file',
+          url,
+          fileName: `unera-reel-${reel.id}.mp4`,
+          folder: 'UNERA',
+          source: 'reel',
+          id: reel.id,
+        });
+        return;
+      }
+      
+      const res = await fetch(url);
+      const total = Number(res.headers.get('content-length') || 0);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Download reader unavailable');
+      
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          received += value.length;
+          if (total > 0) {
+            const percent = Math.min(99, Math.round((received / total) * 100));
+            setDownloadProgress(prev => ({ ...prev, [reel.id]: percent }));
+          }
+        }
+      }
+      
+      const blob = new Blob(chunks, { type: 'video/mp4' });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `unera-reel-${reel.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      setDownloadProgress(prev => ({ ...prev, [reel.id]: 100 }));
+    } catch (e) {
+      console.error('Download failed:', e);
     } finally {
-      setTimeout(() => setDownloadingReelId(null), 1300);
+      setTimeout(() => {
+        setDownloadingReelId(null);
+        setDownloadProgress(prev => {
+          const next = { ...prev };
+          delete next[reel.id];
+          return next;
+        });
+      }, 1000);
     }
   }, [downloadingReelId, resolvedVideoUrls]);
+
+  // Native download progress listener
+  useEffect(() => {
+    const onNativeProgress = (e: any) => {
+      const id = Number(e.detail?.id || 0);
+      const progress = Number(e.detail?.progress || 0);
+      if (!id) return;
+      setDownloadingReelId(id);
+      setDownloadProgress(prev => ({ ...prev, [id]: progress }));
+      if (progress >= 100) {
+        setTimeout(() => {
+          setDownloadingReelId(null);
+          setDownloadProgress(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }, 900);
+      }
+    };
+    window.addEventListener('uneraNativeDownloadProgress', onNativeProgress);
+    return () => {
+      window.removeEventListener('uneraNativeDownloadProgress', onNativeProgress);
+    };
+  }, []);
 
   // ==================== HELPER FUNCTIONS ====================
   
@@ -2544,11 +2594,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     }
   }, [activeIndex, scrollToReelByIndex]);
 
-  const handleCameraClick = useCallback(() => {
+  // Updated: Open gallery creator, not camera directly
+  const handleCreateReelClick = useCallback(() => {
     stopActivePlayback();
-    setReelCameraSound(undefined);
-    setShowReelCamera(true);
-  }, [stopActivePlayback]);
+    onVideoClick?.();
+  }, [onVideoClick, stopActivePlayback]);
 
   const handleVideoClick = useCallback(
     (reelId: number) => {
@@ -2600,20 +2650,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
 
-  // Use sound handlers
+  // Use sound handlers - opens gallery with sound, not camera directly
   const handleUseSoundFromReel = useCallback(
     (reel: Reel) => {
       const sound = extractSoundFromReel(reel);
       const payload = buildUseSoundPayload(sound);
       stopActivePlayback();
       setSelectedSoundData(null);
-      setReelCameraSound(payload);
-      setShowReelCamera(true);
+      onVideoClick?.(payload);
     },
-    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback]
+    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback, onVideoClick]
   );
 
-   const handleSoundClick = useCallback(
+  const handleSoundClick = useCallback(
     (reel: Reel) => {
       const sound = extractSoundFromReel(reel);
       setSelectedSoundData(sound);
@@ -3026,11 +3075,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleCameraClick}
+            onClick={handleCreateReelClick}
             className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
             aria-label="Create reel"
           >
-            <i className="fas fa-camera text-white text-xl" />
+            <i className="fas fa-plus text-white text-xl" />
           </button>
 
           <button
@@ -3042,14 +3091,21 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           </button>
 
           <button
-            onClick={handleDownloadReel}
-            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
+            onClick={() => handleDownloadReel(activeReel!)}
+            className="relative w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
             aria-label="Download reel"
             disabled={downloadingReelId === activeReel?.id}
           >
-            <i className={`fas ${
-              downloadingReelId === activeReel?.id ? 'fa-spinner fa-spin' : 'fa-download'
-            } text-white text-base`} />
+            {downloadingReelId === activeReel?.id ? (
+              <>
+                <i className="fas fa-spinner fa-spin text-white text-base" />
+                <span className="absolute -bottom-5 text-[10px] text-white font-bold">
+                  {downloadProgress[activeReel?.id] ? `${downloadProgress[activeReel?.id]}%` : ''}
+                </span>
+              </>
+            ) : (
+              <i className="fas fa-download text-white text-base" />
+            )}
           </button>
 
           <button
@@ -3401,28 +3457,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             const payload = buildUseSoundPayload(sound);
             stopActivePlayback();
             setSelectedSoundData(null);
-            setReelCameraSound(payload);
-            setShowReelCamera(true);
-          }}
-        />
-      )}
-
-      {showReelCamera && (
-        <ReelCameraCreator
-          initialSound={reelCameraSound}
-          onClose={() => {
-            setShowReelCamera(false);
-            setReelCameraSound(undefined);
-          }}
-          onDone={(payload) => {
-            setShowReelCamera(false);
-            setReelCameraSound(undefined);
-            onVideoClick?.({
-              ...payload.sound,
-              recordedFile: payload.file,
-              thumbnailFile: payload.thumbnailFile,
-              effectId: payload.effectId,
-            } as any);
+            onVideoClick?.(payload);
           }}
         />
       )}
@@ -3523,4 +3558,4 @@ export {
 
 export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
 
-export default ReelsFeed; 
+export default ReelsFeed;
