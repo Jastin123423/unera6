@@ -37,6 +37,7 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
+import { ReelCameraCreator } from './components/Reels';
 import { NotificationsPage } from './components/NotificationsPage';
 import Dashboard from './components/Dashboard';
 import AdCreator from './components/AdCreator';
