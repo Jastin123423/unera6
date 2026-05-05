@@ -1591,7 +1591,7 @@ const normalizeGroup = (g: any): Group => {
 };
       
   //=======GALLERY CREATOR COMPONENT ======
-  // Reel Gallery Creator Component
+// Reel Gallery Creator Component - Professional version
 const ReelGalleryCreator: React.FC<{
   sound?: UseSoundPayload;
   onClose: () => void;
@@ -1604,143 +1604,163 @@ const ReelGalleryCreator: React.FC<{
     nativeVideoMeta?: any;
   }) => void;
 }> = ({ sound, onClose, onDone }) => {
-  const [showCamera, setShowCamera] = useState(false);
+  const [recentVideos, setRecentVideos] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const createVideoThumbnailFromFile = async (file: File): Promise<File> => {
-    const url = URL.createObjectURL(file);
-    try {
-      const video = document.createElement('video');
-      video.src = url;
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
+  // Native helpers
+  const openNativeReelGallery = () => {
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(JSON.stringify({
+        action: 'open_reel_gallery'
+      }));
+      return true;
+    }
+    return false;
+  };
+
+  const openNativeReelCamera = () => {
+    if ((window as any).UneraNative?.postMessage) {
+      (window as any).UneraNative.postMessage(JSON.stringify({
+        action: 'open_reel_camera'
+      }));
+      return true;
+    }
+    return false;
+  };
+
+  // Listen for native uploads
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      if (!media || media.type !== 'video') return;
       
-      await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject(new Error('Could not load video metadata'));
+      console.log('📱 Native reel video received:', media);
+      
+      onDone({
+        file: null as any, // Native handles upload
+        thumbnailFile: null as any,
+        sound,
+        effectId: 'none',
+        nativeVideoUrl: media.full || media.feed || media.url,
+        nativeVideoMeta: {
+          thumb: media.thumb || '',
+          feed: media.feed || media.full || '',
+          full: media.full || media.feed || '',
+          type: 'video',
+        },
       });
-      
-      video.currentTime = Math.min(0.5, Math.max(0.1, (video.duration || 1) * 0.15));
-      
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve();
-        setTimeout(resolve, 600);
-      });
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 720;
-      canvas.height = video.videoHeight || 1280;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas not supported');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Thumbnail export failed'))),
-          'image/webp',
-          0.72
-        );
-      });
-      
-      return new File([blob], `reel-thumb-${Date.now()}.webp`, { type: 'image/webp' });
-    } finally {
-      URL.revokeObjectURL(url);
+    };
+    
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  }, [sound, onDone]);
+
+  const handleGalleryClick = () => {
+    // Try native first, fallback to web input
+    if (!openNativeReelGallery()) {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleCameraClick = () => {
+    // Try native first, fallback to web camera
+    if (!openNativeReelCamera()) {
+      // Web fallback - could use ReelCameraCreator
+      alert('Please use the native app for camera recording');
     }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (!file.type.startsWith('video/')) {
       alert('Please select a video file');
       return;
     }
-
     const thumbnailFile = await createVideoThumbnailFromFile(file);
-    
-    onDone({
-      file,
-      thumbnailFile,
-      sound,
-      effectId: 'none',
-    });
+    onDone({ file, thumbnailFile, sound, effectId: 'none' });
   };
-
-  if (showCamera) {
-    return (
-      <ReelCameraCreator
-        initialSound={sound}
-        onClose={() => setShowCamera(false)}
-        onDone={(payload) => {
-          onDone({
-            file: payload.file,
-            thumbnailFile: payload.thumbnailFile,
-            sound: payload.sound || sound,
-            effectId: payload.effectId,
-          });
-        }}
-      />
-    );
-  }
 
   return (
     <div className="fixed inset-0 z-[10000] bg-[#121212] flex flex-col">
+      {/* Header */}
       <div className="p-4 border-b border-white/10 flex items-center justify-between">
         <button onClick={onClose} className="text-white text-xl">
           <i className="fas fa-times"></i>
         </button>
-        <h3 className="text-white font-black text-lg">Create Reel</h3>
+        <h3 className="text-white font-black text-lg">Create reel</h3>
         <div className="w-6" />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {sound && (
-          <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
-            <div className="flex items-center gap-3">
-              <i className="fas fa-music text-[#1877F2] text-xl"></i>
-              <div>
-                <p className="text-white font-bold">{sound.songName || 'Original Sound'}</p>
-                <p className="text-white/50 text-xs">Sound selected</p>
-              </div>
+      {/* Sound info if selected */}
+      {sound && (
+        <div className="mx-4 mt-4 p-3 rounded-xl bg-white/10 border border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#1877F2]/20 flex items-center justify-center">
+              <i className="fas fa-music text-[#1877F2] text-lg"></i>
             </div>
+            <div className="flex-1">
+              <p className="text-white font-bold text-sm">{sound.songName || 'Original Sound'}</p>
+              <p className="text-white/40 text-xs">Selected sound</p>
+            </div>
+            <button className="text-[#1877F2] text-sm font-bold">Change</button>
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="grid grid-cols-2 gap-3">
+      {/* Popular music chips */}
+      <div className="px-4 py-3 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-2">
+          {['Popular', 'Trending', 'New', 'For you', 'Tanzania', 'Africa'].map((chip) => (
+            <button
+              key={chip}
+              className="px-4 py-2 rounded-full bg-white/10 text-white text-sm font-medium whitespace-nowrap active:scale-95 transition-all"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Gallery Grid */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="grid grid-cols-3 gap-[2px]">
+          {/* Camera Tile - First item */}
           <button
-            onClick={() => setShowCamera(true)}
-            className="aspect-[9/16] rounded-2xl bg-gradient-to-br from-[#1877F2] to-[#45BD62] flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"
+            onClick={handleCameraClick}
+            className="aspect-square bg-gradient-to-br from-[#1877F2] to-[#45BD62] rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all relative overflow-hidden"
           >
-            <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
               <i className="fas fa-camera text-white text-2xl"></i>
             </div>
-            <span className="text-white font-bold text-sm">Camera</span>
+            <span className="text-white font-bold text-xs">Camera</span>
           </button>
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="aspect-[9/16] rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-              <i className="fas fa-image text-white text-2xl"></i>
-            </div>
-            <span className="text-white font-bold text-sm">Gallery</span>
-          </button>
+          {/* Gallery placeholder tiles - Native will populate these */}
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <button
+              key={i}
+              onClick={handleGalleryClick}
+              className="aspect-square bg-white/5 rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all"
+            >
+              <i className="fas fa-image text-white/40 text-2xl"></i>
+            </button>
+          ))}
         </div>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
       </div>
+
+      {/* Hidden file input for web fallback */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
     </div>
   );
 };
+
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
