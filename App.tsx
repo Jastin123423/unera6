@@ -8495,7 +8495,29 @@ const openEvent = useCallback((eventId: string | number) => {
 }, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);        
 
 
-      
+{/* Reel Gallery Creator */}
+{showReelGallery && (
+  <ReelGalleryCreator
+    sound={selectedReelSoundForGallery}
+    onClose={() => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+    }}
+    onDone={(payload) => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+      setSelectedReelSound(payload.sound || null);
+      setPendingReelFile(payload.file);
+      setPendingReelThumbnailFile(payload.thumbnailFile);
+      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
+      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
+      setPendingReelEffectId(payload.effectId || 'none');
+      setShowRecorder(true);
+    }}
+  />
+)}
+
+  
    //====NOTIFICATION DELETE ===     
 const deleteNotification = useCallback(async (notificationId: number) => {
   const token = localStorage.getItem("unera_token");
