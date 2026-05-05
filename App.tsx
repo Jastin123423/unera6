@@ -2469,12 +2469,21 @@ const enrichedNotifications = useMemo(() => {
     [currentUser]
   );
 
+      //==== REF====
   const usersRef = useRef<User[]>([]);
   const storiesInFlightRef = useRef(false);
   const reelsInFlightRef = useRef(false);
   const postsInFlightRef = useRef(false);
   const usersInFlightRef = useRef(false);
   const otherDataInFlightRef = useRef(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+const streamRef = useRef<MediaStream | null>(null);
+const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+const [recordingTime, setRecordingTime] = useState(0);
+const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
+const [isRecording, setIsRecording] = useState(false);
+const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'preview'>('record'); 
   
   const reelsRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
