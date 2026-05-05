@@ -4801,7 +4801,11 @@ const createReel = useCallback(async (
 }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
 
 
-
+const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
+  // ✅ Open gallery first, NOT camera and NOT recorder
+  setSelectedReelSoundForGallery(sound || undefined);
+  setShowReelGallery(true);
+}, []);
 
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
