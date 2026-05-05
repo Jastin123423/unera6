@@ -3404,4 +3404,331 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         if (e.touches.length > 1) e.preventDefault();
                       }}
                     />
+           
+                                  {showError && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
+                          <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+                          <p className="text-white text-sm font-bold">Video failed to load</p>
+                          <button
+                            onClick={() => playOnly(reel.id)}
+                            className="px-4 py-2 rounded-xl bg-[#1877F2] text-white text-sm font-bold"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
+                      <div className="mb-4 pointer-events-auto">
+                        <div className="flex items-center gap-3 mb-2">
+                          <img
+                            src={author.profile_image_url || author.profileImage}
+                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer shrink-0"
+                            alt=""
+                            onClick={() => onProfileClick(author.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="text-white font-bold text-[22px] cursor-pointer hover:underline truncate"
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {truncateName(author.name, 9)}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs shrink-0"></i>
+                              )}
+                              {currentUser?.id !== author.id && (
+                                <button
+                                  onClick={() => onFollow(author.id)}
+                                  disabled={isLoadingFollow}
+                                  className="ml-2 h-10 px-5 rounded-[12px] border border-white/35 text-white text-[15px] font-bold bg-transparent active:scale-95 transition-all shrink-0"
+                                >
+                                  {isLoadingFollow ? '...' : isFollowing ? 'Following' : 'Follow'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {!!reel.caption && (
+                          <p className="text-white text-[22px] leading-snug line-clamp-2 mb-2">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        <div className="pointer-events-auto">
+                          <div
+                            className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
+                            onClick={() => handleSoundClick(reel)}
+                          >
+                            <i className="fas fa-music text-[#1877F2]" />
+                            <span className="font-semibold truncate max-w-[200px]">
+                              {reel.songName || (reel as any).song_name || 'Original Sound'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUseSoundFromReel(reel)}
+                            className="mt-2 px-4 py-2 rounded-full bg-[#1877F2] text-white text-xs font-black uppercase tracking-[0.12em] active:scale-95 transition-all"
+                          >
+                            Use this sound
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Reaction count with emoji display - SHOWING ACTUAL NAME */}
+                      {reel.reactions && reel.reactions.length > 0 && (
+                        <div 
+                          className="mt-2 px-2 cursor-pointer hover:opacity-80 transition-opacity pointer-events-auto mb-3"
+                          onClick={() => handleOpenReactions(reel)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="flex -space-x-2">
+                              {topReactionEmojis(reel.reactions, 2).map((emoji, i) => (
+                                <span
+                                  key={i}
+                                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                                  style={{ zIndex: 10 - i }}
+                                >
+                                  {emoji}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-white/70 text-sm font-medium">
+                              {reel.reactions.length === 1 
+                                ? `${formatCount(reel.reactions.length)} · ${firstReactorName}`
+                                : `${formatCount(reel.reactions.length)} · ${firstReactorName} and ${formatCount(reel.reactions.length - 1)} other${reel.reactions.length - 1 !== 1 ? 's' : ''}`
+                              }
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-around py-2 pointer-events-auto">
+                        <ReelReactionButton
+                          reelId={reel.id}
+                          hasReacted={hasReacted || false}
+                          reactionCount={reel.reactions?.length || 0}
+                          currentUserReaction={currentUserReaction}
+                          onReact={onReact}
+                          isLoading={isReacting}
+                        />
+
+                        <ReelDiscussButton
+                          commentCount={reel.comments?.length || 0}
+                          onClick={() => {
+                            setActiveReelId(reel.id);
+                            setShowComments(true);
+                          }}
+                        />
+
+                        <button
+                          onClick={() => handleOpenShare(reel)}
+                          className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-share text-lg text-white" />
+                          <span className="text-white text-sm font-bold ml-1">
+                            {formatCount(reel.shares || 0)}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Progress bar below action buttons */}
+                      <div className="mt-2 px-1 pointer-events-none">
+                        <div className="w-full h-[3px] bg-white/20 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
+                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
+                        onClick={() => handleVideoClick(reel.id)}
+                      >
+                        <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
+                          <i className="fas fa-play text-white text-2xl ml-1"></i>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {activeReelId && (
+        <ReelCommentsSheet
+          isOpen={showComments}
+          onClose={() => setShowComments(false)}
+          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []}
+          users={users}
+          currentUser={currentUser}
+          onAddComment={(payload) => onComment(activeReelId, payload)}
+          onEditComment={onEditComment}
+          onDeleteComment={onDeleteComment}
+        />
+      )}
+
+      {/* Reactions Sheet - Using ReelReactionsSheet */}
+      {selectedReelForReactions && (
+        <ReelReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => {
+            setShowReactionsSheet(false);
+            setSelectedReelForReactions(null);
+          }}
+          reel={selectedReelForReactions}
+          users={users}
+          onProfileClick={onProfileClick}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {selectedReelForShare && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setSelectedReelForShare(null);
+          }}
+          post={{
+            id: selectedReelForShare.id,
+            author: users.find(u => u.id === getReelUserId(selectedReelForShare)),
+            content: selectedReelForShare.caption,
+            media_url: selectedReelForShare.thumbnail_url || selectedReelForShare.videoUrl,
+            created_at: selectedReelForShare.created_at,
+            source: 'reel',
+            item_type: 'reel',
+            reel_id: selectedReelForShare.id,
+          }}
+          currentUser={currentUser}
+          users={users}
+          groups={[]}
+          brands={[]}
+          chats={[]}
+          onShareComplete={handleShareComplete}
+        />
+      )}
+
+      {selectedSoundData && (
+        <SoundDetailView
+          sound={selectedSoundData}
+          onClose={() => setSelectedSoundData(null)}
+          onReelClick={(id) => {
+            setSelectedSoundData(null);
+            playOnly(id);
+          }}
+          onUseSound={(sound) => {
+            const payload = buildUseSoundPayload(sound);
+            stopActivePlayback();
+            setSelectedSoundData(null);
+            onVideoClick?.(payload);
+          }}
+        />
+      )}
+
+      <ReelOwnerMenu
+        isOpen={showReelMenu}
+        onClose={() => {
+          setShowReelMenu(false);
+          setMenuReelId(null);
+        }}
+        onEdit={openEditReel}
+        onDelete={handleDeleteOwnedReel}
+      />
+
+      <EditReelModal
+        reel={editingReel}
+        caption={editingReelCaption}
+        location={editingReelLocation}
+        visibility={editingReelVisibility}
+        saving={savingReelEdit}
+        setCaption={setEditingReelCaption}
+        setLocation={setEditingReelLocation}
+        setVisibility={setEditingReelVisibility}
+        onClose={() => setEditingReel(null)}
+        onSave={handleSaveReelEdit}
+      />
+    </div>
+  );
+};
+
+// ==================== STYLES ====================
+const styles = `
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.reel-video-shell,
+.reel-video-shell * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reel-video-shell video {
+  pointer-events: none;
+}
+
+.reel-container {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'reels-styles';
+  styleSheet.innerText = styles;
+  document.head.appendChild(styleSheet);
+}
+
+// ==================== EXPORTS ====================
+export {
+  fetchAsBlobUrl,
+  formatViewCount,
+  getNetworkLevel,
+  getReelVideoSources,
+  pickBestVideoUrl,
+};
+
+export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
+
+export default ReelsFeed;       
