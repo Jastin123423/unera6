@@ -2613,4 +2613,914 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback]
   );
 
+   const handleSoundClick = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
+      setSelectedSoundData(sound);
+    },
+    [extractSoundFromReel]
+  );
+
+  const openEditReel = useCallback(() => {
+    const reel = reels.find((r) => Number(r.id) === Number(menuReelId));
+    if (!reel) return;
+
+    setEditingReel(reel);
+    setEditingReelCaption(reel.caption || '');
+    setEditingReelLocation((reel as any).location || '');
+    setEditingReelVisibility(((reel as any).visibility || 'public') as 'public' | 'followers' | 'private');
+    setShowReelMenu(false);
+  }, [reels, menuReelId]);
+
+  const handleSaveReelEdit = useCallback(async () => {
+    if (!editingReel) return;
+
+    try {
+      setSavingReelEdit(true);
+      await Promise.resolve(
+        onEditReel(editingReel.id, {
+          caption: editingReelCaption,
+          location: editingReelLocation,
+          visibility: editingReelVisibility,
+        })
+      );
+      setEditingReel(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update reel');
+    } finally {
+      setSavingReelEdit(false);
+    }
+  }, [editingReel, editingReelCaption, editingReelLocation, editingReelVisibility, onEditReel]);
+
+  const handleDeleteOwnedReel = useCallback(async () => {
+    if (!menuReelId) return;
+
+    const ok = window.confirm('Delete this reel?');
+    if (!ok) return;
+
+    try {
+      await Promise.resolve(onDeleteReel(menuReelId));
+      setShowReelMenu(false);
+      setMenuReelId(null);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete reel');
+    }
+  }, [menuReelId, onDeleteReel]);
+
+  const handleReaction = useCallback((reelId: number, emoji: string) => {
+    if (reactingReelId === reelId) return;
+    setReactingReelId(reelId);
+    onReact(reelId, emoji as any);
+    setTimeout(() => setReactingReelId(null), 300);
+    setShowReactionPicker(null);
+  }, [onReact, reactingReelId]);
+
+  const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
+
+  // ==================== EFFECTS ====================
   
+  useEffect(() => {
+    const nav = navigator as any;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    if (!conn?.addEventListener) return;
+
+    const handleChange = () => {
+      const next = getNetworkLevel();
+      setNetworkLevel(next);
+      setResolvedVideoUrls({});
+    };
+
+    conn.addEventListener('change', handleChange);
+    return () => conn.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      preloadLinksRef.current.forEach((link) => link.remove());
+      preloadLinksRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(bufferingTimeoutsRef.current).forEach((t) => {
+        if (t) clearTimeout(t);
+      });
+    };
+  }, []);
+
+  // Improved warm preload
+  useEffect(() => {
+    if (!activeReelId || reels.length === 0) return;
+
+    const currentIndex = reels.findIndex((r) => r.id === activeReelId);
+    if (currentIndex === -1) return;
+
+    if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+
+    warmupTimerRef.current = setTimeout(() => {
+      const targets = [
+        reels[currentIndex],
+        reels[currentIndex + 1],
+        reels[currentIndex + 2],
+        reels[currentIndex + 3],
+        reels[currentIndex - 1],
+      ].filter(Boolean) as Reel[];
+
+      targets.forEach((targetReel) => {
+        warmReelMedia(targetReel);
+        resolveReelMedia(targetReel);
+      });
+    }, 80);
+
+    return () => {
+      if (warmupTimerRef.current) clearTimeout(warmupTimerRef.current);
+    };
+  }, [activeReelId, reels, warmReelMedia, resolveReelMedia]);
+
+  useEffect(() => {
+    if (!activeReelId) return;
+    const reel = reels.find((r) => r.id === activeReelId);
+    if (reel) resolveReelMedia(reel);
+  }, [activeReelId, reels, resolveReelMedia]);
+
+  useEffect(() => {
+    activeIdRef.current = playingReelId;
+  }, [playingReelId]);
+
+  useEffect(() => {
+    if (!initialReelId || reels.length === 0) return;
+
+    const timer = setTimeout(() => {
+      playOnly(initialReelId);
+      const el = document.querySelector(`[data-reel-id="${initialReelId}"]`) as HTMLElement | null;
+      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [initialReelId, reels, playOnly]);
+
+  // Unlock effect
+  useEffect(() => {
+    const unlock = () => {
+      userInteractedRef.current = true;
+      const id = activeIdRef.current ?? activeReelId;
+      if (!id) return;
+      const video = videoRefs.current[id];
+      const reel = reels.find((r) => r.id === id);
+      if (!video || !reel) return;
+
+      const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+
+      if (hasExternalSound) {
+        video.muted = true;
+        video.volume = 0;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+        startSoundtrackForReel(id);
+      } else {
+        video.muted = false;
+        video.volume = 1;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('click', unlock, { once: true });
+    window.addEventListener('touchstart', unlock, { once: true });
+    return () => {
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+  }, [activeReelId, reels, startSoundtrackForReel]);
+
+  useEffect(() => {
+    const rootEl = scrollerRef.current;
+    if (!rootEl) return;
+
+    observerRef.current?.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        let best: { id: number; ratio: number } | null = null;
+
+        entries.forEach((entry) => {
+          const id = Number(entry.target.getAttribute('data-reel-id'));
+          if (!best || entry.intersectionRatio > best.ratio) {
+            best = { id, ratio: entry.intersectionRatio };
+          }
+        });
+
+        if (best && best.ratio > 0.6 && activeIdRef.current !== best.id) {
+          playOnly(best.id);
+        }
+      },
+      {
+        root: rootEl,
+        threshold: [0.4, 0.6, 0.8],
+      }
+    );
+
+    const els = rootEl.querySelectorAll('[data-reel-id]');
+    els.forEach((el) => observerRef.current?.observe(el));
+
+    return () => observerRef.current?.disconnect();
+  }, [reels, playOnly]);
+
+  // Pause when comments open
+  useEffect(() => {
+    if (!showComments) return;
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+    stopSoundtrack();
+  }, [showComments, stopSoundtrack]);
+
+  // Resume after comments close
+  useEffect(() => {
+    if (showComments) return;
+    const activeId = activeIdRef.current;
+    if (!activeId) return;
+    const video = videoRefs.current[activeId];
+    const reel = reels.find((r) => r.id === activeId);
+    if (!video || !reel) return;
+
+    const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+
+    if (hasExternalSound) {
+      video.muted = true;
+      video.volume = 0;
+    } else if (userInteractedRef.current) {
+      video.muted = false;
+      video.volume = 1;
+    } else {
+      video.muted = true;
+      video.volume = 0;
+    }
+
+    video.play().then(() => {
+      if (hasExternalSound && userInteractedRef.current) {
+        startSoundtrackForReel(activeId);
+      }
+    }).catch(() => {});
+  }, [showComments, reels, startSoundtrackForReel]);
+
+  // Visibility change effect
+  useEffect(() => {
+    const stopPlayback = () => {
+      Object.values(videoRefs.current).forEach((video) => {
+        if (!video) return;
+        try {
+          video.pause();
+        } catch {}
+      });
+      stopSoundtrack();
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPlayback();
+      } else if (!showComments && activeIdRef.current) {
+        const id = activeIdRef.current;
+        const video = videoRefs.current[id];
+        const reel = reels.find((r) => r.id === id);
+        if (video && reel) {
+          const hasExternalSound = !!(reel.audioUrl || (reel as any)?.audio_url);
+          if (hasExternalSound) {
+            video.muted = true;
+            video.volume = 0;
+          } else if (userInteractedRef.current) {
+            video.muted = false;
+            video.volume = 1;
+          } else {
+            video.muted = true;
+            video.volume = 0;
+          }
+          video.play().then(() => {
+            if (hasExternalSound && userInteractedRef.current) {
+              startSoundtrackForReel(id);
+            }
+          }).catch(() => {});
+        }
+      }
+    };
+    const handlePageHide = () => {
+      stopPlayback();
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [showComments, reels, startSoundtrackForReel, stopSoundtrack]);
+
+  useEffect(() => {
+    if (selectedSoundData) {
+      const activeId = activeIdRef.current;
+      if (activeId) {
+        const video = videoRefs.current[activeId];
+        if (video) {
+          try {
+            video.pause();
+          } catch {}
+        }
+      }
+      stopSoundtrack();
+    }
+  }, [selectedSoundData, stopSoundtrack]);
+
+  useEffect(() => {
+    if (!showReelMenu && !editingReel) return;
+    const activeId = activeIdRef.current;
+    if (activeId) {
+      const video = videoRefs.current[activeId];
+      if (video) {
+        try {
+          video.pause();
+        } catch {}
+      }
+    }
+    stopSoundtrack();
+  }, [showReelMenu, editingReel, stopSoundtrack]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopActivePlayback();
+    };
+  }, [stopActivePlayback]);
+
+  // Before unload stop
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      stopActivePlayback();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [stopActivePlayback]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showComments || selectedSoundData || showReelMenu || editingReel) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        goToNextReel();
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        goToPreviousReel();
+      }
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (activeReelId) handleVideoClick(activeReelId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    showComments,
+    selectedSoundData,
+    showReelMenu,
+    editingReel,
+    goToNextReel,
+    goToPreviousReel,
+    activeReelId,
+    handleVideoClick,
+  ]);
+
+  // ==================== RENDER ====================
+  return (
+    <div
+      className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Hidden audio element for external soundtrack */}
+      <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
+
+      <div
+        className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
+      >
+        <button
+          onClick={onBack || (() => window.history.back())}
+          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+        >
+          <i className="fas fa-arrow-left text-white text-sm" />
+        </button>
+
+        <div className="flex items-center gap-3">
+          <h2 className="text-white text-[20px] font-black tracking-tight">Reels</h2>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCameraClick}
+            className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
+            aria-label="Create reel"
+          >
+            <i className="fas fa-camera text-white text-xl" />
+          </button>
+
+          <button
+            className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
+            title="Views"
+          >
+            <i className="fas fa-eye text-[14px]" />
+            <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
+          </button>
+
+          <button
+            onClick={handleDownloadReel}
+            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
+            aria-label="Download reel"
+            disabled={downloadingReelId === activeReel?.id}
+          >
+            <i className={`fas ${
+              downloadingReelId === activeReel?.id ? 'fa-spinner fa-spin' : 'fa-download'
+            } text-white text-base`} />
+          </button>
+
+          <button
+            onClick={() => {
+              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+              if (!reel) return;
+              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+              if (ownerId !== Number(currentUser?.id)) return;
+              setMenuReelId(reel.id);
+              setShowReelMenu(true);
+            }}
+            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
+          >
+            <i className="fas fa-ellipsis-h text-white text-base" />
+          </button>
+        </div>
+      </div>
+
+      <div className="w-full h-full">
+        <div
+          ref={scrollerRef}
+          className="reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-black"
+        >
+          {reels.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-white p-8">
+              <div className="w-24 h-24 rounded-full bg-[#1877F2]/10 flex items-center justify-center mb-6">
+                <i className="fas fa-video text-3xl text-[#1877F2]"></i>
+              </div>
+              <h3 className="text-xl font-black mb-2">No Reels Yet</h3>
+              <p className="text-[#B0B3B8] text-sm mb-8 text-center">No reels available right now.</p>
+            </div>
+          ) : (
+            reels.map((reel: Reel, reelIndex) => {
+              const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
+              if (!author) return null;
+
+              const isFollowing = checkIsFollowing(Number(author.id));
+              const isLoadingFollow = !!followLoading[Number(author.id)];
+              const hasReacted = reel.reactions?.some(
+                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
+              );
+              const isReacting = reactingReelId === reel.id;
+              const currentUserReaction = reel.reactions?.find(
+                (r) => Number(r.userId ?? r.user_id) === Number(currentUser?.id)
+              )?.type;
+
+              // Get first reactor's name for the reaction text
+              const firstReactorName = getFirstReactorName(reel.reactions || [], users);
+
+              const videoSources = getReelVideoSources(reel);
+              const fallbackVideoUrl = pickBestVideoUrl(videoSources, networkLevel);
+              const videoUrl = resolvedVideoUrls[reel.id] || fallbackVideoUrl;
+              const isNearActive = Math.abs(reelIndex - activeIndex) <= 1;
+              const showError = activeReelId === reel.id && videoErrors[reel.id];
+
+              return (
+                <div
+                  key={reel.id}
+                  id={`reel-${reel.id}`}
+                  data-reel-id={reel.id}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="reel-container w-full h-[100dvh] snap-start relative bg-black overflow-hidden"
+                >
+                  <div className="reel-video-shell w-full h-full relative bg-black">
+                    <video
+                      ref={(el) => {
+                        if (el) videoRefs.current[reel.id] = el;
+                      }}
+                      src={isNearActive ? videoUrl : undefined}
+                      poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
+                      preload={isNearActive ? 'auto' : 'metadata'}
+                      playsInline
+                      loop
+                      controls={false}
+                      disablePictureInPicture
+                      controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
+                      }}
+                      muted={playingReelId !== reel.id}
+                      draggable={false}
+                      tabIndex={-1}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onTimeUpdate={(e) => {
+                        const video = e.currentTarget;
+                        const duration = video.duration || 0;
+                        const current = video.currentTime || 0;
+                        const progress = duration > 0 ? Math.min(current / duration, 1) : 0;
+                        setReelProgress((prev) => {
+                          if (prev[reel.id] === progress) return prev;
+                          return { ...prev, [reel.id]: progress };
+                        });
+                      }}
+                      onLoadStart={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: false }));
+                      }}
+                      onWaiting={() => {
+                        if (bufferingTimeoutsRef.current[reel.id]) {
+                          clearTimeout(bufferingTimeoutsRef.current[reel.id]);
+                        }
+                      }}
+                      onStalled={() => {}}
+                      onCanPlay={() => {}}
+                      onCanPlayThrough={() => {}}
+                      onPlaying={() => {}}
+                      onSeeked={() => {}}
+                      onError={() => {
+                        setVideoErrors((prev) => ({ ...prev, [reel.id]: true }));
+                      }}
+                    />
+
+                    <div
+                      className="absolute inset-0 z-10"
+                      onClick={() => handleVideoClick(reel.id)}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onTouchStart={(e) => {
+                        if (e.touches.length > 1) e.preventDefault();
+                      }}
+                    />
+
+                    {showError && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+                        <div className="flex flex-col items-center gap-3 px-5 py-4 rounded-2xl bg-black/55 border border-white/10">
+                          <i className="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+                          <p className="text-white text-sm font-bold">Video failed to load</p>
+                          <button
+                            onClick={() => playOnly(reel.id)}
+                            className="px-4 py-2 rounded-xl bg-[#1877F2] text-white text-sm font-bold"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="absolute left-0 right-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-6 px-4 pointer-events-none">
+                      <div className="mb-4 pointer-events-auto">
+                        <div className="flex items-center gap-3 mb-2">
+                          <img
+                            src={author.profile_image_url || author.profileImage}
+                            className="w-10 h-10 rounded-full border-2 border-white/30 object-cover cursor-pointer shrink-0"
+                            alt=""
+                            onClick={() => onProfileClick(author.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="text-white font-bold text-[22px] cursor-pointer hover:underline truncate"
+                                onClick={() => onProfileClick(author.id)}
+                              >
+                                {truncateName(author.name, 9)}
+                              </span>
+                              {author.is_verified && (
+                                <i className="fas fa-check-circle text-[#1877F2] text-xs shrink-0"></i>
+                              )}
+                              {currentUser?.id !== author.id && (
+                                <button
+                                  onClick={() => onFollow(author.id)}
+                                  disabled={isLoadingFollow}
+                                  className="ml-2 h-10 px-5 rounded-[12px] border border-white/35 text-white text-[15px] font-bold bg-transparent active:scale-95 transition-all shrink-0"
+                                >
+                                  {isLoadingFollow ? '...' : isFollowing ? 'Following' : 'Follow'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {!!reel.caption && (
+                          <p className="text-white text-[22px] leading-snug line-clamp-2 mb-2">
+                            {reel.caption}
+                          </p>
+                        )}
+
+                        <div className="pointer-events-auto">
+                          <div
+                            className="flex items-center gap-2 text-white/90 text-[22px] cursor-pointer w-fit"
+                            onClick={() => handleSoundClick(reel)}
+                          >
+                            <i className="fas fa-music text-[#1877F2]" />
+                            <span className="font-semibold truncate max-w-[200px]">
+                              {reel.songName || (reel as any).song_name || 'Original Sound'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUseSoundFromReel(reel)}
+                            className="mt-2 px-4 py-2 rounded-full bg-[#1877F2] text-white text-xs font-black uppercase tracking-[0.12em] active:scale-95 transition-all"
+                          >
+                            Use this sound
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Reaction count with emoji display - SHOWING ACTUAL NAME */}
+                      {reel.reactions && reel.reactions.length > 0 && (
+                        <div 
+                          className="mt-2 px-2 cursor-pointer hover:opacity-80 transition-opacity pointer-events-auto mb-3"
+                          onClick={() => handleOpenReactions(reel)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="flex -space-x-2">
+                              {topReactionEmojis(reel.reactions, 2).map((emoji, i) => (
+                                <span
+                                  key={i}
+                                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                                  style={{ zIndex: 10 - i }}
+                                >
+                                  {emoji}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-white/70 text-sm font-medium">
+                              {reel.reactions.length === 1 
+                                ? `${formatCount(reel.reactions.length)} · ${firstReactorName}`
+                                : `${formatCount(reel.reactions.length)} · ${firstReactorName} and ${formatCount(reel.reactions.length - 1)} other${reel.reactions.length - 1 !== 1 ? 's' : ''}`
+                              }
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-around py-2 pointer-events-auto">
+                        <ReelReactionButton
+                          reelId={reel.id}
+                          hasReacted={hasReacted || false}
+                          reactionCount={reel.reactions?.length || 0}
+                          currentUserReaction={currentUserReaction}
+                          onReact={onReact}
+                          isLoading={isReacting}
+                        />
+
+                        <ReelDiscussButton
+                          commentCount={reel.comments?.length || 0}
+                          onClick={() => {
+                            setActiveReelId(reel.id);
+                            setShowComments(true);
+                          }}
+                        />
+
+                        <button
+                          onClick={() => handleOpenShare(reel)}
+                          className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+                        >
+                          <i className="fas fa-share text-lg text-white" />
+                          <span className="text-white text-sm font-bold ml-1">
+                            {formatCount(reel.shares || 0)}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Progress bar below action buttons */}
+                      <div className="mt-2 px-1 pointer-events-none">
+                        <div className="w-full h-[3px] bg-white/20 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-white rounded-full transition-[width] duration-100 ease-linear" 
+                            style={{ width: `${(reelProgress[reel.id] || 0) * 100}%` }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
+                        onClick={() => handleVideoClick(reel.id)}
+                      >
+                        <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20">
+                          <i className="fas fa-play text-white text-2xl ml-1"></i>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {activeReelId && (
+        <ReelCommentsSheet
+          isOpen={showComments}
+          onClose={() => setShowComments(false)}
+          comments={reels.find((r: any) => r.id === activeReelId)?.comments || []}
+          users={users}
+          currentUser={currentUser}
+          onAddComment={(payload) => onComment(activeReelId, payload)}
+          onEditComment={onEditComment}
+          onDeleteComment={onDeleteComment}
+        />
+      )}
+
+      {/* Reactions Sheet - Using ReelReactionsSheet */}
+      {selectedReelForReactions && (
+        <ReelReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => {
+            setShowReactionsSheet(false);
+            setSelectedReelForReactions(null);
+          }}
+          reel={selectedReelForReactions}
+          users={users}
+          onProfileClick={onProfileClick}
+        />
+      )}
+
+      {/* Share Bottom Sheet */}
+      {selectedReelForShare && (
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => {
+            setShowShareSheet(false);
+            setSelectedReelForShare(null);
+          }}
+          post={{
+            id: selectedReelForShare.id,
+            author: users.find(u => u.id === getReelUserId(selectedReelForShare)),
+            content: selectedReelForShare.caption,
+            media_url: selectedReelForShare.thumbnail_url || selectedReelForShare.videoUrl,
+            created_at: selectedReelForShare.created_at,
+            source: 'reel',
+            item_type: 'reel',
+            reel_id: selectedReelForShare.id,
+          }}
+          currentUser={currentUser}
+          users={users}
+          groups={[]}
+          brands={[]}
+          chats={[]}
+          onShareComplete={handleShareComplete}
+        />
+      )}
+
+      {selectedSoundData && (
+        <SoundDetailView
+          sound={selectedSoundData}
+          onClose={() => setSelectedSoundData(null)}
+          onReelClick={(id) => {
+            setSelectedSoundData(null);
+            playOnly(id);
+          }}
+          onUseSound={(sound) => {
+            const payload = buildUseSoundPayload(sound);
+            stopActivePlayback();
+            setSelectedSoundData(null);
+            setReelCameraSound(payload);
+            setShowReelCamera(true);
+          }}
+        />
+      )}
+
+      {showReelCamera && (
+        <ReelCameraCreator
+          initialSound={reelCameraSound}
+          onClose={() => {
+            setShowReelCamera(false);
+            setReelCameraSound(undefined);
+          }}
+          onDone={(payload) => {
+            setShowReelCamera(false);
+            setReelCameraSound(undefined);
+            onVideoClick?.({
+              ...payload.sound,
+              recordedFile: payload.file,
+              thumbnailFile: payload.thumbnailFile,
+              effectId: payload.effectId,
+            } as any);
+          }}
+        />
+      )}
+
+      <ReelOwnerMenu
+        isOpen={showReelMenu}
+        onClose={() => {
+          setShowReelMenu(false);
+          setMenuReelId(null);
+        }}
+        onEdit={openEditReel}
+        onDelete={handleDeleteOwnedReel}
+      />
+
+      <EditReelModal
+        reel={editingReel}
+        caption={editingReelCaption}
+        location={editingReelLocation}
+        visibility={editingReelVisibility}
+        saving={savingReelEdit}
+        setCaption={setEditingReelCaption}
+        setLocation={setEditingReelLocation}
+        setVisibility={setEditingReelVisibility}
+        onClose={() => setEditingReel(null)}
+        onSave={handleSaveReelEdit}
+      />
+    </div>
+  );
+};
+
+// ==================== STYLES ====================
+const styles = `
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.reel-video-shell,
+.reel-video-shell * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reel-video-shell video {
+  pointer-events: none;
+}
+
+.reel-container {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'reels-styles';
+  styleSheet.innerText = styles;
+  document.head.appendChild(styleSheet);
+}
+
+// ==================== EXPORTS ====================
+export {
+  fetchAsBlobUrl,
+  formatViewCount,
+  getNetworkLevel,
+  getReelVideoSources,
+  pickBestVideoUrl,
+};
+
+export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
+
+export default ReelsFeed; 
