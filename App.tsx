@@ -2134,6 +2134,12 @@ const [storyCreateLoading, setStoryCreateLoading] = useState(false);
 const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
 const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
 
+  // Reel gallery creator states
+const [showReelGallery, setShowReelGallery] = useState(false);
+const [selectedReelSoundForGallery, setSelectedReelSoundForGallery] = useState<UseSoundPayload | undefined>(undefined);
+const [pendingReelThumbnailFile, setPendingReelThumbnailFile] = useState<File | null>(null);
+const [pendingReelEffectId, setPendingReelEffectId] = useState('none');
+
 // Story comments states
 const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
 const [showStoryComments, setShowStoryComments] = useState(false);
