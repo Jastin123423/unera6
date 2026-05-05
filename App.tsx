@@ -1591,8 +1591,7 @@ const normalizeGroup = (g: any): Group => {
 };
       
   //=======GALLERY CREATOR COMPONENT ======
-
-// Reel Gallery Creator Component - Professional version
+// Reel Gallery Creator Component - Minimal bridge to Flutter
 const ReelGalleryCreator: React.FC<{
   sound?: UseSoundPayload;
   onClose: () => void;
@@ -1605,39 +1604,12 @@ const ReelGalleryCreator: React.FC<{
     nativeVideoMeta?: any;
   }) => void;
 }> = ({ sound, onClose, onDone }) => {
-  const [recentVideos, setRecentVideos] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Native helpers
-  const openNativeReelGallery = () => {
-    if ((window as any).UneraNative?.postMessage) {
-      (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_reel_gallery_native'  // ✅ Updated to match Flutter
-      }));
-      return true;
-    }
-    return false;
-  };
-
-  const openNativeReelCamera = () => {
-    if ((window as any).UneraNative?.postMessage) {
-      (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_reel_camera'  // ✅ Updated to match Flutter
-      }));
-      return true;
-    }
-    return false;
-  };
-
   // Listen for native uploads
   useEffect(() => {
     const handleNativeUpload = (event: any) => {
       const media = event.detail;
       if (!media || media.type !== 'video') return;
       
-      console.log('📱 Native reel video received:', media);
-      
-      // ✅ Safer version - no null as any
       onDone({
         file: undefined,
         thumbnailFile: undefined,
@@ -1659,142 +1631,37 @@ const ReelGalleryCreator: React.FC<{
     return () => window.removeEventListener('uneraNativeUpload', handleNativeUpload);
   }, [sound, onDone]);
 
-  const handleGalleryClick = () => {
-    // Try native first, fallback to web input
-    if (!openNativeReelGallery()) {
-      fileInputRef.current?.click();
-    }
-  };
-
-  const handleCameraClick = () => {
-    // Try native first, fallback to web camera
-    if (!openNativeReelCamera()) {
-      alert('Please use the native app for camera recording');
-    }
-  };
-
-  const handleChangeSound = () => {
-    // Open sound picker
+  // Open native gallery immediately when component mounts
+  useEffect(() => {
     if ((window as any).UneraNative?.postMessage) {
       (window as any).UneraNative.postMessage(JSON.stringify({
-        action: 'open_sound_picker',
-        currentSound: sound
+        action: 'open_reel_gallery_native',
+        sound: sound ? {
+          songName: sound.songName,
+          audioUrl: sound.audioUrl,
+          audioStart: sound.audioStart,
+          audioEnd: sound.audioEnd,
+          songId: sound.songId,
+        } : null
       }));
     } else {
-      alert('Sound selection coming soon');
+      alert('Native app required for reel creation');
+      onClose();
     }
-  };
+  }, [sound, onClose]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      alert('Please select a video file');
-      return;
-    }
-    const thumbnailFile = await createVideoThumbnailFromFile(file);
-    onDone({ file, thumbnailFile, sound, effectId: 'none' });
-  };
-
+  // Show simple loading screen while native gallery opens
   return (
-    <div className="fixed inset-0 z-[10000] bg-[#121212] flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <button onClick={onClose} className="text-white text-xl">
-          <i className="fas fa-times"></i>
-        </button>
-        <h3 className="text-white font-black text-lg">Create reel</h3>
-        <div className="w-6" />
+    <div className="fixed inset-0 z-[10000] bg-black flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 border-3 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-white">Opening gallery...</p>
       </div>
-
-      {/* Sound info if selected */}
-      {sound && (
-        <div className="mx-4 mt-4 p-3 rounded-xl bg-white/10 border border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#1877F2]/20 flex items-center justify-center">
-              <i className="fas fa-music text-[#1877F2] text-lg"></i>
-            </div>
-            <div className="flex-1">
-              <p className="text-white font-bold text-sm">{sound.songName || 'Original Sound'}</p>
-              <p className="text-white/40 text-xs">Selected sound</p>
-            </div>
-            <button 
-              onClick={handleChangeSound}
-              className="text-[#1877F2] text-sm font-bold"
-            >
-              Change
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Popular music chips */}
-      <div className="px-4 py-3 overflow-x-auto scrollbar-hide">
-        <div className="flex gap-2">
-          {['Popular', 'Trending', 'New', 'For you', 'Tanzania', 'Africa'].map((chip) => (
-            <button
-              key={chip}
-              className="px-4 py-2 rounded-full bg-white/10 text-white text-sm font-medium whitespace-nowrap active:scale-95 transition-all"
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Gallery Grid */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-3 gap-[2px]">
-          {/* Camera Tile - First item */}
-          <button
-            onClick={handleCameraClick}
-            className="aspect-square bg-gradient-to-br from-[#1877F2] to-[#45BD62] rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all relative overflow-hidden"
-          >
-            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
-              <i className="fas fa-camera text-white text-2xl"></i>
-            </div>
-            <span className="text-white font-bold text-xs">Camera</span>
-          </button>
-
-          {/* Gallery tiles - These will be populated by Flutter native in production */}
-          {recentVideos.length > 0 ? (
-            recentVideos.map((video, idx) => (
-              <button
-                key={idx}
-                onClick={handleGalleryClick}
-                className="aspect-square bg-cover bg-center rounded-xl overflow-hidden active:scale-95 transition-all"
-                style={{ backgroundImage: `url(${video.thumb})` }}
-              />
-            ))
-          ) : (
-            // Placeholder tiles
-            <>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <button
-                  key={i}
-                  onClick={handleGalleryClick}
-                  className="aspect-square bg-white/5 rounded-xl flex flex-col items-center justify-center gap-2 active:scale-95 transition-all"
-                >
-                  <i className="fas fa-image text-white/40 text-2xl"></i>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Hidden file input for web fallback */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*"
-        className="hidden"
-        onChange={handleFileSelect}
-      />
     </div>
   );
 };
-    
+
+      
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
