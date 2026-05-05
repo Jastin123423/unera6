@@ -4801,11 +4801,6 @@ const createReel = useCallback(async (
 }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
 
 
-const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
-  // ✅ Open gallery first, NOT camera and NOT recorder
-  setSelectedReelSoundForGallery(sound || undefined);
-  setShowReelGallery(true);
-}, []);
 
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
@@ -7542,8 +7537,17 @@ const handleReelVideoSelected = useCallback(
   },
   []
 );
+    
+//====OPEN RECORDER FROM REEL=====
+    
+const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
+  // ✅ Open gallery first, NOT camera and NOT direct file picker
+  setSelectedReelSoundForGallery(sound || undefined);
+  setShowReelGallery(true);
+}, []);
 
-    const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
+// Keep the old file picker logic if needed elsewhere, but rename it if necessary
+const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
   if (sound) {
     setSelectedReelSound({
       songName: sound.songName || 'Original Sound',
@@ -7575,6 +7579,8 @@ const handleReelVideoSelected = useCallback(
 
   input.click();
 }, []);
+    
+
 
   // Event Detail Modal
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
