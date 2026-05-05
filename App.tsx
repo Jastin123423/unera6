@@ -7817,29 +7817,6 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
     );
   }, [events, onRSVPEvent]);
 
-    //===REEL GALLERY CREATOR ===
-
-    {/* Reel Gallery Creator */}
-{showReelGallery && (
-  <ReelGalleryCreator
-    sound={selectedReelSoundForGallery}
-    onClose={() => {
-      setShowReelGallery(false);
-      setSelectedReelSoundForGallery(undefined);
-    }}
-    onDone={(payload) => {
-      setShowReelGallery(false);
-      setSelectedReelSoundForGallery(undefined);
-      setSelectedReelSound(payload.sound || null);
-      setPendingReelFile(payload.file);
-      setPendingReelThumbnailFile(payload.thumbnailFile);
-      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
-      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
-      setPendingReelEffectId(payload.effectId || 'none');
-      setShowRecorder(true);
-    }}
-  />
-)}
     
 // ============================================================================
 // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
