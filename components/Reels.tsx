@@ -3554,6 +3554,7 @@ export {
   getNetworkLevel,
   getReelVideoSources,
   pickBestVideoUrl,
+  ReelCameraCreator,
 };
 
 export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
