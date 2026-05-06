@@ -183,8 +183,14 @@ export const Login: React.FC<LoginProps> = ({
     try {
       const res = await apiLogin(email.trim(), password);
       saveAuth(res);
+      // Call native push token registration immediately after login
+      try {
+        (window as any).uneraRegisterPushToken?.();
+      } catch {}
       onLoggedIn?.(res.user);
-      window.location.href = '/';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 300);
     } catch (err: any) {
       setError(err?.message || 'Login failed');
     } finally {
@@ -415,8 +421,14 @@ export const Register: React.FC<RegisterProps> = ({ onBackToLogin, onRegistered 
       });
 
       saveAuth(res);
+      // Call native push token registration immediately after signup
+      try {
+        (window as any).uneraRegisterPushToken?.();
+      } catch {}
       onRegistered?.(res.user);
-      window.location.href = '/';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 300);
     } catch (err: any) {
       setError(err?.message || 'Signup failed');
     } finally {
