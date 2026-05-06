@@ -41,8 +41,20 @@ async function requestJSON(path: string, options: RequestInit) {
 }
 
 function saveAuth(auth: { token?: string; user?: any }) {
-  if (auth.token) localStorage.setItem('token', auth.token);
-  if (auth.user) localStorage.setItem('user', JSON.stringify(auth.user));
+  if (auth.token) {
+    localStorage.setItem('token', auth.token);
+    localStorage.setItem('unera_token', auth.token);
+  }
+  if (auth.user) {
+    localStorage.setItem('user', JSON.stringify(auth.user));
+    localStorage.setItem('unera_user', JSON.stringify(auth.user));
+    
+    const userId = auth.user.id ?? auth.user.user_id;
+    if (userId) {
+      localStorage.setItem('user_id', String(userId));
+      localStorage.setItem('unera_user_id', String(userId));
+    }
+  }
 }
 
 async function apiLogin(email: string, password: string): Promise<AuthResponse> {
@@ -148,7 +160,7 @@ interface LoginProps {
   onNavigateToRegister: () => void;
   onNavigateToForgotPassword: () => void;
   onClose: () => void;
-  onLoggedIn?: (user: any) => void; // optional callback
+  onLoggedIn?: (user: any) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({
@@ -308,7 +320,7 @@ export const Login: React.FC<LoginProps> = ({
 
 interface RegisterProps {
   onBackToLogin: () => void;
-  onRegistered?: (user: any) => void; // optional callback
+  onRegistered?: (user: any) => void;
 }
 
 interface CountryData {
