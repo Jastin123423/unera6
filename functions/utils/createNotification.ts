@@ -1,3 +1,5 @@
+import { sendPushToUser } from "./pushNotifications";
+
 export async function createNotification(
   env: any,
   recipient_id: number,
@@ -17,6 +19,21 @@ export async function createNotification(
     const cleanGroupKey = typeof group_key === "string" ? group_key.trim() : "";
     const cleanMessage =
       typeof message === "string" && message.trim() ? message.trim() : null;
+
+    const sendNativePush = async () => {
+      await sendPushToUser(env, recipient_id, {
+        title: "UNERA Notifications",
+        body: cleanMessage || "You have a new notification",
+        data: {
+          type,
+          entity_type: entity_type || "",
+          entity_id: entityIdValue || "",
+          actor_id: String(actor_id),
+          recipient_id: String(recipient_id),
+          group_key: cleanGroupKey || "",
+        },
+      });
+    };
 
     if (!cleanGroupKey) {
       await env.DB.prepare(`
@@ -46,10 +63,10 @@ export async function createNotification(
         )
         .run();
 
+      await sendNativePush();
       return;
     }
 
-    // Find recent grouped notification for same target
     const existing = await env.DB.prepare(`
       SELECT id, actor_id, actors_count
       FROM notifications
@@ -94,11 +111,10 @@ export async function createNotification(
         )
         .run();
 
+      await sendNativePush();
       return;
     }
 
-    // Avoid inflating actors_count if this same actor already triggered
-    // a recent notification in this same group window.
     const sameActorRecent = await env.DB.prepare(`
       SELECT id
       FROM notifications
@@ -124,6 +140,7 @@ export async function createNotification(
         .bind(actor_id, cleanMessage, existing.id)
         .run();
 
+      await sendNativePush();
       return;
     }
 
@@ -139,6 +156,8 @@ export async function createNotification(
     `)
       .bind(actor_id, cleanMessage, existing.id)
       .run();
+
+    await sendNativePush();
   } catch (error) {
     console.error("createNotification failed:", error);
   }
