@@ -141,7 +141,8 @@ export async function createNotification(
         .bind(actor_id, cleanMessage, existing.id)
         .run();
 
-      await sendNativePush();
+      
+    sendNativePush().catch((e) => console.error("Native push failed:", e));
       return;
     }
 
