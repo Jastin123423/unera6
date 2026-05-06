@@ -1,5 +1,5 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
-import { sendPushToUser } from "../../../utils/pushNotifications";
+import { sendPushToUser } from "../../utils/pushNotifications";
 
 type Env = {
   DB: D1Database;
