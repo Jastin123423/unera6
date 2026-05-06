@@ -1,3 +1,4 @@
+
 import { sendPushToUser } from "./pushNotifications";
 
 export async function createNotification(
@@ -8,8 +9,7 @@ export async function createNotification(
   entity_type: string,
   entity_id: number | string,
   group_key: string,
-  message?: string | null,
-  ctx?: ExecutionContext
+  message?: string | null
 ) {
   try {
     if (!env?.DB) return;
@@ -34,18 +34,6 @@ export async function createNotification(
           group_key: cleanGroupKey || "",
         },
       });
-    };
-
-    const queuePush = async () => {
-      const pushPromise = sendNativePush().catch((e) =>
-        console.error("Native push failed:", e)
-      );
-
-      if (ctx?.waitUntil) {
-        ctx.waitUntil(pushPromise);
-      } else {
-        await pushPromise;
-      }
     };
 
     if (!cleanGroupKey) {
@@ -76,7 +64,7 @@ export async function createNotification(
         )
         .run();
 
-      await queuePush();
+      await sendNativePush();
       return;
     }
 
@@ -124,7 +112,7 @@ export async function createNotification(
         )
         .run();
 
-      await queuePush();
+      await sendNativePush();
       return;
     }
 
@@ -153,7 +141,8 @@ export async function createNotification(
         .bind(actor_id, cleanMessage, existing.id)
         .run();
 
-      await queuePush();
+      
+    sendNativePush().catch((e) => console.error("Native push failed:", e));
       return;
     }
 
@@ -170,7 +159,7 @@ export async function createNotification(
       .bind(actor_id, cleanMessage, existing.id)
       .run();
 
-    await queuePush();
+    await sendNativePush();
   } catch (error) {
     console.error("createNotification failed:", error);
   }
