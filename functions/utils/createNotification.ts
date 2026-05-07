@@ -27,11 +27,12 @@ export async function createNotification(
         actor_id,
         type,
         entity_type,
-        entity_id: entityIdValue,
-        message: cleanMessage,
+        entity_id,
       });
 
-      const result = await sendPushToUser(env, recipient_id, {
+      console.log("CALLING_SEND_PUSH");
+
+      const pushResult = await sendPushToUser(env, recipient_id, {
         title: "UNERA Notifications",
         body: cleanMessage || "You have a new notification",
         data: {
@@ -44,7 +45,7 @@ export async function createNotification(
         },
       });
 
-      console.log("CREATE_NOTIFICATION_PUSH_RESULT", result);
+      console.log("CREATE_NOTIFICATION_PUSH_RESULT", pushResult);
     };
 
     const queuePush = async () => {
