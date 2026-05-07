@@ -5693,6 +5693,38 @@ const fetchOtherData = useCallback(async () => {
   }
 }, [fetchEvents]);
 
+      const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
+  if (sound) {
+    setSelectedReelSound({
+      songName: sound.songName || 'Original Sound',
+      audioUrl: sound.audioUrl || '',
+      originalUrl: sound.originalUrl || sound.audioUrl || '',
+      audioStart: sound.audioStart || 0,
+      audioEnd: sound.audioEnd || 0,
+      songId: sound.songId,
+      soundKey:
+        sound.soundKey ||
+        (sound.songId ? `song:${sound.songId}` : `original:${Date.now()}`),
+      isTrimmedAudio: !!sound.isTrimmedAudio,
+    });
+  } else {
+    setSelectedReelSound(null);
+  }
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+
+  input.onchange = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPendingReelFile(file);
+    setView('recorder');
+  };
+
+  input.click();
+}, []);      
               
             
   //===fetch Group for viewers====
