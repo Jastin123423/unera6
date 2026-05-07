@@ -1,4 +1,3 @@
-
 import { sendPushToUser } from "./pushNotifications";
 
 export async function createNotification(
@@ -9,7 +8,8 @@ export async function createNotification(
   entity_type: string,
   entity_id: number | string,
   group_key: string,
-  message?: string | null
+  message?: string | null,
+  ctx?: ExecutionContext
 ) {
   try {
     if (!env?.DB) return;
@@ -22,7 +22,16 @@ export async function createNotification(
       typeof message === "string" && message.trim() ? message.trim() : null;
 
     const sendNativePush = async () => {
-      await sendPushToUser(env, recipient_id, {
+      console.log("CREATE_NOTIFICATION_PUSH_ATTEMPT", {
+        recipient_id,
+        actor_id,
+        type,
+        entity_type,
+        entity_id: entityIdValue,
+        message: cleanMessage,
+      });
+
+      const result = await sendPushToUser(env, recipient_id, {
         title: "UNERA Notifications",
         body: cleanMessage || "You have a new notification",
         data: {
@@ -34,22 +43,28 @@ export async function createNotification(
           group_key: cleanGroupKey || "",
         },
       });
+
+      console.log("CREATE_NOTIFICATION_PUSH_RESULT", result);
+    };
+
+    const queuePush = async () => {
+      const pushPromise = sendNativePush().catch((e) =>
+        console.error("Native push failed:", e)
+      );
+
+      if (ctx?.waitUntil) {
+        ctx.waitUntil(pushPromise);
+      } else {
+        await pushPromise;
+      }
     };
 
     if (!cleanGroupKey) {
       await env.DB.prepare(`
         INSERT INTO notifications
         (
-          recipient_id,
-          actor_id,
-          type,
-          entity_type,
-          entity_id,
-          group_key,
-          message,
-          is_read,
-          actors_count,
-          updated_at
+          recipient_id, actor_id, type, entity_type, entity_id,
+          group_key, message, is_read, actors_count, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)
       `)
@@ -64,7 +79,7 @@ export async function createNotification(
         )
         .run();
 
-      await sendNativePush();
+      await queuePush();
       return;
     }
 
@@ -78,26 +93,14 @@ export async function createNotification(
       LIMIT 1
     `)
       .bind(recipient_id, cleanGroupKey)
-      .first<{
-        id: number;
-        actor_id: number;
-        actors_count: number | null;
-      }>();
+      .first<{ id: number; actor_id: number; actors_count: number | null }>();
 
     if (!existing) {
       await env.DB.prepare(`
         INSERT INTO notifications
         (
-          recipient_id,
-          actor_id,
-          type,
-          entity_type,
-          entity_id,
-          group_key,
-          message,
-          is_read,
-          actors_count,
-          updated_at
+          recipient_id, actor_id, type, entity_type, entity_id,
+          group_key, message, is_read, actors_count, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)
       `)
@@ -112,7 +115,7 @@ export async function createNotification(
         )
         .run();
 
-      await sendNativePush();
+      await queuePush();
       return;
     }
 
@@ -131,35 +134,32 @@ export async function createNotification(
     if (sameActorRecent) {
       await env.DB.prepare(`
         UPDATE notifications
-        SET
-          actor_id = ?,
-          message = COALESCE(?, message),
-          is_read = 0,
-          updated_at = CURRENT_TIMESTAMP
+        SET actor_id = ?,
+            message = COALESCE(?, message),
+            is_read = 0,
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `)
         .bind(actor_id, cleanMessage, existing.id)
         .run();
 
-      
-    sendNativePush().catch((e) => console.error("Native push failed:", e));
+      await queuePush();
       return;
     }
 
     await env.DB.prepare(`
       UPDATE notifications
-      SET
-        actor_id = ?,
-        message = COALESCE(?, message),
-        is_read = 0,
-        actors_count = COALESCE(actors_count, 1) + 1,
-        updated_at = CURRENT_TIMESTAMP
+      SET actor_id = ?,
+          message = COALESCE(?, message),
+          is_read = 0,
+          actors_count = COALESCE(actors_count, 1) + 1,
+          updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `)
       .bind(actor_id, cleanMessage, existing.id)
       .run();
 
-    await sendNativePush();
+    await queuePush();
   } catch (error) {
     console.error("createNotification failed:", error);
   }
