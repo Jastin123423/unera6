@@ -3136,33 +3136,29 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             )}
           </button>
 
-          <button
+<button
   type="button"
-  onPointerUp={(e) => {
+  aria-label="Reel menu"
+  onTouchStart={(e) => {
     e.preventDefault();
     e.stopPropagation();
-    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-    if (!reel) return;
-    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-    if (ownerId !== Number(currentUser?.id)) return;
-    setMenuReelId(reel.id);
-    setShowReelMenu(true);
   }}
-  onClick={(e) => {
+  onTouchEnd={openOwnerMenu}
+  onPointerDown={(e) => {
     e.preventDefault();
     e.stopPropagation();
-    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-    if (!reel) return;
-    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-    if (ownerId !== Number(currentUser?.id)) return;
-    setMenuReelId(reel.id);
-    setShowReelMenu(true);
   }}
-  className="relative z-[950] w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95"
+  onPointerUp={openOwnerMenu}
+  onMouseDown={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }}
+  onClick={openOwnerMenu}
+  className="fixed right-4 top-[72px] z-[99998] w-12 h-12 rounded-full bg-black/45 border border-white/25 flex items-center justify-center active:scale-95"
   style={{
-    WebkitTapHighlightColor: 'transparent',
-    touchAction: 'manipulation',
-    pointerEvents: 'auto',
+    WebkitTapHighlightColor: "transparent",
+    touchAction: "none",
+    pointerEvents: "auto",
   }}
 >
   <i className="fas fa-ellipsis-h text-white text-base pointer-events-none" />
