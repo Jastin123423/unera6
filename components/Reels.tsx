@@ -1853,6 +1853,7 @@ const ReelThumbnail: React.FC<{
 };
 
 // ==================== REEL OWNER MENU ====================
+
 const ReelOwnerMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -1875,20 +1876,14 @@ const ReelOwnerMenu: React.FC<{
       >
         <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
-        {/* Edit Button */}
         <button
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onEdit();
-          }}
-          onClick={(e) => {
-            e.preventDefault();
+          onClick={onEdit}
+          onPointerUp={(e) => {
             e.stopPropagation();
             onEdit();
           }}
           className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white active:scale-95 transition-all"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: 'manipulation' }}
         >
           <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
             <i className="fas fa-pen"></i>
@@ -1899,20 +1894,14 @@ const ReelOwnerMenu: React.FC<{
           </div>
         </button>
 
-        {/* Delete Button */}
         <button
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onDelete();
-          }}
-          onClick={(e) => {
-            e.preventDefault();
+          onClick={onDelete}
+          onPointerUp={(e) => {
             e.stopPropagation();
             onDelete();
           }}
           className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 active:scale-95 transition-all"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: 'manipulation' }}
         >
           <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
             <i className="fas fa-trash-alt"></i>
@@ -1923,20 +1912,14 @@ const ReelOwnerMenu: React.FC<{
           </div>
         </button>
 
-        {/* Cancel Button */}
         <button
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onClose();
-          }}
-          onClick={(e) => {
-            e.preventDefault();
+          onClick={onClose}
+          onPointerUp={(e) => {
             e.stopPropagation();
             onClose();
           }}
           className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold active:scale-95 transition-all"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: 'manipulation' }}
         >
           Cancel
         </button>
@@ -1944,6 +1927,7 @@ const ReelOwnerMenu: React.FC<{
     </div>
   );
 };
+
 
 
 // ==================== EDIT REEL MODAL ====================
@@ -2770,18 +2754,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
 
-  // menu helper function
-const openOwnerMenu = (e: React.SyntheticEvent) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-  if (!reel) return;
-  const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-  if (ownerId !== Number(currentUser?.id)) return;
-  setMenuReelId(reel.id);
-  setShowReelMenu(true);
-};
-
   // ==================== EFFECTS ====================
   
   useEffect(() => {
@@ -3164,29 +3136,33 @@ const openOwnerMenu = (e: React.SyntheticEvent) => {
             )}
           </button>
 
-<button
+          <button
   type="button"
-  aria-label="Reel menu"
-  onTouchStart={(e) => {
+  onPointerUp={(e) => {
     e.preventDefault();
     e.stopPropagation();
+    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+    if (!reel) return;
+    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+    if (ownerId !== Number(currentUser?.id)) return;
+    setMenuReelId(reel.id);
+    setShowReelMenu(true);
   }}
-  onTouchEnd={openOwnerMenu}
-  onPointerDown={(e) => {
+  onClick={(e) => {
     e.preventDefault();
     e.stopPropagation();
+    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+    if (!reel) return;
+    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+    if (ownerId !== Number(currentUser?.id)) return;
+    setMenuReelId(reel.id);
+    setShowReelMenu(true);
   }}
-  onPointerUp={openOwnerMenu}
-  onMouseDown={(e) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }}
-  onClick={openOwnerMenu}
-  className="fixed right-4 top-[72px] z-[99998] w-12 h-12 rounded-full bg-black/45 border border-white/25 flex items-center justify-center active:scale-95"
+  className="relative z-[950] w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95"
   style={{
-    WebkitTapHighlightColor: "transparent",
-    touchAction: "none",
-    pointerEvents: "auto",
+    WebkitTapHighlightColor: 'transparent',
+    touchAction: 'manipulation',
+    pointerEvents: 'auto',
   }}
 >
   <i className="fas fa-ellipsis-h text-white text-base pointer-events-none" />
