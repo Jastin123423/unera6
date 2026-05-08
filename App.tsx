@@ -9037,30 +9037,36 @@ return (
   </div>
 )}   
      
- {view === 'reels' && (
-<ReelsFeed
-  reels={safeArray(reels)}
-  users={safeArray(users)}
-  currentUser={currentUser}
-  onProfileClick={(id) => openProfile(id)}
-  onReact={reactToReel}
-  onComment={commentOnReel}
-  onEditComment={editCommentOnReel}
-  onDeleteComment={deleteCommentOnReel}
-  onEditReel={editReel}
-  onDeleteReel={deleteReel}
-  onShare={shareReel}
-  onFollow={followUser}
-  checkIsFollowing={checkIsFollowing}
-  followLoading={followLoading}
-  initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
-  onBack={goBack}
-  onVideoClick={(sound) => {
-    // ✅ Open gallery creator first (not direct file picker)
-    openReelRecorderFromReels(sound);
-  }}
-/>
-)} 
+{view === 'reels' && (
+  <ReelsFeed
+    reels={safeArray(reels)}
+    users={safeArray(users)}
+    currentUser={currentUser}
+    onProfileClick={(id) => openProfile(id)}
+    onReact={reactToReel}
+    onComment={commentOnReel}
+    onEditComment={editCommentOnReel}
+    onDeleteComment={deleteCommentOnReel}
+    onEditReel={editReel}
+    onDeleteReel={deleteReel}
+    onShare={shareReel}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
+    onBack={goBack}
+    onVideoClick={(sound) => {
+      // ✅ NATIVE APP: Use Flutter gallery
+      if (isUneraNativeApp()) {
+        const opened = openNativeVideoPicker();
+        if (opened) return;
+      }
+      // ✅ WEB: Use direct file picker (creates input element)
+      openDirectFilePicker(sound);
+    }}
+  />
+)}
+
   
         
         {view === 'marketplace' && (
