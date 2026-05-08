@@ -1522,11 +1522,36 @@ const uploadGroupVideoBundle = async (file: File) => {
 // ✅ NATIVE VIDEO HELPERS
 // ============================================================================
 
+// ============================================================================
+// ✅ NATIVE VIDEO HELPERS
+// ============================================================================
+
 const isUneraNativeApp = (): boolean => {
-  return Boolean(
-    (window as any).UneraNative || 
-    (window as any).UNERA_IS_NATIVE_APP
-  );
+  if ((window as any).UNERA_IS_NATIVE_APP === true) return true;
+  if ((window as any).UneraNative?.postMessage) return true;
+  if ((window as any).flutter_inappwebview?.callHandler) return true;
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('uneraapp')) return true;
+  return false;
+};
+
+const openNativeReelGallery = (sound?: any): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ 
+        action: 'open_reel_gallery_native',
+        sound: sound || null 
+      })
+    );
+    return true;
+  }
+  
+  if ((window as any).flutter_inappwebview?.callHandler) {
+    (window as any).flutter_inappwebview.callHandler('openReelGallery', sound);
+    return true;
+  }
+  
+  return false;
 };
 
 const openNativeVideoPicker = (): boolean => {
