@@ -239,7 +239,7 @@ const ReelCameraCreator: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-[10000] bg-black text-white overflow-hidden">
+    <div className="fixed inset-0 z-[100000] bg-black text-white overflow-hidden">
       <div className="absolute inset-0">
         <video
           ref={videoRef}
@@ -660,7 +660,7 @@ const ReelReactionsSheet: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-[#18191A] flex flex-col">
+    <div className="fixed inset-0 z-[100000] bg-[#18191A] flex flex-col">
       <div className="p-4 border-b border-[#3E4042] flex items-center gap-3 bg-[#242526]">
         <button
           className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center"
@@ -1110,7 +1110,7 @@ const ReelCommentsSheet: React.FC<{
 
   return (
     <div
-      className="fixed inset-0 z-[400] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
+      className="fixed inset-0 z-[100000] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
       style={{ opacity: 1 - translateY / 500 }}
       onClick={onClose}
     >
@@ -1418,7 +1418,7 @@ const ReelCommentsSheet: React.FC<{
 
       {menuComment && (
         <div
-          className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[100001] bg-black/60 backdrop-blur-sm"
           onClick={() => setMenuComment(null)}
         >
           <div
@@ -1500,7 +1500,7 @@ const ReelCommentsSheet: React.FC<{
       )}
 
       {editingComment && (
-        <div className="fixed inset-0 z-[510] bg-black/70 backdrop-blur-sm flex items-end">
+        <div className="fixed inset-0 z-[100001] bg-black/70 backdrop-blur-sm flex items-end">
           <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up">
             <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
@@ -1678,7 +1678,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[600] bg-black flex flex-col animate-fade-in font-sans pb-20 overflow-hidden">
+    <div className="fixed inset-0 z-[100000] bg-black flex flex-col animate-fade-in font-sans pb-20 overflow-hidden">
       <div className="h-16 px-4 flex items-center justify-between border-b border-white/10 bg-black/90 backdrop-blur-xl shrink-0">
         <button
           onClick={onClose}
@@ -1866,7 +1866,7 @@ const ReelOwnerMenu: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[920] bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-5 animate-slide-up"
         onClick={(e) => e.stopPropagation()}
@@ -1937,7 +1937,7 @@ const EditReelModal: React.FC<{
   if (!reel) return null;
 
   return (
-    <div className="fixed inset-0 z-[930] bg-black/70 backdrop-blur-sm flex items-end">
+    <div className="fixed inset-0 z-[100001] bg-black/70 backdrop-blur-sm flex items-end">
       <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-6 animate-slide-up">
         <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
@@ -3124,7 +3124,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   // ==================== RENDER ====================
   return (
     <div
-      className={`fixed inset-0 z-[9999] overflow-hidden font-sans ${
+      className={`fixed inset-0 z-[99999] overflow-hidden font-sans ${
         shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
       }`}
       onContextMenu={(e) => e.preventDefault()}
@@ -3133,8 +3133,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
 
       <div
-        className="absolute top-0 left-0 right-0 z-40 px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
+        className="absolute top-0 left-0 right-0 z-[100000] px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', height: '92px' }}
       >
         <button
           onClick={() => {
@@ -3644,8 +3644,17 @@ export {
   getReelVideoSources,
   pickBestVideoUrl,
   ReelCameraCreator,
+  shouldUseNativeReelPlayer,
+  sendNativeReelVideo,
+  isUneraNativeApp,
+  callUneraNative,
 };
 
-export type { Sound, NetworkLevel, ReelVideoSources, UseSoundPayload };
+export type { 
+  Sound, 
+  NetworkLevel, 
+  ReelVideoSources, 
+  UseSoundPayload 
+};
 
 export default ReelsFeed;
