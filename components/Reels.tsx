@@ -1853,6 +1853,7 @@ const ReelThumbnail: React.FC<{
 };
 
 // ==================== REEL OWNER MENU ====================
+
 const ReelOwnerMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -1862,16 +1863,27 @@ const ReelOwnerMenu: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[920] bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div 
+      className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-sm" 
+      onClick={onClose}
+      style={{ pointerEvents: 'auto', touchAction: 'manipulation' }}
+    >
       <div
         className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[34px] border-t border-white/10 p-5 animate-slide-up"
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{ pointerEvents: 'auto', touchAction: 'manipulation' }}
       >
         <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
         <button
           onClick={onEdit}
-          className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+          onPointerUp={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white active:scale-95 transition-all"
+          style={{ touchAction: 'manipulation' }}
         >
           <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
             <i className="fas fa-pen"></i>
@@ -1884,7 +1896,12 @@ const ReelOwnerMenu: React.FC<{
 
         <button
           onClick={onDelete}
-          className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+          onPointerUp={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 active:scale-95 transition-all"
+          style={{ touchAction: 'manipulation' }}
         >
           <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
             <i className="fas fa-trash-alt"></i>
@@ -1897,7 +1914,12 @@ const ReelOwnerMenu: React.FC<{
 
         <button
           onClick={onClose}
-          className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+          onPointerUp={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold active:scale-95 transition-all"
+          style={{ touchAction: 'manipulation' }}
         >
           Cancel
         </button>
@@ -1905,6 +1927,8 @@ const ReelOwnerMenu: React.FC<{
     </div>
   );
 };
+
+
 
 // ==================== EDIT REEL MODAL ====================
 const EditReelModal: React.FC<{
