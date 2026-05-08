@@ -1522,10 +1522,6 @@ const uploadGroupVideoBundle = async (file: File) => {
 // ✅ NATIVE VIDEO HELPERS
 // ============================================================================
 
-// ============================================================================
-// ✅ NATIVE VIDEO HELPERS
-// ============================================================================
-
 const isUneraNativeApp = (): boolean => {
   if ((window as any).UNERA_IS_NATIVE_APP === true) return true;
   if ((window as any).UneraNative?.postMessage) return true;
@@ -1563,6 +1559,7 @@ const openNativeVideoPicker = (): boolean => {
   }
   return false;
 };
+
       
 // ============================================================================
 // 🔧 Normalize groups
