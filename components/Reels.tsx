@@ -323,6 +323,22 @@ const ReelCameraCreator: React.FC<{
   );
 };
 
+
+<button
+  onClick={() => {
+    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+    if (!reel) return;
+    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+    if (ownerId !== Number(currentUser?.id)) return;
+    setMenuReelId(reel.id);
+    setShowReelMenu(true);
+  }}
+  className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
+>
+  <i className="fas fa-ellipsis-h text-white text-base" />
+</button>
+
+
 // ==================== TYPES ====================
 interface Sound {
   id: string | number;
