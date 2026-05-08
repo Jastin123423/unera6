@@ -1853,7 +1853,6 @@ const ReelThumbnail: React.FC<{
 };
 
 // ==================== REEL OWNER MENU ====================
-
 const ReelOwnerMenu: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -1876,14 +1875,20 @@ const ReelOwnerMenu: React.FC<{
       >
         <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
 
+        {/* Edit Button */}
         <button
-          onClick={onEdit}
-          onPointerUp={(e) => {
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onEdit();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onEdit();
           }}
           className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white active:scale-95 transition-all"
-          style={{ touchAction: 'manipulation' }}
+          style={{ touchAction: "none" }}
         >
           <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
             <i className="fas fa-pen"></i>
@@ -1894,14 +1899,20 @@ const ReelOwnerMenu: React.FC<{
           </div>
         </button>
 
+        {/* Delete Button */}
         <button
-          onClick={onDelete}
-          onPointerUp={(e) => {
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onDelete();
           }}
           className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 active:scale-95 transition-all"
-          style={{ touchAction: 'manipulation' }}
+          style={{ touchAction: "none" }}
         >
           <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
             <i className="fas fa-trash-alt"></i>
@@ -1912,14 +1923,20 @@ const ReelOwnerMenu: React.FC<{
           </div>
         </button>
 
+        {/* Cancel Button */}
         <button
-          onClick={onClose}
-          onPointerUp={(e) => {
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onClose();
           }}
           className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold active:scale-95 transition-all"
-          style={{ touchAction: 'manipulation' }}
+          style={{ touchAction: "none" }}
         >
           Cancel
         </button>
@@ -1927,7 +1944,6 @@ const ReelOwnerMenu: React.FC<{
     </div>
   );
 };
-
 
 
 // ==================== EDIT REEL MODAL ====================
