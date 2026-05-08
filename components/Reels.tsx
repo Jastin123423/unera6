@@ -324,19 +324,6 @@ const ReelCameraCreator: React.FC<{
 };
 
 
-<button
-  onClick={() => {
-    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-    if (!reel) return;
-    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-    if (ownerId !== Number(currentUser?.id)) return;
-    setMenuReelId(reel.id);
-    setShowReelMenu(true);
-  }}
-  className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
->
-  <i className="fas fa-ellipsis-h text-white text-base" />
-</button>
 
 
 // ==================== TYPES ====================
@@ -3126,18 +3113,36 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-              if (!reel) return;
-              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-              if (ownerId !== Number(currentUser?.id)) return;
-              setMenuReelId(reel.id);
-              setShowReelMenu(true);
-            }}
-            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
-          >
-            <i className="fas fa-ellipsis-h text-white text-base" />
-          </button>
+  type="button"
+  onPointerUp={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+    if (!reel) return;
+    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+    if (ownerId !== Number(currentUser?.id)) return;
+    setMenuReelId(reel.id);
+    setShowReelMenu(true);
+  }}
+  onClick={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+    if (!reel) return;
+    const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+    if (ownerId !== Number(currentUser?.id)) return;
+    setMenuReelId(reel.id);
+    setShowReelMenu(true);
+  }}
+  className="relative z-[950] w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95"
+  style={{
+    WebkitTapHighlightColor: 'transparent',
+    touchAction: 'manipulation',
+    pointerEvents: 'auto',
+  }}
+>
+  <i className="fas fa-ellipsis-h text-white text-base pointer-events-none" />
+</button>
         </div>
       </div>
 
