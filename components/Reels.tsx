@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
@@ -74,6 +73,14 @@ const callUneraNative = (payload: any): boolean => {
     return true;
   }
   return false;
+};
+
+const shouldUseNativeReelPlayer = (): boolean => { 
+  return isUneraNativeApp(); 
+}; 
+
+const sendNativeReelVideo = (payload: any): boolean => { 
+  return callUneraNative(payload); 
 };
 
 // ==================== CREATE VIDEO THUMBNAIL HELPER ====================
@@ -2386,6 +2393,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       audioSyncCleanupRef.current();
       audioSyncCleanupRef.current = null;
     }
+    if (shouldUseNativeReelPlayer()) {
+      sendNativeReelVideo({ action: 'pause_native_reel_video' });
+    }
     const audio = globalAudioRef.current;
     if (!audio) return;
     try {
@@ -2463,6 +2473,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       clearTimeout(pendingPlayTimeoutRef.current);
       pendingPlayTimeoutRef.current = null;
     }
+    if (shouldUseNativeReelPlayer()) {
+      sendNativeReelVideo({ action: 'stop_native_reel_video' });
+    }
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       try {
@@ -2495,15 +2508,42 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
       const reel = reels.find((r) => r.id === id);
       const video = videoRefs.current[id];
-      if (!video || !reel) return;
+      if (!reel) return;
 
       setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
       await resolveReelMedia(reel);
       if (playRequestRef.current !== requestId) return;
 
-      const chosenUrl =
-        resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+      const chosenUrl = resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+
+      if (shouldUseNativeReelPlayer()) {
+        if (!chosenUrl) return;
+        Object.values(videoRefs.current).forEach((v) => {
+          if (!v) return;
+          try {
+            v.pause();
+            v.muted = true;
+            v.volume = 0;
+          } catch {}
+        });
+        stopSoundtrack();
+        setActiveReelId(id);
+        setPlayingReelId(id);
+        activeIdRef.current = id;
+        sendNativeReelVideo({
+          action: 'play_native_reel_video',
+          reelId: id,
+          url: chosenUrl,
+          poster: (reel as any).thumbnail_url || (reel as any).thumbnail || '',
+          muted: false,
+          loop: true,
+        });
+        incrementViewCount(id);
+        return;
+      }
+
+      if (!video) return;
 
       if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
         video.src = chosenUrl;
@@ -2603,10 +2643,22 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const handleVideoClick = useCallback(
     (reelId: number) => {
+      userInteractedRef.current = true;
+      
+      if (shouldUseNativeReelPlayer()) {
+        if (activeIdRef.current === reelId) {
+          sendNativeReelVideo({ action: 'pause_native_reel_video' });
+          setPlayingReelId(null);
+          activeIdRef.current = null;
+          return;
+        }
+        playOnly(reelId);
+        return;
+      }
+
       const video = videoRefs.current[reelId];
       if (!video) return;
-      userInteractedRef.current = true;
-
+      
       if (activeIdRef.current === reelId) {
         if (video.paused) {
           video.play().then(() => {
@@ -2881,6 +2933,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   // Pause when comments open
   useEffect(() => {
     if (!showComments) return;
+    if (shouldUseNativeReelPlayer()) {
+      sendNativeReelVideo({ action: 'pause_native_reel_video' });
+      return;
+    }
     const activeId = activeIdRef.current;
     if (activeId) {
       const video = videoRefs.current[activeId];
@@ -2898,6 +2954,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (showComments) return;
     const activeId = activeIdRef.current;
     if (!activeId) return;
+    if (shouldUseNativeReelPlayer()) {
+      sendNativeReelVideo({ action: 'resume_native_reel_video' });
+      return;
+    }
     const video = videoRefs.current[activeId];
     const reel = reels.find((r) => r.id === activeId);
     if (!video || !reel) return;
@@ -2925,6 +2985,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   // Visibility change effect
   useEffect(() => {
     const stopPlayback = () => {
+      if (shouldUseNativeReelPlayer()) {
+        sendNativeReelVideo({ action: 'pause_native_reel_video' });
+      }
       Object.values(videoRefs.current).forEach((video) => {
         if (!video) return;
         try {
@@ -2937,6 +3000,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       if (document.hidden) {
         stopPlayback();
       } else if (!showComments && activeIdRef.current) {
+        if (shouldUseNativeReelPlayer()) {
+          sendNativeReelVideo({ action: 'resume_native_reel_video' });
+          return;
+        }
         const id = activeIdRef.current;
         const video = videoRefs.current[id];
         const reel = reels.find((r) => r.id === id);
@@ -2988,6 +3055,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   useEffect(() => {
     if (!showReelMenu && !editingReel) return;
+    if (shouldUseNativeReelPlayer()) {
+      sendNativeReelVideo({ action: 'pause_native_reel_video' });
+      return;
+    }
     const activeId = activeIdRef.current;
     if (activeId) {
       const video = videoRefs.current[activeId];
@@ -3053,7 +3124,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   // ==================== RENDER ====================
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black overflow-hidden font-sans"
+      className={`fixed inset-0 z-[9999] overflow-hidden font-sans ${
+        shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
+      }`}
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Hidden audio element for external soundtrack */}
@@ -3064,7 +3137,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         style={{ paddingTop: 'max(env(safe-area-inset-top), 8px)', height: '72px' }}
       >
         <button
-          onClick={onBack || (() => window.history.back())}
+          onClick={() => {
+            if (shouldUseNativeReelPlayer()) {
+              sendNativeReelVideo({ action: 'stop_native_reel_video' });
+            }
+            if (onBack) onBack();
+            else window.history.back();
+          }}
           className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
         >
           <i className="fas fa-arrow-left text-white text-sm" />
@@ -3128,7 +3207,9 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       <div className="w-full h-full">
         <div
           ref={scrollerRef}
-          className="reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide bg-black"
+          className={`reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide ${
+            shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
+          }`}
         >
           {reels.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-white p-8">
@@ -3168,14 +3249,18 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                   id={`reel-${reel.id}`}
                   data-reel-id={reel.id}
                   onContextMenu={(e) => e.preventDefault()}
-                  className="reel-container w-full h-[100dvh] snap-start relative bg-black overflow-hidden"
+                  className={`reel-container w-full h-[100dvh] snap-start relative overflow-hidden ${
+                    shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
+                  }`}
                 >
-                  <div className="reel-video-shell w-full h-full relative bg-black">
+                  <div className={`reel-video-shell w-full h-full relative ${
+                    shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
+                  }`}>
                     <video
                       ref={(el) => {
                         if (el) videoRefs.current[reel.id] = el;
                       }}
-                      src={isNearActive ? videoUrl : undefined}
+                      src={shouldUseNativeReelPlayer() ? undefined : isNearActive ? videoUrl : undefined}
                       poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
                       preload={isNearActive ? 'auto' : 'metadata'}
                       playsInline
@@ -3183,11 +3268,14 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       controls={false}
                       disablePictureInPicture
                       controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-                      className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      className={`absolute inset-0 w-full h-full object-cover pointer-events-none select-none ${
+                        shouldUseNativeReelPlayer() ? 'opacity-0' : 'opacity-100'
+                      }`}
                       style={{
                         WebkitTouchCallout: 'none',
                         WebkitUserSelect: 'none',
                         userSelect: 'none',
+                        backgroundColor: shouldUseNativeReelPlayer() ? 'transparent' : 'black',
                       }}
                       muted={playingReelId !== reel.id}
                       draggable={false}
@@ -3374,7 +3462,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       </div>
                     </div>
 
-                    {playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
+                    {!shouldUseNativeReelPlayer() && playingReelId === reel.id && videoRefs.current[reel.id]?.paused && (
                       <div
                         className="absolute inset-0 flex items-center justify-center cursor-pointer z-30"
                         onClick={() => handleVideoClick(reel.id)}
