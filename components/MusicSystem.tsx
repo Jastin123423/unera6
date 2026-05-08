@@ -1166,9 +1166,7 @@ const uploadCompressedCoverToR2 = async (file: File) => {
 // Forward declaration for uploadToR2 (defined in AudioUploadModal)
 declare function uploadToR2(file: File): Promise<string>;
 
-/* =========================================================
-   MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
-========================================================= */
+
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
 ========================================================= */
@@ -1232,6 +1230,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastUrlRef = useRef<string | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
@@ -1349,7 +1348,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
     };
-  }, [currentTrack, isPlaying, onNext, isRepeating]);
+  }, [currentTrack, isPlaying, onNext, isRepeating, volume]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -1436,45 +1435,143 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     if (downloadingTrackId === trackId) return;
     
     setDownloadingTrackId(trackId);
+    setDownloadProgress(0);
     
     try {
-      const safeTitle = (currentTrack.title || 'unera-audio')
-        .replace(/[^\w\s.-]/g, '')
-        .replace(/\s+/g, '_');
-      const fileName = `${safeTitle}.mp3`;
+      // Get artist name properly
+      const displayUser = ownerUser || uploaderProfile;
+      const artistName = displayUser 
+        ? (displayUser.name || displayUser.username || currentTrack.artist)
+        : currentTrack.artist;
       
+      // Clean both artist and title for filename
+      const cleanArtist = artistName
+        .replace(/[^\w\s.-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      const cleanTitle = (currentTrack.title || 'unera-audio')
+        .replace(/[^\w\s.-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      // Format: Artist - Song Title.mp3
+      const fileName = `${cleanArtist} - ${cleanTitle}.mp3`;
+      
+      console.log('📥 Downloading:', fileName);
+      
+      // Native UNERA app download with progress tracking
       if (isUneraNativeApp() && (window as any).UneraNative?.postMessage) {
+        // Listen for download progress events from native
+        const progressHandler = (event: any) => {
+          const data = event.detail;
+          if (data && data.fileName === fileName) {
+            const progress = data.progress || 0;
+            setDownloadProgress(progress);
+            console.log(`📥 Download progress: ${progress}%`);
+          }
+        };
+        
+        const completeHandler = (event: any) => {
+          const data = event.detail;
+          if (data && data.fileName === fileName) {
+            console.log('✅ Download complete:', data.localPath);
+            setDownloadProgress(100);
+            setTimeout(() => {
+              setDownloadingTrackId(null);
+              setDownloadProgress(0);
+            }, 1000);
+            // Clean up listeners
+            window.removeEventListener('uneraNativeDownloadProgress', progressHandler);
+            window.removeEventListener('uneraNativeDownloadComplete', completeHandler);
+            window.removeEventListener('uneraNativeDownloadError', errorHandler);
+          }
+        };
+        
+        const errorHandler = (event: any) => {
+          const data = event.detail;
+          if (data && data.message) {
+            console.error('❌ Download error:', data.message);
+            alert('Download failed. Please try again.');
+            setDownloadingTrackId(null);
+            setDownloadProgress(0);
+            window.removeEventListener('uneraNativeDownloadProgress', progressHandler);
+            window.removeEventListener('uneraNativeDownloadComplete', completeHandler);
+            window.removeEventListener('uneraNativeDownloadError', errorHandler);
+          }
+        };
+        
+        window.addEventListener('uneraNativeDownloadProgress', progressHandler);
+        window.addEventListener('uneraNativeDownloadComplete', completeHandler);
+        window.addEventListener('uneraNativeDownloadError', errorHandler);
+        
         (window as any).UneraNative.postMessage(
           JSON.stringify({
             action: 'download_file',
             url: currentTrack.url,
-            fileName,
+            fileName: fileName,
           })
         );
-        setTimeout(() => {
-          setDownloadingTrackId(null);
-        }, 2500);
+        
+        // Don't clear immediately - wait for events
         return;
       }
       
-      const response = await fetch(currentTrack.url);
-      if (!response.ok) throw new Error('Download failed');
+      // Web browser download
+      console.log('🌐 Web download starting...');
+      
+      // Try to fetch with proper headers
+      const response = await fetch(currentTrack.url, {
+        mode: 'cors',
+        credentials: 'omit',
+      });
+      
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      
+      // Get the blob
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
+      
+      // Create download link
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
+      
+      // Simulate progress for web download
+      setDownloadProgress(100);
+      
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        setDownloadingTrackId(null);
+        setDownloadProgress(0);
+      }, 2000);
+      
       onDownload(String(currentTrack.id));
+      console.log('✅ Web download complete');
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Download failed. Please try again.');
-    } finally {
-      if (!isUneraNativeApp() || !(window as any).UneraNative?.postMessage) {
+      
+      // Fallback: Try opening in new tab for direct download
+      if (!isUneraNativeApp()) {
+        try {
+          console.log('🔄 Trying fallback: opening in new tab');
+          window.open(currentTrack.url, '_blank');
+          alert('Download started in new tab. If not, try right-click and "Save As"');
+          setDownloadingTrackId(null);
+          setDownloadProgress(0);
+        } catch (fallbackError) {
+          alert('Download failed. Please try again later.');
+          setDownloadingTrackId(null);
+          setDownloadProgress(0);
+        }
+      } else {
+        alert('Download failed. Please try again.');
         setDownloadingTrackId(null);
+        setDownloadProgress(0);
       }
     }
   };
@@ -1494,6 +1591,8 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                     currentTrack.cover.startsWith('http')
                     ? currentTrack.cover
                     : DEFAULT_MUSIC_COVER;
+  
+  const isDownloading = downloadingTrackId === String(currentTrack.id);
 
   return (
     <>
@@ -1688,15 +1787,23 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
                 <button 
                   onClick={downloadCurrentTrack} 
-                  disabled={downloadingTrackId === String(currentTrack.id)}
-                  className="flex items-center gap-1 text-[#B0B3B8] hover:text-white disabled:opacity-70"
+                  disabled={isDownloading}
+                  className="flex items-center gap-1 text-[#B0B3B8] hover:text-white disabled:opacity-70 relative group"
+                  title={isDownloading ? `Downloading ${downloadProgress}%` : 'Download'}
                 >
                   <i className={`fas ${
-                    downloadingTrackId === String(currentTrack.id) ? 'fa-spinner fa-spin' : 'fa-download'
+                    isDownloading ? 'fa-spinner fa-spin' : 'fa-download'
                   } text-sm`}></i>
                   <span className="text-xs">
-                    {downloadingTrackId === String(currentTrack.id) ? 'Saving' : 'Download'}
+                    {isDownloading 
+                      ? (downloadProgress > 0 && downloadProgress < 100 ? `${downloadProgress}%` : 'Saving') 
+                      : 'Download'}
                   </span>
+                  {isDownloading && downloadProgress > 0 && downloadProgress < 100 && (
+                    <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap text-[10px] text-[#1877F2]">
+                      {downloadProgress}%
+                    </div>
+                  )}
                 </button>
               </div>
             </div>
@@ -1803,12 +1910,22 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
 
               <button
                 onClick={downloadCurrentTrack}
-                disabled={downloadingTrackId === String(currentTrack.id)}
-                className="text-base disabled:opacity-70"
+                disabled={isDownloading}
+                className="text-base disabled:opacity-70 relative"
+                title={isDownloading ? `Downloading ${downloadProgress}%` : 'Download'}
               >
-                <i className={`fas ${
-                  downloadingTrackId === String(currentTrack.id) ? 'fa-spinner fa-spin' : 'fa-download'
-                }`}></i>
+                {isDownloading ? (
+                  <div className="relative">
+                    <i className="fas fa-spinner fa-spin"></i>
+                    {downloadProgress > 0 && downloadProgress < 100 && (
+                      <span className="absolute -top-2 -right-3 text-[8px] font-bold text-[#1877F2]">
+                        {downloadProgress}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <i className="fas fa-download"></i>
+                )}
               </button>
 
               <button
