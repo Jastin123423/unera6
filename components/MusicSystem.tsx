@@ -1169,6 +1169,9 @@ declare function uploadToR2(file: File): Promise<string>;
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
 ========================================================= */
+/* =========================================================
+   MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
+========================================================= */
 
 interface GlobalAudioPlayerProps {
   currentTrack: AudioTrack | null;
@@ -1228,6 +1231,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
   const [expanded, setExpanded] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastUrlRef = useRef<string | null>(null);
   const playPromiseRef = useRef<Promise<void> | null>(null);
@@ -1419,6 +1423,59 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     if (currentTrack) {
       onShare?.(currentTrack);
       setShowShare(true);
+    }
+  };
+
+  const downloadCurrentTrack = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!currentTrack?.url) {
+      alert('Download URL not found.');
+      return;
+    }
+    const trackId = String(currentTrack.id);
+    if (downloadingTrackId === trackId) return;
+    
+    setDownloadingTrackId(trackId);
+    
+    try {
+      const safeTitle = (currentTrack.title || 'unera-audio')
+        .replace(/[^\w\s.-]/g, '')
+        .replace(/\s+/g, '_');
+      const fileName = `${safeTitle}.mp3`;
+      
+      if (isUneraNativeApp() && (window as any).UneraNative?.postMessage) {
+        (window as any).UneraNative.postMessage(
+          JSON.stringify({
+            action: 'download_file',
+            url: currentTrack.url,
+            fileName,
+          })
+        );
+        setTimeout(() => {
+          setDownloadingTrackId(null);
+        }, 2500);
+        return;
+      }
+      
+      const response = await fetch(currentTrack.url);
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+      onDownload(String(currentTrack.id));
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Download failed. Please try again.');
+    } finally {
+      if (!isUneraNativeApp() || !(window as any).UneraNative?.postMessage) {
+        setDownloadingTrackId(null);
+      }
     }
   };
 
@@ -1629,12 +1686,17 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                   <i className="fas fa-volume-up text-[#B0B3B8] text-sm"></i>
                 </div>
 
-                <button
-                  onClick={() => onDownload(String(currentTrack.id))}
-                  className="flex items-center gap-1 text-[#B0B3B8] hover:text-white"
+                <button 
+                  onClick={downloadCurrentTrack} 
+                  disabled={downloadingTrackId === String(currentTrack.id)}
+                  className="flex items-center gap-1 text-[#B0B3B8] hover:text-white disabled:opacity-70"
                 >
-                  <i className="fas fa-download text-sm"></i>
-                  <span className="text-xs">Download</span>
+                  <i className={`fas ${
+                    downloadingTrackId === String(currentTrack.id) ? 'fa-spinner fa-spin' : 'fa-download'
+                  } text-sm`}></i>
+                  <span className="text-xs">
+                    {downloadingTrackId === String(currentTrack.id) ? 'Saving' : 'Download'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1740,6 +1802,16 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               </button>
 
               <button
+                onClick={downloadCurrentTrack}
+                disabled={downloadingTrackId === String(currentTrack.id)}
+                className="text-base disabled:opacity-70"
+              >
+                <i className={`fas ${
+                  downloadingTrackId === String(currentTrack.id) ? 'fa-spinner fa-spin' : 'fa-download'
+                }`}></i>
+              </button>
+
+              <button
                 onClick={handleClose}
                 className="text-base text-gray-400 hover:text-red-500"
               >
@@ -1777,10 +1849,9 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           onCommentAdded={() => {}}
         />
       )}
-
       {currentTrack && (
         <ShareBottomSheet
-          isOpen={showShare}
+        isOpen={showShare}
           onClose={() => setShowShare(false)}
           track={currentTrack}
           currentUser={currentUser || null}
