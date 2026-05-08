@@ -9081,12 +9081,11 @@ return (
     initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
     onBack={goBack}
     onVideoClick={(sound) => {
-      // ✅ NATIVE APP: Use Flutter gallery
+      // ✅ NATIVE APP - Use Flutter gallery + camera
       if (isUneraNativeApp()) {
-        const opened = openNativeVideoPicker();
-        if (opened) return;
+        if (openNativeReelGallery(sound)) return;
       }
-      // ✅ WEB: Use direct file picker (creates input element)
+      // ✅ WEB BROWSER - Use direct file picker
       openDirectFilePicker(sound);
     }}
   />
