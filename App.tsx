@@ -6841,7 +6841,17 @@ useEffect(() => {
   };
 }, []);
 
-      
+   useEffect(() => {
+  console.log('[Platform] Detection results:', {
+    isNative: isUneraNativeApp(),
+    hasUNERA_IS_NATIVE_APP: (window as any).UNERA_IS_NATIVE_APP === true,
+    hasUneraNative: !!(window as any).UneraNative?.postMessage,
+    hasFlutterWebView: !!(window as any).flutter_inappwebview?.callHandler,
+    userAgentIncludesUneraApp: navigator.userAgent.toLowerCase().includes('uneraapp'),
+    url: window.location.hostname
+  });
+}, []);
+    
   // ===== ADMIN FUNCTIONS ====
   const verifyUser = useCallback(
     async (userId: number) => {
