@@ -5693,8 +5693,7 @@ const fetchOtherData = useCallback(async () => {
   }
 }, [fetchEvents]);
 
-      const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
-  if (
+              
             
   //===fetch Group for viewers====
             
@@ -7653,14 +7652,13 @@ const handleReelVideoSelected = useCallback(
     
 //====OPEN RECORDER FROM REEL=====
     
-    // For Native App: Opens Flutter gallery (kept exactly as is)
 const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
   // ✅ Open gallery first, NOT camera and NOT direct file picker
   setSelectedReelSoundForGallery(sound || undefined);
   setShowReelGallery(true);
 }, []);
 
-// For Web Browser: Direct file picker (kept exactly as is for web fallback)
+// Keep the old file picker logic if needed elsewhere, but rename it if necessary
 const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
   if (sound) {
     setSelectedReelSound({
@@ -7693,6 +7691,7 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 
   input.click();
 }, []);
+    
 
 
   // Event Detail Modal
