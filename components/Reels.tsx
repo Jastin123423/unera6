@@ -2770,6 +2770,18 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   const activeReel = reels.find((r) => Number(r.id) === Number(activeReelId));
 
+  // menu helper function
+const openOwnerMenu = (e: React.SyntheticEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+  if (!reel) return;
+  const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+  if (ownerId !== Number(currentUser?.id)) return;
+  setMenuReelId(reel.id);
+  setShowReelMenu(true);
+};
+
   // ==================== EFFECTS ====================
   
   useEffect(() => {
