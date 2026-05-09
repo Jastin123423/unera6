@@ -2713,16 +2713,36 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   }, [selectedReelForShare, onShare]);
 
   // Use sound handlers - opens gallery with sound, not camera directly
-  const handleUseSoundFromReel = useCallback(
-    (reel: Reel) => {
-      const sound = extractSoundFromReel(reel);
-      const payload = buildUseSoundPayload(sound);
-      stopActivePlayback();
-      setSelectedSoundData(null);
-      onVideoClick?.(payload);
-    },
-    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback, onVideoClick]
-  );
+const handleUseSoundFromReel = useCallback(
+  (reel: Reel) => {
+    const sound = extractSoundFromReel(reel);
+
+    const audioUrl = String(sound.originalUrl || sound.url || '').trim();
+
+    // ✅ Prevent blank Recorder if reel has no separate audio_url
+    if (!audioUrl) {
+      alert('This reel uses original video sound. Original-sound extraction is not ready for this reel yet.');
+      return;
+    }
+
+    const payload: UseSoundPayload = {
+      songName: sound.name || 'Original Sound',
+      audioUrl,
+      originalUrl: audioUrl,
+      audioStart: Number(sound.start || 0),
+      audioEnd: Number(sound.end || sound.duration || 0),
+      songId: sound.songId ?? undefined,
+      soundKey: sound.soundKey || `sound:${sound.id}`,
+      isTrimmedAudio: false,
+    };
+
+    stopActivePlayback();
+    setSelectedSoundData(null);
+    onVideoClick?.(payload);
+  },
+  [extractSoundFromReel, stopActivePlayback, onVideoClick]
+);
+
 
   const handleSoundClick = useCallback(
     (reel: Reel) => {
