@@ -370,6 +370,136 @@ const resolveVideoId = (item: any): number | null => {
   return null;
 };
 
+//=====VIDEO AUDIO EXTRACTOR=====
+  
+async function extractAudioFromVideo(file: File): Promise<File | null> {
+  let video: HTMLVideoElement | null = null;
+  let audioContext: AudioContext | null = null;
+  let sourceNode: MediaElementAudioSourceNode | null = null;
+  let mediaRecorder: MediaRecorder | null = null;
+  let stream: MediaStream | null = null;
+  let isStopped = false;
+  
+  try {
+    const videoUrl = URL.createObjectURL(file);
+    video = document.createElement('video');
+    video.src = videoUrl;
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    
+    await new Promise<void>((resolve, reject) => {
+      if (!video) return reject(new Error('Video element not created'));
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('Failed to load video metadata'));
+    });
+    
+    const duration = video.duration;
+    if (!duration || duration <= 0) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    sourceNode = audioContext.createMediaElementSource(video);
+    
+    const dest = audioContext.createMediaStreamDestination();
+    sourceNode.connect(dest);
+    // IMPORTANT: DO NOT connect to speakers
+    
+    stream = dest.stream;
+    
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : '';
+    
+    if (!mimeType) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
+    
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    
+    mediaRecorder.start(250);
+    await video.play();
+    
+    await new Promise<void>((resolve) => {
+      const stopAt = Math.min(duration, 60);
+      const timer = setTimeout(() => {
+        if (!isStopped) {
+          isStopped = true;
+          resolve();
+        }
+      }, stopAt * 1000);
+      
+      if (video) {
+        video.onended = () => {
+          if (!isStopped) {
+            isStopped = true;
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+      }
+    });
+    
+    const recordingStopped = new Promise<Blob>((resolve) => {
+      if (!mediaRecorder) return resolve(new Blob());
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        resolve(blob);
+      };
+      mediaRecorder.stop();
+    });
+    
+    if (video) video.pause();
+    const recordedBlob = await recordingStopped;
+    URL.revokeObjectURL(videoUrl);
+    
+    if (!recordedBlob.size) return null;
+    
+    return new File(
+      [recordedBlob],
+      `original-audio-${Date.now()}.webm`,
+      { type: mimeType }
+    );
+    
+  } catch (error) {
+    console.warn('Audio extraction from video failed:', error);
+    return null;
+  } finally {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch {}
+    }
+    if (sourceNode && audioContext) {
+      try { sourceNode.disconnect(); } catch {}
+    }
+    if (audioContext) {
+      try { await audioContext.close(); } catch {}
+    }
+    if (video) {
+      try { video.pause(); } catch {}
+      try { video.remove(); } catch {}
+    }
+    if (stream) {
+      try { stream.getTracks().forEach(track => track.stop()); } catch {}
+    }
+  }
+}  
+
 /** ---------- Stable key generator ---------- */
 const getStableItemKey = (item: any, prefix = 'item'): string => {
   const id = resolveVideoId(item);
