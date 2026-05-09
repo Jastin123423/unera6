@@ -1284,6 +1284,10 @@ const Recorder: React.FC<RecorderProps> = ({
   initialVideoUrl = '',
   initialNativeMediaMeta = null,
   startInPreview = false,
+  // ✅ ADD THESE (not used internally, just to accept props)
+  reelPublishing = false,
+  reelPublishingProgress = 0,
+  reelPublishingText = '',
 }) => {
   const [mode, setMode] = useState<EditorMode>(
     startInPreview && (initialVideoFile || initialVideoUrl) ? 'preview' : 'choose'
