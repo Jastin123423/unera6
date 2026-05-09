@@ -62,19 +62,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const bodyUserId = toNum(body.user_id, 0);
     const user_id = headerUserId || bodyUserId || 0;
 
-    // Use the columns your DB already has
     const video_url_low = toText(body.video_url_low);
-    const video_url_medium =
-      toText(body.video_url_medium) ||
-      toText(body.video_url);
+    const video_url_medium = toText(body.video_url_medium) || toText(body.video_url);
     const video_url_hd = toText(body.video_url_hd);
 
-    // Keep legacy field populated
-    const video_url =
-      video_url_medium ||
-      video_url_hd ||
-      video_url_low ||
-      '';
+    const video_url = video_url_medium || video_url_hd || video_url_low || '';
 
     const thumbnail_url = toText(body.thumbnail_url);
     const caption = toText(body.caption);
@@ -84,9 +76,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const audio_start = toNum(body.audio_start, 0);
     const audio_end = toNum(body.audio_end, 0);
 
-    const song_id = body.song_id == null ? null : (toNum(body.song_id, 0) || null);
-    const sound_id = body.sound_id == null ? null : (toNum(body.sound_id, 0) || null);
+    const song_id = body.song_id == null ? null : toNum(body.song_id, 0) || null;
+    const sound_id = body.sound_id == null ? null : toNum(body.sound_id, 0) || null;
     const sound_key = toText(body.sound_key) ?? 'original:none';
+
+    const is_original_sound = safeBool(body.is_original_sound) ? 1 : 0;
+    const original_sound_owner_id =
+      body.original_sound_owner_id == null
+        ? is_original_sound
+          ? user_id
+          : null
+        : toNum(body.original_sound_owner_id, 0) || null;
 
     const visibilityRaw = String(body.visibility ?? 'public').trim().toLowerCase();
     const visibility = (
@@ -98,7 +98,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const location = toText(body.location);
 
     if (!user_id || !video_url) {
-      return json({ success: false, error: 'user_id and at least one video URL are required' }, 400);
+      return json(
+        { success: false, error: 'user_id and at least one video URL are required' },
+        400
+      );
     }
 
     const user = await env.DB
@@ -130,9 +133,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         song_id,
         sound_key,
         sound_id,
-        shares
+        shares,
+        is_original_sound,
+        original_sound_owner_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)
       `
     )
       .bind(
@@ -151,7 +156,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         location,
         song_id,
         sound_key,
-        sound_id
+        sound_id,
+        is_original_sound,
+        original_sound_owner_id
       )
       .run();
 
@@ -179,6 +186,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         r.song_id,
         r.sound_id,
         r.sound_key,
+        r.is_original_sound,
+        r.original_sound_owner_id,
         r.created_at,
         u.name,
         u.username,
@@ -201,7 +210,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       id: toNum((row as any).id, 0),
       user_id: toNum((row as any).user_id, 0),
 
-      // legacy + adaptive fields
       video_url: String((row as any).video_url || ''),
       video_url_low: pickFirst((row as any).video_url_low),
       video_url_medium: pickFirst((row as any).video_url_medium, (row as any).video_url),
@@ -217,9 +225,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       location: pickFirst((row as any).location),
       views: toNum((row as any).views, 0),
       shares: toNum((row as any).shares, 0),
+
       song_id: (row as any).song_id == null ? null : toNum((row as any).song_id, 0),
       sound_id: (row as any).sound_id == null ? null : toNum((row as any).sound_id, 0),
       sound_key: pickFirst((row as any).sound_key),
+
+      is_original_sound: safeBool((row as any).is_original_sound),
+      original_sound_owner_id:
+        (row as any).original_sound_owner_id == null
+          ? null
+          : toNum((row as any).original_sound_owner_id, 0),
+
       created_at: (row as any).created_at,
 
       author_name: pickFirst((row as any).name, (row as any).username, 'User'),
@@ -266,6 +282,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.song_id,
         r.sound_id,
         r.sound_key,
+        r.is_original_sound,
+        r.original_sound_owner_id,
         r.visibility,
         r.location,
         r.views,
@@ -388,7 +406,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         id: rid,
         user_id: toNum(r.user_id, 0),
 
-        // legacy + adaptive fields
         video_url: String(r.video_url || ''),
         video_url_low: pickFirst(r.video_url_low),
         video_url_medium: pickFirst(r.video_url_medium, r.video_url),
@@ -400,9 +417,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         audio_url: pickFirst(r.audio_url),
         audio_start: toNum(r.audio_start, 0),
         audio_end: toNum(r.audio_end, 0),
+
         song_id: r.song_id == null ? null : toNum(r.song_id, 0),
         sound_id: r.sound_id == null ? null : toNum(r.sound_id, 0),
         sound_key: pickFirst(r.sound_key),
+
+        is_original_sound: safeBool(r.is_original_sound),
+        original_sound_owner_id:
+          r.original_sound_owner_id == null
+            ? null
+            : toNum(r.original_sound_owner_id, 0),
+
         visibility: String(r.visibility || 'public'),
         location: pickFirst(r.location),
         views: toNum(r.views, 0),
