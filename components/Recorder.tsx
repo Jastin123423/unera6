@@ -1380,48 +1380,67 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
     );
   }, [selectedSound, selectedUploadedSound]);
 
-  // ✅ Native upload listener
-  useEffect(() => {
-    const handleNativeUpload = (event: any) => {
-      const media = event.detail;
-      console.log("📱 Recorder: Native upload received:", media);
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    console.log("📱 Recorder: Native upload received:", media);
+    
+    if (!media || media.type !== 'video') return;
+    
+    const videoUrl = media.full || media.feed || media.url;
+    if (!videoUrl) return;
+    
+    setIsNativePickerActive(false);
+    setNativeUploadProgress(100);
+    
+    // Clear any existing file-based video
+    setVideoFile(null);
+    
+    // Store native video URL and metadata directly
+    setNativeVideoUrl(videoUrl);
+    setNativeVideoMeta({
+      thumb: media.thumb || media.thumbnail_url || '',
+      feed: media.feed || videoUrl,
+      full: media.full || videoUrl,
+      type: 'video',
+    });
+    
+    // ✅ FIX: Handle native sound data from gallery/camera
+    if (media.music || media.audioUrl) {
+      const nativeSound: ReelSound = {
+        songName: media.songName || 'Original Sound',
+        audioUrl: media.audioUrl || '',
+        originalUrl: media.audioUrl || '',
+        audioStart: media.audioStart ?? 0,
+        audioEnd: media.audioEnd ?? 0,
+        songId: media.songId,
+        soundKey: media.soundKey || `native:${Date.now()}`,
+        isTrimmedAudio: false,
+      };
       
-      if (!media || media.type !== 'video') return;
+      onSelectSound?.(nativeSound);
+      setTrimStart(nativeSound.audioStart || 0);
+      setTrimEnd(nativeSound.audioEnd || 0);
       
-      const videoUrl = media.full || media.feed || media.url;
-      if (!videoUrl) return;
-      
-      setIsNativePickerActive(false);
-      setNativeUploadProgress(100);
-      
-      // Clear any existing file-based video
-      setVideoFile(null);
-      
-      // Store native video URL and metadata directly (NO conversion to File)
-      setNativeVideoUrl(videoUrl);
-      setNativeVideoMeta({
-        thumb: media.thumb || videoUrl,
-        feed: media.feed || videoUrl,
-        full: media.full || videoUrl,
-        type: 'video',
-      });
-      
-      // Set preview URL directly from native upload
-      setNextPreviewUrl(videoUrl);
-      setMode('preview');
-      setSubmitState('idle');
-      setSubmitError('');
-      setSubmitProgress(0);
-      
-      // Note: Audio extraction is skipped for native uploaded videos
-      // because Flutter has already handled the upload
-    };
+      // Clear any existing selected sound
+      setSelectedUploadedSound(null);
+      setExtractedVideoAudioFile(null);
+    }
+    
+    // Set preview URL directly from native upload
+    setNextPreviewUrl(videoUrl);
+    setMode('preview');
+    setSubmitState('idle');
+    setSubmitError('');
+    setSubmitProgress(0);
+  };
 
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    return () => {
-      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-    };
-  }, []);
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, [onSelectSound, setNextPreviewUrl]);
+
 
   // ✅ Listen for native reel video from App.tsx
   useEffect(() => {
