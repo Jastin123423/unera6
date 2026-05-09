@@ -1987,6 +1987,7 @@ const EditReelModal: React.FC<{
 };
 
 // ==================== REELS FEED ====================
+// ==================== REELS FEED ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -2027,6 +2028,10 @@ interface ReelsFeedProps {
   initialReelId?: number | null;
   onBack?: () => void;
   onVideoClick?: (sound?: UseSoundPayload) => void;
+  // ✅ ADD PUBLISHING PROPS
+  reelPublishing?: boolean;
+  reelPublishingProgress?: number;
+  reelPublishingText?: string;
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
@@ -2047,6 +2052,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
   onVideoClick,
+  // ✅ ADD PUBLISHING PROPS WITH DEFAULTS
+  reelPublishing = false,
+  reelPublishingProgress = 0,
+  reelPublishingText = '',
 }) => {
 
   // ==================== STATE ====================
@@ -3131,6 +3140,34 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       {/* Hidden audio element for external soundtrack */}
       <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
 
+      {/* ✅ PUBLISHING PROGRESS BAR - Just below the top header */}
+      {reelPublishing && (
+        <div 
+          className="absolute left-4 right-4 z-[100001] rounded-2xl bg-[#242526]/95 border border-white/10 shadow-2xl overflow-hidden"
+          style={{ top: 'calc(max(env(safe-area-inset-top), 16px) + 96px)' }}
+        >
+          <div className="px-4 py-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-[#1877F2]/15 flex items-center justify-center">
+              <i className="fas fa-cloud-upload-alt text-[#1877F2] text-sm"></i>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white text-sm font-black truncate">
+                {reelPublishingText || 'Publishing your reel...'}
+              </div>
+              <div className="text-white/50 text-[11px] font-bold mt-0.5">
+                {Math.round(reelPublishingProgress || 0)}%
+              </div>
+            </div>
+          </div>
+          <div className="h-[3px] bg-white/10">
+            <div 
+              className="h-full bg-[#1877F2] transition-all duration-300"
+              style={{ width: `${Math.min(100, Math.max(0, reelPublishingProgress || 0))}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <div
         className="absolute top-0 left-0 right-0 z-[100000] px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', height: '92px' }}
@@ -3186,7 +3223,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
               <i className="fas fa-download text-white text-base" />
             )}
           </button>
-
           <button
             onClick={() => {
               const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
