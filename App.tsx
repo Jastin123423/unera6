@@ -9126,9 +9126,12 @@ return (
       // ✅ WEB BROWSER - Use direct file picker
       openDirectFilePicker(sound);
     }}
+    // ✅ ADD THESE THREE PROPS
+    reelPublishing={reelPublishing}
+    reelPublishingProgress={reelPublishingProgress}
+    reelPublishingText={reelPublishingText}
   />
 )}
-
   
         
         {view === 'marketplace' && (
