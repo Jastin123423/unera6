@@ -2258,6 +2258,11 @@ const [storyCreateLoading, setStoryCreateLoading] = useState(false);
 const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
 const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
 
+  // REEL PUBLISHING STATES 
+const [reelPublishing, setReelPublishing] = useState(false);
+const [reelPublishingProgress, setReelPublishingProgress] = useState(0);
+const [reelPublishingText, setReelPublishingText] = useState('');
+
   // Reel gallery creator states
 const [showReelGallery, setShowReelGallery] = useState(false);
 const [selectedReelSoundForGallery, setSelectedReelSoundForGallery] = useState<UseSoundPayload | undefined>(undefined);
