@@ -2713,17 +2713,26 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   }, [selectedReelForShare, onShare]);
 
   // Use sound handlers - opens gallery with sound, not camera directly
-  const handleUseSoundFromReel = useCallback(
-    (reel: Reel) => {
-      const sound = extractSoundFromReel(reel);
-      const payload = buildUseSoundPayload(sound);
-      stopActivePlayback();
-      setSelectedSoundData(null);
-      onVideoClick?.(payload);
-    },
-    [extractSoundFromReel, buildUseSoundPayload, stopActivePlayback, onVideoClick]
-  );
 
+  const handleUseSoundFromReel = useCallback(
+  (reel: Reel) => {
+    const sound = extractSoundFromReel(reel);
+    const payload: UseSoundPayload = {
+      songName: sound.name || 'Original Sound',
+      audioUrl: sound.originalUrl || sound.url || '',
+      originalUrl: sound.originalUrl || sound.url || '',
+      audioStart: sound.start || 0,
+      audioEnd: sound.end || sound.duration || 0,
+      songId: sound.songId ?? undefined,
+      soundKey: sound.soundKey || `sound:${sound.id}`,
+    };
+    stopActivePlayback();
+    setSelectedSoundData(null);
+    onVideoClick?.(payload);
+  },
+  [extractSoundFromReel, stopActivePlayback, onVideoClick]
+);
+                                      
   const handleSoundClick = useCallback(
     (reel: Reel) => {
       const sound = extractSoundFromReel(reel);
