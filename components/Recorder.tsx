@@ -1382,47 +1382,114 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
 
   // ✅ Native upload listener
   useEffect(() => {
-    const handleNativeUpload = (event: any) => {
+  const handleNativeUpload = (event: any) => {
+    try {
       const media = event.detail;
       console.log("📱 Recorder: Native upload received:", media);
-      
-      if (!media || media.type !== 'video') return;
-      
-      const videoUrl = media.full || media.feed || media.url;
+
+      if (!media || media.type !== "video") return;
+
+      const videoUrl = String(media.full || media.feed || media.url || "").trim();
       if (!videoUrl) return;
-      
+
       setIsNativePickerActive(false);
       setNativeUploadProgress(100);
-      
-      // Clear any existing file-based video
       setVideoFile(null);
-      
-      // Store native video URL and metadata directly (NO conversion to File)
-      setNativeVideoUrl(videoUrl);
-      setNativeVideoMeta({
-        thumb: media.thumb || videoUrl,
+
+      const meta = {
+        thumb: media.thumb || media.thumbnail_url || media.thumbnailUrl || "",
         feed: media.feed || videoUrl,
         full: media.full || videoUrl,
-        type: 'video',
-      });
-      
-      // Set preview URL directly from native upload
-      setNextPreviewUrl(videoUrl);
-      setMode('preview');
-      setSubmitState('idle');
-      setSubmitError('');
+        url: videoUrl,
+        type: "video",
+      };
+
+      setNativeVideoUrl(videoUrl);
+      setNativeVideoMeta(meta);
+
+      // ✅ Preserve native selected music/sound
+      const music = media.music || {};
+      const audioUrl = String(
+        media.audioUrl ||
+          media.audio_url ||
+          music.audioUrl ||
+          music.audio_url ||
+          ""
+      ).trim();
+
+      const songName = String(
+        media.songName ||
+          media.song_name ||
+          music.songName ||
+          music.title ||
+          music.name ||
+          "Original Sound"
+      );
+
+      if (audioUrl) {
+        const start = Number(
+          media.audioStart ??
+            media.audio_start ??
+            music.audioStart ??
+            music.audio_start ??
+            0
+        );
+
+        const rawEnd =
+          media.audioEnd ??
+          media.audio_end ??
+          music.audioEnd ??
+          music.audio_end ??
+          0;
+
+        const end = Number(rawEnd || 0);
+
+        const nativeSound: ReelSound = {
+          songName,
+          audioUrl,
+          originalUrl: audioUrl,
+          audioStart: Number.isFinite(start) ? start : 0,
+          audioEnd: Number.isFinite(end) ? end : 0,
+          songId: media.songId ?? media.song_id ?? music.songId ?? music.id,
+          soundKey:
+            media.soundKey ||
+            media.sound_key ||
+            music.soundKey ||
+            music.sound_key ||
+            (media.songId || music.id ? `song:${media.songId || music.id}` : `native:${Date.now()}`),
+          isTrimmedAudio: false,
+        };
+
+        onSelectSound?.(nativeSound);
+        setTrimStart(nativeSound.audioStart || 0);
+        setTrimEnd(nativeSound.audioEnd || 0);
+
+        setSelectedUploadedSound(null);
+        setExtractedVideoAudioFile(null);
+        setTrimmedAudioFile(null);
+      }
+
+      // ✅ Do not call setNextPreviewUrl here if it causes blank screen
+      setVideoPreviewUrl(videoUrl);
+      previewUrlRef.current = videoUrl;
+
+      setMode("preview");
+      setSubmitState("idle");
+      setSubmitError("");
       setSubmitProgress(0);
-      
-      // Note: Audio extraction is skipped for native uploaded videos
-      // because Flutter has already handled the upload
-    };
+    } catch (err) {
+      console.error("Native upload handler failed:", err);
+      setSubmitState("error");
+      setSubmitError("Failed to load native video preview.");
+    }
+  };
 
-    window.addEventListener('uneraNativeUpload', handleNativeUpload);
-    return () => {
-      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-    };
-  }, []);
-
+  window.addEventListener("uneraNativeUpload", handleNativeUpload);
+  return () => {
+    window.removeEventListener("uneraNativeUpload", handleNativeUpload);
+  };
+  // ✅ Important: do not include setNextPreviewUrl here
+}, [onSelectSound]);
   // ✅ Listen for native reel video from App.tsx
   useEffect(() => {
     const handleNativeReelVideo = (event: any) => {
