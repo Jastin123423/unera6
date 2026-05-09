@@ -4804,7 +4804,8 @@ const createMarketplacePost = useCallback(
 }, []);
 
   //====CREATE REEL =====
-const createReel = useCallback(async (
+    
+  const createReel = useCallback(async (
   reelData: Partial<Reel> & {
     videoFile?: File | Blob;
     thumbnailFile?: File | Blob;
@@ -4828,10 +4829,18 @@ const createReel = useCallback(async (
     let thumbnailUrl = '';
     let mediaMeta: any = null;
 
+    // ✅ Progress: Starting
+    setReelPublishingProgress(5);
+    setReelPublishingText('Preparing your reel...');
+
     const isNativeVideo = !!reelData.nativeVideoUrl;
 
     if (isNativeVideo) {
       console.log("📱 Using native uploaded video:", reelData.nativeVideoUrl);
+
+      // ✅ Progress: Processing native video
+      setReelPublishingProgress(20);
+      setReelPublishingText('Processing video...');
 
       videoUrl = String(reelData.nativeVideoUrl || '');
       videoUrlLow = videoUrl;
@@ -4852,7 +4861,16 @@ const createReel = useCallback(async (
         mediaMeta.feed ||
         mediaMeta.full ||
         videoUrl;
+        
+      // ✅ Progress: Native video ready
+      setReelPublishingProgress(35);
+      setReelPublishingText('Video ready, preparing...');
+      
     } else if (reelData.videoFile) {
+      // ✅ Progress: Uploading video
+      setReelPublishingProgress(15);
+      setReelPublishingText('Uploading video...');
+      
       videoUrlMedium = await ensureR2Url(
         reelData.videoFile,
         'reels',
@@ -4862,6 +4880,10 @@ const createReel = useCallback(async (
       videoUrlLow = videoUrlMedium;
       videoUrl = videoUrlMedium;
       videoUrlHd = '';
+
+      // ✅ Progress: Video uploaded
+      setReelPublishingProgress(45);
+      setReelPublishingText('Preparing thumbnail...');
 
       if (reelData.thumbnailFile) {
         thumbnailUrl = await ensureR2Url(
@@ -4877,6 +4899,10 @@ const createReel = useCallback(async (
     } else {
       throw new Error('No video source provided');
     }
+
+    // ✅ Progress: Processing audio
+    setReelPublishingProgress(60);
+    setReelPublishingText('Processing audio track...');
 
     let audioUrl = '';
     if (reelData.audioFile) {
@@ -4903,6 +4929,10 @@ const createReel = useCallback(async (
     const audioEnd = isTrimmedAudio
       ? 0
       : reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
+
+    // ✅ Progress: Publishing
+    setReelPublishingProgress(75);
+    setReelPublishingText('Publishing your reel...');
 
     const payload = {
       user_id: currentUser.id,
@@ -4944,6 +4974,10 @@ const createReel = useCallback(async (
       body: JSON.stringify(payload),
     });
 
+    // ✅ Progress: Success!
+    setReelPublishingProgress(100);
+    setReelPublishingText('Reel posted successfully!');
+
     const newReel = normalizeReel(data.reel || data);
     newReel.author = currentUser.name;
     newReel.author_name = currentUser.name;
@@ -4957,6 +4991,9 @@ const createReel = useCallback(async (
 
   } catch (error: any) {
     console.error('Failed to create reel:', error);
+    // ✅ Progress: Error
+    setReelPublishingText(error?.message || 'Failed to create reel');
+    setReelPublishingProgress(0);
     setLoginError(error?.message || 'Failed to create reel');
     throw error;
   } finally {
@@ -4964,7 +5001,6 @@ const createReel = useCallback(async (
     setShowCreateReelModal(false);
   }
 }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
-  
     
 
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
