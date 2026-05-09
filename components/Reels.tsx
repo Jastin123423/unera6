@@ -74,9 +74,8 @@ const callUneraNative = (payload: any): boolean => {
   }
   return false;
 };
-
 const shouldUseNativeReelPlayer = (): boolean => { 
-  return isUneraNativeApp(); 
+  return false; // Temporarily disabled until native full-screen solution is ready
 }; 
 
 const sendNativeReelVideo = (payload: any): boolean => { 
