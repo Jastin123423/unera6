@@ -9437,7 +9437,7 @@ return (
         )}
 
         
-    {view === 'recorder' && (
+  {view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
@@ -9530,17 +9530,18 @@ return (
           setReelPublishingText('');
         }, 2500);
       } finally {
-     // Clear all pending states after successful submission
-    setPendingReelFile(null);
-    setPendingReelThumbnailFile(null);
-    setNativeReelVideoUrl('');
-    setNativeReelMediaMeta(null);
-    setPendingReelEffectId('none');
-    setSelectedReelSound(null);
-    setShowRecorder(false);
-  }}
-/>
+        // Clear all pending states after submission attempt
+        setPendingReelFile(null);
+        setPendingReelThumbnailFile(null);
+        setNativeReelVideoUrl('');
+        setNativeReelMediaMeta(null);
+        setPendingReelEffectId('none');
+        setSelectedReelSound(null);
+      }
+    }}
+  />
 )}
+        
  {view === 'notifications' && (
   <NotificationsPage
     notifications={enrichedNotifications}
