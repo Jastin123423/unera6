@@ -822,9 +822,13 @@ interface RecorderProps {
   maxDurationSec?: number;
   brandName?: string;
   initialVideoFile?: File | null;
-  initialVideoUrl?: string;           // ✅ NEW: native video URL
-  initialNativeMediaMeta?: any;       // ✅ NEW: native media metadata
+  initialVideoUrl?: string;
+  initialNativeMediaMeta?: any;
   startInPreview?: boolean;
+  // ✅ ADDED THIS - Publishing state (not used internally, just passed through)
+  reelPublishing?: boolean;
+  reelPublishingProgress?: number;
+  reelPublishingText?: string;
 }
 
 const LYRIC_PRESETS: LyricPreset[] = [
