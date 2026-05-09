@@ -4797,13 +4797,14 @@ const createMarketplacePost = useCallback(
 
   return 'original:none';
 }, []);
+
+  //====CREATE REEL =====
 const createReel = useCallback(async (
   reelData: Partial<Reel> & {
     videoFile?: File | Blob;
     thumbnailFile?: File | Blob;
     audioFile?: File | Blob;
     originalSoundId?: string | number;
-    // ✅ Native video fields
     nativeVideoUrl?: string;
     nativeVideoMeta?: any;
   }
@@ -4822,37 +4823,44 @@ const createReel = useCallback(async (
     let thumbnailUrl = '';
     let mediaMeta: any = null;
 
-    // ✅ CHECK FOR NATIVE VIDEO FIRST
-    if (reelData.nativeVideoUrl && reelData.nativeVideoMeta) {
-      console.log("📱 Using native uploaded video:", reelData.nativeVideoUrl);
-      
-      videoUrl = reelData.nativeVideoUrl;
-      videoUrlLow = reelData.nativeVideoUrl;
-      videoUrlMedium = reelData.nativeVideoUrl;
-      videoUrlHd = '';
-      mediaMeta = reelData.nativeVideoMeta;
-      thumbnailUrl = reelData.nativeVideoMeta.thumb || '';
-      
-      // No need to upload files - Flutter already did
-    }
-    // Web upload: video file provided
-    else if (reelData.videoFile) {
-      const videoFile = reelData.videoFile;
-      const thumbnailFile = reelData.thumbnailFile;
-      const audioFile = reelData.audioFile;
+    const isNativeVideo = !!reelData.nativeVideoUrl;
 
+    if (isNativeVideo) {
+      console.log("📱 Using native uploaded video:", reelData.nativeVideoUrl);
+
+      videoUrl = String(reelData.nativeVideoUrl || '');
+      videoUrlLow = videoUrl;
+      videoUrlMedium = videoUrl;
+      videoUrlHd = '';
+
+      mediaMeta = reelData.nativeVideoMeta || {
+        thumb: videoUrl,
+        feed: videoUrl,
+        full: videoUrl,
+        url: videoUrl,
+        type: 'video',
+      };
+
+      thumbnailUrl =
+        mediaMeta.thumb ||
+        mediaMeta.thumbnail ||
+        mediaMeta.feed ||
+        mediaMeta.full ||
+        videoUrl;
+    } else if (reelData.videoFile) {
       videoUrlMedium = await ensureR2Url(
-        videoFile,
+        reelData.videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
+
       videoUrlLow = videoUrlMedium;
       videoUrl = videoUrlMedium;
       videoUrlHd = '';
 
-      if (thumbnailFile) {
+      if (reelData.thumbnailFile) {
         thumbnailUrl = await ensureR2Url(
-          thumbnailFile,
+          reelData.thumbnailFile,
           'reels-thumbs',
           `reel-thumb-${Date.now()}.webp`
         );
@@ -4861,69 +4869,87 @@ const createReel = useCallback(async (
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Video upload failed');
       }
-
-      let audioUrl = null;
-      if (audioFile) {
-        audioUrl = await ensureR2Url(
-          audioFile,
-          'reel-audio',
-          `audio-${Date.now()}.wav`
-        );
-      } else if (reelData.audioUrl) {
-        audioUrl = reelData.audioUrl;
-      }
-
-      const soundKey = generateSoundKey(reelData, selectedReelSound);
-      const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || selectedReelSound?.audioStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || selectedReelSound?.audioEnd || 0);
-
-      const soundPayload = {
-        songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-        audioUrl: audioUrl || reelData.audioUrl || selectedReelSound?.originalUrl || selectedReelSound?.audioUrl || '',
-        songId: reelData.originalSoundId || selectedReelSound?.songId || null,
-      };
-
-      const payload = {
-        user_id: currentUser.id,
-        caption: reelData.caption || '',
-        video_url: videoUrl,
-        video_url_low: videoUrlLow,
-        video_url_medium: videoUrlMedium,
-        video_url_hd: videoUrlHd,
-        thumbnail_url: thumbnailUrl || '',
-        song_name: soundPayload.songName,
-        audio_url: soundPayload.audioUrl,
-        audio_start: audioStart,
-        audio_end: audioEnd,
-        song_id: soundPayload.songId,
-        sound_key: soundKey,
-        visibility: reelData.visibility || 'public',
-        location: reelData.location || '',
-        views: 0,
-        shares: 0,
-      };
-
-      console.log("Sending to API:", payload);
-
-      const data = await apiFetch('/api/reels', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newReel = normalizeReel(data.reel || data);
-      newReel.author = currentUser.name;
-      newReel.author_name = currentUser.name;
-      newReel.avatar = currentUser.profile_image_url;
-      newReel.avatar_url = currentUser.profile_image_url;
-      newReel.verified = currentUser.is_verified;
-
-      setReels(prev => [newReel, ...safeArray(prev)]);
-      setLoginError('Reel posted successfully!');
-      setSelectedReelSound(null);
     } else {
-      throw new Error('No video source provided (neither native URL nor file)');
+      throw new Error('No video source provided');
     }
+
+    let audioUrl = '';
+    if (reelData.audioFile) {
+      audioUrl = await ensureR2Url(
+        reelData.audioFile,
+        'reel-audio',
+        `audio-${Date.now()}.wav`
+      );
+    } else {
+      audioUrl =
+        reelData.audioUrl ||
+        selectedReelSound?.originalUrl ||
+        selectedReelSound?.audioUrl ||
+        '';
+    }
+
+    const soundKey = generateSoundKey(reelData, selectedReelSound);
+    const isTrimmedAudio = soundKey.startsWith('trimmed:');
+
+    const audioStart = isTrimmedAudio
+      ? 0
+      : reelData.audioStart ?? selectedReelSound?.audioStart ?? 0;
+
+    const audioEnd = isTrimmedAudio
+      ? 0
+      : reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
+
+    const payload = {
+      user_id: currentUser.id,
+      caption: reelData.caption || '',
+      video_url: videoUrl,
+      video_url_low: videoUrlLow,
+      video_url_medium: videoUrlMedium,
+      video_url_hd: videoUrlHd,
+      thumbnail_url: thumbnailUrl || '',
+
+      media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
+
+      song_name:
+        reelData.songName ||
+        selectedReelSound?.songName ||
+        'Original Sound',
+      audio_url: audioUrl,
+      audio_start: audioStart,
+      audio_end: audioEnd,
+      song_id:
+        reelData.originalSoundId ||
+        selectedReelSound?.songId ||
+        null,
+      sound_key: soundKey,
+
+      visibility: reelData.visibility || 'public',
+      location: reelData.location || '',
+      views: 0,
+      shares: 0,
+
+      filter_id: (reelData as any).filterId || (reelData as any).effectId || 'none',
+      filter_intensity: (reelData as any).filterIntensity ?? 0.75,
+    };
+
+    console.log("Sending reel to API:", payload);
+
+    const data = await apiFetch('/api/reels', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    const newReel = normalizeReel(data.reel || data);
+    newReel.author = currentUser.name;
+    newReel.author_name = currentUser.name;
+    newReel.avatar = currentUser.profile_image_url;
+    newReel.avatar_url = currentUser.profile_image_url;
+    newReel.verified = currentUser.is_verified;
+
+    setReels(prev => [newReel, ...safeArray(prev)]);
+    setLoginError('Reel posted successfully!');
+    setSelectedReelSound(null);
+
   } catch (error: any) {
     console.error('Failed to create reel:', error);
     setLoginError(error?.message || 'Failed to create reel');
@@ -4933,8 +4959,8 @@ const createReel = useCallback(async (
     setShowCreateReelModal(false);
   }
 }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
-
-
+  
+    
 
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
