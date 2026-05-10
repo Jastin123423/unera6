@@ -2240,32 +2240,71 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (value.length <= max) return value;
     return value.slice(0, max) + '...';
   };
+const extractSoundFromReel = useCallback(
+  (reel: Reel): Sound => {
+    const author = users.find(
+      (u: User) => Number(u.id) === getReelUserId(reel)
+    );
 
-  const extractSoundFromReel = useCallback(
-    (reel: Reel): Sound => {
-      const author = users.find((u: User) => Number(u.id) === getReelUserId(reel));
-      const soundKey = (reel as any).soundKey || (reel as any).sound_key || 'original:none';
-      const audioUrl = reel.audioUrl || (reel as any).audio_url || '';
-      const songName = reel.songName || (reel as any).song_name || 'Original Sound';
-      const audioStart = reel.audioStart || (reel as any).audio_start || 0;
-      const audioEnd = reel.audioEnd || (reel as any).audio_end || 0;
-      const realSongId = (reel as any).songId ?? (reel as any).song_id ?? null;
-      return {
-        id: soundKey,
-        songId: realSongId,
-        name: songName,
-        url: audioUrl,
-        originalUrl: audioUrl,
-        start: audioStart,
-        end: audioEnd,
-        creator: author,
-        creationCount: 0,
-        isOriginal: String(soundKey).startsWith('original:'),
-        soundKey,
-      };
-    },
-    [users]
-  );
+    const soundKey =
+      (reel as any).soundKey ||
+      (reel as any).sound_key ||
+      `original:${reel.id}`;
+
+    // ✅ IMPORTANT FIX
+    // Use audio_url first, otherwise fallback to reel video URL
+    const fallbackVideoUrl =
+      resolvedVideoUrls[reel.id] ||
+      (reel as any).video_url ||
+      (reel as any).videoUrl ||
+      (reel as any).video_url_medium ||
+      (reel as any).videoUrlMedium ||
+      '';
+
+    const audioUrl = String(
+      reel.audioUrl ||
+      (reel as any).audio_url ||
+      fallbackVideoUrl ||
+      ''
+    ).trim();
+
+    const songName =
+      reel.songName ||
+      (reel as any).song_name ||
+      'Original Sound';
+
+    const audioStart =
+      reel.audioStart ||
+      (reel as any).audio_start ||
+      0;
+
+    const audioEnd =
+      reel.audioEnd ||
+      (reel as any).audio_end ||
+      0;
+
+    const realSongId =
+      (reel as any).songId ??
+      (reel as any).song_id ??
+      null;
+
+    return {
+      id: soundKey,
+      songId: realSongId,
+      name: songName,
+      url: audioUrl,
+      originalUrl: audioUrl,
+      start: audioStart,
+      end: audioEnd,
+      creator: author,
+      creationCount: 0,
+      isOriginal: String(soundKey).startsWith('original:'),
+      soundKey,
+    };
+  },
+  [users, resolvedVideoUrls]
+);
+  
 
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
