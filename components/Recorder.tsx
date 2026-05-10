@@ -2051,128 +2051,171 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   );
 };
 
+// ✅ Updated handleSubmit - extracts audio when audioUrl is video-like MP4/MOV/WEBM
+const handleSubmit = useCallback(async () => {
+  if (!videoFile && !nativeVideoUrl) {
+    setSubmitState('error');
+    setSubmitError('Please select a video first.');
+    return;
+  }
 
-  
-  // ✅ Updated handleSubmit - passes native data when available
-  const handleSubmit = useCallback(async () => {
-    // Check if we have either a file-based video OR native video URL
-    if (!videoFile && !nativeVideoUrl) {
-      setSubmitState('error');
-      setSubmitError('Please select a video first.');
-      return;
-    }
+  if (typeof onSubmit !== 'function') {
+    setSubmitState('error');
+    setSubmitError('Recorder submit handler is missing.');
+    return;
+  }
 
-    if (typeof onSubmit !== 'function') {
-      setSubmitState('error');
-      setSubmitError('Recorder submit handler is missing.');
-      return;
-    }
+  setIsSubmitting(true);
+  setSubmitState('uploading');
+  setSubmitError('');
+  setSubmitProgress(10);
 
-    setIsSubmitting(true);
-    setSubmitState('uploading');
-    setSubmitError('');
-    setSubmitProgress(10);
+  const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+    e.preventDefault();
+    e.returnValue =
+      'Your video is still uploading. Are you sure you want to leave?';
+  };
 
-    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = 'Your video is still uploading. Are you sure you want to leave?';
-    };
-    window.addEventListener('beforeunload', beforeUnloadHandler);
+  window.addEventListener('beforeunload', beforeUnloadHandler);
 
-    try {
-      const soundKey = generateSoundKey();
-      const isTrimmedAudio = !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
-      const audioStart = isTrimmedAudio ? 0 : (trimStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (trimEnd || 0);
+  try {
+    const soundKey = generateSoundKey();
+    const isTrimmedAudio =
+      !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
 
-      let audioFileToSend: File | undefined = trimmedAudioFile || selectedUploadedSound?.file || extractedVideoAudioFile || undefined;
+    const audioStart = isTrimmedAudio ? 0 : trimStart || 0;
+    const audioEnd = isTrimmedAudio ? 0 : trimEnd || 0;
 
-      const finalSongName = currentSelectedSound?.songName || selectedUploadedSound?.name || (audioFileToSend ? 'Original Sound' : 'Original Sound');
-      const finalAudioUrl = currentSelectedSound?.originalUrl || currentSelectedSound?.audioUrl || selectedUploadedSound?.originalUrl || selectedUploadedSound?.url || '';
+    let audioFileToSend: File | undefined =
+      trimmedAudioFile ||
+      selectedUploadedSound?.file ||
+      extractedVideoAudioFile ||
+      undefined;
 
-      setSubmitProgress(20);
-      setVideoPrepareMessage('Preparing thumbnail...');
+    let finalAudioUrl =
+      currentSelectedSound?.originalUrl ||
+      currentSelectedSound?.audioUrl ||
+      selectedUploadedSound?.originalUrl ||
+      selectedUploadedSound?.url ||
+      '';
 
-      let thumbnail: { file: File; previewUrl: string } | null = null;
-      
-      // Only generate thumbnail for web uploads (file-based)
-      if (videoFile) {
-        thumbnail = await createThumbnailFromVideo(videoFile, 720);
-        setThumbnailFile(thumbnail.file);
-        if (thumbnailPreviewRef.current) {
-          safeRevoke(thumbnailPreviewRef.current);
-        }
-        thumbnailPreviewRef.current = thumbnail.previewUrl;
+    const finalSongName =
+      currentSelectedSound?.songName ||
+      selectedUploadedSound?.name ||
+      'Original Sound';
+
+    // ✅ IMPORTANT FIX:
+    // If selected sound points to MP4/MOV/WEBM video URL, extract audio first.
+    // This prevents Reels.tsx from playing MP4 as external audio and stacking sound.
+    if (!audioFileToSend && finalAudioUrl && isVideoLikeAudioUrl(finalAudioUrl)) {
+      setSubmitProgress(15);
+      setVideoPrepareMessage('Extracting original sound...');
+
+      const sourceVideoFile = await remoteUrlToVideoFile(finalAudioUrl);
+      const extracted = await extractAudioFromVideo(sourceVideoFile);
+
+      if (extracted) {
+        audioFileToSend = extracted;
+        finalAudioUrl = '';
       } else {
-        // For native uploads, use the thumb from native metadata
-        setVideoPrepareMessage('Using native video...');
-        setSubmitProgress(50);
+        console.warn('Could not extract original sound from video URL');
+      }
+    }
+
+    setSubmitProgress(20);
+    setVideoPrepareMessage('Preparing thumbnail...');
+
+    let thumbnail: { file: File; previewUrl: string } | null = null;
+
+    if (videoFile) {
+      thumbnail = await createThumbnailFromVideo(videoFile, 720);
+      setThumbnailFile(thumbnail.file);
+
+      if (thumbnailPreviewRef.current) {
+        safeRevoke(thumbnailPreviewRef.current);
       }
 
-      setSubmitProgress(70);
-      setVideoPrepareMessage('Publishing...');
-
-      await onSubmit({
-        caption: caption.trim(),
-        location: location.trim(),
-        visibility,
-        videoFile: videoFile || undefined,  // Only for web uploads
-        thumbnailFile: thumbnail?.file,
-        audioFile: audioFileToSend,
-        songName: finalSongName,
-        audioUrl: finalAudioUrl,
-        audioStart,
-        audioEnd,
-        soundKey,
-        songId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-        originalSoundId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-        lyricsText: lyricsText.trim(),
-        lyricsTheme,
-        lyricsEnabled,
-        filterId: selectedFilterId,
-        filterIntensity,
-        // ✅ Pass native video data when available
-        nativeVideoUrl: nativeVideoUrl || undefined,
-        nativeVideoMeta: nativeVideoMeta || undefined,
-      });
-
-      setSubmitProgress(100);
-      setVideoPrepareMessage('Done');
-      setSubmitState('success');
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-
-      await sleep(800);
-      onBack();
-    } catch (error: any) {
-      console.error('Submit error:', error);
-      setSubmitState('error');
-      setSubmitError(error?.message || 'Failed to publish reel.');
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
-    } finally {
-      setIsSubmitting(false);
+      thumbnailPreviewRef.current = thumbnail.previewUrl;
+    } else {
+      setVideoPrepareMessage('Using native video...');
+      setSubmitProgress(50);
     }
-  }, [
-    videoFile,
-    nativeVideoUrl,
-    nativeVideoMeta,
-    onSubmit,
-    caption,
-    location,
-    visibility,
-    currentSelectedSound,
-    selectedUploadedSound,
-    trimStart,
-    trimEnd,
-    lyricsText,
-    lyricsTheme,
-    lyricsEnabled,
-    generateSoundKey,
-    onBack,
-    trimmedAudioFile,
-    selectedFilterId,
-    filterIntensity,
-    extractedVideoAudioFile,
-  ]);
+
+    setSubmitProgress(70);
+    setVideoPrepareMessage('Publishing...');
+
+    await onSubmit({
+      caption: caption.trim(),
+      location: location.trim(),
+      visibility,
+
+      videoFile: videoFile || undefined,
+      thumbnailFile: thumbnail?.file,
+
+      // ✅ This now sends real extracted audio when original sound was MP4 video
+      audioFile: audioFileToSend,
+
+      songName: finalSongName,
+      audioUrl: finalAudioUrl,
+
+      audioStart,
+      audioEnd,
+      soundKey,
+
+      songId: currentSelectedSound?.songId || selectedUploadedSound?.id,
+      originalSoundId: currentSelectedSound?.songId || selectedUploadedSound?.id,
+
+      lyricsText: lyricsText.trim(),
+      lyricsTheme,
+      lyricsEnabled,
+
+      filterId: selectedFilterId,
+      filterIntensity,
+
+      nativeVideoUrl: nativeVideoUrl || undefined,
+      nativeVideoMeta: nativeVideoMeta || undefined,
+    });
+
+    setSubmitProgress(100);
+    setVideoPrepareMessage('Done');
+    setSubmitState('success');
+
+    window.removeEventListener('beforeunload', beforeUnloadHandler);
+
+    await sleep(800);
+    onBack();
+  } catch (error: any) {
+    console.error('Submit error:', error);
+    setSubmitState('error');
+    setSubmitError(error?.message || 'Failed to publish reel.');
+    window.removeEventListener('beforeunload', beforeUnloadHandler);
+  } finally {
+    setIsSubmitting(false);
+  }
+}, [
+  videoFile,
+  nativeVideoUrl,
+  nativeVideoMeta,
+  onSubmit,
+  caption,
+  location,
+  visibility,
+  currentSelectedSound,
+  selectedUploadedSound,
+  trimStart,
+  trimEnd,
+  lyricsText,
+  lyricsTheme,
+  lyricsEnabled,
+  generateSoundKey,
+  onBack,
+  trimmedAudioFile,
+  selectedFilterId,
+  filterIntensity,
+  extractedVideoAudioFile,
+]);
+
+
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
     // Revoke old extracted audio if exists
