@@ -6986,54 +6986,141 @@ const declineGroupInvite = useCallback(async (inviteId: number) => {
   fetchGroupsForViewer();
 }, [fetchGroupsForViewer]);
 
-// Add this useEffect where your other listeners are (around other useEffects)
+//==NATIVE UPLOAD ===
 useEffect(() => {
   const handleNativeUpload = (event: any) => {
     const media = event.detail;
     if (!media || media.type !== 'video') return;
-    
-    console.log('📱 Native reel video uploaded:', media);
-    
+
+    console.log('📱 App: Native reel video uploaded:', media);
+
     const videoUrl = media.full || media.feed || media.url;
     if (!videoUrl) return;
-    
-    // Clear any pending file-based video
+
+    const music = media.music || media.sound || {};
+
+    const audioUrl =
+      media.audioUrl ||
+      media.audio_url ||
+      music.audioUrl ||
+      music.audio_url ||
+      music.url ||
+      music.originalUrl ||
+      music.original_url ||
+      '';
+
+    const songName =
+      media.songName ||
+      media.song_name ||
+      music.songName ||
+      music.song_name ||
+      music.title ||
+      music.name ||
+      'Original Sound';
+
+    const soundPayload = audioUrl
+      ? {
+          songName,
+          audioUrl,
+          originalUrl: audioUrl,
+          audioStart:
+            media.audioStart ??
+            media.audio_start ??
+            music.audioStart ??
+            music.audio_start ??
+            music.start ??
+            0,
+          audioEnd:
+            media.audioEnd ??
+            media.audio_end ??
+            music.audioEnd ??
+            music.audio_end ??
+            music.end ??
+            0,
+          songId:
+            media.songId ??
+            media.song_id ??
+            music.songId ??
+            music.song_id ??
+            music.id,
+          soundKey:
+            media.soundKey ||
+            media.sound_key ||
+            music.soundKey ||
+            music.sound_key ||
+            undefined,
+          isTrimmedAudio: false,
+        }
+      : null;
+
     setPendingReelFile(null);
-    
-    // Store native video URL and metadata
+
     setNativeReelVideoUrl(videoUrl);
-    setNativeReelMediaMeta({
-      thumb: media.thumb || videoUrl,
+
+    const mediaMeta = {
+      thumb:
+        media.thumb ||
+        media.thumbnail_url ||
+        media.thumbnailUrl ||
+        media.nativeVideoMeta?.thumb ||
+        videoUrl,
+      thumbnail_url:
+        media.thumbnail_url ||
+        media.thumbnailUrl ||
+        media.thumb ||
+        media.nativeVideoMeta?.thumbnail_url ||
+        '',
       feed: media.feed || videoUrl,
       full: media.full || videoUrl,
+      url: videoUrl,
       type: 'video',
-    });
-    
-    // Navigate to recorder with preview mode
+    };
+
+    setNativeReelMediaMeta(mediaMeta);
+
+    // ✅ IMPORTANT: preserve selected sound before Recorder opens
+    if (soundPayload) {
+      setSelectedReelSound(soundPayload);
+    }
+
     setView('recorder');
     setRecorderActiveTab('preview');
-    
-    // Dispatch custom event for Recorder component to pick up
+
+    // ✅ IMPORTANT: dispatch FULL payload, not stripped payload
     window.dispatchEvent(
       new CustomEvent('uneraNativeReelVideo', {
         detail: {
+          ...media,
           videoUrl,
-          mediaMeta: {
-            thumb: media.thumb || videoUrl,
-            feed: media.feed || videoUrl,
-            full: media.full || videoUrl,
-            type: 'video',
-          },
+          mediaMeta,
+          nativeVideoUrl: videoUrl,
+          nativeVideoMeta: mediaMeta,
+          music: soundPayload || media.music || media.sound || null,
+          sound: soundPayload || media.music || media.sound || null,
+          audioUrl: soundPayload?.audioUrl || '',
+          songName: soundPayload?.songName || 'Original Sound',
+          songId: soundPayload?.songId,
+          soundKey: soundPayload?.soundKey,
+          audioStart: soundPayload?.audioStart ?? 0,
+          audioEnd: soundPayload?.audioEnd ?? 0,
         },
       })
     );
   };
-  
+
   window.addEventListener('uneraNativeUpload', handleNativeUpload);
   return () => {
     window.removeEventListener('uneraNativeUpload', handleNativeUpload);
   };
-}, []);
+}, [
+  setPendingReelFile,
+  setNativeReelVideoUrl,
+  setNativeReelMediaMeta,
+  setSelectedReelSound,
+  setView,
+  setRecorderActiveTab,
+]);
+                                                                                                                                                                                     
 
    useEffect(() => {
   console.log('[Platform] Detection results:', {
@@ -7880,7 +7967,8 @@ const handleReelVideoSelected = useCallback(
 );
     
 //====OPEN RECORDER FROM REEL=====
-    
+
+  
 // For Native App: Opens Flutter gallery (kept exactly as is)
 const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
   // ✅ Open gallery first, NOT camera and NOT direct file picker
