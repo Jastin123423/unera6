@@ -2737,16 +2737,30 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
 
-  // Use sound handlers - opens gallery with sound, not camera directly
+  // ===HANDLE USE SOUND 
 const handleUseSoundFromReel = useCallback(
   (reel: Reel) => {
     const sound = extractSoundFromReel(reel);
 
-    const audioUrl = String(sound.originalUrl || sound.url || '').trim();
+    const videoUrl =
+      resolvedVideoUrls[reel.id] ||
+      (reel as any).video_url ||
+      (reel as any).videoUrl ||
+      (reel as any).video_url_medium ||
+      (reel as any).videoUrlMedium ||
+      '';
 
-    // ✅ Prevent blank Recorder if reel has no separate audio_url
+    const audioUrl = String(
+      sound.originalUrl ||
+        sound.url ||
+        (reel as any).audio_url ||
+        (reel as any).audioUrl ||
+        videoUrl ||
+        ''
+    ).trim();
+
     if (!audioUrl) {
-      alert('This reel uses original video sound. Original-sound extraction is not ready for this reel yet.');
+      alert('This sound is not ready yet. Please try another reel.');
       return;
     }
 
@@ -2757,7 +2771,9 @@ const handleUseSoundFromReel = useCallback(
       audioStart: Number(sound.start || 0),
       audioEnd: Number(sound.end || sound.duration || 0),
       songId: sound.songId ?? undefined,
-      soundKey: sound.soundKey || `sound:${sound.id}`,
+      soundKey:
+        sound.soundKey ||
+        (sound.songId ? `song:${sound.songId}` : `original:${reel.id}`),
       isTrimmedAudio: false,
     };
 
@@ -2765,8 +2781,14 @@ const handleUseSoundFromReel = useCallback(
     setSelectedSoundData(null);
     onVideoClick?.(payload);
   },
-  [extractSoundFromReel, stopActivePlayback, onVideoClick]
+  [
+    extractSoundFromReel,
+    resolvedVideoUrls,
+    stopActivePlayback,
+    onVideoClick,
+  ]
 );
+
 
 
   const handleSoundClick = useCallback(
