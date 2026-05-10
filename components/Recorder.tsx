@@ -2051,8 +2051,7 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   );
 };
 
-// ✅ Updated handleSubmit - extracts audio when audioUrl is video-like MP4/MOV/WEBM
-const handleSubmit = useCallback(async () => {
+ const handleSubmit = useCallback(async () => {
   if (!videoFile && !nativeVideoUrl) {
     setSubmitState('error');
     setSubmitError('Please select a video first.');
@@ -2079,7 +2078,8 @@ const handleSubmit = useCallback(async () => {
   window.addEventListener('beforeunload', beforeUnloadHandler);
 
   try {
-    const soundKey = generateSoundKey();
+    let soundKey = generateSoundKey();
+
     const isTrimmedAudio =
       !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
 
@@ -2104,9 +2104,9 @@ const handleSubmit = useCallback(async () => {
       selectedUploadedSound?.name ||
       'Original Sound';
 
-    // ✅ IMPORTANT FIX:
-    // If selected sound points to MP4/MOV/WEBM video URL, extract audio first.
-    // This prevents Reels.tsx from playing MP4 as external audio and stacking sound.
+    // ✅ Original-sound fix:
+    // If audioUrl is actually an MP4/MOV/WEBM video URL, extract real audio first.
+    // If extraction fails, stop publishing to avoid silent reel.
     if (!audioFileToSend && finalAudioUrl && isVideoLikeAudioUrl(finalAudioUrl)) {
       setSubmitProgress(15);
       setVideoPrepareMessage('Extracting original sound...');
@@ -2114,12 +2114,15 @@ const handleSubmit = useCallback(async () => {
       const sourceVideoFile = await remoteUrlToVideoFile(finalAudioUrl);
       const extracted = await extractAudioFromVideo(sourceVideoFile);
 
-      if (extracted) {
-        audioFileToSend = extracted;
-        finalAudioUrl = '';
-      } else {
-        console.warn('Could not extract original sound from video URL');
+      if (!extracted || extracted.size < 1000) {
+        throw new Error(
+          'Could not extract original sound from this video. Please try another sound.'
+        );
       }
+
+      audioFileToSend = extracted;
+      finalAudioUrl = '';
+      soundKey = `original:extracted:${Date.now()}`;
     }
 
     setSubmitProgress(20);
@@ -2152,7 +2155,6 @@ const handleSubmit = useCallback(async () => {
       videoFile: videoFile || undefined,
       thumbnailFile: thumbnail?.file,
 
-      // ✅ This now sends real extracted audio when original sound was MP4 video
       audioFile: audioFileToSend,
 
       songName: finalSongName,
@@ -2214,7 +2216,6 @@ const handleSubmit = useCallback(async () => {
   filterIntensity,
   extractedVideoAudioFile,
 ]);
-
 
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
