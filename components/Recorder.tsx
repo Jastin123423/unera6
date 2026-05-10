@@ -1972,6 +1972,8 @@ useEffect(() => {
     event.target.value = '';
   }, [currentUser, onSelectSound, selectedUploadedSound]);
 
+  //====SOUND KEY GENERATOR =====
+  
   const generateSoundKey = useCallback((): string => {
     if (trimmedAudioFile) return `trimmed:${Date.now()}`;
     if (selectedUploadedSound?.soundKey) return selectedUploadedSound.soundKey;
@@ -1981,6 +1983,76 @@ useEffect(() => {
     return 'original:none';
   }, [currentSelectedSound, trimmedAudioFile, selectedUploadedSound, extractedVideoAudioFile]);
 
+
+   const isVideoLikeAudioUrl = (url?: string) => {
+  const u = String(url || '')
+    .toLowerCase()
+    .split('?')[0]
+    .split('#')[0];
+
+  // ✅ REAL AUDIO FILES
+  if (
+    u.endsWith('.mp3') ||
+    u.endsWith('.wav') ||
+    u.endsWith('.m4a') ||
+    u.endsWith('.aac') ||
+    u.endsWith('.ogg') ||
+    u.endsWith('.opus') ||
+    u.endsWith('.flac')
+  ) {
+    return false;
+  }
+
+  // ✅ VIDEO FILES
+  return (
+    u.endsWith('.mp4') ||
+    u.endsWith('.mov') ||
+    u.endsWith('.webm') ||
+    u.endsWith('.m4v') ||
+    u.includes('/uploads/videos/')
+  );
+};
+
+const remoteUrlToVideoFile = async (url: string): Promise<File> => {
+  const res = await fetch(url, {
+    cache: 'force-cache',
+    headers: {
+      Accept: 'video/*,*/*',
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to load original sound video');
+  }
+
+  const blob = await res.blob();
+
+  const contentType =
+    blob.type ||
+    (url.toLowerCase().includes('.webm')
+      ? 'video/webm'
+      : url.toLowerCase().includes('.mov')
+      ? 'video/quicktime'
+      : 'video/mp4');
+
+  const extension =
+    contentType.includes('webm')
+      ? 'webm'
+      : contentType.includes('quicktime')
+      ? 'mov'
+      : 'mp4';
+
+  return new File(
+    [blob],
+    `original-sound-video-${Date.now()}.${extension}`,
+    {
+      type: contentType,
+    }
+  );
+};
+
+
+  
   // ✅ Updated handleSubmit - passes native data when available
   const handleSubmit = useCallback(async () => {
     // Check if we have either a file-based video OR native video URL
