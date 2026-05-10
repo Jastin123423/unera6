@@ -1381,34 +1381,25 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
   }, [selectedSound, selectedUploadedSound]);
 
   // ===NATIVE UPLOAD ===
-  useEffect(() => {
+  
+useEffect(() => {
   const handleNativeUpload = (event: any) => {
     try {
       const media = event.detail;
-
       console.log("📱 Recorder: Native upload received:", media);
 
       if (!media || media.type !== "video") return;
 
-      const videoUrl = String(
-        media.full || media.feed || media.url || ""
-      ).trim();
-
+      const videoUrl = String(media.full || media.feed || media.url || "").trim();
       if (!videoUrl) return;
 
       setIsNativePickerActive(false);
       setNativeUploadProgress(100);
-
-      // ✅ Clear file-based upload state
       setVideoFile(null);
 
-      // ✅ Native media metadata
       const meta = {
-        thumb:
-          media.thumb ||
-          media.thumbnail_url ||
-          media.thumbnailUrl ||
-          "",
+        thumb: media.thumb || media.thumbnail_url || media.thumbnailUrl || "",
+        thumbnail_url: media.thumb || media.thumbnail_url || media.thumbnailUrl || "",
         feed: media.feed || videoUrl,
         full: media.full || videoUrl,
         url: videoUrl,
@@ -1418,17 +1409,20 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
       setNativeVideoUrl(videoUrl);
       setNativeVideoMeta(meta);
 
-      /* ============================================================
-         ✅ PRESERVE NATIVE SOUND / MUSIC
-      ============================================================ */
-
-      const music = media.music || {};
+      // ✅ Preserve sound from native payload OR already selected "Use this sound"
+      const music = media.music || media.sound || {};
+      const fallbackSound = selectedSound;
 
       const audioUrl = String(
         media.audioUrl ||
           media.audio_url ||
           music.audioUrl ||
           music.audio_url ||
+          music.url ||
+          music.originalUrl ||
+          music.original_url ||
+          fallbackSound?.audioUrl ||
+          fallbackSound?.originalUrl ||
           ""
       ).trim();
 
@@ -1439,128 +1433,92 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
           music.song_name ||
           music.title ||
           music.name ||
+          fallbackSound?.songName ||
           "Original Sound"
       ).trim();
 
-      const audioStart = Number(
-        media.audioStart ??
-          media.audio_start ??
-          music.audioStart ??
-          music.audio_start ??
-          0
-      );
-
-      const rawAudioEnd =
-        media.audioEnd ??
-        media.audio_end ??
-        music.audioEnd ??
-        music.audio_end ??
-        0;
-
-      const audioEnd = Number(rawAudioEnd || 0);
-
-      // ✅ IMPORTANT FIX
-      const nativeSongId =
-        media.songId ??
-        media.song_id ??
-        music.songId ??
-        music.song_id ??
-        music.id ??
-        null;
-
-      const nativeSoundKey =
-        media.soundKey ||
-        media.sound_key ||
-        music.soundKey ||
-        music.sound_key ||
-        (nativeSongId
-          ? `song:${nativeSongId}`
-          : audioUrl
-          ? `audio:${audioUrl}`
-          : `native:${Date.now()}`);
-
-      // ✅ Apply sound into recorder preview
       if (audioUrl) {
+        const audioStart = Number(
+          media.audioStart ??
+            media.audio_start ??
+            music.audioStart ??
+            music.audio_start ??
+            music.start ??
+            fallbackSound?.audioStart ??
+            0
+        );
+
+        const audioEnd = Number(
+          media.audioEnd ??
+            media.audio_end ??
+            music.audioEnd ??
+            music.audio_end ??
+            music.end ??
+            fallbackSound?.audioEnd ??
+            0
+        );
+
+        const songId =
+          media.songId ??
+          media.song_id ??
+          music.songId ??
+          music.song_id ??
+          music.id ??
+          fallbackSound?.songId;
+
+        const soundKey =
+          media.soundKey ||
+          media.sound_key ||
+          music.soundKey ||
+          music.sound_key ||
+          fallbackSound?.soundKey ||
+          (songId ? `song:${songId}` : `audio:${audioUrl}`);
+
         const nativeSound: ReelSound = {
           songName,
           audioUrl,
           originalUrl: audioUrl,
-
-          audioStart: Number.isFinite(audioStart)
-            ? audioStart
-            : 0,
-
-          audioEnd: Number.isFinite(audioEnd)
-            ? audioEnd
-            : 0,
-
-          songId: nativeSongId,
-
-          soundKey: nativeSoundKey,
-
+          audioStart: Number.isFinite(audioStart) ? audioStart : 0,
+          audioEnd: Number.isFinite(audioEnd) ? audioEnd : 0,
+          songId,
+          soundKey,
           isTrimmedAudio: false,
         };
 
-        console.log(
-          "🎵 Applying native sound:",
-          nativeSound
-        );
+        console.log("🎵 Recorder preserved native/use-sound:", nativeSound);
 
         onSelectSound?.(nativeSound);
-
         setTrimStart(nativeSound.audioStart || 0);
         setTrimEnd(nativeSound.audioEnd || 0);
 
-        // ✅ Clear old uploaded/trimmed sounds
         setSelectedUploadedSound(null);
         setExtractedVideoAudioFile(null);
         setTrimmedAudioFile(null);
+      } else {
+        console.warn("⚠️ Native video received without reusable sound payload");
       }
 
-      /* ============================================================
-         ✅ PREVIEW
-      ============================================================ */
-
-      // ⚠️ Do NOT use setNextPreviewUrl
-      // It caused blank screen on native uploads
-
+      // ✅ Do not call setNextPreviewUrl here
       setVideoPreviewUrl(videoUrl);
       previewUrlRef.current = videoUrl;
 
       setMode("preview");
-
       setSubmitState("idle");
       setSubmitError("");
       setSubmitProgress(0);
-
-      console.log(
-        "✅ Native reel preview ready"
-      );
     } catch (err) {
-      console.error(
-        "❌ Native upload handler failed:",
-        err
-      );
-
+      console.error("Native upload handler failed:", err);
       setSubmitState("error");
-      setSubmitError(
-        "Failed to load native video preview."
-      );
+      setSubmitError("Failed to load native video preview.");
     }
   };
 
-  window.addEventListener(
-    "uneraNativeUpload",
-    handleNativeUpload
-  );
+  window.addEventListener("uneraNativeUpload", handleNativeUpload);
 
   return () => {
-    window.removeEventListener(
-      "uneraNativeUpload",
-      handleNativeUpload
-    );
+    window.removeEventListener("uneraNativeUpload", handleNativeUpload);
   };
-}, [onSelectSound]);
+}, [onSelectSound, selectedSound]);
 
   // ✅ Listen for native reel video from App.tsx
   useEffect(() => {
