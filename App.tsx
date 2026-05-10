@@ -4933,8 +4933,38 @@ const createMarketplacePost = useCallback(
   return 'original:none';
 }, []);
 
-  //====CREATE REEL =====
-    
+  
+const isVideoLikeAudioUrl = (url?: string) => {
+  const u = String(url || '').toLowerCase().split('?')[0];
+
+  return (
+    u.endsWith('.mp4') ||
+    u.endsWith('.mov') ||
+    u.endsWith('.webm') ||
+    u.endsWith('.m4v') ||
+    u.includes('/uploads/videos/')
+  );
+};
+
+const remoteUrlToVideoFile = async (url: string): Promise<File> => {
+  const res = await fetch(url, { cache: 'force-cache' });
+
+  if (!res.ok) {
+    throw new Error('Failed to load original sound video');
+  }
+
+  const blob = await res.blob();
+  const type = blob.type || 'video/mp4';
+
+  return new File(
+    [blob],
+    `original-sound-video-${Date.now()}.mp4`,
+    { type }
+  );
+};
+
+  //===CREATE REEL FUNCTION ====
+      
   const createReel = useCallback(async (
   reelData: Partial<Reel> & {
     videoFile?: File | Blob;
