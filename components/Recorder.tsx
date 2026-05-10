@@ -288,10 +288,14 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
   try {
     const videoUrl = URL.createObjectURL(file);
     video = document.createElement('video');
-    video.src = videoUrl;
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.playsInline = true;
+video.src = videoUrl;
+video.crossOrigin = 'anonymous';
+
+// ✅ Important for audio extraction
+video.muted = false;
+video.volume = 0;
+video.playsInline = true;
+
     
     // Wait for metadata to load
     await new Promise<void>((resolve, reject) => {
