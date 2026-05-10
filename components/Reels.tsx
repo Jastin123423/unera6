@@ -3317,7 +3317,7 @@ const handleUseSoundFromReel = useCallback(
                         if (el) videoRefs.current[reel.id] = el;
                       }}
                       src={shouldUseNativeReelPlayer() ? undefined : isNearActive ? videoUrl : undefined}
-                      poster={(reel as any).thumbnail_url || (reel as any).thumbnail || ''}
+                      poster={getReelThumbnailUrl(reel)}
                       preload={isNearActive ? 'auto' : 'metadata'}
                       playsInline
                       loop
