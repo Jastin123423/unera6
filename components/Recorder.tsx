@@ -1380,24 +1380,35 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
     );
   }, [selectedSound, selectedUploadedSound]);
 
-  // ✅ Native upload listener
+  // ===NATIVE UPLOAD ===
   useEffect(() => {
   const handleNativeUpload = (event: any) => {
     try {
       const media = event.detail;
+
       console.log("📱 Recorder: Native upload received:", media);
 
       if (!media || media.type !== "video") return;
 
-      const videoUrl = String(media.full || media.feed || media.url || "").trim();
+      const videoUrl = String(
+        media.full || media.feed || media.url || ""
+      ).trim();
+
       if (!videoUrl) return;
 
       setIsNativePickerActive(false);
       setNativeUploadProgress(100);
+
+      // ✅ Clear file-based upload state
       setVideoFile(null);
 
+      // ✅ Native media metadata
       const meta = {
-        thumb: media.thumb || media.thumbnail_url || media.thumbnailUrl || "",
+        thumb:
+          media.thumb ||
+          media.thumbnail_url ||
+          media.thumbnailUrl ||
+          "",
         feed: media.feed || videoUrl,
         full: media.full || videoUrl,
         url: videoUrl,
@@ -1407,8 +1418,12 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
       setNativeVideoUrl(videoUrl);
       setNativeVideoMeta(meta);
 
-      // ✅ Preserve native selected music/sound
+      /* ============================================================
+         ✅ PRESERVE NATIVE SOUND / MUSIC
+      ============================================================ */
+
       const music = media.music || {};
+
       const audioUrl = String(
         media.audioUrl ||
           media.audio_url ||
@@ -1421,75 +1436,132 @@ const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'upload' |
         media.songName ||
           media.song_name ||
           music.songName ||
+          music.song_name ||
           music.title ||
           music.name ||
           "Original Sound"
+      ).trim();
+
+      const audioStart = Number(
+        media.audioStart ??
+          media.audio_start ??
+          music.audioStart ??
+          music.audio_start ??
+          0
       );
 
+      const rawAudioEnd =
+        media.audioEnd ??
+        media.audio_end ??
+        music.audioEnd ??
+        music.audio_end ??
+        0;
+
+      const audioEnd = Number(rawAudioEnd || 0);
+
+      // ✅ IMPORTANT FIX
+      const nativeSongId =
+        media.songId ??
+        media.song_id ??
+        music.songId ??
+        music.song_id ??
+        music.id ??
+        null;
+
+      const nativeSoundKey =
+        media.soundKey ||
+        media.sound_key ||
+        music.soundKey ||
+        music.sound_key ||
+        (nativeSongId
+          ? `song:${nativeSongId}`
+          : audioUrl
+          ? `audio:${audioUrl}`
+          : `native:${Date.now()}`);
+
+      // ✅ Apply sound into recorder preview
       if (audioUrl) {
-        const start = Number(
-          media.audioStart ??
-            media.audio_start ??
-            music.audioStart ??
-            music.audio_start ??
-            0
-        );
-
-        const rawEnd =
-          media.audioEnd ??
-          media.audio_end ??
-          music.audioEnd ??
-          music.audio_end ??
-          0;
-
-        const end = Number(rawEnd || 0);
-
         const nativeSound: ReelSound = {
           songName,
           audioUrl,
           originalUrl: audioUrl,
-          audioStart: Number.isFinite(start) ? start : 0,
-          audioEnd: Number.isFinite(end) ? end : 0,
-          songId: media.songId ?? media.song_id ?? music.songId ?? music.id,
-          soundKey:
-            media.soundKey ||
-            media.sound_key ||
-            music.soundKey ||
-            music.sound_key ||
-            (media.songId || music.id ? `song:${media.songId || music.id}` : `native:${Date.now()}`),
+
+          audioStart: Number.isFinite(audioStart)
+            ? audioStart
+            : 0,
+
+          audioEnd: Number.isFinite(audioEnd)
+            ? audioEnd
+            : 0,
+
+          songId: nativeSongId,
+
+          soundKey: nativeSoundKey,
+
           isTrimmedAudio: false,
         };
 
+        console.log(
+          "🎵 Applying native sound:",
+          nativeSound
+        );
+
         onSelectSound?.(nativeSound);
+
         setTrimStart(nativeSound.audioStart || 0);
         setTrimEnd(nativeSound.audioEnd || 0);
 
+        // ✅ Clear old uploaded/trimmed sounds
         setSelectedUploadedSound(null);
         setExtractedVideoAudioFile(null);
         setTrimmedAudioFile(null);
       }
 
-      // ✅ Do not call setNextPreviewUrl here if it causes blank screen
+      /* ============================================================
+         ✅ PREVIEW
+      ============================================================ */
+
+      // ⚠️ Do NOT use setNextPreviewUrl
+      // It caused blank screen on native uploads
+
       setVideoPreviewUrl(videoUrl);
       previewUrlRef.current = videoUrl;
 
       setMode("preview");
+
       setSubmitState("idle");
       setSubmitError("");
       setSubmitProgress(0);
+
+      console.log(
+        "✅ Native reel preview ready"
+      );
     } catch (err) {
-      console.error("Native upload handler failed:", err);
+      console.error(
+        "❌ Native upload handler failed:",
+        err
+      );
+
       setSubmitState("error");
-      setSubmitError("Failed to load native video preview.");
+      setSubmitError(
+        "Failed to load native video preview."
+      );
     }
   };
 
-  window.addEventListener("uneraNativeUpload", handleNativeUpload);
+  window.addEventListener(
+    "uneraNativeUpload",
+    handleNativeUpload
+  );
+
   return () => {
-    window.removeEventListener("uneraNativeUpload", handleNativeUpload);
+    window.removeEventListener(
+      "uneraNativeUpload",
+      handleNativeUpload
+    );
   };
-  // ✅ Important: do not include setNextPreviewUrl here
 }, [onSelectSound]);
+
   // ✅ Listen for native reel video from App.tsx
   useEffect(() => {
     const handleNativeReelVideo = (event: any) => {
