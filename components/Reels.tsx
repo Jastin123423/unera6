@@ -1832,16 +1832,26 @@ const ReelThumbnail: React.FC<{
     (reel as any).video_url ||
     (reel as any).videoUrl ||
     '';
+  
+  const thumb = getReelThumbnailUrl(reel);
 
   return (
     <div onClick={onClick} className="aspect-[9/16] bg-white/5 relative cursor-pointer group overflow-hidden">
-      <video
-        src={videoSrc}
-        className="w-full h-full object-cover group-hover:scale-110 transition-transform"
-        muted
-        playsInline
-        preload="metadata"
-      />
+      {thumb ? (
+        <img
+          src={thumb}
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+          alt=""
+        />
+      ) : (
+        <video
+          src={videoSrc}
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+          muted
+          playsInline
+          preload="metadata"
+        />
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 text-white text-[10px] font-black bg-black/40 px-2 py-1 rounded-lg backdrop-blur-md">
         <i className="fas fa-eye text-[8px]"></i>
@@ -1855,6 +1865,7 @@ const ReelThumbnail: React.FC<{
     </div>
   );
 };
+
 
 // ==================== REEL OWNER MENU ====================
 const ReelOwnerMenu: React.FC<{
