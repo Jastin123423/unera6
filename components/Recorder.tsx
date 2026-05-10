@@ -311,8 +311,9 @@ video.playsInline = true;
     }
     
     // Create audio context
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    sourceNode = audioContext.createMediaElementSource(video);
+audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+await audioContext.resume();
+sourceNode = audioContext.createMediaElementSource(video);
     
     // Create destination stream for recording (DO NOT connect to speakers)
     const dest = audioContext.createMediaStreamDestination();
