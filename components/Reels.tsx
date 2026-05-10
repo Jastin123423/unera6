@@ -508,6 +508,20 @@ const getFirstReactorName = (reactions: any[], users: User[]): string => {
   return 'Someone';
 };
 
+//===ĢET REELS THUMBNAIL ====
+// Added this helper near other helper functions (around line 300-350)
+const getReelThumbnailUrl = (reel: any): string => {
+  return (
+    reel.thumbnail_url ||
+    reel.thumbnailUrl ||
+    reel.thumbnail ||
+    reel.thumb ||
+    reel.mediaMeta?.thumb ||
+    reel.nativeVideoMeta?.thumb ||
+    ''
+  );
+};
+
 // ==================== REEL REACTIONS SHEET ====================
 const ReelReactionsSheet: React.FC<{
   isOpen: boolean;
