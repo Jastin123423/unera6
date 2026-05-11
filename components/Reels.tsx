@@ -2240,97 +2240,71 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     if (value.length <= max) return value;
     return value.slice(0, max) + '...';
   };
+const extractSoundFromReel = useCallback(
+  (reel: Reel): Sound => {
+    const author = users.find(
+      (u: User) => Number(u.id) === getReelUserId(reel)
+    );
 
-  //==ExtractSoundFromReel 
-  const startSoundtrackForReel = useCallback(
-  (id: number) => {
-    if (audioSyncCleanupRef.current) {
-      audioSyncCleanupRef.current();
-      audioSyncCleanupRef.current = null;
-    }
+    const soundKey =
+      (reel as any).soundKey ||
+      (reel as any).sound_key ||
+      `original:${reel.id}`;
 
-    const reel = reels.find((r) => r.id === id);
-    const video = videoRefs.current[id];
-    const audio = globalAudioRef.current;
+    // ✅ IMPORTANT FIX
+    // Use audio_url first, otherwise fallback to reel video URL
+    const fallbackVideoUrl =
+      resolvedVideoUrls[reel.id] ||
+      (reel as any).video_url ||
+      (reel as any).videoUrl ||
+      (reel as any).video_url_medium ||
+      (reel as any).videoUrlMedium ||
+      '';
 
-    if (!reel || !video || !audio) return;
-    if (!userInteractedRef.current) return;
+    const audioUrl = String(
+      reel.audioUrl ||
+      (reel as any).audio_url ||
+      fallbackVideoUrl ||
+      ''
+    ).trim();
 
-    const soundtrackUrl =
-      resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
+    const songName =
+      reel.songName ||
+      (reel as any).song_name ||
+      'Original Sound';
 
-    if (!soundtrackUrl) return;
+    const audioStart =
+      reel.audioStart ||
+      (reel as any).audio_start ||
+      0;
 
-    const start = Number(reel.audioStart || (reel as any).audio_start || 0);
-    const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
+    const audioEnd =
+      reel.audioEnd ||
+      (reel as any).audio_end ||
+      0;
 
-    const fallbackToVideoAudio = (err?: any) => {
-      console.warn('External soundtrack failed, fallback to video audio:', err);
+    const realSongId =
+      (reel as any).songId ??
+      (reel as any).song_id ??
+      null;
 
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch {}
-
-      try {
-        video.muted = false;
-        video.volume = 1;
-      } catch {}
+    return {
+      id: soundKey,
+      songId: realSongId,
+      name: songName,
+      url: audioUrl,
+      originalUrl: audioUrl,
+      start: audioStart,
+      end: audioEnd,
+      creator: author,
+      creationCount: 0,
+      isOriginal: String(soundKey).startsWith('original:'),
+      soundKey,
     };
-
-    try {
-      video.muted = true;
-      video.volume = 0;
-    } catch {}
-
-    if (audio.src !== soundtrackUrl) {
-      audio.src = soundtrackUrl;
-    }
-
-    const syncAudio = () => {
-      if (video.paused) {
-        audio.pause();
-        return;
-      }
-
-      const targetTime = video.currentTime + start;
-
-      if (end > start && targetTime >= end) {
-        try {
-          video.currentTime = 0;
-          audio.currentTime = start;
-        } catch {}
-        return;
-      }
-
-      if (Math.abs(audio.currentTime - targetTime) > 0.35) {
-        try {
-          audio.currentTime = targetTime;
-        } catch {}
-      }
-
-      if (audio.paused) {
-        audio.play().catch(fallbackToVideoAudio);
-      }
-    };
-
-    video.addEventListener('timeupdate', syncAudio);
-
-    audioSyncCleanupRef.current = () => {
-      video.removeEventListener('timeupdate', syncAudio);
-    };
-
-    try {
-      audio.currentTime = start;
-      audio.play().catch(fallbackToVideoAudio);
-    } catch (err) {
-      fallbackToVideoAudio(err);
-    }
   },
-  [reels, resolvedAudioUrls]
+  [users, resolvedVideoUrls]
 );
-
-
+  
 
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
