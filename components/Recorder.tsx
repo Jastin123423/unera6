@@ -2678,16 +2678,34 @@ const handleSubmit = useCallback(async () => {
                   />
                 )}
 
-                {lyricsEnabled && (
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
-                      {lyricsText.split('\n').map((line, idx) => (
-                        <div key={idx}>{line || '\u00A0'}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Lyrics overlay */}
+{lyricsEnabled && (
+  <div className="absolute inset-0 pointer-events-none">
+    <div className={`lyric-overlay ${lyricPreset.className}`} style={lyricStyle}>
+      {lyricsText.split('\n').map((line, idx) => (
+        <div key={idx}>{line || '\u00A0'}</div>
+      ))}
+    </div>
+  </div>
+)}
 
+{/* ✅ NEW: Caption/description preview on video */}
+{caption.trim() && (
+  <div className="absolute left-4 right-4 bottom-5 z-20 pointer-events-auto">
+    <div 
+      className="text-white text-[15px] leading-snug font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)] break-words"
+      dangerouslySetInnerHTML={{ __html: linkifyText(caption.trim()) }}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        const link = target.closest('a') as HTMLAnchorElement | null;
+        if (!link?.href) return;
+        e.preventDefault();
+        window.open(link.href, '_blank', 'noopener,noreferrer');
+      }}
+    />
+  </div>
+)}
+                                                            
                 <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-3">
                   <button
                     onClick={() =>
