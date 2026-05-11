@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
@@ -508,8 +507,7 @@ const getFirstReactorName = (reactions: any[], users: User[]): string => {
   return 'Someone';
 };
 
-//===ĢET REELS THUMBNAIL ====
-// Added this helper near other helper functions (around line 300-350)
+//===GET REELS THUMBNAIL ====
 const getReelThumbnailUrl = (reel: any): string => {
   return (
     reel.thumbnail_url ||
@@ -1752,7 +1750,6 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             {displaySound.name}
           </h2>
           
-          {/* ✅ CLICKABLE CREATOR NAME - KEPT BLUE WITH ICON, NAME BOLD */}
           <div className="flex items-center gap-2 mb-1">
             {displaySound.creator?.profile_image_url && (
               <img 
@@ -1877,10 +1874,6 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-
-
-      
-
 // ==================== REEL THUMBNAIL COMPONENT ====================
 const ReelThumbnail: React.FC<{
   reel: Reel;
@@ -1927,7 +1920,6 @@ const ReelThumbnail: React.FC<{
     </div>
   );
 };
-
 
 // ==================== REEL OWNER MENU ====================
 const ReelOwnerMenu: React.FC<{
@@ -2061,7 +2053,6 @@ const EditReelModal: React.FC<{
 };
 
 // ==================== REELS FEED ====================
-// ==================== REELS FEED ====================
 interface ReelsFeedProps {
   reels: Reel[];
   users: User[];
@@ -2102,7 +2093,6 @@ interface ReelsFeedProps {
   initialReelId?: number | null;
   onBack?: () => void;
   onVideoClick?: (sound?: UseSoundPayload) => void;
-  // ✅ ADD PUBLISHING PROPS
   reelPublishing?: boolean;
   reelPublishingProgress?: number;
   reelPublishingText?: string;
@@ -2126,7 +2116,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   initialReelId,
   onBack,
   onVideoClick,
-  // ✅ ADD PUBLISHING PROPS WITH DEFAULTS
   reelPublishing = false,
   reelPublishingProgress = 0,
   reelPublishingText = '',
@@ -2166,6 +2155,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [resolvedVideoUrls, setResolvedVideoUrls] = useState<Record<number, string>>({});
   const [resolvedAudioUrls, setResolvedAudioUrls] = useState<Record<number, string>>({});
   const [videoErrors, setVideoErrors] = useState<Record<number, boolean>>({});
+
+  // ==================== CHROME VISIBILITY STATES ====================
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [creatorLockPaused, setCreatorLockPaused] = useState(false);
+  const chromeTimerRef = useRef<any>(null);
 
   // ==================== REFS ====================
   const pendingPlayTimeoutRef = useRef<any>(null);
@@ -2281,6 +2275,15 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     };
   }, []);
 
+  // ==================== CHROME HELPER ====================
+  const showChromeTemporarily = useCallback(() => {
+    setChromeVisible(true);
+    if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
+    chromeTimerRef.current = setTimeout(() => {
+      setChromeVisible(false);
+    }, 2600);
+  }, []);
+
   // ==================== HELPER FUNCTIONS ====================
   
   const truncateName = (name?: string, max = 9) => {
@@ -2289,87 +2292,82 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     return value.slice(0, max) + '...';
   };
   
-//=== EXTRACT SOUND FROM REELS ===
-const extractSoundFromReel = useCallback(
-  (reel: Reel): Sound => {
-    const author = users.find(
-      (u: User) => Number(u.id) === getReelUserId(reel)
-    );
+  const extractSoundFromReel = useCallback(
+    (reel: Reel): Sound => {
+      const author = users.find(
+        (u: User) => Number(u.id) === getReelUserId(reel)
+      );
 
-    const rawSoundKey =
-      (reel as any).soundKey ||
-      (reel as any).sound_key ||
-      '';
+      const rawSoundKey =
+        (reel as any).soundKey ||
+        (reel as any).sound_key ||
+        '';
 
-    const soundKey =
-      rawSoundKey && rawSoundKey !== 'original:none'
-        ? rawSoundKey
-        : `original:${reel.id}`;
+      const soundKey =
+        rawSoundKey && rawSoundKey !== 'original:none'
+          ? rawSoundKey
+          : `original:${reel.id}`;
 
-    const fallbackVideoUrl =
-      resolvedVideoUrls[reel.id] ||
-      (reel as any).video_url ||
-      (reel as any).videoUrl ||
-      (reel as any).video_url_medium ||
-      (reel as any).videoUrlMedium ||
-      '';
+      const fallbackVideoUrl =
+        resolvedVideoUrls[reel.id] ||
+        (reel as any).video_url ||
+        (reel as any).videoUrl ||
+        (reel as any).video_url_medium ||
+        (reel as any).videoUrlMedium ||
+        '';
 
-    const audioUrl = String(
-      reel.audioUrl ||
-        (reel as any).audio_url ||
-        fallbackVideoUrl ||
-        ''
-    ).trim();
+      const audioUrl = String(
+        reel.audioUrl ||
+          (reel as any).audio_url ||
+          fallbackVideoUrl ||
+          ''
+      ).trim();
 
-    const songName =
-      reel.songName ||
-      (reel as any).song_name ||
-      'Original Sound';
+      const songName =
+        reel.songName ||
+        (reel as any).song_name ||
+        'Original Sound';
 
-    const audioStart = Number(
-      reel.audioStart ??
-        (reel as any).audio_start ??
-        0
-    );
+      const audioStart = Number(
+        reel.audioStart ??
+          (reel as any).audio_start ??
+          0
+      );
 
-    const audioEnd = Number(
-      reel.audioEnd ??
-        (reel as any).audio_end ??
-        0
-    );
+      const audioEnd = Number(
+        reel.audioEnd ??
+          (reel as any).audio_end ??
+          0
+      );
 
-    const realSongId =
-      (reel as any).songId ??
-      (reel as any).song_id ??
-      null;
+      const realSongId =
+        (reel as any).songId ??
+        (reel as any).song_id ??
+        null;
 
-    const originalOwnerId =
-      (reel as any).original_sound_owner_id ??
-      (reel as any).originalSoundOwnerId ??
-      null;
+      const originalOwnerId =
+        (reel as any).original_sound_owner_id ??
+        (reel as any).originalSoundOwnerId ??
+        null;
 
-    return {
-      id: soundKey,
-      songId: realSongId,
-      name: songName,
-      url: audioUrl,
-      originalUrl: audioUrl,
-      start: Number.isFinite(audioStart) ? audioStart : 0,
-      end: Number.isFinite(audioEnd) ? audioEnd : 0,
-      creator: author,
-      creationCount: 0,
-      duration: Number.isFinite(audioEnd) && audioEnd > 0 ? audioEnd : 30,
-      isOriginal: String(soundKey).startsWith('original:'),
-      soundKey,
-      originalSoundOwnerId: originalOwnerId,
-    } as any;
-  },
-  [users, resolvedVideoUrls]
-);
-
-  
-  
-
+      return {
+        id: soundKey,
+        songId: realSongId,
+        name: songName,
+        url: audioUrl,
+        originalUrl: audioUrl,
+        start: Number.isFinite(audioStart) ? audioStart : 0,
+        end: Number.isFinite(audioEnd) ? audioEnd : 0,
+        creator: author,
+        creationCount: 0,
+        duration: Number.isFinite(audioEnd) && audioEnd > 0 ? audioEnd : 30,
+        isOriginal: String(soundKey).startsWith('original:'),
+        soundKey,
+        originalSoundOwnerId: originalOwnerId,
+      } as any;
+    },
+    [users, resolvedVideoUrls]
+  );
 
   const buildUseSoundPayload = useCallback((sound: Sound): UseSoundPayload => {
     return {
@@ -2543,79 +2541,27 @@ const extractSoundFromReel = useCallback(
     } catch {}
   }, []);
 
-const startSoundtrackForReel = useCallback(
-  (id: number) => {
-    if (audioSyncCleanupRef.current) {
-      audioSyncCleanupRef.current();
-      audioSyncCleanupRef.current = null;
-    }
-
-    const reel = reels.find((r) => r.id === id);
-    const video = videoRefs.current[id];
-    const audio = globalAudioRef.current;
-
-    if (!reel || !video || !audio) return;
-    if (!userInteractedRef.current) return;
-
-    const soundtrackUrl =
-      resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
-
-    if (!soundtrackUrl) return;
-
-    const start = Number(reel.audioStart || (reel as any).audio_start || 0);
-    const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
-
-    try {
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
-      audio.currentTime = 0;
-    } catch {}
-
-    try {
-      video.muted = true;
-      video.volume = 0;
-    } catch {}
-
-    audio.src = soundtrackUrl;
-    audio.preload = 'auto';
-    audio.loop = false;
-
-    const syncAudio = () => {
-      if (video.paused) {
-        try {
-          audio.pause();
-        } catch {}
-        return;
+  const startSoundtrackForReel = useCallback(
+    (id: number) => {
+      if (audioSyncCleanupRef.current) {
+        audioSyncCleanupRef.current();
+        audioSyncCleanupRef.current = null;
       }
 
-      const targetTime = video.currentTime + start;
+      const reel = reels.find((r) => r.id === id);
+      const video = videoRefs.current[id];
+      const audio = globalAudioRef.current;
 
-      if (end > start && targetTime >= end) {
-        try {
-          video.currentTime = 0;
-          audio.currentTime = start;
-        } catch {}
-        return;
-      }
+      if (!reel || !video || !audio) return;
+      if (!userInteractedRef.current) return;
 
-      if (Math.abs(audio.currentTime - targetTime) > 0.35) {
-        try {
-          audio.currentTime = targetTime;
-        } catch {}
-      }
+      const soundtrackUrl =
+        resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
 
-      if (audio.paused) {
-        audio.play().catch((err) => {
-          console.warn('External soundtrack resume failed:', err);
-        });
-      }
-    };
+      if (!soundtrackUrl) return;
 
-    video.addEventListener('timeupdate', syncAudio);
-
-    audioSyncCleanupRef.current = () => {
-      video.removeEventListener('timeupdate', syncAudio);
+      const start = Number(reel.audioStart || (reel as any).audio_start || 0);
+      const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
 
       try {
         audio.pause();
@@ -2623,21 +2569,71 @@ const startSoundtrackForReel = useCallback(
         audio.load();
         audio.currentTime = 0;
       } catch {}
-    };
 
-    try {
-      audio.currentTime = start;
-      audio.play().catch((err) => {
-        console.warn('External soundtrack failed:', err);
-      });
-    } catch (err) {
-      console.warn('External soundtrack start failed:', err);
-    }
-  },
-  [reels, resolvedAudioUrls]
-);
+      try {
+        video.muted = true;
+        video.volume = 0;
+      } catch {}
 
+      audio.src = soundtrackUrl;
+      audio.preload = 'auto';
+      audio.loop = false;
 
+      const syncAudio = () => {
+        if (video.paused) {
+          try {
+            audio.pause();
+          } catch {}
+          return;
+        }
+
+        const targetTime = video.currentTime + start;
+
+        if (end > start && targetTime >= end) {
+          try {
+            video.currentTime = 0;
+            audio.currentTime = start;
+          } catch {}
+          return;
+        }
+
+        if (Math.abs(audio.currentTime - targetTime) > 0.35) {
+          try {
+            audio.currentTime = targetTime;
+          } catch {}
+        }
+
+        if (audio.paused) {
+          audio.play().catch((err) => {
+            console.warn('External soundtrack resume failed:', err);
+          });
+        }
+      };
+
+      video.addEventListener('timeupdate', syncAudio);
+
+      audioSyncCleanupRef.current = () => {
+        video.removeEventListener('timeupdate', syncAudio);
+
+        try {
+          audio.pause();
+          audio.removeAttribute('src');
+          audio.load();
+          audio.currentTime = 0;
+        } catch {}
+      };
+
+      try {
+        audio.currentTime = start;
+        audio.play().catch((err) => {
+          console.warn('External soundtrack failed:', err);
+        });
+      } catch (err) {
+        console.warn('External soundtrack start failed:', err);
+      }
+    },
+    [reels, resolvedAudioUrls]
+  );
 
   const stopActivePlayback = useCallback(() => {
     if (pendingPlayTimeoutRef.current) {
@@ -2658,152 +2654,148 @@ const startSoundtrackForReel = useCallback(
     stopSoundtrack();
   }, [stopSoundtrack]);
 
-  //===play Only===
-const playOnly = useCallback(
-  async (id: number) => {
-    const requestId = ++playRequestRef.current;
+  const playOnly = useCallback(
+    async (id: number) => {
+      const requestId = ++playRequestRef.current;
 
-    Object.entries(videoRefs.current).forEach(([key, video]) => {
-      if (!video) return;
+      Object.entries(videoRefs.current).forEach(([key, video]) => {
+        if (!video) return;
 
-      const rid = Number(key);
+        const rid = Number(key);
 
-      if (rid !== id) {
+        if (rid !== id) {
+          try {
+            video.pause();
+            video.currentTime = 0;
+            video.muted = true;
+            video.volume = 0;
+          } catch {}
+        }
+      });
+
+      stopSoundtrack();
+
+      const reel = reels.find((r) => r.id === id);
+      const video = videoRefs.current[id];
+
+      if (!reel || !video) return;
+
+      const hasExternalSound = !!(
+        reel.audioUrl ||
+        (reel as any).audio_url
+      );
+
+      if (hasExternalSound) {
         try {
-          video.pause();
-          video.currentTime = 0;
           video.muted = true;
           video.volume = 0;
         } catch {}
       }
-    });
 
-    stopSoundtrack();
+      setVideoErrors((prev) => ({ ...prev, [id]: false }));
 
-    const reel = reels.find((r) => r.id === id);
-    const video = videoRefs.current[id];
+      await resolveReelMedia(reel);
 
-    if (!reel || !video) return;
+      if (playRequestRef.current !== requestId) return;
 
-    const hasExternalSound = !!(
-      reel.audioUrl ||
-      (reel as any).audio_url
-    );
+      const chosenUrl =
+        resolvedVideoUrls[id] ||
+        pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
 
-    // ✅ Mute immediately before src/load/play
-    if (hasExternalSound) {
-      try {
-        video.muted = true;
-        video.volume = 0;
-      } catch {}
-    }
+      if (shouldUseNativeReelPlayer()) {
+        if (!chosenUrl) return;
 
-    setVideoErrors((prev) => ({ ...prev, [id]: false }));
+        Object.values(videoRefs.current).forEach((v) => {
+          if (!v) return;
 
-    await resolveReelMedia(reel);
+          try {
+            v.pause();
+            v.muted = true;
+            v.volume = 0;
+          } catch {}
+        });
 
-    if (playRequestRef.current !== requestId) return;
+        stopSoundtrack();
 
-    const chosenUrl =
-      resolvedVideoUrls[id] ||
-      pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+        setActiveReelId(id);
+        setPlayingReelId(id);
+        activeIdRef.current = id;
 
-    if (shouldUseNativeReelPlayer()) {
-      if (!chosenUrl) return;
+        sendNativeReelVideo({
+          action: 'play_native_reel_video',
+          reelId: id,
+          url: chosenUrl,
+          poster:
+            (reel as any).thumbnail_url ||
+            (reel as any).thumbnail ||
+            '',
+          muted: hasExternalSound,
+          loop: true,
+        });
 
-      Object.values(videoRefs.current).forEach((v) => {
-        if (!v) return;
+        incrementViewCount(id);
+        return;
+      }
 
+      if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
         try {
-          v.pause();
-          v.muted = true;
-          v.volume = 0;
+          video.muted = hasExternalSound ? true : video.muted;
+          video.volume = hasExternalSound ? 0 : video.volume;
+          video.src = chosenUrl;
+          video.load();
         } catch {}
-      });
+      }
 
-      stopSoundtrack();
+      unloadFarVideos(id);
 
       setActiveReelId(id);
       setPlayingReelId(id);
       activeIdRef.current = id;
 
-      sendNativeReelVideo({
-        action: 'play_native_reel_video',
-        reelId: id,
-        url: chosenUrl,
-        poster:
-          (reel as any).thumbnail_url ||
-          (reel as any).thumbnail ||
-          '',
-        muted: hasExternalSound,
-        loop: true,
-      });
-
-      incrementViewCount(id);
-      return;
-    }
-
-    if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
       try {
-        video.muted = hasExternalSound ? true : video.muted;
-        video.volume = hasExternalSound ? 0 : video.volume;
-        video.src = chosenUrl;
-        video.load();
-      } catch {}
-    }
+        if (hasExternalSound) {
+          video.muted = true;
+          video.volume = 0;
+        }
 
-    unloadFarVideos(id);
+        await waitUntilPlayable(video);
 
-    setActiveReelId(id);
-    setPlayingReelId(id);
-    activeIdRef.current = id;
+        if (playRequestRef.current !== requestId) return;
 
-    try {
-      // ✅ Keep muted during preparation
-      if (hasExternalSound) {
-        video.muted = true;
-        video.volume = 0;
+        if (hasExternalSound) {
+          video.muted = true;
+          video.volume = 0;
+        } else if (userInteractedRef.current) {
+          video.muted = false;
+          video.volume = 1;
+        } else {
+          video.muted = true;
+          video.volume = 0;
+        }
+
+        await video.play();
+
+        if (hasExternalSound && userInteractedRef.current) {
+          startSoundtrackForReel(id);
+        }
+
+        incrementViewCount(id);
+      } catch (err) {
+        console.warn('Autoplay/play failed', err);
       }
-
-      await waitUntilPlayable(video);
-
-      if (playRequestRef.current !== requestId) return;
-
-      if (hasExternalSound) {
-        video.muted = true;
-        video.volume = 0;
-      } else if (userInteractedRef.current) {
-        video.muted = false;
-        video.volume = 1;
-      } else {
-        video.muted = true;
-        video.volume = 0;
-      }
-
-      await video.play();
-
-      if (hasExternalSound && userInteractedRef.current) {
-        startSoundtrackForReel(id);
-      }
-
-      incrementViewCount(id);
-    } catch (err) {
-      console.warn('Autoplay/play failed', err);
-    }
-  },
-  [
-    reels,
-    resolveReelMedia,
-    resolvedVideoUrls,
-    networkLevel,
-    unloadFarVideos,
-    waitUntilPlayable,
-    incrementViewCount,
-    stopSoundtrack,
-    startSoundtrackForReel,
-  ]
-);
-
+    },
+    [
+      reels,
+      resolveReelMedia,
+      resolvedVideoUrls,
+      networkLevel,
+      unloadFarVideos,
+      waitUntilPlayable,
+      incrementViewCount,
+      stopSoundtrack,
+      startSoundtrackForReel,
+    ]
+  );
 
   const scrollToReelByIndex = useCallback(
     (index: number) => {
@@ -2845,12 +2837,15 @@ const playOnly = useCallback(
 
   // Updated: Open gallery creator, not camera directly
   const handleCreateReelClick = useCallback(() => {
+    setCreatorLockPaused(true);
     stopActivePlayback();
     onVideoClick?.();
   }, [onVideoClick, stopActivePlayback]);
 
   const handleVideoClick = useCallback(
     (reelId: number) => {
+      showChromeTemporarily();
+      setCreatorLockPaused(false);
       userInteractedRef.current = true;
       
       if (shouldUseNativeReelPlayer()) {
@@ -2889,7 +2884,7 @@ const playOnly = useCallback(
       }
       playOnly(reelId);
     },
-    [playOnly, reels, startSoundtrackForReel, stopSoundtrack]
+    [playOnly, reels, startSoundtrackForReel, stopSoundtrack, showChromeTemporarily]
   );
 
   // New Handlers for Reactions Sheet and Share
@@ -2911,59 +2906,56 @@ const playOnly = useCallback(
     setSelectedReelForShare(null);
   }, [selectedReelForShare, onShare]);
 
-  // ===HANDLE USE SOUND 
-const handleUseSoundFromReel = useCallback(
-  (reel: Reel) => {
-    const sound = extractSoundFromReel(reel);
+  const handleUseSoundFromReel = useCallback(
+    (reel: Reel) => {
+      const sound = extractSoundFromReel(reel);
 
-    const videoUrl =
-      resolvedVideoUrls[reel.id] ||
-      (reel as any).video_url ||
-      (reel as any).videoUrl ||
-      (reel as any).video_url_medium ||
-      (reel as any).videoUrlMedium ||
-      '';
+      const videoUrl =
+        resolvedVideoUrls[reel.id] ||
+        (reel as any).video_url ||
+        (reel as any).videoUrl ||
+        (reel as any).video_url_medium ||
+        (reel as any).videoUrlMedium ||
+        '';
 
-    const audioUrl = String(
-      sound.originalUrl ||
-        sound.url ||
-        (reel as any).audio_url ||
-        (reel as any).audioUrl ||
-        videoUrl ||
-        ''
-    ).trim();
+      const audioUrl = String(
+        sound.originalUrl ||
+          sound.url ||
+          (reel as any).audio_url ||
+          (reel as any).audioUrl ||
+          videoUrl ||
+          ''
+      ).trim();
 
-    if (!audioUrl) {
-      alert('This sound is not ready yet. Please try another reel.');
-      return;
-    }
+      if (!audioUrl) {
+        alert('This sound is not ready yet. Please try another reel.');
+        return;
+      }
 
-    const payload: UseSoundPayload = {
-      songName: sound.name || 'Original Sound',
-      audioUrl,
-      originalUrl: audioUrl,
-      audioStart: Number(sound.start || 0),
-      audioEnd: Number(sound.end || sound.duration || 0),
-      songId: sound.songId ?? undefined,
-      soundKey:
-        sound.soundKey ||
-        (sound.songId ? `song:${sound.songId}` : `original:${reel.id}`),
-      isTrimmedAudio: false,
-    };
+      const payload: UseSoundPayload = {
+        songName: sound.name || 'Original Sound',
+        audioUrl,
+        originalUrl: audioUrl,
+        audioStart: Number(sound.start || 0),
+        audioEnd: Number(sound.end || sound.duration || 0),
+        songId: sound.songId ?? undefined,
+        soundKey:
+          sound.soundKey ||
+          (sound.songId ? `song:${sound.songId}` : `original:${reel.id}`),
+        isTrimmedAudio: false,
+      };
 
-    stopActivePlayback();
-    setSelectedSoundData(null);
-    onVideoClick?.(payload);
-  },
-  [
-    extractSoundFromReel,
-    resolvedVideoUrls,
-    stopActivePlayback,
-    onVideoClick,
-  ]
-);
-
-
+      setCreatorLockPaused(true);
+      stopActivePlayback();
+      onVideoClick?.(payload);
+    },
+    [
+      extractSoundFromReel,
+      resolvedVideoUrls,
+      stopActivePlayback,
+      onVideoClick,
+    ]
+  );
 
   const handleSoundClick = useCallback(
     (reel: Reel) => {
@@ -3031,6 +3023,13 @@ const handleUseSoundFromReel = useCallback(
 
   // ==================== EFFECTS ====================
   
+  // Chrome timer cleanup
+  useEffect(() => {
+    return () => {
+      if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const nav = navigator as any;
     const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
@@ -3202,6 +3201,7 @@ const handleUseSoundFromReel = useCallback(
   // Resume after comments close
   useEffect(() => {
     if (showComments) return;
+    if (creatorLockPaused) return;
     const activeId = activeIdRef.current;
     if (!activeId) return;
     if (shouldUseNativeReelPlayer()) {
@@ -3230,7 +3230,7 @@ const handleUseSoundFromReel = useCallback(
         startSoundtrackForReel(activeId);
       }
     }).catch(() => {});
-  }, [showComments, reels, startSoundtrackForReel]);
+  }, [showComments, reels, startSoundtrackForReel, creatorLockPaused]);
 
   // Visibility change effect
   useEffect(() => {
@@ -3249,7 +3249,7 @@ const handleUseSoundFromReel = useCallback(
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stopPlayback();
-      } else if (!showComments && activeIdRef.current) {
+      } else if (!creatorLockPaused && !showComments && activeIdRef.current) {
         if (shouldUseNativeReelPlayer()) {
           sendNativeReelVideo({ action: 'resume_native_reel_video' });
           return;
@@ -3286,7 +3286,7 @@ const handleUseSoundFromReel = useCallback(
       window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [showComments, reels, startSoundtrackForReel, stopSoundtrack]);
+  }, [showComments, reels, startSoundtrackForReel, stopSoundtrack, creatorLockPaused]);
 
   useEffect(() => {
     if (selectedSoundData) {
@@ -3382,7 +3382,7 @@ const handleUseSoundFromReel = useCallback(
       {/* Hidden audio element for external soundtrack */}
       <audio ref={globalAudioRef} hidden preload="metadata" playsInline />
 
-      {/* ✅ PUBLISHING PROGRESS BAR - Just below the top header */}
+      {/* PUBLISHING PROGRESS BAR - Just below the top header */}
       {reelPublishing && (
         <div 
           className="absolute left-4 right-4 z-[100001] rounded-2xl bg-[#242526]/95 border border-white/10 shadow-2xl overflow-hidden"
@@ -3410,80 +3410,81 @@ const handleUseSoundFromReel = useCallback(
         </div>
       )}
 
+      {/* Facebook-style back button - always visible */}
+      <button
+        onClick={() => {
+          if (shouldUseNativeReelPlayer()) {
+            sendNativeReelVideo({ action: 'stop_native_reel_video' });
+          }
+          if (onBack) onBack();
+          else window.history.back();
+        }}
+        className="fixed top-[max(env(safe-area-inset-top),18px)] left-4 z-[10020] text-white active:scale-95 transition"
+        aria-label="Back"
+      >
+        <i className="fas fa-chevron-left text-[36px] font-black drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]" />
+      </button>
+
+      {/* Top right buttons - hide/show with chrome visibility */}
       <div
-        className="absolute top-0 left-0 right-0 z-[100000] px-4 flex items-center justify-between bg-gradient-to-b from-black/85 to-transparent"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', height: '92px' }}
+        className={`fixed top-[max(env(safe-area-inset-top),18px)] right-4 z-[10010] flex items-center gap-4 transition-all duration-300 ${
+          chromeVisible ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
+        }`}
       >
         <button
-          onClick={() => {
-            if (shouldUseNativeReelPlayer()) {
-              sendNativeReelVideo({ action: 'stop_native_reel_video' });
-            }
-            if (onBack) onBack();
-            else window.history.back();
-          }}
-          className="w-10 h-10 rounded-full bg-[#242526]/80 border border-white/10 flex items-center justify-center hover:bg-[#3A3B3C] transition-colors"
+          onClick={handleCreateReelClick}
+          className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
+          aria-label="Create reel"
         >
-          <i className="fas fa-arrow-left text-white text-sm" />
+          <i className="fas fa-plus text-white text-xl" />
         </button>
 
-        <div className="flex items-center gap-3">
-          <h2 className="text-white text-[20px] font-black tracking-tight">Reels</h2>
-        </div>
+        <button
+          className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
+          title="Views"
+        >
+          <i className="fas fa-eye text-[14px]" />
+          <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
+        </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleCreateReelClick}
-            className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
-            aria-label="Create reel"
-          >
-            <i className="fas fa-plus text-white text-xl" />
-          </button>
-
-          <button
-            className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
-            title="Views"
-          >
-            <i className="fas fa-eye text-[14px]" />
-            <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
-          </button>
-
-          <button
-            onClick={() => handleDownloadReel(activeReel!)}
-            className="relative w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
-            aria-label="Download reel"
-            disabled={downloadingReelId === activeReel?.id}
-          >
-            {downloadingReelId === activeReel?.id ? (
-              <>
-                <i className="fas fa-spinner fa-spin text-white text-base" />
-                <span className="absolute -bottom-5 text-[10px] text-white font-bold">
-                  {downloadProgress[activeReel?.id] ? `${downloadProgress[activeReel?.id]}%` : ''}
-                </span>
-              </>
-            ) : (
-              <i className="fas fa-download text-white text-base" />
-            )}
-          </button>
-          <button
-            onClick={() => {
-              const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
-              if (!reel) return;
-              const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
-              if (ownerId !== Number(currentUser?.id)) return;
-              setMenuReelId(reel.id);
-              setShowReelMenu(true);
-            }}
-            className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
-          >
-            <i className="fas fa-ellipsis-h text-white text-base" />
-          </button>
-        </div>
+        <button
+          onClick={() => handleDownloadReel(activeReel!)}
+          className="relative w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
+          aria-label="Download reel"
+          disabled={downloadingReelId === activeReel?.id}
+        >
+          {downloadingReelId === activeReel?.id ? (
+            <>
+              <i className="fas fa-spinner fa-spin text-white text-base" />
+              <span className="absolute -bottom-5 text-[10px] text-white font-bold">
+                {downloadProgress[activeReel?.id] ? `${downloadProgress[activeReel?.id]}%` : ''}
+              </span>
+            </>
+          ) : (
+            <i className="fas fa-download text-white text-base" />
+          )}
+        </button>
+        <button
+          onClick={() => {
+            const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
+            if (!reel) return;
+            const ownerId = Number((reel as any).userId ?? (reel as any).user_id);
+            if (ownerId !== Number(currentUser?.id)) return;
+            setMenuReelId(reel.id);
+            setShowReelMenu(true);
+          }}
+          className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
+        >
+          <i className="fas fa-ellipsis-h text-white text-base" />
+        </button>
       </div>
 
       <div className="w-full h-full">
         <div
           ref={scrollerRef}
+          onScroll={() => {
+            setChromeVisible(false);
+          }}
           className={`reel-video-shell w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide ${
             shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
           }`}
@@ -3526,9 +3527,7 @@ const handleUseSoundFromReel = useCallback(
                   id={`reel-${reel.id}`}
                   data-reel-id={reel.id}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`reel-container w-full h-[100dvh] snap-start relative overflow-hidden ${
-                    shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
-                  }`}
+                  className="relative h-[100dvh] w-full snap-start bg-black overflow-hidden"
                 >
                   <div className={`reel-video-shell w-full h-full relative ${
                     shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
@@ -3545,9 +3544,7 @@ const handleUseSoundFromReel = useCallback(
                       controls={false}
                       disablePictureInPicture
                       controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-                      className={`absolute inset-0 w-full h-full object-cover pointer-events-none select-none ${
-                        shouldUseNativeReelPlayer() ? 'opacity-0' : 'opacity-100'
-                      }`}
+                      className="absolute inset-0 w-full h-full object-cover bg-black"
                       style={{
                         WebkitTouchCallout: 'none',
                         WebkitUserSelect: 'none',
@@ -3811,25 +3808,23 @@ const handleUseSoundFromReel = useCallback(
         />
       )}
 
-   {selectedSoundData && (
-  <SoundDetailView
-    sound={selectedSoundData}
-    onClose={() => setSelectedSoundData(null)}
-    onReelClick={(id) => {
-      setSelectedSoundData(null);
-      playOnly(id);
-    }}
-    onUseSound={(sound) => {
-      const payload = buildUseSoundPayload(sound);
-      stopActivePlayback();
-      setSelectedSoundData(null);
-      onVideoClick?.(payload);
-    }}
-    onProfileClick={onProfileClick}  
-  />
-)}
-
-  
+      {selectedSoundData && (
+        <SoundDetailView
+          sound={selectedSoundData}
+          onClose={() => setSelectedSoundData(null)}
+          onReelClick={(id) => {
+            setSelectedSoundData(null);
+            playOnly(id);
+          }}
+          onUseSound={(sound) => {
+            const payload = buildUseSoundPayload(sound);
+            stopActivePlayback();
+            setSelectedSoundData(null);
+            onVideoClick?.(payload);
+          }}
+          onProfileClick={onProfileClick}  
+        />
+      )}
 
       <ReelOwnerMenu
         isOpen={showReelMenu}
