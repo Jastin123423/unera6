@@ -3923,6 +3923,55 @@ const styles = `
   -webkit-user-select: none;
   user-select: none;
 }
+.reel-lyrics-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  width: min(88%, 540px);
+  text-align: center;
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  padding: 0 10px;
+}
+.reel-lyrics-classic {
+  color: #fff;
+  font-size: clamp(28px, 5vw, 42px);
+  text-shadow: 0 3px 18px rgba(0,0,0,0.95);
+}
+.reel-lyrics-neon {
+  color: #8bc3ff;
+  font-size: clamp(30px, 5.4vw, 44px);
+  text-shadow: 0 0 8px rgba(24,119,242,0.95), 0 4px 18px rgba(0,0,0,0.95);
+}
+.reel-lyrics-cinema {
+  color: #f8f1d3;
+  font-size: clamp(28px, 5vw, 40px);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-shadow: 0 4px 20px rgba(0,0,0,0.95);
+}
+.reel-lyrics-glass {
+  color: #fff;
+  font-size: clamp(26px, 4.8vw, 38px);
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  padding: 14px 16px;
+}
+.reel-lyrics-karaoke {
+  font-size: clamp(30px, 5.5vw, 44px);
+  color: #fff;
+  text-shadow: 0 3px 18px rgba(0,0,0,0.95);
+}
+.reel-lyrics-outline {
+  color: #fff;
+  font-size: clamp(30px, 5.3vw, 42px);
+  -webkit-text-stroke: 2px rgba(0,0,0,0.85);
+  text-shadow: 0 0 16px rgba(0,0,0,0.55);
+}
 `;
 
 if (typeof document !== 'undefined' && !document.getElementById('reels-styles')) {
