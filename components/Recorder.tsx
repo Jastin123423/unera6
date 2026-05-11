@@ -812,7 +812,7 @@ export interface RecorderSubmitPayload {
   caption: string;
   location?: string;
   visibility: Visibility;
-  videoFile?: File;  // For web uploads
+  videoFile?: File;
   thumbnailFile?: File;
   audioFile?: File;
   songName?: string;
@@ -830,6 +830,8 @@ export interface RecorderSubmitPayload {
   // ✅ Native Flutter upload fields
   nativeVideoUrl?: string;
   nativeVideoMeta?: any;
+  // ✅ NEW: Description with HTML links
+  descriptionHtml?: string;
 }
 
 // Updated RecorderProps interface with new props
