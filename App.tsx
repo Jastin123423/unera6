@@ -1285,8 +1285,19 @@ const normalizeReel = (r: any): Reel => {
     verified: !!(r?.verified || r?.is_verified),
     isTrimmedAudio,
     feed_key: `reel:${resolvedId}`,
+    
+    // ✅ ADD LYRICS AND DESCRIPTION FIELDS
+    lyricsText: r?.lyricsText ?? r?.lyrics_text ?? '',
+    lyrics_text: r?.lyrics_text ?? r?.lyricsText ?? '',
+    lyricsTheme: r?.lyricsTheme ?? r?.lyrics_theme ?? 'karaoke',
+    lyrics_theme: r?.lyrics_theme ?? r?.lyricsTheme ?? 'karaoke',
+    lyricsEnabled: !!(r?.lyricsEnabled ?? r?.lyrics_enabled),
+    lyrics_enabled: r?.lyrics_enabled ?? (r?.lyricsEnabled ? 1 : 0),
+    descriptionHtml: r?.descriptionHtml ?? r?.description_html ?? '',
+    description_html: r?.description_html ?? r?.descriptionHtml ?? '',
   } as any;
 };
+
 
 /**
  * Normalize song data
