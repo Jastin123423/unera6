@@ -1564,13 +1564,12 @@ const ReelCommentsSheet: React.FC<{
 };
 
 // ==================== SOUND DETAIL VIEW ====================
-
 interface SoundDetailViewProps { 
   sound: Sound; 
   onClose: () => void; 
   onReelClick: (id: number) => void; 
   onUseSound?: (sound: Sound) => void;
-  onProfileClick?: (userId: number) => void;  // ✅ ADD THIS
+  onProfileClick?: (userId: number) => void;
 }
 
 export const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
@@ -1578,7 +1577,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   onClose, 
   onReelClick, 
   onUseSound,
-  onProfileClick,  // ✅ ADD THIS
+  onProfileClick,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1627,7 +1626,6 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
 
           setSoundStats(stats);
 
-          // Update displaySound with original sound owner from backend
           if (data?.sound) {
             setDisplaySound((prev) => ({
               ...prev,
@@ -1754,25 +1752,34 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
             {displaySound.name}
           </h2>
           
-          {/* ✅ CLICKABLE CREATOR NAME */}
-          <button
-            onClick={() => {
-              const creatorId = Number(displaySound.creator?.id || 0);
-              if (!creatorId) return;
-              onProfileClick?.(creatorId);
-            }}
-            className="text-white/60 text-sm mt-1 hover:text-[#1877F2] transition-colors active:scale-[0.98]"
-          >
-            BY{' '}
-            <span className="font-bold text-white">
-              {displaySound.creator?.name || 'Original Sound'}
-            </span>
-            {displaySound.creator?.is_verified && (
-              <i className="fas fa-check-circle text-[#1877F2] ml-1 text-xs" />
+          {/* ✅ CLICKABLE CREATOR NAME - KEPT BLUE WITH ICON, NAME BOLD */}
+          <div className="flex items-center gap-2 mb-1">
+            {displaySound.creator?.profile_image_url && (
+              <img 
+                src={displaySound.creator.profile_image_url} 
+                className="w-6 h-6 rounded-full object-cover" 
+                alt="" 
+              />
             )}
-          </button>
+            <button
+              onClick={() => {
+                const creatorId = Number(displaySound.creator?.id || 0);
+                if (!creatorId) return;
+                onProfileClick?.(creatorId);
+              }}
+              className="text-[#1877F2] font-black text-sm uppercase tracking-widest hover:opacity-80 transition-opacity"
+            >
+              BY{' '}
+              <span className="font-bold text-white">
+                {displaySound.creator?.name || 'Original Sound'}
+              </span>
+              {displaySound.creator?.is_verified && (
+                <i className="fas fa-check-circle text-[#1877F2] ml-1 text-xs" />
+              )}
+            </button>
+          </div>
 
-          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8 mt-2">
+          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
             {formatCount(soundStats.totalUses)} VIRAL CREATIONS • {formatCount(soundStats.totalViews)} VIEWS
           </p>
 
@@ -1869,6 +1876,8 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     </div>
   );
 };
+
+
 
       
 
