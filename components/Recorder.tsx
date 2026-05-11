@@ -2056,7 +2056,8 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   );
 };
 
- const handleSubmit = useCallback(async () => {
+//===HANDLE REEL SUBMIT ===
+  const handleSubmit = useCallback(async () => {
   if (!videoFile && !nativeVideoUrl) {
     setSubmitState('error');
     setSubmitError('Please select a video first.');
@@ -2083,52 +2084,41 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   window.addEventListener('beforeunload', beforeUnloadHandler);
 
   try {
-    let soundKey = generateSoundKey();
+    const soundKey = generateSoundKey();
 
-    const isTrimmedAudio =
-      !!currentSelectedSound?.isTrimmedAudio || soundKey.startsWith('trimmed:');
-
-    const audioStart = isTrimmedAudio ? 0 : trimStart || 0;
-    const audioEnd = isTrimmedAudio ? 0 : trimEnd || 0;
-
-    let audioFileToSend: File | undefined =
-      trimmedAudioFile ||
-      selectedUploadedSound?.file ||
-      extractedVideoAudioFile ||
-      undefined;
-
-    let finalAudioUrl =
+    const selectedSoundUrl =
       currentSelectedSound?.originalUrl ||
       currentSelectedSound?.audioUrl ||
       selectedUploadedSound?.originalUrl ||
       selectedUploadedSound?.url ||
       '';
 
+    const isOriginalVideoSound = isVideoLikeAudioUrl(selectedSoundUrl);
+
+    const isTrimmedAudio =
+      !!currentSelectedSound?.isTrimmedAudio ||
+      soundKey.startsWith('trimmed:');
+
+    const audioStart = isTrimmedAudio ? 0 : trimStart || 0;
+    const audioEnd = isTrimmedAudio ? 0 : trimEnd || 0;
+
+    // ✅ Important:
+    // If selected sound is an MP4/original video sound,
+    // DO NOT send extractedVideoAudioFile.
+    // Otherwise App.tsx receives audioFile and uploads .webm again.
+    let audioFileToSend: File | undefined = isOriginalVideoSound
+      ? undefined
+      : trimmedAudioFile ||
+        selectedUploadedSound?.file ||
+        extractedVideoAudioFile ||
+        undefined;
+
     const finalSongName =
       currentSelectedSound?.songName ||
       selectedUploadedSound?.name ||
       'Original Sound';
 
-    // ✅ Original-sound fix:
-    // If audioUrl is actually an MP4/MOV/WEBM video URL, extract real audio first.
-    // If extraction fails, stop publishing to avoid silent reel.
-    if (!audioFileToSend && finalAudioUrl && isVideoLikeAudioUrl(finalAudioUrl)) {
-      setSubmitProgress(15);
-      setVideoPrepareMessage('Extracting original sound...');
-
-      const sourceVideoFile = await remoteUrlToVideoFile(finalAudioUrl);
-      const extracted = await extractAudioFromVideo(sourceVideoFile);
-
-      if (!extracted || extracted.size < 1000) {
-        throw new Error(
-          'Could not extract original sound from this video. Please try another sound.'
-        );
-      }
-
-      audioFileToSend = extracted;
-      finalAudioUrl = '';
-      soundKey = `original:extracted:${Date.now()}`;
-    }
+    const finalAudioUrl = selectedSoundUrl;
 
     setSubmitProgress(20);
     setVideoPrepareMessage('Preparing thumbnail...');
@@ -2160,17 +2150,20 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       videoFile: videoFile || undefined,
       thumbnailFile: thumbnail?.file,
 
+      // ✅ undefined for original MP4 sound
       audioFile: audioFileToSend,
 
-      songName: finalSongName,
+      // ✅ keeps MP4 URL
       audioUrl: finalAudioUrl,
 
+      songName: finalSongName,
       audioStart,
       audioEnd,
       soundKey,
 
       songId: currentSelectedSound?.songId || selectedUploadedSound?.id,
-      originalSoundId: currentSelectedSound?.songId || selectedUploadedSound?.id,
+      originalSoundId:
+        currentSelectedSound?.songId || selectedUploadedSound?.id,
 
       lyricsText: lyricsText.trim(),
       lyricsTheme,
@@ -2221,6 +2214,7 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   filterIntensity,
   extractedVideoAudioFile,
 ]);
+
 
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
