@@ -2500,32 +2500,30 @@ const startSoundtrackForReel = useCallback(
     const start = Number(reel.audioStart || (reel as any).audio_start || 0);
     const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
 
-    const fallbackToVideoAudio = (err?: any) => {
-      console.warn('External soundtrack failed, fallback to video audio:', err);
-
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch {}
-
-      try {
-        video.muted = false;
-        video.volume = 1;
-      } catch {}
-    };
+    // ✅ HARD RESET before starting new external/original sound
+    try {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      audio.currentTime = 0;
+    } catch {}
 
     try {
       video.muted = true;
       video.volume = 0;
     } catch {}
 
-    if (audio.src !== soundtrackUrl) {
-      audio.src = soundtrackUrl;
-    }
+    audio.src = soundtrackUrl;
+    audio.loop = false;
+    audio.preload = 'auto';
+
+    let playStarted = false;
 
     const syncAudio = () => {
       if (video.paused) {
-        audio.pause();
+        try {
+          audio.pause();
+        } catch {}
         return;
       }
 
@@ -2545,8 +2543,8 @@ const startSoundtrackForReel = useCallback(
         } catch {}
       }
 
-      if (audio.paused) {
-        audio.play().catch(fallbackToVideoAudio);
+      if (audio.paused && playStarted) {
+        audio.play().catch(() => {});
       }
     };
 
@@ -2554,17 +2552,31 @@ const startSoundtrackForReel = useCallback(
 
     audioSyncCleanupRef.current = () => {
       video.removeEventListener('timeupdate', syncAudio);
+
+      try {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+        audio.currentTime = 0;
+      } catch {}
     };
 
-    try {
-      audio.currentTime = start;
-      audio.play().catch(fallbackToVideoAudio);
-    } catch (err) {
-      fallbackToVideoAudio(err);
-    }
+    const startPlayback = async () => {
+      try {
+        audio.currentTime = start;
+        await audio.play();
+        playStarted = true;
+      } catch (err) {
+        console.warn('External/original sound failed:', err);
+      }
+    };
+
+    startPlayback();
   },
   [reels, resolvedAudioUrls]
 );
+
+
 
 
   const stopActivePlayback = useCallback(() => {
