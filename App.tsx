@@ -4963,40 +4963,12 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   );
 };
 
-//===RECORDER SOUND EXTRACTOR HELPER
-  
-const isVideoLikeAudioUrl = (url?: string) => {
-  const u = String(url || '').toLowerCase().split('?')[0];
 
-  return (
-    u.endsWith('.mp4') ||
-    u.endsWith('.mov') ||
-    u.endsWith('.webm') ||
-    u.endsWith('.m4v') ||
-    u.includes('/uploads/videos/')
-  );
-};
 
-const remoteUrlToVideoFile = async (url: string): Promise<File> => {
-  const res = await fetch(url, { cache: 'force-cache' });
-
-  if (!res.ok) {
-    throw new Error('Failed to load original sound video');
-  }
-
-  const blob = await res.blob();
-  const type = blob.type || 'video/mp4';
-
-  return new File(
-    [blob],
-    `original-sound-video-${Date.now()}.mp4`,
-    { type }
-  );
-};
   
   //===CREATE REEL FUNCTION ====
-      
-  const createReel = useCallback(async (
+
+const createReel = useCallback(async (
   reelData: Partial<Reel> & {
     videoFile?: File | Blob;
     thumbnailFile?: File | Blob;
@@ -5020,7 +4992,6 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
     let thumbnailUrl = '';
     let mediaMeta: any = null;
 
-    // ✅ Progress: Starting
     setReelPublishingProgress(5);
     setReelPublishingText('Preparing your reel...');
 
@@ -5029,7 +5000,6 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
     if (isNativeVideo) {
       console.log("📱 Using native uploaded video:", reelData.nativeVideoUrl);
 
-      // ✅ Progress: Processing native video
       setReelPublishingProgress(20);
       setReelPublishingText('Processing video...');
 
@@ -5049,19 +5019,17 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       thumbnailUrl =
         mediaMeta.thumb ||
         mediaMeta.thumbnail ||
+        mediaMeta.thumbnail_url ||
         mediaMeta.feed ||
         mediaMeta.full ||
         videoUrl;
-        
-      // ✅ Progress: Native video ready
+
       setReelPublishingProgress(35);
       setReelPublishingText('Video ready, preparing...');
-      
     } else if (reelData.videoFile) {
-      // ✅ Progress: Uploading video
       setReelPublishingProgress(15);
       setReelPublishingText('Uploading video...');
-      
+
       videoUrlMedium = await ensureR2Url(
         reelData.videoFile,
         'reels',
@@ -5072,7 +5040,6 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       videoUrl = videoUrlMedium;
       videoUrlHd = '';
 
-      // ✅ Progress: Video uploaded
       setReelPublishingProgress(45);
       setReelPublishingText('Preparing thumbnail...');
 
@@ -5091,11 +5058,11 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       throw new Error('No video source provided');
     }
 
-    // ✅ Progress: Processing audio
     setReelPublishingProgress(60);
     setReelPublishingText('Processing audio track...');
 
     let audioUrl = '';
+
     if (reelData.audioFile) {
       audioUrl = await ensureR2Url(
         reelData.audioFile,
@@ -5103,11 +5070,36 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
         `audio-${Date.now()}.wav`
       );
     } else {
-      audioUrl =
+      const candidateAudioUrl =
         reelData.audioUrl ||
         selectedReelSound?.originalUrl ||
         selectedReelSound?.audioUrl ||
         '';
+
+      if (isVideoLikeAudioUrl(candidateAudioUrl)) {
+        setReelPublishingProgress(62);
+        setReelPublishingText('Extracting original sound...');
+
+        try {
+          const sourceVideoFile = await remoteUrlToVideoFile(candidateAudioUrl);
+          const extractedAudio = await extractAudioFromVideo(sourceVideoFile);
+
+          if (extractedAudio) {
+            audioUrl = await ensureR2Url(
+              extractedAudio,
+              'reel-audio',
+              `original-sound-${Date.now()}.webm`
+            );
+          } else {
+            audioUrl = '';
+          }
+        } catch (err) {
+          console.warn('Original sound extraction failed:', err);
+          audioUrl = '';
+        }
+      } else {
+        audioUrl = candidateAudioUrl;
+      }
     }
 
     const soundKey = generateSoundKey(reelData, selectedReelSound);
@@ -5121,7 +5113,6 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       ? 0
       : reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
 
-    // ✅ Progress: Publishing
     setReelPublishingProgress(75);
     setReelPublishingText('Publishing your reel...');
 
@@ -5133,20 +5124,24 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       video_url_medium: videoUrlMedium,
       video_url_hd: videoUrlHd,
       thumbnail_url: thumbnailUrl || '',
-
       media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
 
       song_name:
         reelData.songName ||
         selectedReelSound?.songName ||
         'Original Sound',
+
+      // ✅ Now this will be real audio URL, not MP4 video URL
       audio_url: audioUrl,
+
       audio_start: audioStart,
       audio_end: audioEnd,
+
       song_id:
         reelData.originalSoundId ||
         selectedReelSound?.songId ||
         null,
+
       sound_key: soundKey,
 
       visibility: reelData.visibility || 'public',
@@ -5154,7 +5149,11 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       views: 0,
       shares: 0,
 
-      filter_id: (reelData as any).filterId || (reelData as any).effectId || 'none',
+      filter_id:
+        (reelData as any).filterId ||
+        (reelData as any).effectId ||
+        'none',
+
       filter_intensity: (reelData as any).filterIntensity ?? 0.75,
     };
 
@@ -5165,7 +5164,6 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       body: JSON.stringify(payload),
     });
 
-    // ✅ Progress: Success!
     setReelPublishingProgress(100);
     setReelPublishingText('Reel posted successfully!');
 
@@ -5179,10 +5177,8 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
     setReels(prev => [newReel, ...safeArray(prev)]);
     setLoginError('Reel posted successfully!');
     setSelectedReelSound(null);
-
   } catch (error: any) {
     console.error('Failed to create reel:', error);
-    // ✅ Progress: Error
     setReelPublishingText(error?.message || 'Failed to create reel');
     setReelPublishingProgress(0);
     setLoginError(error?.message || 'Failed to create reel');
@@ -5192,6 +5188,7 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
     setShowCreateReelModal(false);
   }
 }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
+
     
 
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
