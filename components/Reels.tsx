@@ -3802,22 +3802,25 @@ const handleUseSoundFromReel = useCallback(
         />
       )}
 
-      {selectedSoundData && (
-        <SoundDetailView
-          sound={selectedSoundData}
-          onClose={() => setSelectedSoundData(null)}
-          onReelClick={(id) => {
-            setSelectedSoundData(null);
-            playOnly(id);
-          }}
-          onUseSound={(sound) => {
-            const payload = buildUseSoundPayload(sound);
-            stopActivePlayback();
-            setSelectedSoundData(null);
-            onVideoClick?.(payload);
-          }}
-        />
-      )}
+   {selectedSoundData && (
+  <SoundDetailView
+    sound={selectedSoundData}
+    onClose={() => setSelectedSoundData(null)}
+    onReelClick={(id) => {
+      setSelectedSoundData(null);
+      playOnly(id);
+    }}
+    onUseSound={(sound) => {
+      const payload = buildUseSoundPayload(sound);
+      stopActivePlayback();
+      setSelectedSoundData(null);
+      onVideoClick?.(payload);
+    }}
+    onProfileClick={onProfileClick}  
+  />
+)}
+
+  
 
       <ReelOwnerMenu
         isOpen={showReelMenu}
