@@ -119,6 +119,14 @@ const createVideoThumbnailFromFile = async (file: File): Promise<File> => {
   }
 };
 
+// ==================== REEL LYRICS HELPERS ====================
+const getReelLyricsText = (reel: any) => String(reel.lyricsText || reel.lyrics_text || '').trim();
+const getReelLyricsTheme = (reel: any) => String(reel.lyricsTheme || reel.lyrics_theme || 'karaoke');
+const reelLyricsEnabled = (reel: any) => {
+  const v = reel.lyricsEnabled ?? reel.lyrics_enabled;
+  return v === true || v === 1 || v === '1' || v === 'true';
+};
+
 // ==================== REEL CAMERA CREATOR ====================
 const ReelCameraCreator: React.FC<{
   initialSound?: UseSoundPayload;
