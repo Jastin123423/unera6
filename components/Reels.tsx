@@ -2500,7 +2500,6 @@ const startSoundtrackForReel = useCallback(
     const start = Number(reel.audioStart || (reel as any).audio_start || 0);
     const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
 
-    // ✅ HARD RESET before starting new external/original sound
     try {
       audio.pause();
       audio.removeAttribute('src');
@@ -2514,10 +2513,8 @@ const startSoundtrackForReel = useCallback(
     } catch {}
 
     audio.src = soundtrackUrl;
-    audio.loop = false;
     audio.preload = 'auto';
-
-    let playStarted = false;
+    audio.loop = false;
 
     const syncAudio = () => {
       if (video.paused) {
@@ -2543,8 +2540,10 @@ const startSoundtrackForReel = useCallback(
         } catch {}
       }
 
-      if (audio.paused && playStarted) {
-        audio.play().catch(() => {});
+      if (audio.paused) {
+        audio.play().catch((err) => {
+          console.warn('External soundtrack resume failed:', err);
+        });
       }
     };
 
@@ -2561,21 +2560,17 @@ const startSoundtrackForReel = useCallback(
       } catch {}
     };
 
-    const startPlayback = async () => {
-      try {
-        audio.currentTime = start;
-        await audio.play();
-        playStarted = true;
-      } catch (err) {
-        console.warn('External/original sound failed:', err);
-      }
-    };
-
-    startPlayback();
+    try {
+      audio.currentTime = start;
+      audio.play().catch((err) => {
+        console.warn('External soundtrack failed:', err);
+      });
+    } catch (err) {
+      console.warn('External soundtrack start failed:', err);
+    }
   },
   [reels, resolvedAudioUrls]
 );
-
 
 
 
