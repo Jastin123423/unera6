@@ -5125,48 +5125,72 @@ const createReel = useCallback(async (
     setReelPublishingText('Publishing your reel...');
 
     const payload = {
-      user_id: currentUser.id,
-      caption: reelData.caption || '',
+  user_id: currentUser.id,
+  caption: reelData.caption || '',
 
-      video_url: videoUrl,
-      video_url_low: videoUrlLow,
-      video_url_medium: videoUrlMedium,
-      video_url_hd: videoUrlHd,
+  video_url: videoUrl,
+  video_url_low: videoUrlLow,
+  video_url_medium: videoUrlMedium,
+  video_url_hd: videoUrlHd,
 
-      thumbnail_url: thumbnailUrl || '',
-      media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
+  thumbnail_url: thumbnailUrl || '',
+  media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
 
-      song_name:
-        reelData.songName ||
-        selectedReelSound?.songName ||
-        'Original Sound',
+  song_name:
+    reelData.songName ||
+    selectedReelSound?.songName ||
+    'Original Sound',
 
-      // ✅ For original sound, this may be MP4.
-      audio_url: audioUrl,
+  // ✅ For original sound, this may be MP4.
+  audio_url: audioUrl,
 
-      audio_start: audioStart,
-      audio_end: audioEnd,
+  audio_start: audioStart,
+  audio_end: audioEnd,
 
-      song_id:
-        reelData.originalSoundId ||
-        selectedReelSound?.songId ||
-        null,
+  song_id:
+    reelData.originalSoundId ||
+    selectedReelSound?.songId ||
+    null,
 
-      sound_key: soundKey,
+  sound_key: soundKey,
 
-      visibility: reelData.visibility || 'public',
-      location: reelData.location || '',
+  // ✅ IMPORTANT: Recorder.tsx sends camelCase
+  // Backend expects snake_case
+  lyrics_text:
+    (reelData as any).lyrics_text ??
+    reelData.lyricsText ??
+    '',
 
-      views: 0,
-      shares: 0,
+  lyrics_theme:
+    (reelData as any).lyrics_theme ??
+    reelData.lyricsTheme ??
+    'karaoke',
 
-      filter_id:
-        (reelData as any).filterId ||
-        (reelData as any).effectId ||
-        'none',
+  lyrics_enabled:
+    (reelData as any).lyrics_enabled !== undefined
+      ? ((reelData as any).lyrics_enabled ? 1 : 0)
+      : reelData.lyricsEnabled
+        ? 1
+        : 0,
 
-      filter_intensity: (reelData as any).filterIntensity ?? 0.75,
-    };
+  description_html:
+    (reelData as any).description_html ??
+    reelData.descriptionHtml ??
+    '',
+
+  visibility: reelData.visibility || 'public',
+  location: reelData.location || '',
+
+  views: 0,
+  shares: 0,
+
+  filter_id:
+    (reelData as any).filterId ||
+    (reelData as any).effectId ||
+    'none',
+
+  filter_intensity: (reelData as any).filterIntensity ?? 0.75,
+};
 
     console.log("Sending reel to API:", payload);
 
