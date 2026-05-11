@@ -65,7 +65,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const video_url_low = toText(body.video_url_low);
     const video_url_medium = toText(body.video_url_medium) || toText(body.video_url);
     const video_url_hd = toText(body.video_url_hd);
-
     const video_url = video_url_medium || video_url_hd || video_url_low || '';
 
     const thumbnail_url = toText(body.thumbnail_url);
@@ -79,6 +78,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const song_id = body.song_id == null ? null : toNum(body.song_id, 0) || null;
     const sound_id = body.sound_id == null ? null : toNum(body.sound_id, 0) || null;
     const sound_key = toText(body.sound_key) ?? 'original:none';
+
+    const lyrics_text = toText(body.lyrics_text ?? body.lyricsText);
+    const lyrics_theme = toText(body.lyrics_theme ?? body.lyricsTheme) ?? 'karaoke';
+    const lyrics_enabled = safeBool(body.lyrics_enabled ?? body.lyricsEnabled) ? 1 : 0;
+    const description_html = toText(body.description_html ?? body.descriptionHtml);
 
     const is_original_sound = safeBool(body.is_original_sound) ? 1 : 0;
     const original_sound_owner_id =
@@ -133,11 +137,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         song_id,
         sound_key,
         sound_id,
+        lyrics_text,
+        lyrics_theme,
+        lyrics_enabled,
+        description_html,
         shares,
         is_original_sound,
         original_sound_owner_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `
     )
       .bind(
@@ -157,6 +165,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         song_id,
         sound_key,
         sound_id,
+        lyrics_text,
+        lyrics_theme,
+        lyrics_enabled,
+        description_html,
         is_original_sound,
         original_sound_owner_id
       )
@@ -186,6 +198,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         r.song_id,
         r.sound_id,
         r.sound_key,
+        r.lyrics_text,
+        r.lyrics_theme,
+        r.lyrics_enabled,
+        r.description_html,
         r.is_original_sound,
         r.original_sound_owner_id,
         r.created_at,
@@ -221,6 +237,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       audio_url: pickFirst((row as any).audio_url),
       audio_start: toNum((row as any).audio_start, 0),
       audio_end: toNum((row as any).audio_end, 0),
+
+      lyrics_text: pickFirst((row as any).lyrics_text),
+      lyricsText: pickFirst((row as any).lyrics_text),
+      lyrics_theme: pickFirst((row as any).lyrics_theme, 'karaoke'),
+      lyricsTheme: pickFirst((row as any).lyrics_theme, 'karaoke'),
+      lyrics_enabled: safeBool((row as any).lyrics_enabled),
+      lyricsEnabled: safeBool((row as any).lyrics_enabled),
+      description_html: pickFirst((row as any).description_html),
+      descriptionHtml: pickFirst((row as any).description_html),
+
       visibility: String((row as any).visibility || 'public'),
       location: pickFirst((row as any).location),
       views: toNum((row as any).views, 0),
@@ -282,6 +308,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.song_id,
         r.sound_id,
         r.sound_key,
+        r.lyrics_text,
+        r.lyrics_theme,
+        r.lyrics_enabled,
+        r.description_html,
         r.is_original_sound,
         r.original_sound_owner_id,
         r.visibility,
@@ -417,6 +447,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         audio_url: pickFirst(r.audio_url),
         audio_start: toNum(r.audio_start, 0),
         audio_end: toNum(r.audio_end, 0),
+
+        lyrics_text: pickFirst(r.lyrics_text),
+        lyricsText: pickFirst(r.lyrics_text),
+        lyrics_theme: pickFirst(r.lyrics_theme, 'karaoke'),
+        lyricsTheme: pickFirst(r.lyrics_theme, 'karaoke'),
+        lyrics_enabled: safeBool(r.lyrics_enabled),
+        lyricsEnabled: safeBool(r.lyrics_enabled),
+        description_html: pickFirst(r.description_html),
+        descriptionHtml: pickFirst(r.description_html),
 
         song_id: r.song_id == null ? null : toNum(r.song_id, 0),
         sound_id: r.sound_id == null ? null : toNum(r.sound_id, 0),
