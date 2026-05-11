@@ -519,6 +519,22 @@ const safeRevoke = (url?: string | null) => {
   }
 };
 
+// ==================== LINKIFY HELPER ====================
+const linkifyText = (text: string) => {
+  const escaped = String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  return escaped.replace(
+    /(https?:\/\/[^\s]+|www\.[^\s]+)/g,
+    (url) => {
+      const href = url.startsWith('http') ? url : `https://${url}`;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="text-[#1877F2] underline font-bold">${url}</a>`;
+    }
+  );
+};
+
 // =========================
 // ENHANCED FILTER SYSTEM
 // =========================
