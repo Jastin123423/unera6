@@ -3594,6 +3594,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       }}
                     />
 
+                    {/* Lyrics overlay */}
+{reelLyricsEnabled(reel) && getReelLyricsText(reel) && (
+  <div className="absolute inset-0 pointer-events-none z-20">
+    <div className={`reel-lyrics-overlay reel-lyrics-${getReelLyricsTheme(reel)}`}>
+      {getReelLyricsText(reel)
+        .split('\n')
+        .map((line, idx) => (
+          <div key={idx}>{line || '\u00A0'}</div>
+        ))}
+    </div>
+  </div>
+)}
+                    
                     <div
                       className="absolute inset-0 z-10"
                       onClick={() => handleVideoClick(reel.id)}
