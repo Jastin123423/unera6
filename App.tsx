@@ -5000,13 +5000,18 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
 
 const createReel = useCallback(async (
   reelData: Partial<Reel> & {
-    videoFile?: File | Blob;
-    thumbnailFile?: File | Blob;
-    audioFile?: File | Blob;
-    originalSoundId?: string | number;
-    nativeVideoUrl?: string;
-    nativeVideoMeta?: any;
-  }
+  videoFile?: File | Blob;
+  thumbnailFile?: File | Blob;
+  audioFile?: File | Blob;
+  originalSoundId?: string | number;
+  nativeVideoUrl?: string;
+  nativeVideoMeta?: any;
+
+  lyricsText?: string;
+  lyricsTheme?: string;
+  lyricsEnabled?: boolean;
+  descriptionHtml?: string;
+}
 ) => {
   if (!requireAuth('Creating reels')) return;
   if (!currentUser) return;
