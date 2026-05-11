@@ -1564,19 +1564,21 @@ const ReelCommentsSheet: React.FC<{
 };
 
 // ==================== SOUND DETAIL VIEW ====================
-// ==================== SOUND DETAIL VIEW ====================
+
 interface SoundDetailViewProps { 
   sound: Sound; 
   onClose: () => void; 
   onReelClick: (id: number) => void; 
-  onUseSound?: (sound: Sound) => void; 
+  onUseSound?: (sound: Sound) => void;
+  onProfileClick?: (userId: number) => void;  // ✅ ADD THIS
 }
 
 export const SoundDetailView: React.FC<SoundDetailViewProps> = ({ 
   sound, 
   onClose, 
   onReelClick, 
-  onUseSound 
+  onUseSound,
+  onProfileClick,  // ✅ ADD THIS
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -1625,7 +1627,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
 
           setSoundStats(stats);
 
-          // ✅ Update displaySound with original sound owner from backend
+          // Update displaySound with original sound owner from backend
           if (data?.sound) {
             setDisplaySound((prev) => ({
               ...prev,
@@ -1751,15 +1753,26 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           <h2 className="text-3xl font-black text-white mb-2 leading-tight tracking-tighter">
             {displaySound.name}
           </h2>
-          <div className="flex items-center gap-2 mb-1">
-            {displaySound.creator?.profile_image_url && (
-              <img src={displaySound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
+          
+          {/* ✅ CLICKABLE CREATOR NAME */}
+          <button
+            onClick={() => {
+              const creatorId = Number(displaySound.creator?.id || 0);
+              if (!creatorId) return;
+              onProfileClick?.(creatorId);
+            }}
+            className="text-white/60 text-sm mt-1 hover:text-[#1877F2] transition-colors active:scale-[0.98]"
+          >
+            BY{' '}
+            <span className="font-bold text-white">
+              {displaySound.creator?.name || 'Original Sound'}
+            </span>
+            {displaySound.creator?.is_verified && (
+              <i className="fas fa-check-circle text-[#1877F2] ml-1 text-xs" />
             )}
-            <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
-              BY {displaySound.creator?.name || 'Original Sound'}
-            </p>
-          </div>
-          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
+          </button>
+
+          <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8 mt-2">
             {formatCount(soundStats.totalUses)} VIRAL CREATIONS • {formatCount(soundStats.totalViews)} VIEWS
           </p>
 
@@ -1857,7 +1870,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   );
 };
 
-
+      
 
 // ==================== REEL THUMBNAIL COMPONENT ====================
 const ReelThumbnail: React.FC<{
