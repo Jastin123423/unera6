@@ -5012,6 +5012,7 @@ const createReel = useCallback(async (
   if (!currentUser) return;
 
   console.log("createReel input:", reelData);
+
   setIsFeedRefreshing(true);
 
   try {
@@ -5027,6 +5028,9 @@ const createReel = useCallback(async (
 
     const isNativeVideo = !!reelData.nativeVideoUrl;
 
+    // =========================================================
+    // VIDEO
+    // =========================================================
     if (isNativeVideo) {
       console.log("📱 Using native uploaded video:", reelData.nativeVideoUrl);
 
@@ -5055,7 +5059,7 @@ const createReel = useCallback(async (
         videoUrl;
 
       setReelPublishingProgress(35);
-      setReelPublishingText('Video ready, preparing...');
+      setReelPublishingText('Video ready...');
     } else if (reelData.videoFile) {
       setReelPublishingProgress(15);
       setReelPublishingText('Uploading video...');
@@ -5088,16 +5092,25 @@ const createReel = useCallback(async (
       throw new Error('No video source provided');
     }
 
+    // =========================================================
+    // AUDIO
+    // =========================================================
     setReelPublishingProgress(60);
     setReelPublishingText('Processing audio track...');
 
     let audioUrl = '';
 
+    // ✅ REAL uploaded/extracted audio
     if (reelData.audioFile) {
+      console.log('🎵 Uploading provided audio file');
+
       audioUrl = await ensureR2Url(
         reelData.audioFile,
         'reel-audio',
-        `audio-${Date.now()}.wav`
+        `audio-${Date.now()}.webm`,
+        {
+          type: 'audio',
+        }
       );
     } else {
       const candidateAudioUrl =
@@ -5106,62 +5119,70 @@ const createReel = useCallback(async (
         selectedReelSound?.audioUrl ||
         '';
 
+      // =====================================================
+      // ✅ ORIGINAL SOUND FROM VIDEO
+      // =====================================================
       if (isVideoLikeAudioUrl(candidateAudioUrl)) {
-        setReelPublishingProgress(62);
-        setReelPublishingText('Extracting original sound...');
+        console.log('🎬 Using original reel video as soundtrack source');
 
-        try {
-          const sourceVideoFile = await remoteUrlToVideoFile(candidateAudioUrl);
-          const extractedAudio = await extractAudioFromVideo(sourceVideoFile);
-
-          if (extractedAudio) {
-            audioUrl = await ensureR2Url(
-              extractedAudio,
-              'reel-audio',
-              `original-sound-${Date.now()}.webm`
-            );
-          } else {
-            audioUrl = '';
-          }
-        } catch (err) {
-          console.warn('Original sound extraction failed:', err);
-          audioUrl = '';
-        }
+        // ✅ IMPORTANT:
+        // Keep MP4 URL instead of browser extraction.
+        // Browser extraction to webm caused silent playback.
+        // MP4 soundtrack works correctly in your current system.
+        audioUrl = candidateAudioUrl;
       } else {
         audioUrl = candidateAudioUrl;
       }
     }
 
+    // =========================================================
+    // SOUND DATA
+    // =========================================================
     const soundKey = generateSoundKey(reelData, selectedReelSound);
-    const isTrimmedAudio = soundKey.startsWith('trimmed:');
+
+    const isTrimmedAudio =
+      soundKey.startsWith('trimmed:');
 
     const audioStart = isTrimmedAudio
       ? 0
-      : reelData.audioStart ?? selectedReelSound?.audioStart ?? 0;
+      : reelData.audioStart ??
+        selectedReelSound?.audioStart ??
+        0;
 
     const audioEnd = isTrimmedAudio
       ? 0
-      : reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
+      : reelData.audioEnd ??
+        selectedReelSound?.audioEnd ??
+        0;
 
+    // =========================================================
+    // PAYLOAD
+    // =========================================================
     setReelPublishingProgress(75);
     setReelPublishingText('Publishing your reel...');
 
     const payload = {
       user_id: currentUser.id,
+
       caption: reelData.caption || '',
+
       video_url: videoUrl,
       video_url_low: videoUrlLow,
       video_url_medium: videoUrlMedium,
       video_url_hd: videoUrlHd,
+
       thumbnail_url: thumbnailUrl || '',
-      media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
+
+      media_meta: mediaMeta
+        ? JSON.stringify(mediaMeta)
+        : null,
 
       song_name:
         reelData.songName ||
         selectedReelSound?.songName ||
         'Original Sound',
 
-      // ✅ Now this will be real audio URL, not MP4 video URL
+      // ✅ Keep MP4 soundtrack URL for original sounds
       audio_url: audioUrl,
 
       audio_start: audioStart,
@@ -5176,6 +5197,7 @@ const createReel = useCallback(async (
 
       visibility: reelData.visibility || 'public',
       location: reelData.location || '',
+
       views: 0,
       shares: 0,
 
@@ -5184,7 +5206,8 @@ const createReel = useCallback(async (
         (reelData as any).effectId ||
         'none',
 
-      filter_intensity: (reelData as any).filterIntensity ?? 0.75,
+      filter_intensity:
+        (reelData as any).filterIntensity ?? 0.75,
     };
 
     console.log("Sending reel to API:", payload);
@@ -5194,33 +5217,58 @@ const createReel = useCallback(async (
       body: JSON.stringify(payload),
     });
 
+    // =========================================================
+    // SUCCESS
+    // =========================================================
     setReelPublishingProgress(100);
     setReelPublishingText('Reel posted successfully!');
 
     const newReel = normalizeReel(data.reel || data);
+
     newReel.author = currentUser.name;
     newReel.author_name = currentUser.name;
+
     newReel.avatar = currentUser.profile_image_url;
     newReel.avatar_url = currentUser.profile_image_url;
+
     newReel.verified = currentUser.is_verified;
 
-    setReels(prev => [newReel, ...safeArray(prev)]);
+    setReels(prev => [
+      newReel,
+      ...safeArray(prev),
+    ]);
+
     setLoginError('Reel posted successfully!');
     setSelectedReelSound(null);
+
   } catch (error: any) {
     console.error('Failed to create reel:', error);
-    setReelPublishingText(error?.message || 'Failed to create reel');
+
+    setReelPublishingText(
+      error?.message || 'Failed to create reel'
+    );
+
     setReelPublishingProgress(0);
-    setLoginError(error?.message || 'Failed to create reel');
+
+    setLoginError(
+      error?.message || 'Failed to create reel'
+    );
+
     throw error;
   } finally {
     setIsFeedRefreshing(false);
     setShowCreateReelModal(false);
   }
-}, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
+}, [
+  currentUser,
+  requireAuth,
+  selectedReelSound,
+  generateSoundKey
+]);
+
+
 
     
-
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
