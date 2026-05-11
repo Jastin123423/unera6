@@ -500,6 +500,36 @@ async function extractAudioFromVideo(file: File): Promise<File | null> {
   }
 }  
 
+  //===OTHER RECORDER SOUND EXTRACTOR HELPERS ===
+      
+const isVideoLikeAudioUrl = (url?: string) => {
+  const u = String(url || '').toLowerCase().split('?')[0];
+
+  return (
+    u.endsWith('.mp4') ||
+    u.endsWith('.mov') ||
+    u.endsWith('.webm') ||
+    u.endsWith('.m4v') ||
+    u.includes('/uploads/videos/')
+  );
+};
+
+const remoteUrlToVideoFile = async (url: string): Promise<File> => {
+  const res = await fetch(url, { cache: 'force-cache' });
+
+  if (!res.ok) {
+    throw new Error('Failed to load original sound video');
+  }
+
+  const blob = await res.blob();
+  const type = blob.type || 'video/mp4';
+
+  return new File(
+    [blob],
+    `original-sound-video-${Date.now()}.mp4`,
+    { type }
+  );
+};
 /** ---------- Stable key generator ---------- */
 const getStableItemKey = (item: any, prefix = 'item'): string => {
   const id = resolveVideoId(item);
