@@ -2075,7 +2075,8 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
 };
 
 //===HANDLE REEL SUBMIT ===
-  const handleSubmit = useCallback(async () => {
+
+const handleSubmit = useCallback(async () => {
   if (!videoFile && !nativeVideoUrl) {
     setSubmitState('error');
     setSubmitError('Please select a video first.');
@@ -2165,13 +2166,16 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
       location: location.trim(),
       visibility,
 
+      // ✅ NEW: HTML version with clickable links
+      descriptionHtml: linkifyText(caption.trim()),
+
       videoFile: videoFile || undefined,
       thumbnailFile: thumbnail?.file,
 
-      // ✅ undefined for original MP4 sound
+      // undefined for original MP4 sound
       audioFile: audioFileToSend,
 
-      // ✅ keeps MP4 URL
+      // keeps MP4 URL
       audioUrl: finalAudioUrl,
 
       songName: finalSongName,
@@ -2232,7 +2236,8 @@ const remoteUrlToVideoFile = async (url: string): Promise<File> => {
   filterIntensity,
   extractedVideoAudioFile,
 ]);
-
+  
+ 
 
 
   const handleSoundSelect = useCallback((sound: RecorderSoundOption) => {
