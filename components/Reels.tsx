@@ -2478,68 +2478,94 @@ const extractSoundFromReel = useCallback(
     } catch {}
   }, []);
 
-  const startSoundtrackForReel = useCallback(
-    (id: number) => {
-      if (audioSyncCleanupRef.current) {
-        audioSyncCleanupRef.current();
-        audioSyncCleanupRef.current = null;
-      }
-      const reel = reels.find((r) => r.id === id);
-      const video = videoRefs.current[id];
-      const audio = globalAudioRef.current;
-      if (!reel || !video || !audio) return;
-      if (!userInteractedRef.current) return;
+const startSoundtrackForReel = useCallback(
+  (id: number) => {
+    if (audioSyncCleanupRef.current) {
+      audioSyncCleanupRef.current();
+      audioSyncCleanupRef.current = null;
+    }
 
-      const soundtrackUrl = resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
-      if (!soundtrackUrl) return;
+    const reel = reels.find((r) => r.id === id);
+    const video = videoRefs.current[id];
+    const audio = globalAudioRef.current;
 
-      const start = Number(reel.audioStart || (reel as any).audio_start || 0);
-      const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
+    if (!reel || !video || !audio) return;
+    if (!userInteractedRef.current) return;
 
-      try {
-        video.muted = true;
-        video.volume = 0;
-      } catch {}
+    const soundtrackUrl =
+      resolvedAudioUrls[id] || reel.audioUrl || (reel as any).audio_url || '';
 
-      if (audio.src !== soundtrackUrl) {
-        audio.src = soundtrackUrl;
-      }
+    if (!soundtrackUrl) return;
 
-      const syncAudio = () => {
-        if (video.paused) {
-          audio.pause();
-          return;
-        }
-        const targetTime = video.currentTime + start;
-        if (end > start && targetTime >= end) {
-          try {
-            video.currentTime = 0;
-            audio.currentTime = start;
-          } catch {}
-          return;
-        }
-        if (Math.abs(audio.currentTime - targetTime) > 0.35) {
-          try {
-            audio.currentTime = targetTime;
-          } catch {}
-        }
-        if (audio.paused) {
-          audio.play().catch(() => {});
-        }
-      };
+    const start = Number(reel.audioStart || (reel as any).audio_start || 0);
+    const end = Number(reel.audioEnd || (reel as any).audio_end || 0);
 
-      video.addEventListener('timeupdate', syncAudio);
-      audioSyncCleanupRef.current = () => {
-        video.removeEventListener('timeupdate', syncAudio);
-      };
+    const fallbackToVideoAudio = (err?: any) => {
+      console.warn('External soundtrack failed, fallback to video audio:', err);
 
       try {
-        audio.currentTime = start;
-        audio.play().catch(() => {});
+        audio.pause();
+        audio.currentTime = 0;
       } catch {}
-    },
-    [reels, resolvedAudioUrls]
-  );
+
+      try {
+        video.muted = false;
+        video.volume = 1;
+      } catch {}
+    };
+
+    try {
+      video.muted = true;
+      video.volume = 0;
+    } catch {}
+
+    if (audio.src !== soundtrackUrl) {
+      audio.src = soundtrackUrl;
+    }
+
+    const syncAudio = () => {
+      if (video.paused) {
+        audio.pause();
+        return;
+      }
+
+      const targetTime = video.currentTime + start;
+
+      if (end > start && targetTime >= end) {
+        try {
+          video.currentTime = 0;
+          audio.currentTime = start;
+        } catch {}
+        return;
+      }
+
+      if (Math.abs(audio.currentTime - targetTime) > 0.35) {
+        try {
+          audio.currentTime = targetTime;
+        } catch {}
+      }
+
+      if (audio.paused) {
+        audio.play().catch(fallbackToVideoAudio);
+      }
+    };
+
+    video.addEventListener('timeupdate', syncAudio);
+
+    audioSyncCleanupRef.current = () => {
+      video.removeEventListener('timeupdate', syncAudio);
+    };
+
+    try {
+      audio.currentTime = start;
+      audio.play().catch(fallbackToVideoAudio);
+    } catch (err) {
+      fallbackToVideoAudio(err);
+    }
+  },
+  [reels, resolvedAudioUrls]
+);
+
 
   const stopActivePlayback = useCallback(() => {
     if (pendingPlayTimeoutRef.current) {
