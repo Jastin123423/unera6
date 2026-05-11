@@ -1564,6 +1564,7 @@ const ReelCommentsSheet: React.FC<{
 };
 
 // ==================== SOUND DETAIL VIEW ====================
+// ==================== SOUND DETAIL VIEW ====================
 interface SoundDetailViewProps { 
   sound: Sound; 
   onClose: () => void; 
@@ -1580,6 +1581,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [soundReels, setSoundReels] = useState<Reel[]>([]);
+  const [displaySound, setDisplaySound] = useState<Sound>(sound);
   const [soundStats, setSoundStats] = useState({
     totalViews: 0,
     totalLikes: 0,
@@ -1591,6 +1593,10 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
   const audioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<any>(null);
   const previewStopRef = useRef<any>(null);
+
+  useEffect(() => {
+    setDisplaySound(sound);
+  }, [sound]);
 
   useEffect(() => {
     const fetchSoundReels = async () => {
@@ -1618,6 +1624,24 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           });
 
           setSoundStats(stats);
+
+          // ✅ Update displaySound with original sound owner from backend
+          if (data?.sound) {
+            setDisplaySound((prev) => ({
+              ...prev,
+              name: data.sound.name || data.sound.title || prev.name,
+              creator: {
+                ...(prev.creator || {}),
+                id: Number(data.sound.creator_id || 0),
+                name: data.sound.creator_name || 'User',
+                username: data.sound.creator_username || '',
+                profile_image_url: data.sound.creator_avatar || '',
+                is_verified: !!data.sound.creator_verified,
+              } as any,
+              creationCount: Number(data.sound.total_uses || 0),
+              viewCount: Number(data.sound.total_views || 0),
+            }));
+          }
         }
       } catch (error) {
         console.error('Failed to fetch sound reels:', error);
@@ -1626,7 +1650,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     };
 
     fetchSoundReels();
-  }, [sound.id, sound.soundKey]);
+  }, [sound.id, sound.soundKey, sound.url]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -1663,17 +1687,17 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
       return;
     }
 
-    audioRef.current.src = sound.url;
-    audioRef.current.currentTime = sound.start || 0;
+    audioRef.current.src = displaySound.url;
+    audioRef.current.currentTime = displaySound.start || 0;
     audioRef.current.play().catch(() => {});
     setIsPlaying(true);
 
-    const duration = (sound.end || sound.duration || 30) - (sound.start || 0);
+    const duration = (displaySound.end || displaySound.duration || 30) - (displaySound.start || 0);
     previewStopRef.current = setTimeout(() => {
       setIsPlaying(false);
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.currentTime = sound.start || 0;
+        audioRef.current.currentTime = displaySound.start || 0;
       }
     }, Math.min(duration * 1000, 10000));
   };
@@ -1718,21 +1742,21 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           </div>
           <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
             <span className="text-white text-[10px] font-bold">
-              {formatDuration(currentTime)} / {formatDuration(sound.duration || 30)}
+              {formatDuration(currentTime)} / {formatDuration(displaySound.duration || 30)}
             </span>
           </div>
         </div>
 
         <div className="flex-1 text-center md:text-left">
           <h2 className="text-3xl font-black text-white mb-2 leading-tight tracking-tighter">
-            {sound.name}
+            {displaySound.name}
           </h2>
           <div className="flex items-center gap-2 mb-1">
-            {sound.creator?.profile_image_url && (
-              <img src={sound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
+            {displaySound.creator?.profile_image_url && (
+              <img src={displaySound.creator.profile_image_url} className="w-6 h-6 rounded-full object-cover" alt="" />
             )}
             <p className="text-[#1877F2] font-black text-sm uppercase tracking-widest">
-              BY {sound.creator?.name || 'Original Sound'}
+              BY {displaySound.creator?.name || 'Original Sound'}
             </p>
           </div>
           <p className="text-[#B0B3B8] font-bold text-xs uppercase tracking-[4px] mb-8">
@@ -1750,7 +1774,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
               {isPlaying ? 'Playing...' : 'Preview'}
             </button>
             <button
-              onClick={() => onUseSound?.(sound)}
+              onClick={() => onUseSound?.(displaySound)}
               className="flex-1 px-8 py-4 rounded-2xl font-black text-base border border-[#1877F2] bg-[#1877F2] text-white transition-all flex items-center justify-center gap-3 active:scale-95"
             >
               <i className="fas fa-plus text-sm"></i>
@@ -1777,12 +1801,12 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
             <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Duration</p>
-            <p className="text-white text-2xl font-black mt-2">{formatDuration(sound.duration || 30)}</p>
+            <p className="text-white text-2xl font-black mt-2">{formatDuration(displaySound.duration || 30)}</p>
           </div>
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
             <p className="text-[#B0B3B8] text-xs font-bold uppercase tracking-widest">Sound Type</p>
             <p className="text-white text-2xl font-black mt-2">
-              {sound.isOriginal ? 'Original' : 'Shared'}
+              {displaySound.isOriginal ? 'Original' : 'Shared'}
             </p>
           </div>
         </div>
@@ -1832,6 +1856,8 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
     </div>
   );
 };
+
+
 
 // ==================== REEL THUMBNAIL COMPONENT ====================
 const ReelThumbnail: React.FC<{
