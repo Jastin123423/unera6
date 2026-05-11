@@ -2599,116 +2599,151 @@ const startSoundtrackForReel = useCallback(
   }, [stopSoundtrack]);
 
   //===play Only===
+const playOnly = useCallback(
+  async (id: number) => {
+    const requestId = ++playRequestRef.current;
 
-  const playOnly = useCallback(
-    async (id: number) => {
-      const requestId = ++playRequestRef.current;
+    Object.entries(videoRefs.current).forEach(([key, video]) => {
+      if (!video) return;
 
-      Object.entries(videoRefs.current).forEach(([key, video]) => {
-        if (!video) return;
-        const rid = Number(key);
-        if (rid !== id) {
-          try {
-            video.pause();
-            video.currentTime = 0;
-            video.muted = true;
-            video.volume = 0;
-          } catch {}
-        }
+      const rid = Number(key);
+
+      if (rid !== id) {
+        try {
+          video.pause();
+          video.currentTime = 0;
+          video.muted = true;
+          video.volume = 0;
+        } catch {}
+      }
+    });
+
+    stopSoundtrack();
+
+    const reel = reels.find((r) => r.id === id);
+    const video = videoRefs.current[id];
+
+    if (!reel || !video) return;
+
+    const hasExternalSound = !!(
+      reel.audioUrl ||
+      (reel as any).audio_url
+    );
+
+    // ✅ Mute immediately before src/load/play
+    if (hasExternalSound) {
+      try {
+        video.muted = true;
+        video.volume = 0;
+      } catch {}
+    }
+
+    setVideoErrors((prev) => ({ ...prev, [id]: false }));
+
+    await resolveReelMedia(reel);
+
+    if (playRequestRef.current !== requestId) return;
+
+    const chosenUrl =
+      resolvedVideoUrls[id] ||
+      pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
+
+    if (shouldUseNativeReelPlayer()) {
+      if (!chosenUrl) return;
+
+      Object.values(videoRefs.current).forEach((v) => {
+        if (!v) return;
+
+        try {
+          v.pause();
+          v.muted = true;
+          v.volume = 0;
+        } catch {}
       });
 
       stopSoundtrack();
-
-      const reel = reels.find((r) => r.id === id);
-      const video = videoRefs.current[id];
-      if (!reel) return;
-
-      setVideoErrors((prev) => ({ ...prev, [id]: false }));
-
-      await resolveReelMedia(reel);
-      if (playRequestRef.current !== requestId) return;
-
-      const chosenUrl = resolvedVideoUrls[id] || pickBestVideoUrl(getReelVideoSources(reel), networkLevel);
-
-      if (shouldUseNativeReelPlayer()) {
-        if (!chosenUrl) return;
-        Object.values(videoRefs.current).forEach((v) => {
-          if (!v) return;
-          try {
-            v.pause();
-            v.muted = true;
-            v.volume = 0;
-          } catch {}
-        });
-        stopSoundtrack();
-        setActiveReelId(id);
-        setPlayingReelId(id);
-        activeIdRef.current = id;
-        sendNativeReelVideo({
-          action: 'play_native_reel_video',
-          reelId: id,
-          url: chosenUrl,
-          poster: (reel as any).thumbnail_url || (reel as any).thumbnail || '',
-          muted: false,
-          loop: true,
-        });
-        incrementViewCount(id);
-        return;
-      }
-
-      if (!video) return;
-
-      if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
-        video.src = chosenUrl;
-        video.load();
-      }
-
-      unloadFarVideos(id);
 
       setActiveReelId(id);
       setPlayingReelId(id);
       activeIdRef.current = id;
 
+      sendNativeReelVideo({
+        action: 'play_native_reel_video',
+        reelId: id,
+        url: chosenUrl,
+        poster:
+          (reel as any).thumbnail_url ||
+          (reel as any).thumbnail ||
+          '',
+        muted: hasExternalSound,
+        loop: true,
+      });
+
+      incrementViewCount(id);
+      return;
+    }
+
+    if (chosenUrl && video.getAttribute('src') !== chosenUrl) {
       try {
-        await waitUntilPlayable(video);
-        if (playRequestRef.current !== requestId) return;
+        video.muted = hasExternalSound ? true : video.muted;
+        video.volume = hasExternalSound ? 0 : video.volume;
+        video.src = chosenUrl;
+        video.load();
+      } catch {}
+    }
 
-        const hasExternalSound = !!(reel.audioUrl || (reel as any).audio_url);
+    unloadFarVideos(id);
 
-        if (hasExternalSound) {
-          video.muted = true;
-          video.volume = 0;
-        } else if (userInteractedRef.current) {
-          video.muted = false;
-          video.volume = 1;
-        } else {
-          video.muted = true;
-          video.volume = 0;
-        }
+    setActiveReelId(id);
+    setPlayingReelId(id);
+    activeIdRef.current = id;
 
-        await video.play();
-
-        if (hasExternalSound && userInteractedRef.current) {
-          startSoundtrackForReel(id);
-        }
-
-        incrementViewCount(id);
-      } catch (err) {
-        console.warn('Autoplay/play failed', err);
+    try {
+      // ✅ Keep muted during preparation
+      if (hasExternalSound) {
+        video.muted = true;
+        video.volume = 0;
       }
-    },
-    [
-      reels,
-      resolveReelMedia,
-      resolvedVideoUrls,
-      networkLevel,
-      unloadFarVideos,
-      waitUntilPlayable,
-      incrementViewCount,
-      stopSoundtrack,
-      startSoundtrackForReel,
-    ]
-  );
+
+      await waitUntilPlayable(video);
+
+      if (playRequestRef.current !== requestId) return;
+
+      if (hasExternalSound) {
+        video.muted = true;
+        video.volume = 0;
+      } else if (userInteractedRef.current) {
+        video.muted = false;
+        video.volume = 1;
+      } else {
+        video.muted = true;
+        video.volume = 0;
+      }
+
+      await video.play();
+
+      if (hasExternalSound && userInteractedRef.current) {
+        startSoundtrackForReel(id);
+      }
+
+      incrementViewCount(id);
+    } catch (err) {
+      console.warn('Autoplay/play failed', err);
+    }
+  },
+  [
+    reels,
+    resolveReelMedia,
+    resolvedVideoUrls,
+    networkLevel,
+    unloadFarVideos,
+    waitUntilPlayable,
+    incrementViewCount,
+    stopSoundtrack,
+    startSoundtrackForReel,
+  ]
+);
+
 
   const scrollToReelByIndex = useCallback(
     (index: number) => {
