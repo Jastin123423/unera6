@@ -55,15 +55,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!soundKey && !audioUrl) {
       return json(
-        {
-          success: false,
-          error: "sound_key or audio_url is required",
-        },
+        { success: false, error: "sound_key or audio_url is required" },
         400
       );
     }
 
-    const rows = await env.DB.prepare(
+    const rowsRes = await env.DB.prepare(
       `
       SELECT
         r.id,
@@ -146,7 +143,87 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       )
       .all();
 
-    const reels = (rows.results || []).map((r: any) => ({
+    const rows = Array.isArray(rowsRes.results) ? rowsRes.results : [];
+
+    const ownerCandidate =
+      [...rows].sort((a: any, b: any) => {
+        const at = new Date(a.created_at || 0).getTime();
+        const bt = new Date(b.created_at || 0).getTime();
+        if (at !== bt) return at - bt;
+        return toNum(a.id) - toNum(b.id);
+      })[0] || null;
+
+    const originalOwnerId =
+      ownerCandidate?.original_sound_owner_id == null
+        ? toNum(ownerCandidate?.user_id, 0)
+        : toNum(ownerCandidate?.original_sound_owner_id, 0);
+
+    let ownerRow: any = ownerCandidate;
+
+    if (originalOwnerId) {
+      const foundOwner = rows.find(
+        (r: any) => toNum(r.user_id, 0) === originalOwnerId
+      );
+      if (foundOwner) ownerRow = foundOwner;
+      else {
+        const user = await env.DB.prepare(
+          `
+          SELECT id, name, username, profile_image_url, is_verified
+          FROM users
+          WHERE id = ?
+          LIMIT 1
+          `
+        )
+          .bind(originalOwnerId)
+          .first();
+
+        if (user) {
+          ownerRow = {
+            ...ownerCandidate,
+            user_id: (user as any).id,
+            name: (user as any).name,
+            username: (user as any).username,
+            profile_image_url: (user as any).profile_image_url,
+            is_verified: (user as any).is_verified,
+          };
+        }
+      }
+    }
+
+    const totalViews = rows.reduce(
+      (sum: number, r: any) => sum + toNum(r.views, 0),
+      0
+    );
+
+    const totalShares = rows.reduce(
+      (sum: number, r: any) => sum + toNum(r.shares, 0),
+      0
+    );
+
+    const soundTitle = pickFirst(
+      ownerCandidate?.original_sound_title,
+      ownerCandidate?.song_name,
+      rows[0]?.original_sound_title,
+      rows[0]?.song_name,
+      "Original Sound"
+    );
+
+    const resolvedSoundKey = pickFirst(
+      soundKey,
+      ownerCandidate?.sound_key,
+      rows[0]?.sound_key,
+      "original:none"
+    );
+
+    const resolvedAudioUrl = pickFirst(
+      audioUrl,
+      ownerCandidate?.original_audio_url,
+      ownerCandidate?.audio_url,
+      rows[0]?.original_audio_url,
+      rows[0]?.audio_url
+    );
+
+    const reels = rows.map((r: any) => ({
       id: toNum(r.id),
       userId: toNum(r.user_id),
       user_id: toNum(r.user_id),
@@ -161,19 +238,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       thumbnail: pickFirst(r.thumbnail_url),
 
       caption: pickFirst(r.caption),
-      songName: pickFirst(
-        r.original_sound_title,
-        r.song_name,
-        "Original Sound"
-      ),
-      song_name: pickFirst(
-        r.original_sound_title,
-        r.song_name,
-        "Original Sound"
-      ),
+      songName: pickFirst(r.original_sound_title, r.song_name, soundTitle),
+      song_name: pickFirst(r.original_sound_title, r.song_name, soundTitle),
 
-      audioUrl: pickFirst(r.original_audio_url, r.audio_url),
-      audio_url: pickFirst(r.original_audio_url, r.audio_url),
+      audioUrl: pickFirst(r.original_audio_url, r.audio_url, resolvedAudioUrl),
+      audio_url: pickFirst(r.original_audio_url, r.audio_url, resolvedAudioUrl),
       audioStart: toNum(r.audio_start, 0),
       audio_start: toNum(r.audio_start, 0),
       audioEnd: toNum(r.audio_end, 0),
@@ -186,19 +255,19 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       song_id: r.song_id == null ? null : toNum(r.song_id),
       soundId: r.sound_id == null ? null : toNum(r.sound_id),
       sound_id: r.sound_id == null ? null : toNum(r.sound_id),
-      soundKey: pickFirst(r.sound_key, "original:none"),
-      sound_key: pickFirst(r.sound_key, "original:none"),
+      soundKey: pickFirst(r.sound_key, resolvedSoundKey),
+      sound_key: pickFirst(r.sound_key, resolvedSoundKey),
 
       isOriginalSound: safeBool(r.is_original_sound),
       is_original_sound: safeBool(r.is_original_sound) ? 1 : 0,
       originalAudioUrl: pickFirst(r.original_audio_url),
       original_audio_url: pickFirst(r.original_audio_url),
-      originalSoundTitle: pickFirst(r.original_sound_title, "Original Sound"),
-      original_sound_title: pickFirst(r.original_sound_title, "Original Sound"),
+      originalSoundTitle: pickFirst(r.original_sound_title, soundTitle),
+      original_sound_title: pickFirst(r.original_sound_title, soundTitle),
       originalSoundOwnerId:
-        r.original_sound_owner_id == null ? null : toNum(r.original_sound_owner_id),
+        r.original_sound_owner_id == null ? originalOwnerId : toNum(r.original_sound_owner_id),
       original_sound_owner_id:
-        r.original_sound_owner_id == null ? null : toNum(r.original_sound_owner_id),
+        r.original_sound_owner_id == null ? originalOwnerId : toNum(r.original_sound_owner_id),
 
       visibility: pickFirst(r.visibility, "public"),
       location: pickFirst(r.location),
@@ -227,17 +296,32 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     return json({
       success: true,
-      sound_key: soundKey,
-      audio_url: audioUrl,
+      sound_key: resolvedSoundKey,
+      audio_url: resolvedAudioUrl,
       count: reels.length,
+
+      sound: {
+        sound_key: resolvedSoundKey,
+        audio_url: resolvedAudioUrl,
+        name: soundTitle,
+        title: soundTitle,
+
+        creator_id: toNum(ownerRow?.user_id, originalOwnerId),
+        creator_name: pickFirst(ownerRow?.name, ownerRow?.username, "User"),
+        creator_username: pickFirst(ownerRow?.username),
+        creator_avatar: pickFirst(ownerRow?.profile_image_url),
+        creator_verified: safeBool(ownerRow?.is_verified),
+
+        total_uses: reels.length,
+        total_views: totalViews,
+        total_shares: totalShares,
+      },
+
       reels,
     });
   } catch (e: any) {
     return json(
-      {
-        success: false,
-        error: e?.message || "Server error",
-      },
+      { success: false, error: e?.message || "Server error" },
       500
     );
   }
