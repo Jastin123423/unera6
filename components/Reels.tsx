@@ -3,6 +3,14 @@ import { User, Reel, ReactionType } from '../types';
 import { ShareBottomSheet, topReactionEmojis, formatReactionText, reactionEmoji } from './Feed';
 import Filters, { UneraFilter, buildUneraFilterStyle, UneraFilterOverlay } from './filters';
 
+// ==================== SHARED BUTTON CLASSES ====================
+const reelGlassButton =
+  "bg-black/35 backdrop-blur-md border-[2px] border-white/90 text-white shadow-[0_6px_22px_rgba(0,0,0,0.45)] active:scale-95 transition";
+const reelIconButton =
+  `w-12 h-12 rounded-full flex items-center justify-center ${reelGlassButton}`;
+const reelFollowButton =
+  "px-5 py-2.5 rounded-xl bg-black/25 backdrop-blur-md border-[2px] border-white/80 text-white font-black text-lg shadow-[0_6px_22px_rgba(0,0,0,0.45)] active:scale-95 transition";
+
 // ==================== MEDIA CACHE SYSTEM (MEMORY-SAFE) ====================
 const mediaBlobCache = new Map<string, { blobUrl: string; timestamp: number }>();
 const mediaWarmPromises = new Map<string, Promise<string>>();
@@ -915,10 +923,12 @@ const ReelDiscussButton: React.FC<{
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+      className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
     >
       <DiscussSignalIcon size={24} color="#1877F2" />
-      <span className="text-white text-sm font-bold ml-1">{formatViewCount(commentCount)}</span>
+      <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
+        {formatViewCount(commentCount)}
+      </span>
     </button>
   );
 };
@@ -1587,7 +1597,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [soundReels, setSoundReels] = useState<Reel[]>([]);
+  const [soundReels, setsoundReels] = useState<Reel[]>([]);
   const [displaySound, setDisplaySound] = useState<Sound>(sound);
   const [soundStats, setSoundStats] = useState({
     totalViews: 0,
@@ -1613,7 +1623,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
         const data = await response.json();
 
         if (data?.success && data.reels) {
-          setSoundReels(data.reels);
+          setsoundReels(data.reels);
 
           const stats = {
             totalViews: 0,
@@ -1651,7 +1661,7 @@ export const SoundDetailView: React.FC<SoundDetailViewProps> = ({
         }
       } catch (error) {
         console.error('Failed to fetch sound reels:', error);
-        setSoundReels([]);
+        setsoundReels([]);
       }
     };
 
@@ -2107,7 +2117,7 @@ interface ReelsFeedProps {
 }
 
 export const ReelsFeed: React.FC<ReelsFeedProps> = ({
-  reels,
+  reels: initialReels,
   users,
   currentUser,
   onProfileClick,
@@ -2129,12 +2139,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   reelPublishingText = '',
 }) => {
 
-  // ==================== STATE ====================
+  // ==================== PAGINATION STATE ====================
+  const [reels, setReels] = useState<Reel[]>(initialReels);
+  const [reelsPage, setReelsPage] = useState(1);
+  const [hasMoreReels, setHasMoreReels] = useState(true);
+  const [loadingMoreReels, setLoadingMoreReels] = useState(false);
+  const loadMoreLockRef = useRef(false);
+
+  // ==================== OTHER STATE ====================
   const [activeReelId, setActiveReelId] = useState<number | null>(
-    initialReelId || reels[0]?.id || null
+    initialReelId || initialReels[0]?.id || null
   );
   const [playingReelId, setPlayingReelId] = useState<number | null>(
-    initialReelId || reels[0]?.id || null
+    initialReelId || initialReels[0]?.id || null
   );
   const [showComments, setShowComments] = useState(false);
   const [selectedSoundData, setSelectedSoundData] = useState<Sound | null>(null);
@@ -2189,6 +2206,96 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
     () => reels.findIndex((r) => r.id === activeReelId),
     [reels, activeReelId]
   );
+
+  // ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
+  const normalizeReel = useCallback((reel: any): Reel => {
+    return {
+      ...reel,
+      id: Number(reel.id),
+      userId: Number(reel.userId ?? reel.user_id),
+      views: Number(reel.views ?? 0),
+      shares: Number(reel.shares ?? 0),
+      reactions: reel.reactions || [],
+      comments: reel.comments || [],
+      created_at: reel.created_at || reel.createdAt,
+    };
+  }, []);
+
+  const apiFetch = useCallback(async (url: string) => {
+    const token = localStorage.getItem('unera_token');
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  }, []);
+
+  const loadMoreReels = useCallback(async () => {
+    if (loadMoreLockRef.current) return;
+    if (!hasMoreReels) return;
+
+    loadMoreLockRef.current = true;
+    setLoadingMoreReels(true);
+
+    try {
+      const nextPage = reelsPage + 1;
+      const data = await apiFetch(`/api/reels?page=${nextPage}&limit=10`);
+
+      const nextItems = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.reels)
+        ? data.reels
+        : [];
+
+      if (nextItems.length === 0) {
+        setHasMoreReels(false);
+        return;
+      }
+
+      setReels((prev) => {
+        const seen = new Set(prev.map((r: any) => Number(r.id)));
+        const fresh = nextItems.filter((r: any) => !seen.has(Number(r.id)));
+        return [...prev, ...fresh.map(normalizeReel)];
+      });
+
+      setReelsPage(nextPage);
+
+      // Pre-cache next videos for smoother playback
+      const nextVideos = nextItems.slice(0, 3).map((reel: any) => {
+        const sources = getReelVideoSources(reel);
+        return pickBestVideoUrl(sources, networkLevel);
+      });
+      nextVideos.forEach((url: string) => {
+        if (url) {
+          fetchAsBlobUrl(url, 'video').catch(() => {});
+        }
+      });
+
+      if (nextItems.length < 10) {
+        setHasMoreReels(false);
+      }
+    } catch (e) {
+      console.warn('Load more reels failed:', e);
+    } finally {
+      setLoadingMoreReels(false);
+      loadMoreLockRef.current = false;
+    }
+  }, [reelsPage, hasMoreReels, apiFetch, normalizeReel, networkLevel]);
+
+  // Trigger load more when user has about 5 videos left
+  useEffect(() => {
+    if (!activeReelId) return;
+    if (loadingMoreReels) return;
+
+    const index = reels.findIndex((r: any) => Number(r.id) === Number(activeReelId));
+    if (index < 0) return;
+
+    const remaining = reels.length - index - 1;
+
+    if (remaining <= 5) {
+      loadMoreReels();
+    }
+  }, [activeReelId, reels, loadingMoreReels, loadMoreReels]);
 
   // ==================== DOWNLOAD HANDLER WITH PROGRESS ====================
   const handleDownloadReel = useCallback(async (reel: Reel) => {
@@ -3255,23 +3362,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       stopSoundtrack();
     };
 
-   useEffect(() => {
-  const pauseAllReelsForNative = () => {
-    try {
-      stopActivePlayback();
-      setPlayingReelId(null);
-      activeIdRef.current = null;
-      userInteractedRef.current = false;
-    } catch {}
-  };
-
-  window.addEventListener('uneraPauseAllReels', pauseAllReelsForNative);
-
-  return () => {
-    window.removeEventListener('uneraPauseAllReels', pauseAllReelsForNative);
-  };
-}, [stopActivePlayback]);
-    
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stopPlayback();
@@ -3436,7 +3526,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
         </div>
       )}
 
-      {/* Facebook-style back button - always visible */}
+      {/* Facebook-style back button - UPDATED with reelGlassButton class */}
       <button
         onClick={() => {
           if (shouldUseNativeReelPlayer()) {
@@ -3445,10 +3535,10 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           if (onBack) onBack();
           else window.history.back();
         }}
-        className="fixed top-[max(env(safe-area-inset-top),18px)] left-4 z-[10020] text-white active:scale-95 transition"
+        className={reelIconButton + " fixed top-[max(env(safe-area-inset-top),18px)] left-4 z-[10020] shadow-[0_6px_22px_rgba(0,0,0,0.45)]"}
         aria-label="Back"
       >
-        <i className="fas fa-chevron-left text-[36px] font-black drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]" />
+        <i className="fas fa-chevron-left text-2xl font-black" />
       </button>
 
       {/* Top right buttons - hide/show with chrome visibility */}
@@ -3457,25 +3547,19 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
           chromeVisible ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
         }`}
       >
+        {/* Create/Plus button - UPDATED with reelIconButton class */}
         <button
           onClick={handleCreateReelClick}
-          className="w-14 h-14 rounded-full bg-white/5 backdrop-blur-sm border border-white/20 flex items-center justify-center active:scale-95 transition-all"
+          className={reelIconButton}
           aria-label="Create reel"
         >
           <i className="fas fa-plus text-white text-xl" />
         </button>
 
-        <button
-          className="min-w-[52px] h-12 px-4 rounded-full bg-transparent border border-white/25 flex items-center justify-center gap-2 text-white"
-          title="Views"
-        >
-          <i className="fas fa-eye text-[14px]" />
-          <span className="text-sm font-bold">{formatViewCount(activeReel?.views)}</span>
-        </button>
-
+        {/* Download button - UPDATED with reelIconButton class */}
         <button
           onClick={() => handleDownloadReel(activeReel!)}
-          className="relative w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center active:scale-95 transition-all"
+          className={`${reelIconButton} relative`}
           aria-label="Download reel"
           disabled={downloadingReelId === activeReel?.id}
         >
@@ -3490,6 +3574,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             <i className="fas fa-download text-white text-base" />
           )}
         </button>
+
+        {/* Menu button (ellipsis) - UPDATED with reelIconButton class */}
         <button
           onClick={() => {
             const reel = reels.find((r) => Number(r.id) === Number(activeReelId));
@@ -3499,7 +3585,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
             setMenuReelId(reel.id);
             setShowReelMenu(true);
           }}
-          className="w-12 h-12 rounded-full bg-transparent border border-white/25 flex items-center justify-center"
+          className={reelIconButton}
         >
           <i className="fas fa-ellipsis-h text-white text-base" />
         </button>
@@ -3555,9 +3641,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                   onContextMenu={(e) => e.preventDefault()}
                   className="relative h-[100dvh] w-full snap-start bg-black overflow-hidden"
                 >
-                  <div className={`reel-video-shell w-full h-full relative ${
-                    shouldUseNativeReelPlayer() ? 'bg-transparent' : 'bg-black'
-                  }`}>
+                  {/* Strong black video stage - UPDATED video wrapper */}
+                  <div className="relative h-full w-full bg-black overflow-hidden">
                     <video
                       ref={(el) => {
                         if (el) videoRefs.current[reel.id] = el;
@@ -3570,7 +3655,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       controls={false}
                       disablePictureInPicture
                       controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-                      className="absolute inset-0 w-full h-full object-cover bg-black"
+                      // Updated video className with cinematic opacity
+                      className="absolute inset-0 h-full w-full object-cover bg-black opacity-[0.96]"
                       style={{
                         WebkitTouchCallout: 'none',
                         WebkitUserSelect: 'none',
@@ -3612,18 +3698,22 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                       }}
                     />
 
+                    {/* ADDED: Stronger video gradient overlays */}
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-black/70" />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/18 via-transparent to-black/18" />
+
                     {/* Lyrics overlay */}
-{reelLyricsEnabled(reel) && getReelLyricsText(reel) && (
-  <div className="absolute inset-0 pointer-events-none z-20">
-    <div className={`reel-lyrics-overlay reel-lyrics-${getReelLyricsTheme(reel)}`}>
-      {getReelLyricsText(reel)
-        .split('\n')
-        .map((line, idx) => (
-          <div key={idx}>{line || '\u00A0'}</div>
-        ))}
-    </div>
-  </div>
-)}
+                    {reelLyricsEnabled(reel) && getReelLyricsText(reel) && (
+                      <div className="absolute inset-0 pointer-events-none z-20">
+                        <div className={`reel-lyrics-overlay reel-lyrics-${getReelLyricsTheme(reel)}`}>
+                          {getReelLyricsText(reel)
+                            .split('\n')
+                            .map((line, idx) => (
+                              <div key={idx}>{line || '\u00A0'}</div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                     
                     <div
                       className="absolute inset-0 z-10"
@@ -3670,10 +3760,11 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                                 <i className="fas fa-check-circle text-[#1877F2] text-xs shrink-0"></i>
                               )}
                               {currentUser?.id !== author.id && (
+                                // UPDATED: Follow button with reelFollowButton class
                                 <button
                                   onClick={() => onFollow(author.id)}
                                   disabled={isLoadingFollow}
-                                  className="ml-2 h-10 px-5 rounded-[12px] border border-white/35 text-white text-[15px] font-bold bg-transparent active:scale-95 transition-all shrink-0"
+                                  className={reelFollowButton + " ml-2 shrink-0"}
                                 >
                                   {isLoadingFollow ? '...' : isFollowing ? 'Following' : 'Follow'}
                                 </button>
@@ -3741,7 +3832,7 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           hasReacted={hasReacted || false}
                           reactionCount={reel.reactions?.length || 0}
                           currentUserReaction={currentUserReaction}
-                          onReact={onReact}
+                          onReaction={onReaction}
                           isLoading={isReacting}
                         />
 
@@ -3753,12 +3844,13 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                           }}
                         />
 
+                        {/* Share button - UPDATED with stronger white styling */}
                         <button
                           onClick={() => handleOpenShare(reel)}
-                          className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all"
+                          className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
                         >
                           <i className="fas fa-share text-lg text-white" />
-                          <span className="text-white text-sm font-bold ml-1">
+                          <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
                             {formatCount(reel.shares || 0)}
                           </span>
                         </button>
