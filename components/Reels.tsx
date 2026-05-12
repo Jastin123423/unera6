@@ -3254,6 +3254,24 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
       });
       stopSoundtrack();
     };
+
+   useEffect(() => {
+  const pauseAllReelsForNative = () => {
+    try {
+      stopActivePlayback();
+      setPlayingReelId(null);
+      activeIdRef.current = null;
+      userInteractedRef.current = false;
+    } catch {}
+  };
+
+  window.addEventListener('uneraPauseAllReels', pauseAllReelsForNative);
+
+  return () => {
+    window.removeEventListener('uneraPauseAllReels', pauseAllReelsForNative);
+  };
+}, [stopActivePlayback]);
+    
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stopPlayback();
