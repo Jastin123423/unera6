@@ -2146,6 +2146,12 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [loadingMoreReels, setLoadingMoreReels] = useState(false);
   const loadMoreLockRef = useRef(false);
 
+// ✅ Added this useEffect to sync when initialReels changes
+useEffect(() => {
+  setReels(Array.isArray(initialReels) ? initialReels : []);
+}, [initialReels]);
+
+  
   // ==================== OTHER STATE ====================
   const [activeReelId, setActiveReelId] = useState<number | null>(
     initialReelId || initialReels[0]?.id || null
