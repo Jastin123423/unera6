@@ -3826,35 +3826,35 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
                         </div>
                       )}
 
-                      <div className="flex items-center justify-around py-2 pointer-events-auto">
-                        <ReelReactionButton
-                          reelId={reel.id}
-                          hasReacted={hasReacted || false}
-                          reactionCount={reel.reactions?.length || 0}
-                          currentUserReaction={currentUserReaction}
-                          onReaction={onReaction}
-                          isLoading={isReacting}
-                        />
+    <div className="flex items-center justify-around py-2 pointer-events-auto">
+  <ReelReactionButton
+    reelId={reel.id}
+    hasReacted={hasReacted || false}
+    reactionCount={reel.reactions?.length || 0}
+    currentUserReaction={currentUserReaction}
+    onReact={onReact}
+    isLoading={isReacting}
+  />
 
-                        <ReelDiscussButton
-                          commentCount={reel.comments?.length || 0}
-                          onClick={() => {
-                            setActiveReelId(reel.id);
-                            setShowComments(true);
-                          }}
-                        />
+  <ReelDiscussButton
+    commentCount={reel.comments?.length || 0}
+    onClick={() => {
+      setActiveReelId(reel.id);
+      setShowComments(true);
+    }}
+  />
 
-                        {/* Share button - UPDATED with stronger white styling */}
-                        <button
-                          onClick={() => handleOpenShare(reel)}
-                          className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
-                        >
-                          <i className="fas fa-share text-lg text-white" />
-                          <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
-                            {formatCount(reel.shares || 0)}
-                          </span>
-                        </button>
-                      </div>
+  {/* Share button */}
+  <button
+    onClick={() => handleOpenShare(reel)}
+    className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
+  >
+    <i className="fas fa-share text-lg text-white" />
+    <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
+      {formatCount(reel.shares || 0)}
+    </span>
+  </button>
+</div>
 
                       {/* Progress bar below action buttons */}
                       <div className="mt-2 px-1 pointer-events-none">
