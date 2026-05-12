@@ -362,6 +362,7 @@ interface Sound {
   soundKey?: string;
   originalUrl?: string;
   songId?: string | number | null;
+  originalSoundOwnerId?: string | number | null;  // ✅ Added this line
 }
 
 type NetworkLevel = 'low' | 'medium' | 'high';
