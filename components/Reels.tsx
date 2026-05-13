@@ -2195,28 +2195,6 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [loadingMoreReels, setLoadingMoreReels] = useState(false);
   const loadMoreLockRef = useRef(false);
 
-// ✅ Added this useEffect to sync when initialReels changes
-
-useEffect(() => {
-  if (!Array.isArray(initialReels)) return;
-  if (initialReels.length === 0) return;
-
-  setReels((prev) => {
-    if (prev.length > initialReels.length) return prev;
-
-    const seen = new Set(prev.map((r: any) => Number(r.id)));
-    const fresh = initialReels.filter((r: any) => !seen.has(Number(r.id)));
-
-    if (prev.length > 0 && fresh.length === 0) return prev;
-
-    return [...fresh.map(normalizeReel), ...prev].filter(
-      (r, index, arr) =>
-        arr.findIndex((x) => Number(x.id) === Number(r.id)) === index
-    );
-  });
-
-  setHasMoreReels(true);
-}, [initialReels, normalizeReel]);
 
   
   // ==================== OTHER STATE ====================
@@ -2260,6 +2238,11 @@ useEffect(() => {
   const chromeTimerRef = useRef<any>(null);
 
   // ==================== REFS ====================
+//==================== FEED SEED FOR RANDOMIZATION ====================
+const feedSeedRef = useRef<number>(
+  Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
+);
+  
   const pendingPlayTimeoutRef = useRef<any>(null);
   
   const viewedReelsRef = useRef<Set<number>>(new Set());
