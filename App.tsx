@@ -3064,6 +3064,13 @@ const makeStoryVideoThumbnail = async (file: File) => {
   }
 };
 
+const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+  if (!currentUser || !targetUserId) return false;
+
+  return toIdArray((currentUser as any).following).includes(Number(targetUserId));
+}, [currentUser]);
+
+    
 const uploadStoryImageBundle = async (file: File) => {
   const { fullFile, feedFile, thumbFile } = await makeStoryImageVariants(file);
   const fd = new FormData();
