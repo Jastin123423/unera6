@@ -2333,6 +2333,43 @@ const apiFetch = useCallback(async (url: string) => {
   return res.json();
 }, []);
 
+// ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
+
+const feedSeedRef = useRef<number>(
+  Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
+);
+
+const normalizeReel = useCallback((reel: any): Reel => {
+  return {
+    ...reel,
+    id: Number(reel.id),
+    userId: Number(reel.userId ?? reel.user_id),
+    views: Number(reel.views ?? 0),
+    shares: Number(reel.shares ?? 0),
+    reactions: reel.reactions || [],
+    comments: reel.comments || [],
+    created_at: reel.created_at || reel.createdAt,
+  };
+}, []);
+
+const apiFetch = useCallback(async (url: string) => {
+  const token = localStorage.getItem('unera_token');
+
+  const res = await fetch(url, {
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {},
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return res.json();
+}, []);
+
 const loadMoreReels = useCallback(async () => {
   if (loadMoreLockRef.current) return;
   if (!hasMoreReels) return;
@@ -2359,31 +2396,43 @@ const loadMoreReels = useCallback(async () => {
       return;
     }
 
-    let addedCount = 0;
-
     setReels((prev) => {
       const seen = new Set(prev.map((r: any) => Number(r.id)));
+
       const fresh = nextItems.filter(
         (r: any) => !seen.has(Number(r.id))
       );
-
-      addedCount = fresh.length;
 
       if (fresh.length === 0) {
         console.warn('No fresh reels returned for page', nextPage, {
           received: nextItems.map((x: any) => x.id),
         });
+
+        // Do not stop infinite scroll here.
+        // Backend may return some duplicates because ranking is mixed.
         return prev;
       }
 
       return [...prev, ...fresh.map(normalizeReel)];
     });
 
-    // ✅ Important: update page even after fetch succeeds
     setReelsPage(nextPage);
 
-    // ✅ Only stop if backend sends less than limit AND no fresh items
-    if (nextItems.length < 10 || addedCount === 0) {
+    const nextVideos = nextItems
+      .slice(0, 3)
+      .map((reel: any) => {
+        const sources = getReelVideoSources(reel);
+        return pickBestVideoUrl(sources, networkLevel);
+      });
+
+    nextVideos.forEach((url: string) => {
+      if (url) {
+        fetchAsBlobUrl(url, 'video').catch(() => {});
+      }
+    });
+
+    // ✅ Only stop when backend sends less than requested limit
+    if (nextItems.length < 10) {
       setHasMoreReels(false);
     }
   } catch (e) {
@@ -2397,8 +2446,84 @@ const loadMoreReels = useCallback(async () => {
   hasMoreReels,
   apiFetch,
   normalizeReel,
+  networkLevel,
   currentUser?.id,
 ]);
+
+// ✅ Trigger load more when user has about 6 videos left
+useEffect(() => {
+  if (loadingMoreReels) return;
+  if (!hasMoreReels) return;
+  if (reels.length < 6) return;
+  if (activeIndex < 0) return;
+
+  const remaining = reels.length - activeIndex - 1;
+
+  if (remaining <= 6) {
+    loadMoreReels();
+  }
+}, [
+  activeIndex,
+  reels.length,
+  loadingMoreReels,
+  hasMoreReels,
+  loadMoreReels,
+]);
+
+// ✅ Fetch initial reels when parent did not provide them
+useEffect(() => {
+  let cancelled = false;
+
+  const fetchInitialReels = async () => {
+    try {
+      const viewerId = currentUser?.id || 0;
+
+      const data = await apiFetch(
+        `/api/reels?viewerId=${viewerId}&page=1&limit=10&seed=${feedSeedRef.current}`
+      );
+
+      const fetchedReels = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.reels)
+        ? data.reels
+        : [];
+
+      if (cancelled) return;
+
+      const normalized = fetchedReels.map(normalizeReel);
+
+      setReels(normalized);
+      setReelsPage(1);
+      setHasMoreReels(fetchedReels.length >= 10);
+
+      if (normalized.length > 0) {
+        const firstId = Number(normalized[0].id);
+
+        setActiveReelId(firstId);
+        setPlayingReelId(firstId);
+        activeIdRef.current = firstId;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch initial reels:', e);
+    }
+  };
+
+  if (!Array.isArray(initialReels) || initialReels.length === 0) {
+    fetchInitialReels();
+  }
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  currentUser?.id,
+  apiFetch,
+  normalizeReel,
+  initialReels.length,
+]);
+
+
+
 
 // ✅ TRIGGER LOAD MORE - depends on activeIndex
 useEffect(() => {
