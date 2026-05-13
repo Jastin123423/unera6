@@ -2195,6 +2195,23 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
   const [loadingMoreReels, setLoadingMoreReels] = useState(false);
   const loadMoreLockRef = useRef(false);
 
+  useEffect(() => {
+  if (!Array.isArray(initialReels)) return;
+  if (initialReels.length === 0) return;
+
+  const normalized = initialReels.map(normalizeReel);
+
+  setReels(normalized);
+  setReelsPage(1);
+  setHasMoreReels(true);
+
+  if (!activeReelId && normalized.length > 0) {
+    const firstId = Number(normalized[0].id);
+    setActiveReelId(firstId);
+    setPlayingReelId(firstId);
+    activeIdRef.current = firstId;
+  }
+}, [initialReels, normalizeReel]);
 
   
   // ==================== OTHER STATE ====================
