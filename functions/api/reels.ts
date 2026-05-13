@@ -283,12 +283,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /**
- * GET /api/reels?viewerId=123
+ * GET /api/reels?viewerId=123&page=1&limit=10
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
     const url = new URL(request.url);
+
     const viewerId = toNum(url.searchParams.get('viewerId'), 0);
+    const page = Math.max(1, toNum(url.searchParams.get('page'), 1));
+    const limit = Math.min(30, Math.max(5, toNum(url.searchParams.get('limit'), 15)));
+    const offset = (page - 1) * limit;
 
     const reelsRes = await env.DB.prepare(
       `
@@ -319,16 +323,79 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         r.views,
         r.shares,
         r.created_at,
+
         u.name,
         u.username,
         u.profile_image_url,
-        u.is_verified
+        u.is_verified,
+
+        COALESCE(rx.reactions_count, 0) AS reactions_count,
+        COALESCE(cm.comments_count, 0) AS comments_count,
+        COALESCE(sh.shares_count, 0) AS shares_count,
+
+        (
+          /* Engagement */
+          (COALESCE(rx.reactions_count, 0) * 4.0) +
+          (COALESCE(cm.comments_count, 0) * 5.0) +
+          (COALESCE(sh.shares_count, 0) * 6.0) +
+          (COALESCE(r.views, 0) * 0.035) +
+
+          /* Freshness boost */
+          CASE
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 3 THEN 60
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 12 THEN 42
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 24 THEN 30
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 72 THEN 16
+            WHEN (julianday('now') - julianday(r.created_at)) <= 7 THEN 8
+            ELSE 0
+          END +
+
+          /* Fairness: give new/small reels a chance */
+          CASE
+            WHEN COALESCE(r.views, 0) < 20 THEN 35
+            WHEN COALESCE(r.views, 0) < 100 THEN 22
+            WHEN COALESCE(r.views, 0) < 500 THEN 10
+            ELSE 0
+          END +
+
+          /* Verified small boost, not too much */
+          CASE WHEN COALESCE(u.is_verified, 0) = 1 THEN 4 ELSE 0 END +
+
+          /* Deterministic small mixing, stable per viewer */
+          (
+            ABS(((r.id * 1103515245) + (? * 12345)) % 1000) / 1000.0
+          ) * 8
+        ) AS rank_score
+
       FROM reels r
       LEFT JOIN users u ON u.id = r.user_id
-      ORDER BY r.created_at DESC, r.id DESC
-      LIMIT 200
+
+      LEFT JOIN (
+        SELECT reel_id, COUNT(*) AS reactions_count
+        FROM reel_reactions
+        GROUP BY reel_id
+      ) rx ON rx.reel_id = r.id
+
+      LEFT JOIN (
+        SELECT reel_id, COUNT(*) AS comments_count
+        FROM reel_comments
+        GROUP BY reel_id
+      ) cm ON cm.reel_id = r.id
+
+      LEFT JOIN (
+        SELECT reel_id, COUNT(*) AS shares_count
+        FROM reel_shares
+        GROUP BY reel_id
+      ) sh ON sh.reel_id = r.id
+
+      WHERE r.visibility = 'public'
+
+      ORDER BY rank_score DESC, r.created_at DESC, r.id DESC
+      LIMIT ? OFFSET ?
       `
-    ).all();
+    )
+      .bind(viewerId, limit, offset)
+      .all();
 
     const reels = Array.isArray(reelsRes.results) ? reelsRes.results : [];
     const reelIds = reels.map((r: any) => toNum(r.id, 0)).filter(Boolean);
@@ -367,20 +434,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       .bind(...reelIds)
       .all();
 
-    const sharesRes = await env.DB.prepare(
-      `
-      SELECT reel_id, COUNT(*) AS shares_count
-      FROM reel_shares
-      WHERE reel_id IN (${placeholders})
-      GROUP BY reel_id
-      `
-    )
-      .bind(...reelIds)
-      .all();
-
     const reactions = Array.isArray(reactionsRes.results) ? reactionsRes.results : [];
     const comments = Array.isArray(commentsRes.results) ? commentsRes.results : [];
-    const sharesRows = Array.isArray(sharesRes.results) ? sharesRes.results : [];
 
     const reactionsByReel = new Map<number, any[]>();
     for (const r of reactions) {
@@ -414,19 +469,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       });
     }
 
-    const sharesCountByReel = new Map<number, number>();
-    for (const s of sharesRows) {
-      const rid = toNum((s as any).reel_id, 0);
-      if (!rid) continue;
-      sharesCountByReel.set(rid, toNum((s as any).shares_count, 0));
-    }
-
     const out = reels.map((r: any) => {
       const rid = toNum(r.id, 0);
       const reelReactions = reactionsByReel.get(rid) || [];
       const reelComments = commentsByReel.get(rid) || [];
-      const limitedComments = reelComments.slice(0, 50);
-      const shares_count = sharesCountByReel.get(rid) ?? toNum(r.shares, 0);
 
       const my_reaction = viewerId
         ? reelReactions.find((x) => toNum(x.user_id, 0) === viewerId)?.type ?? null
@@ -443,6 +489,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         thumbnail_url: pickFirst(r.thumbnail_url),
         caption: pickFirst(r.caption),
+
         song_name: pickFirst(r.song_name, 'Original Sound'),
         audio_url: pickFirst(r.audio_url),
         audio_start: toNum(r.audio_start, 0),
@@ -454,6 +501,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         lyricsTheme: pickFirst(r.lyrics_theme, 'karaoke'),
         lyrics_enabled: safeBool(r.lyrics_enabled),
         lyricsEnabled: safeBool(r.lyrics_enabled),
+
         description_html: pickFirst(r.description_html),
         descriptionHtml: pickFirst(r.description_html),
 
@@ -469,8 +517,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         visibility: String(r.visibility || 'public'),
         location: pickFirst(r.location),
+
         views: toNum(r.views, 0),
-        shares: shares_count,
+        shares: toNum(r.shares_count, toNum(r.shares, 0)),
+
         created_at: r.created_at,
 
         author_name: pickFirst(r.name, r.username, 'User'),
@@ -479,10 +529,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         verified: safeBool(r.is_verified),
 
         reactions: reelReactions,
-        comments: limitedComments,
-        reactions_count: reelReactions.length,
-        comments_count: reelComments.length,
+        comments: reelComments.slice(0, 20),
+
+        reactions_count: toNum(r.reactions_count, reelReactions.length),
+        comments_count: toNum(r.comments_count, reelComments.length),
         my_reaction,
+
+        rank_score: toNum(r.rank_score, 0),
       };
     });
 
