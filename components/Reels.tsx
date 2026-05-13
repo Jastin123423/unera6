@@ -2262,95 +2262,138 @@ useEffect(() => {
     [reels, activeReelId]
   );
 
+
   // ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
-  const normalizeReel = useCallback((reel: any): Reel => {
-    return {
-      ...reel,
-      id: Number(reel.id),
-      userId: Number(reel.userId ?? reel.user_id),
-      views: Number(reel.views ?? 0),
-      shares: Number(reel.shares ?? 0),
-      reactions: reel.reactions || [],
-      comments: reel.comments || [],
-      created_at: reel.created_at || reel.createdAt,
-    };
-  }, []);
 
-  const apiFetch = useCallback(async (url: string) => {
-    const token = localStorage.getItem('unera_token');
-    const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+const normalizeReel = useCallback((reel: any): Reel => {
+  return {
+    ...reel,
+    id: Number(reel.id),
+    userId: Number(reel.userId ?? reel.user_id),
+    views: Number(reel.views ?? 0),
+    shares: Number(reel.shares ?? 0),
+    reactions: reel.reactions || [],
+    comments: reel.comments || [],
+    created_at: reel.created_at || reel.createdAt,
+  };
+}, []);
+
+const apiFetch = useCallback(async (url: string) => {
+  const token = localStorage.getItem('unera_token');
+
+  const res = await fetch(url, {
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {},
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return res.json();
+}, []);
+
+const loadMoreReels = useCallback(async () => {
+  if (loadMoreLockRef.current) return;
+  if (!hasMoreReels) return;
+
+  loadMoreLockRef.current = true;
+  setLoadingMoreReels(true);
+
+  try {
+    const nextPage = reelsPage + 1;
+
+    // ✅ INCLUDE VIEWER ID FOR PERSONALIZED RANKING
+    const viewerId = currentUser?.id || 0;
+
+    const data = await apiFetch(
+      `/api/reels?viewerId=${viewerId}&page=${nextPage}&limit=10`
+    );
+
+    const nextItems = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.reels)
+      ? data.reels
+      : [];
+
+    if (nextItems.length === 0) {
+      setHasMoreReels(false);
+      return;
+    }
+
+    setReels((prev) => {
+      const seen = new Set(prev.map((r: any) => Number(r.id)));
+
+      const fresh = nextItems.filter(
+        (r: any) => !seen.has(Number(r.id))
+      );
+
+      return [...prev, ...fresh.map(normalizeReel)];
     });
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    return res.json();
-  }, []);
 
-  const loadMoreReels = useCallback(async () => {
-    if (loadMoreLockRef.current) return;
-    if (!hasMoreReels) return;
+    setReelsPage(nextPage);
 
-    loadMoreLockRef.current = true;
-    setLoadingMoreReels(true);
-
-    try {
-      const nextPage = reelsPage + 1;
-      const data = await apiFetch(`/api/reels?page=${nextPage}&limit=10`);
-
-      const nextItems = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.reels)
-        ? data.reels
-        : [];
-
-      if (nextItems.length === 0) {
-        setHasMoreReels(false);
-        return;
-      }
-
-      setReels((prev) => {
-        const seen = new Set(prev.map((r: any) => Number(r.id)));
-        const fresh = nextItems.filter((r: any) => !seen.has(Number(r.id)));
-        return [...prev, ...fresh.map(normalizeReel)];
-      });
-
-      setReelsPage(nextPage);
-
-      // Pre-cache next videos for smoother playback
-      const nextVideos = nextItems.slice(0, 3).map((reel: any) => {
+    // ✅ PRE-CACHE NEXT VIDEOS FOR SMOOTHER PLAYBACK
+    const nextVideos = nextItems
+      .slice(0, 3)
+      .map((reel: any) => {
         const sources = getReelVideoSources(reel);
         return pickBestVideoUrl(sources, networkLevel);
       });
-      nextVideos.forEach((url: string) => {
-        if (url) {
-          fetchAsBlobUrl(url, 'video').catch(() => {});
-        }
-      });
 
-      if (nextItems.length < 10) {
-        setHasMoreReels(false);
+    nextVideos.forEach((url: string) => {
+      if (url) {
+        fetchAsBlobUrl(url, 'video').catch(() => {});
       }
-    } catch (e) {
-      console.warn('Load more reels failed:', e);
-    } finally {
-      setLoadingMoreReels(false);
-      loadMoreLockRef.current = false;
+    });
+
+    if (nextItems.length < 10) {
+      setHasMoreReels(false);
     }
-  }, [reelsPage, hasMoreReels, apiFetch, normalizeReel, networkLevel]);
+  } catch (e) {
+    console.warn('Load more reels failed:', e);
+  } finally {
+    setLoadingMoreReels(false);
+    loadMoreLockRef.current = false;
+  }
+}, [
+  reelsPage,
+  hasMoreReels,
+  apiFetch,
+  normalizeReel,
+  networkLevel,
+  currentUser?.id,
+]);
 
-  // Trigger load more when user has about 5 videos left
-  useEffect(() => {
-    if (!activeReelId) return;
-    if (loadingMoreReels) return;
+// ✅ TRIGGER LOAD MORE WHEN USER HAS ABOUT 5 VIDEOS LEFT
+useEffect(() => {
+  if (!activeReelId) return;
+  if (loadingMoreReels) return;
 
-    const index = reels.findIndex((r: any) => Number(r.id) === Number(activeReelId));
-    if (index < 0) return;
+  const index = reels.findIndex(
+    (r: any) => Number(r.id) === Number(activeReelId)
+  );
 
-    const remaining = reels.length - index - 1;
+  if (index < 0) return;
 
-    if (remaining <= 5) {
-      loadMoreReels();
-    }
-  }, [activeReelId, reels, loadingMoreReels, loadMoreReels]);
+  const remaining = reels.length - index - 1;
+
+  if (remaining <= 5) {
+    loadMoreReels();
+  }
+}, [
+  activeReelId,
+  reels,
+  loadingMoreReels,
+  loadMoreReels,
+]);
+
+
+
+
 
   // ==================== DOWNLOAD HANDLER WITH PROGRESS ====================
   const handleDownloadReel = useCallback(async (reel: Reel) => {
