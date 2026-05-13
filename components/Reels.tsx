@@ -921,15 +921,16 @@ const ReelDiscussButton: React.FC<{
   return (
     <button
       onClick={onClick}
-      className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
+      className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-black/20 backdrop-blur-md border-[2px] border-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.55)] active:scale-95 transition-all"
     >
       <DiscussSignalIcon size={24} color="#1877F2" />
-      <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
+      <span className="text-white text-sm font-bold ml-1 drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)]">
         {formatViewCount(commentCount)}
       </span>
     </button>
   );
 };
+
 
 // ==================== COMMENTS SHEET ====================
 const ReelCommentsSheet: React.FC<{
