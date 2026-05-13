@@ -233,6 +233,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       thumbnail_url: pickFirst((row as any).thumbnail_url),
       caption: pickFirst((row as any).caption),
+
       song_name: pickFirst((row as any).song_name, 'Original Sound'),
       audio_url: pickFirst((row as any).audio_url),
       audio_start: toNum((row as any).audio_start, 0),
@@ -291,7 +292,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
     const viewerId = toNum(url.searchParams.get('viewerId'), 0);
     const page = Math.max(1, toNum(url.searchParams.get('page'), 1));
-    const limit = Math.min(30, Math.max(5, toNum(url.searchParams.get('limit'), 15)));
+    const limit = Math.min(30, Math.max(5, toNum(url.searchParams.get('limit'), 10)));
     const offset = (page - 1) * limit;
 
     const reelsRes = await env.DB.prepare(
@@ -334,37 +335,40 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(sh.shares_count, 0) AS shares_count,
 
         (
-          /* Engagement */
+          /* Engagement: likes/comments/shares still matter */
           (COALESCE(rx.reactions_count, 0) * 4.0) +
           (COALESCE(cm.comments_count, 0) * 5.0) +
           (COALESCE(sh.shares_count, 0) * 6.0) +
-          (COALESCE(r.views, 0) * 0.035) +
 
-          /* Freshness boost */
+          /* Views reduced so old big videos do not dominate forever */
+          (COALESCE(r.views, 0) * 0.01) +
+
+          /* Stronger freshness boost */
           CASE
-            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 3 THEN 60
-            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 12 THEN 42
-            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 24 THEN 30
-            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 72 THEN 16
-            WHEN (julianday('now') - julianday(r.created_at)) <= 7 THEN 8
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 3 THEN 95
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 12 THEN 70
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 24 THEN 52
+            WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 72 THEN 32
+            WHEN (julianday('now') - julianday(r.created_at)) <= 7 THEN 18
             ELSE 0
           END +
 
-          /* Fairness: give new/small reels a chance */
+          /* Small/new creator exposure boost */
           CASE
-            WHEN COALESCE(r.views, 0) < 20 THEN 35
-            WHEN COALESCE(r.views, 0) < 100 THEN 22
-            WHEN COALESCE(r.views, 0) < 500 THEN 10
+            WHEN COALESCE(r.views, 0) < 20 THEN 70
+            WHEN COALESCE(r.views, 0) < 100 THEN 45
+            WHEN COALESCE(r.views, 0) < 500 THEN 24
+            WHEN COALESCE(r.views, 0) < 1500 THEN 10
             ELSE 0
           END +
 
-          /* Verified small boost, not too much */
+          /* Verified small boost only */
           CASE WHEN COALESCE(u.is_verified, 0) = 1 THEN 4 ELSE 0 END +
 
-          /* Deterministic small mixing, stable per viewer */
+          /* Page + viewer based fair mixing */
           (
-            ABS(((r.id * 1103515245) + (? * 12345)) % 1000) / 1000.0
-          ) * 8
+            ABS(((r.id * 1103515245) + (? * 12345) + (? * 777)) % 1000) / 1000.0
+          ) * 35
         ) AS rank_score
 
       FROM reels r
@@ -394,7 +398,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LIMIT ? OFFSET ?
       `
     )
-      .bind(viewerId, limit, offset)
+      .bind(viewerId, page, limit, offset)
       .all();
 
     const reels = Array.isArray(reelsRes.results) ? reelsRes.results : [];
