@@ -2287,7 +2287,9 @@ const feedSeedRef = useRef<number>(
   );
 
 
-  // ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
+
+
+// ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
 
 const normalizeReel = useCallback((reel: any): Reel => {
   return {
@@ -2320,7 +2322,6 @@ const apiFetch = useCallback(async (url: string) => {
   return res.json();
 }, []);
 
-
 const loadMoreReels = useCallback(async () => {
   if (loadMoreLockRef.current) return;
   if (!hasMoreReels) return;
@@ -2332,7 +2333,7 @@ const loadMoreReels = useCallback(async () => {
     const nextPage = reelsPage + 1;
     const viewerId = currentUser?.id || 0;
 
-    // ✅ ADD SEED TO URL
+    // ✅ ADD SEED TO URL FOR RANDOMIZATION
     const data = await apiFetch(
       `/api/reels?viewerId=${viewerId}&page=${nextPage}&limit=10&seed=${feedSeedRef.current}`
     );
@@ -2370,11 +2371,14 @@ const loadMoreReels = useCallback(async () => {
 
     setReelsPage(nextPage);
 
-    // Pre-cache next 3 videos for smoother playback
-    const nextVideos = nextItems.slice(0, 3).map((reel: any) => {
-      const sources = getReelVideoSources(reel);
-      return pickBestVideoUrl(sources, networkLevel);
-    });
+    // ✅ PRE-CACHE NEXT VIDEOS FOR SMOOTHER PLAYBACK
+    const nextVideos = nextItems
+      .slice(0, 3)
+      .map((reel: any) => {
+        const sources = getReelVideoSources(reel);
+        return pickBestVideoUrl(sources, networkLevel);
+      });
+
     nextVideos.forEach((url: string) => {
       if (url) {
         fetchAsBlobUrl(url, 'video').catch(() => {});
@@ -2399,7 +2403,43 @@ const loadMoreReels = useCallback(async () => {
   currentUser?.id,
 ]);
 
+// ✅ CLEANER TRIGGER EFFECT - Load more when user has about 6 videos left
+useEffect(() => {
+  if (loadingMoreReels) return;
+  if (!hasMoreReels) return;
+  if (reels.length < 6) return;
+  if (activeIndex < 0) return;
 
+  const remaining = reels.length - activeIndex - 1;
+
+  if (remaining <= 6) {
+    loadMoreReels();
+  }
+}, [activeIndex, reels.length, loadingMoreReels, hasMoreReels, loadMoreReels]);
+
+// ✅ SMART SYNC EFFECT - Doesn't reset loaded reels when initialReels changes
+useEffect(() => {
+  if (!Array.isArray(initialReels)) return;
+  if (initialReels.length === 0) return;
+
+  setReels((prev) => {
+    if (prev.length > initialReels.length) return prev;
+
+    const seen = new Set(prev.map((r: any) => Number(r.id)));
+    const fresh = initialReels.filter((r: any) => !seen.has(Number(r.id)));
+
+    if (prev.length > 0 && fresh.length === 0) return prev;
+
+    return [...fresh.map(normalizeReel), ...prev].filter(
+      (r, index, arr) =>
+        arr.findIndex((x) => Number(x.id) === Number(r.id)) === index
+    );
+  });
+
+  setHasMoreReels(true);
+}, [initialReels, normalizeReel]);
+
+// ✅ INITIAL FETCH EFFECT - When initialReels is empty
 useEffect(() => {
   let cancelled = false;
 
@@ -2407,7 +2447,6 @@ useEffect(() => {
     try {
       const viewerId = currentUser?.id || 0;
 
-      // ✅ ADD SEED TO INITIAL FETCH
       const data = await apiFetch(
         `/api/reels?viewerId=${viewerId}&page=1&limit=10&seed=${feedSeedRef.current}`
       );
@@ -2447,9 +2486,6 @@ useEffect(() => {
     cancelled = true;
   };
 }, [currentUser?.id, apiFetch, normalizeReel, initialReels.length]);
-
-
-
 
   // ==================== DOWNLOAD HANDLER WITH PROGRESS ====================
   const handleDownloadReel = useCallback(async (reel: Reel) => {
