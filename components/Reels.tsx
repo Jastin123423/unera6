@@ -933,6 +933,7 @@ const ReelDiscussButton: React.FC<{
 
 
 // ==================== COMMENTS SHEET ====================
+
 const ReelCommentsSheet: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -956,7 +957,7 @@ const ReelCommentsSheet: React.FC<{
 }> = ({
   isOpen,
   onClose,
-  comments,
+  comments: initialComments,
   users,
   currentUser,
   onAddComment,
@@ -975,6 +976,7 @@ const ReelCommentsSheet: React.FC<{
   const [showEmojiBar, setShowEmojiBar] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState<number | null>(null);
   const [commentReactions, setCommentReactions] = useState<Record<number, string>>({});
+  const [comments, setComments] = useState<any[]>(initialComments);
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef<number>(0);
@@ -983,6 +985,11 @@ const ReelCommentsSheet: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
   const longPressTimerRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync comments when they change
+  useEffect(() => {
+    setComments(initialComments);
+  }, [initialComments]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1136,223 +1143,242 @@ const ReelCommentsSheet: React.FC<{
   const rootComments = comments.filter(
     (c: any) => !c.parentId && !c.parent_comment_id && !c.parent_id
   );
+  const hasComments = comments.length > 0;
 
   return (
     <div
-      className="fixed inset-0 z-[100000] bg-black/50 font-sans backdrop-blur-sm transition-opacity"
+      className="fixed inset-0 z-[100000] bg-black/50 font-sans backdrop-blur-sm"
       style={{ opacity: 1 - translateY / 500 }}
       onClick={onClose}
     >
       <div
         ref={sheetRef}
-        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[80vh] bg-[#121212] rounded-t-[40px] flex flex-col border-t border-white/10 shadow-2xl transition-transform duration-200 ease-out"
+        className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto h-[78vh] bg-[#18191A] rounded-t-[22px] flex flex-col shadow-2xl transition-transform duration-150 ease-out overflow-hidden"
         style={{ transform: `translateY(${translateY}px)` }}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <div className="pt-3 pb-2 flex justify-center">
-          <div className="w-12 h-1.5 bg-white/30 rounded-full"></div>
+        {/* Drag handle */}
+        <div className="pt-3 pb-2 flex justify-center shrink-0">
+          <div className="w-10 h-1 bg-[#B0B3B8]/30 rounded-full"></div>
         </div>
 
-        <div className="px-5 pb-5 border-b border-white/5 flex justify-between items-center bg-[#181818] rounded-t-[40px]">
-          <span className="text-white font-black text-[13px] ml-4 uppercase tracking-[3px]">
+        {/* Header */}
+        <div className="px-4 pb-3 border-b border-white/10 flex justify-between items-center bg-[#18191A] shrink-0">
+          <span className="text-[#E4E6EB] font-black text-[15px] uppercase tracking-[2px]">
             {comments.length} {replyTo ? 'Replies' : 'Discussions'}
           </span>
           {replyTo && (
-            <button onClick={() => setReplyTo(null)} className="text-[#1877F2] text-xs font-bold">
-              Back to all
+            <button 
+              onClick={() => setReplyTo(null)} 
+              className="text-[#1877F2] text-[13px] font-bold"
+            >
+              Back
             </button>
           )}
           <button
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white active:scale-90 transition-all"
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[#E4E6EB] active:scale-90 transition-all"
           >
-            <i className="fas fa-times text-xs"></i>
+            <i className="fas fa-times text-sm"></i>
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          {replyTo && (
-            <div className="mb-2 p-4 rounded-[22px] bg-white/5 border border-white/10">
-              <p className="text-[12px] uppercase tracking-[2px] text-[#1877F2] font-black mb-2">
-                Reply thread
-              </p>
-              <p className="text-white/70 text-[16px] line-clamp-2">
-                {replyTo.text || 'Image discussion'}
-              </p>
-            </div>
-          )}
-
-          {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
-            const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
-            const replies = getReplies(c.id);
-            const lastReply = replies.length ? replies[replies.length - 1] : null;
-            const hiddenRepliesCount = replies.length > 1 ? replies.length - 1 : replies.length;
-            const isReply = c.parentId || c.parent_comment_id || c.parent_id;
-            const isOwner = isOwnerComment(c);
-
-            return (
-              <div key={c.id} className={`${isReply ? 'ml-10' : ''}`}>
-                <div className="flex gap-4">
-                  <img
-                    src={author?.profile_image_url || author?.profileImage || 'https://via.placeholder.com/40'}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-white/5 shrink-0"
-                    alt=""
-                  />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-white font-black text-[22px] leading-none tracking-[-0.02em]">
-                        {author?.name || 'User'}
-                      </p>
-                      {isOwner && (
-                        <span className="text-[9px] bg-white/10 px-2 py-0.5 rounded-full text-white/60">
-                          You
-                        </span>
-                      )}
-                    </div>
-
-                    <div
-                      onTouchStart={() => beginLongPress(c)}
-                      onTouchEnd={cancelLongPress}
-                      onTouchMove={cancelLongPress}
-                      onMouseDown={() => beginLongPress(c)}
-                      onMouseUp={cancelLongPress}
-                      onMouseLeave={cancelLongPress}
-                    >
-                      {!!c.text && (
-                        <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
-                          {c.text}
-                        </p>
-                      )}
-
-                      {(c.image_url || c.imageUrl) && (
-                        <img
-                          src={c.image_url || c.imageUrl}
-                          alt=""
-                          className="mt-3 max-w-[240px] rounded-[20px] border border-white/10 object-cover"
-                        />
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-8">
-                      <span className="text-[13px] font-semibold text-white/45">
-                        {(() => {
-                          const created = c.created_at || c.createdAt;
-                          if (!created) return '';
-                          const diff = Math.floor((Date.now() - new Date(created).getTime()) / 1000);
-                          if (diff < 60) return 'now';
-                          if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-                          if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-                          if (diff < 2592000) return `${Math.floor(diff / 86400)}d`;
-                          return `${Math.floor(diff / 2592000)}mo`;
-                        })()}
-                      </span>
-
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowReactionPicker(showReactionPicker === c.id ? null : c.id)}
-                          className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
-                        >
-                          {commentReactions[c.id] ? (
-                            <span className="text-xl">{commentReactions[c.id]}</span>
-                          ) : (
-                            'React'
-                          )}
-                        </button>
-
-                        {showReactionPicker === c.id && (
-                          <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-3 border border-white/10 shadow-2xl z-50">
-                            <div className="flex overflow-x-auto gap-2 max-w-[300px] scrollbar-hide pb-1">
-                              {REACTION_EMOJIS.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  onClick={() => addReaction(c.id, emoji)}
-                                  className="text-2xl hover:scale-125 transition-transform flex-shrink-0"
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => setReplyTo(c)}
-                        className="text-[13px] font-bold text-white/45 hover:text-white/70 transition-colors"
-                      >
-                        Reply
-                      </button>
-                    </div>
-
-                    {!replyTo && replies.length > 0 && (
-                      <div className="mt-5">
-                        {hiddenRepliesCount > 0 && (
-                          <button
-                            onClick={() => setReplyTo(c)}
-                            className="text-[#1877F2] font-black text-[16px] leading-none hover:opacity-80 transition-opacity"
-                          >
-                            {getReplyPreviewText(hiddenRepliesCount)}
-                          </button>
-                        )}
-
-                        {lastReply && (
-                          <div className="mt-4 ml-2">
-                            <div className="flex gap-3">
-                              <img
-                                src={
-                                  users.find(
-                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
-                                  )?.profile_image_url ||
-                                  users.find(
-                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
-                                  )?.profileImage ||
-                                  'https://via.placeholder.com/40'
-                                }
-                                className="w-10 h-10 rounded-full object-cover border border-white/10 shrink-0"
-                                alt=""
-                              />
-
-                              <div className="flex-1 min-w-0">
-                                <p className="text-white font-black text-[22px] leading-none mb-2">
-                                  {users.find(
-                                    (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
-                                  )?.name || 'User'}
-                                </p>
-
-                                {!!lastReply.text && (
-                                  <p className="text-[#E4E6EB] text-[22px] leading-[1.28] font-medium whitespace-pre-wrap break-words">
-                                    {lastReply.text}
-                                  </p>
-                                )}
-
-                                {(lastReply.image_url || lastReply.imageUrl) && (
-                                  <img
-                                    src={lastReply.image_url || lastReply.imageUrl}
-                                    alt=""
-                                    className="mt-3 max-w-[220px] rounded-[18px] border border-white/10 object-cover"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+        {/* Comments List with Skeleton */}
+        <div className="flex-1 overflow-y-auto px-3 py-4">
+          {!hasComments ? (
+            <div className="space-y-4 px-2 py-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex gap-3 animate-pulse">
+                  <div className="w-9 h-9 rounded-full bg-white/10" />
+                  <div className="flex-1">
+                    <div className="w-40 h-4 rounded-full bg-white/10 mb-2" />
+                    <div className="w-28 h-3 rounded bg-white/5" />
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {(replyTo ? [replyTo, ...getReplies(replyTo.id)] : rootComments).map((c: any) => {
+                const author = users.find((u: any) => Number(u.id) === Number(c.userId ?? c.user_id));
+                const replies = getReplies(c.id);
+                const lastReply = replies.length ? replies[replies.length - 1] : null;
+                const hiddenRepliesCount = replies.length > 1 ? replies.length - 1 : replies.length;
+                const isReply = c.parentId || c.parent_comment_id || c.parent_id;
+                const isOwner = isOwnerComment(c);
+                const reactionEmoji = commentReactions[c.id];
+
+                return (
+                  <div key={c.id} className={isReply ? 'ml-9 pl-2 border-l border-white/10' : ''}>
+                    <div className="flex gap-3">
+                      {/* Avatar */}
+                      <img
+                        src={author?.profile_image_url || author?.profileImage || 'https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true'}
+                        className="w-9 h-9 rounded-full object-cover shrink-0"
+                        alt=""
+                      />
+
+                      {/* Comment Bubble */}
+                      <div className="flex-1 min-w-0">
+                        <div className="inline-block max-w-[285px] bg-[#242526] rounded-[18px] px-3.5 py-2 border border-white/5">
+                          {/* Name */}
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span
+                              className="text-[#E4E6EB] font-black text-[15px] leading-tight cursor-pointer hover:underline"
+                              onClick={() => {
+                                const userId = Number(author?.id);
+                                if (userId) onProfileClick(userId);
+                              }}
+                            >
+                              {author?.name || 'User'}
+                            </span>
+                            {isOwner && (
+                              <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded-full text-white/50 font-bold">
+                                You
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Comment Text */}
+                          <div
+                            onTouchStart={() => beginLongPress(c)}
+                            onTouchEnd={cancelLongPress}
+                            onTouchMove={cancelLongPress}
+                            onMouseDown={() => beginLongPress(c)}
+                            onMouseUp={cancelLongPress}
+                            onMouseLeave={cancelLongPress}
+                          >
+                            {c.text && (
+                              <p className="text-[#E4E6EB] text-[15px] leading-[1.25] font-medium whitespace-pre-wrap break-words">
+                                {c.text}
+                              </p>
+                            )}
+                            {(c.image_url || c.imageUrl) && (
+                              <img
+                                src={c.image_url || c.imageUrl}
+                                alt=""
+                                className="mt-2 max-w-[200px] rounded-[16px] border border-white/10 object-cover"
+                              />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions: Time, Like, Reply */}
+                        <div className="flex items-center gap-4 mt-1 ml-2">
+                          <span className="text-[#B0B3B8] text-[13px] font-bold">
+                            {(() => {
+                              const created = c.created_at || c.createdAt;
+                              if (!created) return '';
+                              const diff = Math.floor((Date.now() - new Date(created).getTime()) / 1000);
+                              if (diff < 60) return 'now';
+                              if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+                              if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+                              if (diff < 2592000) return `${Math.floor(diff / 86400)}d`;
+                              return `${Math.floor(diff / 2592000)}mo`;
+                            })()}
+                          </span>
+
+                          {/* Reaction Button with Picker */}
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowReactionPicker(showReactionPicker === c.id ? null : c.id)}
+                              className="text-[#B0B3B8] text-[13px] font-bold hover:text-white/70 transition-colors"
+                            >
+                              {reactionEmoji ? (
+                                <span className="text-base">{reactionEmoji}</span>
+                              ) : (
+                                'Like'
+                              )}
+                            </button>
+
+                            {showReactionPicker === c.id && (
+                              <div className="absolute bottom-full left-0 mb-2 bg-[#242526] rounded-2xl p-2 border border-white/10 shadow-2xl z-50">
+                                <div className="flex gap-1 overflow-x-auto max-w-[260px] scrollbar-hide">
+                                  {REACTION_EMOJIS.slice(0, 12).map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      onClick={() => addReaction(c.id, emoji)}
+                                      className="text-2xl hover:scale-125 transition-transform flex-shrink-0 p-1"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => setReplyTo(c)}
+                            className="text-[#B0B3B8] text-[13px] font-bold hover:text-white/70 transition-colors"
+                          >
+                            Reply
+                          </button>
+                        </div>
+
+                        {/* Replies Section */}
+                        {!replyTo && replies.length > 0 && (
+                          <div className="mt-3">
+                            {hiddenRepliesCount > 0 && (
+                              <button
+                                onClick={() => setReplyTo(c)}
+                                className="text-[#1877F2] font-bold text-[13px] hover:opacity-80 transition-opacity"
+                              >
+                                {getReplyPreviewText(hiddenRepliesCount)}
+                              </button>
+                            )}
+
+                            {lastReply && (
+                              <div className="mt-3 flex gap-3">
+                                <img
+                                  src={
+                                    users.find(
+                                      (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                    )?.profile_image_url ||
+                                    'https://ui-avatars.com/api/?name=User&background=1877F2&color=fff&bold=true'
+                                  }
+                                  className="w-7 h-7 rounded-full object-cover shrink-0"
+                                  alt=""
+                                />
+                                <div className="inline-block max-w-[260px] bg-[#242526] rounded-[18px] px-3 py-1.5 border border-white/5">
+                                  <span
+                                    className="text-[#E4E6EB] font-black text-[13px] cursor-pointer hover:underline"
+                                    onClick={() => {
+                                      const userId = Number(lastReply.userId ?? lastReply.user_id);
+                                      if (userId) onProfileClick(userId);
+                                    }}
+                                  >
+                                    {users.find(
+                                      (u: any) => Number(u.id) === Number(lastReply.userId ?? lastReply.user_id)
+                                    )?.name || 'User'}
+                                  </span>
+                                  {lastReply.text && (
+                                    <p className="text-[#E4E6EB] text-[14px] leading-[1.2] font-medium mt-0.5">
+                                      {lastReply.text}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
+        {/* Comment Input - Facebook/TikTok Style */}
+        <div className="p-3 pb-5 border-t border-white/10 bg-[#18191A] shrink-0">
           {replyTo && (
-            <div className="mb-3 flex items-center gap-2 bg-white/5 p-2 rounded-lg">
-              <span className="text-xs text-white/60">Replying to</span>
+            <div className="mb-3 flex items-center gap-2 bg-white/5 px-3 py-2 rounded-xl">
+              <span className="text-xs text-white/50 font-bold">Replying to</span>
               <span className="text-xs text-[#1877F2] font-bold">
                 @{users.find((u) => Number(u.id) === Number(replyTo.userId ?? replyTo.user_id))?.name || 'User'}
               </span>
@@ -1364,22 +1390,22 @@ const ReelCommentsSheet: React.FC<{
 
           {imagePreview && (
             <div className="mb-3 relative inline-block">
-              <img src={imagePreview} className="h-20 rounded-lg border border-white/10" alt="" />
+              <img src={imagePreview} className="h-16 w-16 rounded-xl object-cover border border-white/10" alt="" />
               <button
                 onClick={() => {
                   if (imagePreview) URL.revokeObjectURL(imagePreview);
                   setSelectedImage(null);
                   setImagePreview(null);
                 }}
-                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+                className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center"
               >
-                <i className="fas fa-times text-white text-xs"></i>
+                <i className="fas fa-times text-white text-[8px]"></i>
               </button>
             </div>
           )}
 
           {showEmojiBar && (
-            <div className="mb-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
+            <div className="mb-3 flex flex-wrap gap-2 bg-[#242526] border border-white/10 rounded-2xl p-3">
               {COMMENT_EMOJIS.map((emoji) => (
                 <button
                   key={emoji}
@@ -1392,7 +1418,7 @@ const ReelCommentsSheet: React.FC<{
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex items-center gap-2">
             <input
               type="file"
               ref={fileInputRef}
@@ -1403,72 +1429,94 @@ const ReelCommentsSheet: React.FC<{
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10 active:scale-95 transition-all"
             >
-              <i className="fas fa-image"></i>
+              <i className="far fa-image text-[22px]" />
             </button>
 
-            <button
-              onClick={() => setShowEmojiBar((prev) => !prev)}
-              className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-colors ${
-                showEmojiBar
-                  ? 'bg-[#1877F2]/15 border-[#1877F2]/40 text-[#1877F2]'
-                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
-              }`}
-            >
-              <i className="far fa-smile"></i>
-            </button>
+            <div className="flex-1 flex items-center bg-[#242526] border border-white/10 rounded-full px-4 py-2">
+              <input
+                ref={inputRef}
+                className="flex-1 bg-transparent text-[#E4E6EB] outline-none text-[15px] placeholder:text-[#B0B3B8]"
+                placeholder={replyTo ? 'Write a reply...' : `Comment as ${currentUser?.name || 'User'}`}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
+                    e.preventDefault();
+                    handleSubmitComment();
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
 
-            <input
-              ref={inputRef}
-              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[17px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
-              placeholder={replyTo ? 'Write a reply...' : 'Add to discussion...'}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
-                  e.preventDefault();
-                  handleSubmitComment();
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
+              <button
+                type="button"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+                title="Sticker"
+              >
+                <i className="far fa-sticky-note text-[18px]" />
+              </button>
+
+              <button
+                type="button"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+                title="GIF"
+              >
+                <span className="text-[10px] font-black border border-[#B0B3B8] rounded px-1 leading-[14px]">
+                  GIF
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowEmojiBar((prev) => !prev)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${
+                  showEmojiBar ? 'text-[#1877F2]' : 'text-[#B0B3B8]'
+                }`}
+                title="Emoji"
+              >
+                <i className="far fa-smile text-[20px]" />
+              </button>
+            </div>
 
             <button
               onClick={handleSubmitComment}
-              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
               disabled={!text.trim() && !selectedImage}
+              className="w-10 h-10 rounded-full bg-[#1877F2] disabled:bg-[#3A3B3C] disabled:text-[#777] text-white flex items-center justify-center shadow-[0_8px_20px_rgba(24,119,242,0.35)] active:scale-95 transition-all"
+              title="Send"
             >
-              <i className="fas fa-paper-plane text-xs"></i>
+              <i className="fas fa-arrow-up text-[14px]" />
             </button>
           </div>
         </div>
       </div>
 
+      {/* Context Menu for Comment Options */}
       {menuComment && (
         <div
           className="fixed inset-0 z-[100001] bg-black/60 backdrop-blur-sm"
           onClick={() => setMenuComment(null)}
         >
           <div
-            className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up"
+            className="absolute bottom-0 left-0 right-0 max-w-[450px] mx-auto bg-[#18191A] rounded-t-[22px] border-t border-white/10 p-4 animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+            <div className="w-10 h-1 bg-[#B0B3B8]/30 rounded-full mx-auto mb-4"></div>
 
             <button
               onClick={() => {
                 setShowReactionPicker(menuComment.id);
                 setMenuComment(null);
               }}
-              className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[#E4E6EB] mb-2"
             >
-              <div className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center text-white/80">
-                <i className="fas fa-smile"></i>
+              <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+                <i className="fas fa-smile text-base"></i>
               </div>
               <div className="text-left">
                 <p className="font-bold text-sm">React</p>
-                <p className="text-white/50 text-xs">Add emoji reaction</p>
+                <p className="text-white/40 text-xs">Add emoji reaction</p>
               </div>
             </button>
 
@@ -1477,14 +1525,14 @@ const ReelCommentsSheet: React.FC<{
                 setReplyTo(menuComment);
                 setMenuComment(null);
               }}
-              className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[#E4E6EB] mb-2"
             >
-              <div className="w-11 h-11 rounded-full bg-[#1877F2]/15 flex items-center justify-center text-[#1877F2]">
-                <i className="fas fa-reply"></i>
+              <div className="w-9 h-9 rounded-full bg-[#1877F2]/15 flex items-center justify-center">
+                <i className="fas fa-reply text-[#1877F2] text-base"></i>
               </div>
               <div className="text-left">
                 <p className="font-bold text-sm">Reply</p>
-                <p className="text-white/50 text-xs">Respond to this discussion</p>
+                <p className="text-white/40 text-xs">Respond to this discussion</p>
               </div>
             </button>
 
@@ -1492,27 +1540,27 @@ const ReelCommentsSheet: React.FC<{
               <>
                 <button
                   onClick={() => openEditComment(menuComment)}
-                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[#E4E6EB] mb-2"
                 >
-                  <div className="w-11 h-11 rounded-full bg-[#45BD62]/15 flex items-center justify-center text-[#45BD62]">
-                    <i className="fas fa-pen"></i>
+                  <div className="w-9 h-9 rounded-full bg-[#45BD62]/15 flex items-center justify-center">
+                    <i className="fas fa-pen text-[#45BD62] text-base"></i>
                   </div>
                   <div className="text-left">
                     <p className="font-bold text-sm">Edit</p>
-                    <p className="text-white/50 text-xs">Change your message</p>
+                    <p className="text-white/40 text-xs">Change your message</p>
                   </div>
                 </button>
 
                 <button
                   onClick={() => confirmDeleteComment(menuComment)}
-                  className="w-full mt-3 flex items-center gap-4 px-4 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400"
                 >
-                  <div className="w-11 h-11 rounded-full bg-red-500/15 flex items-center justify-center">
-                    <i className="fas fa-trash-alt"></i>
+                  <div className="w-9 h-9 rounded-full bg-red-500/15 flex items-center justify-center">
+                    <i className="fas fa-trash-alt text-base"></i>
                   </div>
                   <div className="text-left">
                     <p className="font-bold text-sm">Delete</p>
-                    <p className="text-red-300/60 text-xs">Remove it permanently</p>
+                    <p className="text-red-300/50 text-xs">Remove permanently</p>
                   </div>
                 </button>
               </>
@@ -1520,7 +1568,7 @@ const ReelCommentsSheet: React.FC<{
 
             <button
               onClick={() => setMenuComment(null)}
-              className="w-full mt-4 py-4 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-bold"
+              className="w-full mt-3 py-3 rounded-xl bg-white/5 border border-white/10 text-[#B0B3B8] font-bold text-sm"
             >
               Cancel
             </button>
@@ -1528,22 +1576,23 @@ const ReelCommentsSheet: React.FC<{
         </div>
       )}
 
+      {/* Edit Comment Modal */}
       {editingComment && (
         <div className="fixed inset-0 z-[100001] bg-black/70 backdrop-blur-sm flex items-end">
-          <div className="w-full max-w-[450px] mx-auto bg-[#121212] rounded-t-[32px] border-t border-white/10 p-5 animate-slide-up">
-            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5"></div>
+          <div className="w-full max-w-[450px] mx-auto bg-[#18191A] rounded-t-[22px] border-t border-white/10 p-5 animate-slide-up">
+            <div className="w-10 h-1 bg-[#B0B3B8]/30 rounded-full mx-auto mb-4"></div>
 
-            <h3 className="text-white text-lg font-black mb-4">Edit Discussion</h3>
+            <h3 className="text-[#E4E6EB] text-lg font-black mb-4">Edit Discussion</h3>
 
             <textarea
               value={editingText}
               onChange={(e) => setEditingText(e.target.value)}
-              className="w-full min-h-[120px] bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none text-[17px]"
+              className="w-full min-h-[100px] bg-[#242526] border border-white/10 rounded-2xl p-3 text-[#E4E6EB] outline-none text-[15px]"
               placeholder="Update discussion..."
             />
 
-            <div className="mt-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
-              {COMMENT_EMOJIS.map((emoji) => (
+            <div className="mt-3 flex flex-wrap gap-2 bg-[#242526] border border-white/10 rounded-2xl p-2">
+              {COMMENT_EMOJIS.slice(0, 8).map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => insertEditEmoji(emoji)}
@@ -1560,13 +1609,13 @@ const ReelCommentsSheet: React.FC<{
                   setEditingComment(null);
                   setEditingText('');
                 }}
-                className="flex-1 py-4 rounded-2xl bg-white/5 border border-white/10 text-white"
+                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-[#E4E6EB] font-bold"
               >
                 Cancel
               </button>
               <button
                 onClick={saveEditedComment}
-                className="flex-1 py-4 rounded-2xl bg-[#1877F2] text-white font-bold"
+                className="flex-1 py-3 rounded-xl bg-[#1877F2] text-white font-bold"
               >
                 Save
               </button>
@@ -1577,6 +1626,7 @@ const ReelCommentsSheet: React.FC<{
     </div>
   );
 };
+
 
 // ==================== SOUND DETAIL VIEW ====================
 interface SoundDetailViewProps { 
