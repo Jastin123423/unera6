@@ -2239,7 +2239,8 @@ export const ReelsFeed: React.FC<ReelsFeedProps> = ({
 
   // ==================== REFS ====================
 //==================== FEED SEED FOR RANDOMIZATION ====================
-const feedSeedRef = useRef<number>(
+
+  const feedSeedRef = useRef<number>(
   Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
 );
   
@@ -2269,9 +2270,6 @@ const feedSeedRef = useRef<number>(
 
 // ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
 
-const feedSeedRef = useRef<number>(
-  Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
-);
 
 const normalizeReel = useCallback((reel: any): Reel => {
   return {
