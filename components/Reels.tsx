@@ -1349,101 +1349,80 @@ const ReelCommentsSheet: React.FC<{
           })}
         </div>
 
-        <div className="p-6 pb-10 border-t border-white/5 bg-[#0A0A0A]">
-          {replyTo && (
-            <div className="mb-3 flex items-center gap-2 bg-white/5 p-2 rounded-lg">
-              <span className="text-xs text-white/60">Replying to</span>
-              <span className="text-xs text-[#1877F2] font-bold">
-                @{users.find((u) => Number(u.id) === Number(replyTo.userId ?? replyTo.user_id))?.name || 'User'}
-              </span>
-              <button onClick={() => setReplyTo(null)} className="ml-auto text-white/40 hover:text-white">
-                <i className="fas fa-times text-xs"></i>
-              </button>
-            </div>
-          )}
+  <div className="p-3 pb-5 border-t border-white/10 bg-[#0A0A0A]">
+  <div className="flex items-center gap-2">
+    <input
+      type="file"
+      ref={fileInputRef}
+      className="hidden"
+      accept="image/*"
+      onChange={handleImageSelect}
+    />
 
-          {imagePreview && (
-            <div className="mb-3 relative inline-block">
-              <img src={imagePreview} className="h-20 rounded-lg border border-white/10" alt="" />
-              <button
-                onClick={() => {
-                  if (imagePreview) URL.revokeObjectURL(imagePreview);
-                  setSelectedImage(null);
-                  setImagePreview(null);
-                }}
-                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
-              >
-                <i className="fas fa-times text-white text-xs"></i>
-              </button>
-            </div>
-          )}
+    <button
+      onClick={() => fileInputRef.current?.click()}
+      className="w-10 h-10 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10 active:scale-95"
+    >
+      <i className="far fa-image text-[25px]" />
+    </button>
 
-          {showEmojiBar && (
-            <div className="mb-3 flex flex-wrap gap-2 bg-white/5 border border-white/10 rounded-2xl p-3">
-              {COMMENT_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => insertEmoji(emoji)}
-                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
+    <div className="flex-1 flex items-center bg-[#242526] border border-white/10 rounded-full px-4 py-2">
+      <input
+        ref={inputRef}
+        className="flex-1 bg-transparent text-[#E4E6EB] outline-none text-[16px] placeholder:text-[#B0B3B8]"
+        placeholder={replyTo ? 'Write a reply...' : `Comment as ${currentUser?.name || 'User'}`}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
+            e.preventDefault();
+            handleSubmitComment();
+          }
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
 
-          <div className="flex gap-3">
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={handleImageSelect}
-            />
+      <button
+        type="button"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+        title="Sticker"
+      >
+        <i className="far fa-sticky-note text-[21px]" />
+      </button>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white"
-            >
-              <i className="fas fa-image"></i>
-            </button>
+      <button
+        type="button"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+        title="GIF"
+      >
+        <span className="text-[12px] font-black border border-[#B0B3B8] rounded-md px-1 leading-[16px]">
+          GIF
+        </span>
+      </button>
 
-            <button
-              onClick={() => setShowEmojiBar((prev) => !prev)}
-              className={`w-12 h-12 rounded-2xl border flex items-center justify-center transition-colors ${
-                showEmojiBar
-                  ? 'bg-[#1877F2]/15 border-[#1877F2]/40 text-[#1877F2]'
-                  : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
-              }`}
-            >
-              <i className="far fa-smile"></i>
-            </button>
+      <button
+        type="button"
+        onClick={() => setShowEmojiBar((prev) => !prev)}
+        className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 ${
+          showEmojiBar ? 'text-[#1877F2]' : 'text-[#B0B3B8]'
+        }`}
+        title="Emoji"
+      >
+        <i className="far fa-smile text-[23px]" />
+      </button>
+    </div>
 
-            <input
-              ref={inputRef}
-              className="flex-1 bg-white/5 border border-white/10 rounded-[24px] px-5 py-4 text-[17px] text-white outline-none focus:border-[#1877F2] focus:bg-white/10 transition-all"
-              placeholder={replyTo ? 'Write a reply...' : 'Add to discussion...'}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && (text.trim() || selectedImage)) {
-                  e.preventDefault();
-                  handleSubmitComment();
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
+    <button
+      onClick={handleSubmitComment}
+      disabled={!text.trim() && !selectedImage}
+      className="w-10 h-10 rounded-full bg-[#1877F2] disabled:bg-[#3A3B3C] disabled:text-[#777] text-white flex items-center justify-center shadow-[0_8px_20px_rgba(24,119,242,0.35)] active:scale-95 transition-all"
+      title="Send"
+    >
+      <i className="fas fa-arrow-up text-[16px]" />
+    </button>
+  </div>
+</div>
 
-            <button
-              onClick={handleSubmitComment}
-              className="bg-[#1877F2] text-white px-6 rounded-2xl flex items-center justify-center shadow-xl active:scale-95 transition-all disabled:opacity-50"
-              disabled={!text.trim() && !selectedImage}
-            >
-              <i className="fas fa-paper-plane text-xs"></i>
-            </button>
-          </div>
-        </div>
-      </div>
 
       {menuComment && (
         <div
