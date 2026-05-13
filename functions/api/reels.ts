@@ -341,8 +341,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           (COALESCE(cm.comments_count, 0) * 5.0) +
           (COALESCE(sh.shares_count, 0) * 6.0) +
 
-          /* Reduced view dominance */
-          (COALESCE(r.views, 0) * 0.01) +
+          /* Very low view dominance */
+          (COALESCE(r.views, 0) * 0.003) +
 
           /* Fresh/new reels boost */
           CASE
@@ -369,7 +369,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
           /* Session-seeded fair discovery mixing */
           (
             ABS(((r.id * 1103515245) + (? * 12345) + (? * 777) + (? * 99991)) % 1000) / 1000.0
-          ) * 35
+          ) * 55
         ) AS rank_score
 
       FROM reels r
@@ -542,6 +542,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
         rank_score: toNum(r.rank_score, 0),
       };
+    });
+
+    console.log('REELS_PAGE_DEBUG', {
+      viewerId,
+      page,
+      limit,
+      offset,
+      seed,
+      ids: out.map((r: any) => r.id),
     });
 
     return json(out);
