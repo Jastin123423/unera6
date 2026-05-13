@@ -7266,500 +7266,581 @@ export const CreatePostModal = memo(
 // ==================== COMMENTS CACHE ====================
 const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: number }>();
 
+
 /**
  * =========================
- * ✅ COMMENTS SHEET - FIXED VERSION (PRESERVES FULL POST CARD SHAPE)
+ * ✅ COMMENTS SHEET - WITH IMAGE SUPPORT
  * =========================
  */
  
-  export const CommentsSheet = memo(
-  ({
-    post,
-    currentUser,
-    users,
-    onClose,
-    onComment,
-    onCommentAdded,
-    onLikeComment,
-    getCommentAuthor,
-    onProfileClick,
-    onHashtagClick,
-    onFollow,
-    checkIsFollowing,
-    onViewProductFromPost,
-    onOpenAudio,
-    onReact,
-    onShare,
-    onVideoClick,
-    groups = [],
-    brands = [],
-    chats = [],
-    onOpenGroup,
-    onRSVP,
-    onEventClick,
-    onOpenReactions,
-  }: {
-    post: PostType;
-    currentUser: User;
-    users: User[];
-    onClose: () => void;
-    onComment?: (postId: number, text: string) => void;
-    onCommentAdded?: () => void;
-    onLikeComment?: (commentId: number) => void;
-    getCommentAuthor?: (id: number) => User | undefined;
-    onProfileClick: (id: number) => void;
-    onHashtagClick?: (tag: string) => void;
-    onFollow?: (id: number) => void;
-    checkIsFollowing?: (id: number) => boolean;
-    onViewProductFromPost?: (productId: number) => void;
-    onOpenAudio?: (item: any) => void;
-    onReact: (post: PostType, type: ReactionType) => void;
-    onShare: (id: number, newShareCount: number) => void;
-    onVideoClick: (post: PostType) => void;
-    groups?: Group[];
-    brands?: Brand[];
-    chats?: any[];
-    onOpenGroup?: (groupId: number) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
-    onEventClick?: (eventId: number) => void;
-    onOpenReactions?: (post: PostType) => void;
-  }) => {
-    const p: any = post as any;
-    const postId = getFeedItemId(p);
+export const CommentsSheet = memo(
+({
+  post,
+  currentUser,
+  users,
+  onClose,
+  onComment,
+  onCommentAdded,
+  onLikeComment,
+  getCommentAuthor,
+  onProfileClick,
+  onHashtagClick,
+  onFollow,
+  checkIsFollowing,
+  onViewProductFromPost,
+  onOpenAudio,
+  onReact,
+  onShare,
+  onVideoClick,
+  groups = [],
+  brands = [],
+  chats = [],
+  onOpenGroup,
+  onRSVP,
+  onEventClick,
+  onOpenReactions,
+}: {
+  post: PostType;
+  currentUser: User;
+  users: User[];
+  onClose: () => void;
+  onComment?: (postId: number, text: string, imageFile?: File) => void;
+  onCommentAdded?: () => void;
+  onLikeComment?: (commentId: number) => void;
+  getCommentAuthor?: (id: number) => User | undefined;
+  onProfileClick: (id: number) => void;
+  onHashtagClick?: (tag: string) => void;
+  onFollow?: (id: number) => void;
+  checkIsFollowing?: (id: number) => boolean;
+  onViewProductFromPost?: (productId: number) => void;
+  onOpenAudio?: (item: any) => void;
+  onReact: (post: PostType, type: ReactionType) => void;
+  onShare: (id: number, newShareCount: number) => void;
+  onVideoClick: (post: PostType) => void;
+  groups?: Group[];
+  brands?: Brand[];
+  chats?: any[];
+  onOpenGroup?: (groupId: number) => void;
+  onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+  onEventClick?: (eventId: number) => void;
+  onOpenReactions?: (post: PostType) => void;
+}) => {
+  const p: any = post as any;
+  const postId = getFeedItemId(p);
 
-    const discussionsTopRef = useRef<HTMLDivElement>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const discussionsTopRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Image picker states
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-    const [text, setText] = useState('');
-    const [comments, setComments] = useState<any[]>([]);
-    const [replyTo, setReplyTo] = useState<any | null>(null);
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const [replyTo, setReplyTo] = useState<any | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
-    const getCommentEndpoint = () => {
-      const viewerId = safeUserId(currentUser);
-      const itemType = getFeedItemType(p);
-
-      switch (itemType) {
-        case 'event':
-          const eventId = p.event_id || p.id;
-          return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
-        case 'group_post':
-          const groupId = p.group_id;
-          const groupPostId = p.id;
-          return `/api/groups/${groupId}/posts/${groupPostId}/comments?viewerId=${viewerId}`;
-        case 'product':
-          const productId = p.product_id || p.id;
-          return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
-        case 'reel':
-          const reelId = p.reel_id || p.id;
-          return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
-        case 'music':
-          const songId = p.song_id2 || p.id;
-          return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
-        case 'podcast':
-          const podcastId = p.podcast_id || p.id;
-          return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
-        default:
-          return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
-      }
+  // Cleanup image preview on unmount
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
     };
+  }, [imagePreview]);
 
-    const getAddCommentEndpoint = () => {
-      const itemType = getFeedItemType(p);
+  // Helper: Get comments endpoint based on item type
+  const getCommentEndpoint = () => {
+    const viewerId = safeUserId(currentUser);
+    const itemType = getFeedItemType(p);
 
-      switch (itemType) {
-        case 'event':
-          const eventId = p.event_id || p.id;
-          return `/api/events/${eventId}/comment`;
-        case 'group_post':
-          const groupId = p.group_id;
-          const groupPostId = p.id;
-          return `/api/groups/${groupId}/posts/${groupPostId}/comment`;
-        case 'product':
-          const productId = p.product_id || p.id;
-          return `/api/products/${productId}/review`;
-        case 'reel':
-          const reelId = p.reel_id || p.id;
-          return `/api/reels/${reelId}/comment`;
-        case 'music':
-          const songId = p.song_id2 || p.id;
-          return `/api/songs/${songId}/comment`;
-        case 'podcast':
-          const podcastId = p.podcast_id || p.id;
-          return `/api/podcasts/${podcastId}/comment`;
-        default:
-          return `/api/posts/${p.id}/comment`;
-      }
-    };
+    switch (itemType) {
+      case 'event':
+        const eventId = p.event_id || p.id;
+        return `/api/events/${eventId}/comments?viewerId=${viewerId}`;
+      case 'group_post':
+        const groupId = p.group_id;
+        const groupPostId = p.id;
+        return `/api/groups/${groupId}/posts/${groupPostId}/comments?viewerId=${viewerId}`;
+      case 'product':
+        const productId = p.product_id || p.id;
+        return `/api/products/${productId}/reviews?viewerId=${viewerId}`;
+      case 'reel':
+        const reelId = p.reel_id || p.id;
+        return `/api/reels/${reelId}/comments?viewerId=${viewerId}`;
+      case 'music':
+        const songId = p.song_id2 || p.id;
+        return `/api/songs/${songId}/comments?viewerId=${viewerId}`;
+      case 'podcast':
+        const podcastId = p.podcast_id || p.id;
+        return `/api/podcasts/${podcastId}/comments?viewerId=${viewerId}`;
+      default:
+        return `/api/posts/${p.id}/comments?viewerId=${viewerId}`;
+    }
+  };
 
-    const getReplyEndpoint = (commentId: number) => {
-      const itemType = getFeedItemType(p);
+  // Helper: Get add comment endpoint
+  const getAddCommentEndpoint = () => {
+    const itemType = getFeedItemType(p);
 
-      switch (itemType) {
-        case 'event':
-          return `/api/event-comments/${commentId}/reply`;
-        case 'group_post':
-          return `/api/group-post-comments/${commentId}/reply`;
-        case 'product':
-          return `/api/product-reviews/${commentId}/reply`;
-        case 'reel':
-          return `/api/reel-comments/${commentId}/reply`;
-        case 'music':
-          return `/api/song-comments/${commentId}/reply`;
-        case 'podcast':
-          return `/api/podcast-comments/${commentId}/reply`;
-        default:
-          return `/api/comments/${commentId}/reply`;
-      }
-    };
+    switch (itemType) {
+      case 'event':
+        const eventId = p.event_id || p.id;
+        return `/api/events/${eventId}/comment`;
+      case 'group_post':
+        const groupId = p.group_id;
+        const groupPostId = p.id;
+        return `/api/groups/${groupId}/posts/${groupPostId}/comment`;
+      case 'product':
+        const productId = p.product_id || p.id;
+        return `/api/products/${productId}/review`;
+      case 'reel':
+        const reelId = p.reel_id || p.id;
+        return `/api/reels/${reelId}/comment`;
+      case 'music':
+        const songId = p.song_id2 || p.id;
+        return `/api/songs/${songId}/comment`;
+      case 'podcast':
+        const podcastId = p.podcast_id || p.id;
+        return `/api/podcasts/${podcastId}/comment`;
+      default:
+        return `/api/posts/${p.id}/comment`;
+    }
+  };
 
-    const getLikeEndpoint = (commentId: number) => {
-      const itemType = getFeedItemType(p);
+  // Helper: Get reply endpoint
+  const getReplyEndpoint = (commentId: number) => {
+    const itemType = getFeedItemType(p);
 
-      switch (itemType) {
-        case 'event':
-          return `/api/event-comments/${commentId}/like`;
-        case 'group_post':
-          return `/api/group-post-comments/${commentId}/like`;
-        case 'product':
-          return `/api/product-reviews/${commentId}/like`;
-        case 'reel':
-          return `/api/reel-comments/${commentId}/like`;
-        case 'music':
-          return `/api/song-comments/${commentId}/like`;
-        case 'podcast':
-          return `/api/podcast-comments/${commentId}/like`;
-        default:
-          return `/api/comments/${commentId}/like`;
-      }
-    };
+    switch (itemType) {
+      case 'event':
+        return `/api/event-comments/${commentId}/reply`;
+      case 'group_post':
+        return `/api/group-post-comments/${commentId}/reply`;
+      case 'product':
+        return `/api/product-reviews/${commentId}/reply`;
+      case 'reel':
+        return `/api/reel-comments/${commentId}/reply`;
+      case 'music':
+        return `/api/song-comments/${commentId}/reply`;
+      case 'podcast':
+        return `/api/podcast-comments/${commentId}/reply`;
+      default:
+        return `/api/comments/${commentId}/reply`;
+    }
+  };
 
-    useEffect(() => {
-      const t = setTimeout(() => {
-        discussionsTopRef.current?.scrollIntoView({
-          behavior: 'auto',
-          block: 'start',
-        });
-      }, 0);
-      return () => clearTimeout(t);
-    }, [postId]);
+  // Helper: Get like endpoint
+  const getLikeEndpoint = (commentId: number) => {
+    const itemType = getFeedItemType(p);
 
-    const resolveAuthor = (c: any) => {
-      const uid = Number(
-        c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0
-      );
+    switch (itemType) {
+      case 'event':
+        return `/api/event-comments/${commentId}/like`;
+      case 'group_post':
+        return `/api/group-post-comments/${commentId}/like`;
+      case 'product':
+        return `/api/product-reviews/${commentId}/like`;
+      case 'reel':
+        return `/api/reel-comments/${commentId}/like`;
+      case 'music':
+        return `/api/song-comments/${commentId}/like`;
+      case 'podcast':
+        return `/api/podcast-comments/${commentId}/like`;
+      default:
+        return `/api/comments/${commentId}/like`;
+    }
+  };
 
-      const u =
-        (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
-        (getCommentAuthor ? getCommentAuthor(uid) : null) ||
-        null;
+  // Helper: Upload image to server
+  const uploadCommentImage = async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('user_id', String(safeUserId(currentUser)));
 
-      const name =
-        String(c?.author_name ?? c?.authorName ?? '').trim() ||
-        String(u?.name ?? '').trim() ||
-        String(u?.username ?? '').trim() ||
-        'User';
-
-      const image = avatarFrom({
-        profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
-        name,
-        username: u?.username ?? c?.author_username ?? c?.username,
+    try {
+      const response = await fetch('/api/comments/upload-image', {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+        },
+        body: formData,
       });
+      const data = await response.json();
+      if (data.success && data.image_url) {
+        return data.image_url;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to upload comment image:', error);
+      return null;
+    }
+  };
 
-      return { uid, name, image };
-    };
+  // Scroll to top when post changes
+  useEffect(() => {
+    const t = setTimeout(() => {
+      discussionsTopRef.current?.scrollIntoView({
+        behavior: 'auto',
+        block: 'start',
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [postId]);
 
-    const getReplyLabel = (comment: any) => {
-      const a = resolveAuthor(comment);
-      const uid = a.uid;
+  // Handle image selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+    
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be less than 10MB');
+      return;
+    }
+    
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
 
-      const user = users.find((x: any) => Number(x?.id) === uid);
-      const username = String(
-        comment?.author_username ?? user?.username ?? comment?.username ?? ''
-      ).trim();
+  // Resolve comment author
+  const resolveAuthor = (c: any) => {
+    const uid = Number(
+      c?.user_id ?? c?.userId ?? c?.author_id ?? c?.authorId ?? 0
+    );
 
-      const display = username ? `@${username}` : a.name;
-      return { ...a, username, display };
-    };
+    const u =
+      (Number.isFinite(uid) ? users.find((x: any) => Number(x?.id) === uid) : null) ||
+      (getCommentAuthor ? getCommentAuthor(uid) : null) ||
+      null;
 
-    const formatCount = (count: number): string => {
-      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-      return count.toString();
-    };
+    const name =
+      String(c?.author_name ?? c?.authorName ?? '').trim() ||
+      String(u?.name ?? '').trim() ||
+      String(u?.username ?? '').trim() ||
+      'User';
 
-    const handleLikeComment = async (comment: any) => {
-      if (!currentUser) return;
+    const image = avatarFrom({
+      profile_image_url: c?.author_image ?? c?.authorImage ?? u?.profile_image_url,
+      name,
+      username: u?.username ?? c?.author_username ?? c?.username,
+    });
 
-      const optimisticLiked = !comment.liked_by_me;
-      const optimisticCount = comment.liked_by_me
-        ? Math.max(0, (comment.likes_count || 0) - 1)
-        : (comment.likes_count || 0) + 1;
+    return { uid, name, image };
+  };
 
+  // Get reply label for comment
+  const getReplyLabel = (comment: any) => {
+    const a = resolveAuthor(comment);
+    const uid = a.uid;
+
+    const user = users.find((x: any) => Number(x?.id) === uid);
+    const username = String(
+      comment?.author_username ?? user?.username ?? comment?.username ?? ''
+    ).trim();
+
+    const display = username ? `@${username}` : a.name;
+    return { ...a, username, display };
+  };
+
+  // Format count helper
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  };
+
+  // Handle like comment
+  const handleLikeComment = async (comment: any) => {
+    if (!currentUser) return;
+
+    const optimisticLiked = !comment.liked_by_me;
+    const optimisticCount = comment.liked_by_me
+      ? Math.max(0, (comment.likes_count || 0) - 1)
+      : (comment.likes_count || 0) + 1;
+
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === comment.id
+          ? { ...c, liked_by_me: optimisticLiked, likes_count: optimisticCount }
+          : c
+      )
+    );
+
+    if (onLikeComment) {
+      onLikeComment(comment.id);
+    }
+
+    try {
+      const endpoint = getLikeEndpoint(comment.id);
+      await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: safeUserId(currentUser) }),
+      });
+    } catch (error) {
+      console.error('Failed to like comment:', error);
       setComments((prev) =>
         prev.map((c) =>
           c.id === comment.id
-            ? { ...c, liked_by_me: optimisticLiked, likes_count: optimisticCount }
+            ? { ...c, liked_by_me: !optimisticLiked, likes_count: comment.likes_count || 0 }
             : c
         )
       );
+    }
+  };
 
-      if (onLikeComment) {
-        onLikeComment(comment.id);
-      }
+  // Handle follow click
+  const handleFollowClick = (e: React.MouseEvent, userId: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (onFollow && userId && userId !== safeUserId(currentUser)) {
+      onFollow(userId);
+    }
+  };
 
-      try {
-        const endpoint = getLikeEndpoint(comment.id);
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: safeUserId(currentUser) }),
-        });
-      } catch (error) {
-        console.error('Failed to like comment:', error);
-        setComments((prev) =>
-          prev.map((c) =>
-            c.id === comment.id
-              ? { ...c, liked_by_me: !optimisticLiked, likes_count: comment.likes_count || 0 }
-              : c
-          )
-        );
-      }
-    };
+  // Fetch comments silently (background refresh)
+  const fetchCommentsSilently = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
 
-    const handleFollowClick = (e: React.MouseEvent, userId: number) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (onFollow && userId && userId !== safeUserId(currentUser)) {
-        onFollow(userId);
-      }
-    };
+    abortControllerRef.current = new AbortController();
 
-    const fetchCommentsSilently = async () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+    try {
+      const endpoint = getCommentEndpoint();
+      const data = await apiFetch(endpoint);
+      const arr = Array.isArray(data) ? data : data?.comments || [];
 
-      abortControllerRef.current = new AbortController();
-
-      try {
-        const endpoint = getCommentEndpoint();
-        const data = await apiFetch(endpoint);
-        const arr = Array.isArray(data) ? data : data?.comments || [];
-
-        if (arr.length > 0) {
-          setComments(arr);
-          commentsCache.set(postId, {
-            data: arr,
-            timestamp: Date.now(),
-            postId,
-          });
-        }
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          return;
-        }
-        console.debug('Silent comment fetch failed:', error);
-      }
-    };
-
-    useEffect(() => {
-      const initializeComments = async () => {
-        const cached = commentsCache.get(postId);
-        if (cached) {
-          setComments(cached.data);
-        }
-
-        const postComments = Array.isArray(p.comments) ? p.comments : [];
-        if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
-          setComments(postComments);
-          commentsCache.set(postId, {
-            data: postComments,
-            timestamp: Date.now(),
-            postId,
-          });
-        }
-
-        fetchCommentsSilently();
-      };
-
-      initializeComments();
-
-      return () => {
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-      };
-    }, [postId, p.comments]);
-
-    const idKey = (v: any) => String(v ?? '').trim();
-
-    const buildThreads = (list: any[]) => {
-      const roots = list.filter((c) => !c.parent_comment_id);
-
-      const repliesByParent = new Map<string, any[]>();
-
-      list.forEach((c) => {
-        const pid = idKey(c.parent_comment_id);
-        if (!pid) return;
-
-        if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
-        repliesByParent.get(pid)!.push(c);
-      });
-
-      repliesByParent.forEach((arr) => {
-        arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-      });
-
-      return roots.map((root) => ({
-        root,
-        replies: repliesByParent.get(idKey(root.id)) || [],
-      }));
-    };
-
-    const toggleThread = (rootId: any, open: boolean) => {
-      const key = String(rootId);
-      setExpandedThreads((prev) => ({ ...prev, [key]: open }));
-    };
-
-    const threads = useMemo(() => buildThreads(comments), [comments]);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      const t = text.trim();
-      if (!t) return;
-
-      const replyDisplay = replyTo?._reply_author?.display;
-      const prefix = replyDisplay ? `${replyDisplay} ` : '';
-      const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
-
-      const optimisticComment = {
-        id: `tmp-${Date.now()}`,
-        post_id: postId,
-        user_id: safeUserId(currentUser),
-        text: finalText,
-        parent_comment_id: replyTo?.id || null,
-        created_at: new Date().toISOString(),
-        replies_count: 0,
-        likes_count: 0,
-        liked_by_me: false,
-      };
-
-      setText('');
-      setReplyTo(null);
-      setShowEmojiPicker(false);
-
-      setComments((prev) => {
-        const next = [...prev, optimisticComment];
-        const allComments = commentsCache.get(postId)?.data || [];
+      if (arr.length > 0) {
+        setComments(arr);
         commentsCache.set(postId, {
-          data: [...allComments, optimisticComment],
+          data: arr,
           timestamp: Date.now(),
           postId,
         });
-        return next;
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        return;
+      }
+      console.debug('Silent comment fetch failed:', error);
+    }
+  };
+
+  // Initialize comments
+  useEffect(() => {
+    const initializeComments = async () => {
+      const cached = commentsCache.get(postId);
+      if (cached) {
+        setComments(cached.data);
+      }
+
+      const postComments = Array.isArray(p.comments) ? p.comments : [];
+      if (postComments.length > 0 && (!cached || postComments.length > cached.data.length)) {
+        setComments(postComments);
+        commentsCache.set(postId, {
+          data: postComments,
+          timestamp: Date.now(),
+          postId,
+        });
+      }
+
+      fetchCommentsSilently();
+    };
+
+    initializeComments();
+
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [postId, p.comments]);
+
+  // Build comment threads
+  const idKey = (v: any) => String(v ?? '').trim();
+
+  const buildThreads = (list: any[]) => {
+    const roots = list.filter((c) => !c.parent_comment_id);
+
+    const repliesByParent = new Map<string, any[]>();
+
+    list.forEach((c) => {
+      const pid = idKey(c.parent_comment_id);
+      if (!pid) return;
+
+      if (!repliesByParent.has(pid)) repliesByParent.set(pid, []);
+      repliesByParent.get(pid)!.push(c);
+    });
+
+    repliesByParent.forEach((arr) => {
+      arr.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    });
+
+    return roots.map((root) => ({
+      root,
+      replies: repliesByParent.get(idKey(root.id)) || [],
+    }));
+  };
+
+  const toggleThread = (rootId: any, open: boolean) => {
+    const key = String(rootId);
+    setExpandedThreads((prev) => ({ ...prev, [key]: open }));
+  };
+
+  const threads = useMemo(() => buildThreads(comments), [comments]);
+
+  // Handle comment submission with image support
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const t = text.trim();
+    if (!t && !selectedImage) return;
+
+    setUploadingImage(true);
+
+    let uploadedImageUrl: string | null = null;
+    
+    // Upload image if present
+    if (selectedImage) {
+      uploadedImageUrl = await uploadCommentImage(selectedImage);
+      if (!uploadedImageUrl && selectedImage) {
+        console.error('Failed to upload image');
+        setUploadingImage(false);
+        alert('Failed to upload image. Please try again.');
+        return;
+      }
+    }
+
+    const replyDisplay = replyTo?._reply_author?.display;
+    const prefix = replyDisplay ? `${replyDisplay} ` : '';
+    const finalText = replyTo && !t.startsWith(prefix) ? prefix + t : t;
+
+    // Optimistic comment
+    const optimisticComment = {
+      id: `tmp-${Date.now()}`,
+      post_id: postId,
+      user_id: safeUserId(currentUser),
+      text: finalText,
+      image_url: uploadedImageUrl,
+      parent_comment_id: replyTo?.id || null,
+      created_at: new Date().toISOString(),
+      replies_count: 0,
+      likes_count: 0,
+      liked_by_me: false,
+    };
+
+    // Clear form
+    setText('');
+    setReplyTo(null);
+    setShowEmojiPicker(false);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setSelectedImage(null);
+    setImagePreview(null);
+
+    setComments((prev) => {
+      const next = [...prev, optimisticComment];
+      const allComments = commentsCache.get(postId)?.data || [];
+      commentsCache.set(postId, {
+        data: [...allComments, optimisticComment],
+        timestamp: Date.now(),
+        postId,
+      });
+      return next;
+    });
+
+    if (onComment) {
+      onComment(postId, finalText, selectedImage || undefined);
+    }
+
+    // Actual API call
+    try {
+      let endpoint = '';
+      let body: any = {
+        text: finalText,
+        user_id: safeUserId(currentUser),
+        parent_comment_id: replyTo?.id || null,
+      };
+      
+      if (uploadedImageUrl) {
+        body.image_url = uploadedImageUrl;
+      }
+
+      if (replyTo) {
+        endpoint = getReplyEndpoint(replyTo.id);
+      } else {
+        endpoint = getAddCommentEndpoint();
+      }
+
+      await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(body),
       });
 
-      if (onComment) {
-        onComment(postId, finalText);
+      if (onCommentAdded) {
+        onCommentAdded();
       }
 
-      try {
-        let endpoint = '';
+      fetchCommentsSilently();
+    } catch (err: any) {
+      console.error('Failed to post comment:', err);
+      alert('Failed to post comment. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
-        if (replyTo) {
-          endpoint = getReplyEndpoint(replyTo.id);
-        } else {
-          endpoint = getAddCommentEndpoint();
-        }
+  // Add emoji to input
+  const addEmoji = (emoji: string) => {
+    setText((prev) => prev + emoji);
+    setShowEmojiPicker(false);
+    inputRef.current?.focus();
+  };
 
-        await apiFetch(endpoint, {
-          method: 'POST',
-          body: JSON.stringify({
-            text: finalText,
-            user_id: safeUserId(currentUser),
-            parent_comment_id: replyTo?.id || null,
-          }),
-        });
-
-        if (onCommentAdded) {
-          onCommentAdded();
-        }
-
+  // Refresh comments on window focus
+  useEffect(() => {
+    const handleFocus = () => {
+      const cached = commentsCache.get(postId);
+      if (cached && Date.now() - cached.timestamp > 30000) {
         fetchCommentsSilently();
-      } catch (err: any) {
-        console.error('Failed to post comment:', err);
       }
     };
 
-    const addEmoji = (emoji: string) => {
-      setText((prev) => prev + emoji);
-      setShowEmojiPicker(false);
-      inputRef.current?.focus();
-    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [postId]);
 
-    useEffect(() => {
-      const handleFocus = () => {
-        const cached = commentsCache.get(postId);
-        if (cached && Date.now() - cached.timestamp > 30000) {
-          fetchCommentsSilently();
-        }
-      };
+  // Render single comment (UPDATED with Facebook/Reels style)
+  const renderOneComment = (comment: any, isReply: boolean = false) => {
+    const a = resolveAuthor(comment);
+    const isCurrentUserComment = a.uid === safeUserId(currentUser);
+    const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
 
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-    }, [postId]);
-
-    const renderOneComment = (comment: any, isReply: boolean = false) => {
-      const a = resolveAuthor(comment);
-      const isCurrentUserComment = a.uid === safeUserId(currentUser);
-      const isFollowing = checkIsFollowing ? checkIsFollowing(a.uid) : false;
-
-      return (
-        <div className={`flex gap-3 ${isReply ? 'mt-3' : ''}`}>
-          <img
-            src={a.image}
-            className="w-9 h-9 rounded-full object-cover cursor-pointer flex-shrink-0"
-            alt=""
-            onClick={() => a.uid && onProfileClick(a.uid)}
-          />
-
-          <div className="flex-1 min-w-0">
-            <div className="mb-1">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className="text-[#E4E6EB] font-bold text-[18px] cursor-pointer hover:underline"
-                    onClick={() => a.uid && onProfileClick(a.uid)}
-                  >
-                    {a.name}
-                  </span>
-                  <span className="text-[#B0B3B8] text-[14px]">
-                    •{' '}
-                    {formatRelativeTime(
-                      comment.created_at || comment.createdAt || comment.timestamp
-                    )}
-                  </span>
-                </div>
-
-                {onFollow && currentUser && a.uid && !isCurrentUserComment && (
-                  <button
-                    onClick={(e) => handleFollowClick(e, a.uid)}
-                    className={`px-2 py-0.5 text-[14px] font-bold rounded-lg transition-all duration-200 ml-2 ${
-                      isFollowing
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    }`}
-                  >
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </button>
-                )}
-              </div>
+    return (
+      <div className={`flex gap-3 ${isReply ? 'mt-3' : ''}`}>
+        <img
+          src={a.image}
+          className="w-9 h-9 rounded-full object-cover cursor-pointer shrink-0"
+          alt=""
+          onClick={() => a.uid && onProfileClick(a.uid)}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="inline-block max-w-[315px] bg-[#242526] rounded-[18px] px-3.5 py-2 border border-white/5">
+            <div
+              className="text-[#E4E6EB] font-black text-[15px] leading-tight cursor-pointer hover:underline"
+              onClick={() => a.uid && onProfileClick(a.uid)}
+            >
+              {a.name}
             </div>
-
-            <div className="text-[#E4E6EB] text-[19px] font-bold whitespace-pre-wrap break-words mb-2">
+            <div className="text-[#E4E6EB] text-[15px] leading-[1.28] font-medium whitespace-pre-wrap break-words mt-0.5">
               <RichText
                 text={String(comment.text || '')}
                 users={users}
@@ -7767,240 +7848,368 @@ const commentsCache = new Map<number, { data: any[]; timestamp: number; postId: 
                 onHashtagClick={onHashtagClick}
               />
             </div>
-
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => handleLikeComment(comment)}
-                className={`text-[15px] ${
-                  comment.liked_by_me
-                    ? 'text-[#1877F2] font-bold'
-                    : 'text-[#B0B3B8] hover:text-[#E4E6EB]'
-                }`}
-              >
-                {comment.liked_by_me ? 'Liked' : 'Like'}
-              </button>
-              <button
-                onClick={() => {
-                  const target = getReplyLabel(comment);
-                  setReplyTo({
-                    ...comment,
-                    _reply_author: target,
-                  });
-                  inputRef.current?.focus();
-                  setShowEmojiPicker(false);
-                }}
-                className="text-[15px] text-[#B0B3B8] hover:text-[#E4E6EB]"
-              >
-                Reply
-              </button>
-              {comment.likes_count > 0 && (
-                <span className="text-[15px] text-[#B0B3B8]">
-                  {formatCount(comment.likes_count)} like
-                  {comment.likes_count !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    };    
-    return (
-    
-        <div className="comments-sheet-root flex flex-col">
-        <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
-              onClick={onClose}
-              aria-label="Back"
-            >
-              <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
-            </button>
-            <div className="text-[#E4E6EB] font-bold text-[22px]">Post</div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="text-[#B0B3B8] text-[16px]">
-              {formatCount(comments.length)} discussions
-            </div>
-            <button
-              type="button"
-              className="text-[#1877F2] font-bold text-[17px] hover:underline"
-              onClick={onClose}
-            >
-              See less
-            </button>
-          </div>
-        </div>
-
-
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
-
-<div className="border-b border-[#3E4042]">
-  {post && (
-    <Post
-      post={post}
-      author={
-        (post as any).author || {
-          id: (post as any).user_id || (post as any).author_id || 0,
-          name: (post as any).name || (post as any).username || 'User',
-          username: (post as any).username || '',
-          profile_image_url: (post as any).profile_image_url || '',
-        }
-      }
-      currentUser={currentUser}
-      users={users}
-      onProfileClick={onProfileClick}
-      onReact={onReact}
-      onShare={onShare}
-      onViewImage={() => {}}
-      onOpenComments={() => {}}
-      onVideoClick={onVideoClick}
-      onPlayAudioTrack={onOpenAudio}
-      onHashtagClick={onHashtagClick}
-      onViewProductFromPost={onViewProductFromPost}
-      onOpenGroup={onOpenGroup}
-      onOpenAudio={onOpenAudio}
-      onRSVP={onRSVP}
-      groups={groups}
-      brands={brands}
-      chats={chats}
-      onFollow={onFollow}
-      onEventClick={onEventClick}
-      onOpenReactions={onOpenReactions}
-    />
-  )}
-</div>
-
-
-
-          <div className="p-4">
-            <div ref={discussionsTopRef} />
-
-            {replyTo && (
-              <div className="mb-4 p-3 bg-[#3A3B3C] rounded-lg flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#B0B3B8] text-[15px]">Replying to</span>
-                  <span className="text-[#1877F2] font-bold text-[15px]">
-                    {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setReplyTo(null)}
-                  className="text-[#B0B3B8] hover:text-[#E4E6EB] text-lg"
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-            )}
-
-            {showEmojiPicker && (
-              <div className="mb-4 p-3 border border-[#3E4042] rounded-lg">
-                <div className="flex gap-2 flex-wrap max-h-[120px] overflow-y-auto">
-                  {QUICK_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => addEmoji(emoji)}
-                      className="text-2xl hover:scale-125 transition-transform p-1"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {comments.length === 0 ? (
-              <div className="text-center py-10">
-                <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
-                <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {threads.map(({ root, replies }) => {
-                  const rootId = String(root.id);
-                  const isExpanded = !!expandedThreads[rootId];
-                  const MAX_PREVIEW = 1;
-                  const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
-                  const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
-
-                  return (
-                    <div key={rootId} className="space-y-2">
-                      {renderOneComment(root, false)}
-
-                      {!isExpanded && hiddenCount > 0 && (
-                        <button
-                          type="button"
-                          className="ml-12 text-[#1877F2] font-bold text-[16px] hover:underline"
-                          onClick={() => toggleThread(rootId, true)}
-                        >
-                          View previous {hiddenCount} repl
-                          {hiddenCount === 1 ? 'y' : 'ies'}
-                        </button>
-                      )}
-
-                      {visibleReplies.map((reply) => (
-                        <div key={String(reply.id)} className="ml-12 relative">
-                          <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
-                          {renderOneComment(reply, true)}
-                        </div>
-                      ))}
-
-                      {isExpanded && replies.length > MAX_PREVIEW && (
-                        <button
-                          type="button"
-                          className="ml-12 text-[#B0B3B8] text-[15px] hover:text-[#E4E6EB]"
-                          onClick={() => toggleThread(rootId, false)}
-                        >
-                          Hide replies
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+            {comment.image_url && (
+              <div className="mt-2 rounded-lg overflow-hidden">
+                <img
+                  src={comment.image_url}
+                  alt="Comment attachment"
+                  className="max-w-full max-h-[200px] object-cover rounded-lg cursor-pointer"
+                  onClick={() => window.open(comment.image_url, '_blank')}
+                />
               </div>
             )}
           </div>
-        </div>
-
-        <div className="p-4 border-t border-[#3E4042] bg-[#242526] sticky bottom-0">
-          <form className="flex gap-3 items-center" onSubmit={handleSubmit}>
+          <div className="mt-1 ml-3 flex items-center gap-4">
             <button
-              type="button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="text-[#B0B3B8] hover:text-[#E4E6EB] text-2xl p-1 transition-colors"
+              onClick={() => handleLikeComment(comment)}
+              className={`text-[13px] font-bold ${
+                comment.liked_by_me
+                  ? 'text-[#1877F2]'
+                  : 'text-[#B0B3B8] hover:text-[#E4E6EB]'
+              }`}
             >
-              😀
+              {comment.liked_by_me ? 'Liked' : 'Like'}
             </button>
-            <div className="flex-1 relative">
-              <input
-                ref={inputRef}
-                type="text"
-                className="w-full bg-[#3A3B3C] text-white rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-[#1877F2] transition-all text-[17px]"
-                placeholder={
-                  replyTo
-                    ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}...`
-                    : 'Write a comment...'
-                }
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-              />
-            </div>
             <button
-              type="submit"
-              className="text-[#1877F2] font-bold text-[17px] disabled:text-[#B0B3B8] disabled:cursor-not-allowed px-4 py-2 min-w-[60px] transition-colors"
-              disabled={!text.trim()}
+              onClick={() => {
+                const target = getReplyLabel(comment);
+                setReplyTo({
+                  ...comment,
+                  _reply_author: target,
+                });
+                inputRef.current?.focus();
+                setShowEmojiPicker(false);
+              }}
+              className="text-[13px] font-bold text-[#B0B3B8] hover:text-[#E4E6EB]"
             >
-              Post
+              Reply
             </button>
-          </form>
+            <span className="text-[13px] font-bold text-[#B0B3B8]">
+              {formatRelativeTime(comment.created_at || comment.createdAt || comment.timestamp)}
+            </span>
+            {comment.likes_count > 0 && (
+              <span className="text-[13px] font-bold text-[#B0B3B8]">
+                {formatCount(comment.likes_count)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     );
-  },
-  (prev, next) => isSameFeedItem(prev.post, next.post) && prev.currentUser?.id === next.currentUser?.id
-);
+  };
+
+  return (
+    <div className="comments-sheet-root flex flex-col">
+      {/* Header */}
+      <div className="p-4 border-b border-[#3E4042] flex items-center justify-between bg-[#242526] sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="w-10 h-10 rounded-full hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+            onClick={onClose}
+            aria-label="Back"
+          >
+            <i className="fas fa-arrow-left text-[#E4E6EB] text-xl"></i>
+          </button>
+          <div className="text-[#E4E6EB] font-bold text-[22px]">Post</div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="text-[#B0B3B8] text-[16px]">
+            {formatCount(comments.length)} discussions
+          </div>
+          <button
+            type="button"
+            className="text-[#1877F2] font-bold text-[17px] hover:underline"
+            onClick={onClose}
+          >
+            See less
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable Content */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
+        {/* Original Post Card */}
+        <div className="border-b border-[#3E4042]">
+          {post && (
+            <Post
+              post={post}
+              author={
+                (post as any).author || {
+                  id: (post as any).user_id || (post as any).author_id || 0,
+                  name: (post as any).name || (post as any).username || 'User',
+                  username: (post as any).username || '',
+                  profile_image_url: (post as any).profile_image_url || '',
+                }
+              }
+              currentUser={currentUser}
+              users={users}
+              onProfileClick={onProfileClick}
+              onReact={onReact}
+              onShare={onShare}
+              onViewImage={() => {}}
+              onOpenComments={() => {}}
+              onVideoClick={onVideoClick}
+              onPlayAudioTrack={onOpenAudio}
+              onHashtagClick={onHashtagClick}
+              onViewProductFromPost={onViewProductFromPost}
+              onOpenGroup={onOpenGroup}
+              onOpenAudio={onOpenAudio}
+              onRSVP={onRSVP}
+              groups={groups}
+              brands={brands}
+              chats={chats}
+              onFollow={onFollow}
+              onEventClick={onEventClick}
+              onOpenReactions={onOpenReactions}
+            />
+          )}
+        </div>
+
+        {/* Comments Section */}
+        <div className="p-4">
+          <div ref={discussionsTopRef} />
+
+          {/* Reply To Indicator */}
+          {replyTo && (
+            <div className="mb-2 flex items-center gap-2 bg-[#242526] px-3 py-2 rounded-2xl">
+              <span className="text-xs text-[#B0B3B8]">Replying to</span>
+              <span className="text-xs text-[#1877F2] font-black">
+                {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+              </span>
+              <button
+                onClick={() => setReplyTo(null)}
+                className="ml-auto text-[#B0B3B8] hover:text-white"
+              >
+                <i className="fas fa-times text-xs" />
+              </button>
+            </div>
+          )}
+
+          {/* Image Preview for new comment */}
+          {imagePreview && (
+            <div className="mb-2 relative inline-block">
+              <img
+                src={imagePreview}
+                className="h-20 rounded-xl border border-white/10 object-cover"
+                alt="Preview"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (imagePreview) URL.revokeObjectURL(imagePreview);
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                }}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+              >
+                <i className="fas fa-times text-white text-xs" />
+              </button>
+            </div>
+          )}
+
+          {/* Emoji Picker */}
+          {showEmojiPicker && (
+            <div className="mb-3 flex flex-wrap gap-2 bg-[#242526] border border-white/10 rounded-2xl p-3">
+              {QUICK_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => addEmoji(emoji)}
+                  className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Empty State */}
+          {comments.length === 0 ? (
+            <div className="text-center py-10">
+              <div className="text-[#B0B3B8] text-[19px] mb-2">No discussions yet</div>
+              <p className="text-[#B0B3B8] text-[15px]">Be the first to start a discussion!</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {threads.map(({ root, replies }) => {
+                const rootId = String(root.id);
+                const isExpanded = !!expandedThreads[rootId];
+                const MAX_PREVIEW = 1;
+                const hiddenCount = Math.max(0, replies.length - MAX_PREVIEW);
+                const visibleReplies = isExpanded ? replies : replies.slice(-MAX_PREVIEW);
+
+                return (
+                  <div key={rootId} className="space-y-2">
+                    {renderOneComment(root, false)}
+
+                    {!isExpanded && hiddenCount > 0 && (
+                      <button
+                        type="button"
+                        className="ml-12 text-[#1877F2] font-bold text-[16px] hover:underline"
+                        onClick={() => toggleThread(rootId, true)}
+                      >
+                        View previous {hiddenCount} repl{hiddenCount === 1 ? 'y' : 'ies'}
+                      </button>
+                    )}
+
+                    {visibleReplies.map((reply) => (
+                      <div key={String(reply.id)} className="ml-12 relative">
+                        <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-[#3E4042] rounded-full" />
+                        {renderOneComment(reply, true)}
+                      </div>
+                    ))}
+
+                    {isExpanded && replies.length > MAX_PREVIEW && (
+                      <button
+                        type="button"
+                        className="ml-12 text-[#B0B3B8] text-[15px] hover:text-[#E4E6EB]"
+                        onClick={() => toggleThread(rootId, false)}
+                      >
+                        Hide replies
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Comment Input Footer - UPDATED with image picker and Facebook/Reels style */}
+      <div className="p-3 pb-5 border-t border-white/10 bg-[#0A0A0A] sticky bottom-0">
+        {replyTo && (
+          <div className="mb-2 flex items-center gap-2 bg-[#242526] px-3 py-2 rounded-2xl">
+            <span className="text-xs text-[#B0B3B8]">Replying to</span>
+            <span className="text-xs text-[#1877F2] font-black">
+              {replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'User'}
+            </span>
+            <button
+              onClick={() => setReplyTo(null)}
+              className="ml-auto text-[#B0B3B8] hover:text-white"
+            >
+              <i className="fas fa-times text-xs" />
+            </button>
+          </div>
+        )}
+
+        {imagePreview && (
+          <div className="mb-2 relative inline-block">
+            <img
+              src={imagePreview}
+              className="h-20 rounded-xl border border-white/10 object-cover"
+              alt=""
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (imagePreview) URL.revokeObjectURL(imagePreview);
+                setSelectedImage(null);
+                setImagePreview(null);
+              }}
+              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+            >
+              <i className="fas fa-times text-white text-xs" />
+            </button>
+          </div>
+        )}
+
+        {showEmojiPicker && (
+          <div className="mb-3 flex flex-wrap gap-2 bg-[#242526] border border-white/10 rounded-2xl p-3">
+            {QUICK_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => addEmoji(emoji)}
+                className="text-2xl leading-none active:scale-90 transition-transform hover:bg-white/10 p-1 rounded-lg"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <form className="flex items-center gap-2" onSubmit={handleSubmit}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept="image/*"
+            onChange={handleImageSelect}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10 active:scale-95"
+          >
+            <i className="far fa-image text-[25px]" />
+          </button>
+
+          <div className="flex-1 flex items-center bg-[#242526] border border-white/10 rounded-full px-4 py-2">
+            <input
+              ref={inputRef}
+              type="text"
+              className="flex-1 bg-transparent text-[#E4E6EB] outline-none text-[16px] placeholder:text-[#B0B3B8]"
+              placeholder={
+                replyTo
+                  ? `Reply to ${replyTo?._reply_author?.display || replyTo?._reply_author?.name || 'user'}`
+                  : `Comment as ${currentUser?.name || 'User'}`
+              }
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+
+            <button
+              type="button"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+              title="Sticker"
+            >
+              <i className="far fa-sticky-note text-[21px]" />
+            </button>
+
+            <button
+              type="button"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[#B0B3B8] hover:bg-white/10"
+              title="GIF"
+            >
+              <span className="text-[12px] font-black border border-[#B0B3B8] rounded-md px-1 leading-[16px]">
+                GIF
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker((prev) => !prev)}
+              className={`w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 ${
+                showEmojiPicker ? 'text-[#1877F2]' : 'text-[#B0B3B8]'
+              }`}
+              title="Emoji"
+            >
+              <i className="far fa-smile text-[23px]" />
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            disabled={(!text.trim() && !selectedImage) || uploadingImage}
+            className="w-10 h-10 rounded-full bg-[#1877F2] disabled:bg-[#3A3B3C] disabled:text-[#777] text-white flex items-center justify-center shadow-[0_8px_20px_rgba(24,119,242,0.35)] active:scale-95 transition-all"
+          >
+            {uploadingImage ? (
+              <i className="fas fa-spinner fa-spin text-[14px]" />
+            ) : (
+              <i className="fas fa-arrow-up text-[16px]" />
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+},
+(prev, next) => isSameFeedItem(prev.post, next.post) && prev.currentUser?.id === next.currentUser?.id);
+
+          
 
 /**
  * =========================
