@@ -3850,15 +3850,15 @@ useEffect(() => {
   />
 
   {/* Share button */}
-  <button
-    onClick={() => handleOpenShare(reel)}
-    className="w-14 h-14 rounded-full bg-black/25 backdrop-blur-md border-[2px] border-white/90 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.5)] active:scale-95 transition"
-  >
-    <i className="fas fa-share text-lg text-white" />
-    <span className="text-white font-black text-[15px] drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)] ml-1">
-      {formatCount(reel.shares || 0)}
-    </span>
-  </button>
+<button
+  onClick={() => handleOpenShare(reel)}
+  className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-black/20 backdrop-blur-md border-[2px] border-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.55)] active:scale-95 transition-all"
+>
+  <i className="fas fa-share text-lg text-white" />
+  <span className="text-white text-sm font-bold ml-1 drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)]">
+    {formatCount(reel.shares || 0)}
+  </span>
+</button>
 </div>
 
                       {/* Progress bar below action buttons */}
