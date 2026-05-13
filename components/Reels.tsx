@@ -2450,78 +2450,6 @@ const loadMoreReels = useCallback(async () => {
   currentUser?.id,
 ]);
 
-// ✅ Trigger load more when user has about 6 videos left
-useEffect(() => {
-  if (loadingMoreReels) return;
-  if (!hasMoreReels) return;
-  if (reels.length < 6) return;
-  if (activeIndex < 0) return;
-
-  const remaining = reels.length - activeIndex - 1;
-
-  if (remaining <= 6) {
-    loadMoreReels();
-  }
-}, [
-  activeIndex,
-  reels.length,
-  loadingMoreReels,
-  hasMoreReels,
-  loadMoreReels,
-]);
-
-// ✅ Fetch initial reels when parent did not provide them
-useEffect(() => {
-  let cancelled = false;
-
-  const fetchInitialReels = async () => {
-    try {
-      const viewerId = currentUser?.id || 0;
-
-      const data = await apiFetch(
-        `/api/reels?viewerId=${viewerId}&page=1&limit=10&seed=${feedSeedRef.current}`
-      );
-
-      const fetchedReels = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.reels)
-        ? data.reels
-        : [];
-
-      if (cancelled) return;
-
-      const normalized = fetchedReels.map(normalizeReel);
-
-      setReels(normalized);
-      setReelsPage(1);
-      setHasMoreReels(fetchedReels.length >= 10);
-
-      if (normalized.length > 0) {
-        const firstId = Number(normalized[0].id);
-
-        setActiveReelId(firstId);
-        setPlayingReelId(firstId);
-        activeIdRef.current = firstId;
-      }
-    } catch (e) {
-      console.warn('Failed to fetch initial reels:', e);
-    }
-  };
-
-  if (!Array.isArray(initialReels) || initialReels.length === 0) {
-    fetchInitialReels();
-  }
-
-  return () => {
-    cancelled = true;
-  };
-}, [
-  currentUser?.id,
-  apiFetch,
-  normalizeReel,
-  initialReels.length,
-]);
-
 
 
 
@@ -2538,30 +2466,6 @@ useEffect(() => {
     loadMoreReels();
   }
 }, [activeIndex, reels.length, loadingMoreReels, hasMoreReels, loadMoreReels]);
-
-
-
-// ✅ SMART SYNC EFFECT - Doesn't reset loaded reels when initialReels changes
-useEffect(() => {
-  if (!Array.isArray(initialReels)) return;
-  if (initialReels.length === 0) return;
-
-  setReels((prev) => {
-    if (prev.length > initialReels.length) return prev;
-
-    const seen = new Set(prev.map((r: any) => Number(r.id)));
-    const fresh = initialReels.filter((r: any) => !seen.has(Number(r.id)));
-
-    if (prev.length > 0 && fresh.length === 0) return prev;
-
-    return [...fresh.map(normalizeReel), ...prev].filter(
-      (r, index, arr) =>
-        arr.findIndex((x) => Number(x.id) === Number(r.id)) === index
-    );
-  });
-
-  setHasMoreReels(true);
-}, [initialReels, normalizeReel]);
 
 // ✅ INITIAL FETCH EFFECT - When initialReels is empty
 useEffect(() => {
@@ -2589,10 +2493,8 @@ useEffect(() => {
       setReelsPage(1);
       setHasMoreReels(fetchedReels.length >= 10);
 
-      // autoplay first reel
       if (normalized.length > 0) {
         const firstId = Number(normalized[0].id);
-
         setActiveReelId(firstId);
         setPlayingReelId(firstId);
         activeIdRef.current = firstId;
@@ -2602,7 +2504,7 @@ useEffect(() => {
     }
   };
 
-  if (initialReels.length === 0) {
+  if (!Array.isArray(initialReels) || initialReels.length === 0) {
     fetchInitialReels();
   }
 
@@ -2610,25 +2512,8 @@ useEffect(() => {
     cancelled = true;
   };
 }, [currentUser?.id, apiFetch, normalizeReel, initialReels.length]);
-
   
-useEffect(() => {
-  if (!Array.isArray(initialReels)) return;
-  if (initialReels.length === 0) return;
 
-  const normalized = initialReels.map(normalizeReel);
-
-  setReels(normalized);
-  setReelsPage(1);
-  setHasMoreReels(true);
-
-  if (!activeReelId && normalized.length > 0) {
-    const firstId = Number(normalized[0].id);
-    setActiveReelId(firstId);
-    setPlayingReelId(firstId);
-    activeIdRef.current = firstId;
-  }
-}, [initialReels, normalizeReel]);
   // ==================== DOWNLOAD HANDLER WITH PROGRESS ====================
   const handleDownloadReel = useCallback(async (reel: Reel) => {
     if (downloadingReelId === reel.id) return;
