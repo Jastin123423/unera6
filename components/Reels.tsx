@@ -2257,6 +2257,12 @@ useEffect(() => {
   const warmupTimerRef = useRef<any>(null);
   const playRequestRef = useRef(0);
 
+  
+// ==================== FEED SEED FOR RANDOMIZATION ====================
+const feedSeedRef = useRef<number>(
+  Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
+);
+
   const activeIndex = useMemo(
     () => reels.findIndex((r) => r.id === activeReelId),
     [reels, activeReelId]
@@ -2296,6 +2302,7 @@ const apiFetch = useCallback(async (url: string) => {
   return res.json();
 }, []);
 
+
 const loadMoreReels = useCallback(async () => {
   if (loadMoreLockRef.current) return;
   if (!hasMoreReels) return;
@@ -2305,12 +2312,11 @@ const loadMoreReels = useCallback(async () => {
 
   try {
     const nextPage = reelsPage + 1;
-
-    // ✅ INCLUDE VIEWER ID FOR PERSONALIZED RANKING
     const viewerId = currentUser?.id || 0;
 
+    // ✅ ADD SEED TO URL
     const data = await apiFetch(
-      `/api/reels?viewerId=${viewerId}&page=${nextPage}&limit=10`
+      `/api/reels?viewerId=${viewerId}&page=${nextPage}&limit=10&seed=${feedSeedRef.current}`
     );
 
     const nextItems = Array.isArray(data)
@@ -2331,19 +2337,26 @@ const loadMoreReels = useCallback(async () => {
         (r: any) => !seen.has(Number(r.id))
       );
 
+      // ✅ ADD DUPLICATE CHECK WITH WARNING
+      if (fresh.length === 0) {
+        console.warn('No fresh reels returned. Backend may be returning duplicate page.', {
+          nextPage,
+          received: nextItems.map((x: any) => x.id),
+        });
+        setHasMoreReels(false);
+        return prev;
+      }
+
       return [...prev, ...fresh.map(normalizeReel)];
     });
 
     setReelsPage(nextPage);
 
-    // ✅ PRE-CACHE NEXT VIDEOS FOR SMOOTHER PLAYBACK
-    const nextVideos = nextItems
-      .slice(0, 3)
-      .map((reel: any) => {
-        const sources = getReelVideoSources(reel);
-        return pickBestVideoUrl(sources, networkLevel);
-      });
-
+    // Pre-cache next 3 videos for smoother playback
+    const nextVideos = nextItems.slice(0, 3).map((reel: any) => {
+      const sources = getReelVideoSources(reel);
+      return pickBestVideoUrl(sources, networkLevel);
+    });
     nextVideos.forEach((url: string) => {
       if (url) {
         fetchAsBlobUrl(url, 'video').catch(() => {});
@@ -2368,28 +2381,6 @@ const loadMoreReels = useCallback(async () => {
   currentUser?.id,
 ]);
 
-// ✅ TRIGGER LOAD MORE WHEN USER HAS ABOUT 5 VIDEOS LEFT
-useEffect(() => {
-  if (!activeReelId) return;
-  if (loadingMoreReels) return;
-
-  const index = reels.findIndex(
-    (r: any) => Number(r.id) === Number(activeReelId)
-  );
-
-  if (index < 0) return;
-
-  const remaining = reels.length - index - 1;
-
-  if (remaining <= 5) {
-    loadMoreReels();
-  }
-}, [
-  activeReelId,
-  reels,
-  loadingMoreReels,
-  loadMoreReels,
-]);
 
 useEffect(() => {
   let cancelled = false;
@@ -2398,8 +2389,9 @@ useEffect(() => {
     try {
       const viewerId = currentUser?.id || 0;
 
+      // ✅ ADD SEED TO INITIAL FETCH
       const data = await apiFetch(
-        `/api/reels?viewerId=${viewerId}&page=1&limit=10`
+        `/api/reels?viewerId=${viewerId}&page=1&limit=10&seed=${feedSeedRef.current}`
       );
 
       const fetchedReels = Array.isArray(data)
@@ -2437,6 +2429,7 @@ useEffect(() => {
     cancelled = true;
   };
 }, [currentUser?.id, apiFetch, normalizeReel, initialReels.length]);
+
 
 
 
