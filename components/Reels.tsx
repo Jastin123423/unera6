@@ -2300,6 +2300,7 @@ const apiFetch = useCallback(async (url: string) => {
   return res.json();
 }, []);
 
+  
 const loadMoreReels = useCallback(async () => {
   if (loadMoreLockRef.current) return;
   if (!hasMoreReels) return;
@@ -2311,7 +2312,6 @@ const loadMoreReels = useCallback(async () => {
     const nextPage = reelsPage + 1;
     const viewerId = currentUser?.id || 0;
 
-    // ✅ ADD SEED TO URL FOR RANDOMIZATION
     const data = await apiFetch(
       `/api/reels?viewerId=${viewerId}&page=${nextPage}&limit=10&seed=${feedSeedRef.current}`
     );
@@ -2327,6 +2327,8 @@ const loadMoreReels = useCallback(async () => {
       return;
     }
 
+    let addedCount = 0;
+
     setReels((prev) => {
       const seen = new Set(prev.map((r: any) => Number(r.id)));
 
@@ -2334,36 +2336,23 @@ const loadMoreReels = useCallback(async () => {
         (r: any) => !seen.has(Number(r.id))
       );
 
-      // ✅ ADD DUPLICATE CHECK WITH WARNING
+      addedCount = fresh.length;
+
       if (fresh.length === 0) {
-        console.warn('No fresh reels returned. Backend may be returning duplicate page.', {
-          nextPage,
+        console.warn('No fresh reels returned for page', nextPage, {
           received: nextItems.map((x: any) => x.id),
         });
-        setHasMoreReels(false);
         return prev;
       }
 
       return [...prev, ...fresh.map(normalizeReel)];
     });
 
+    // ✅ Important: update page even after fetch succeeds
     setReelsPage(nextPage);
 
-    // ✅ PRE-CACHE NEXT VIDEOS FOR SMOOTHER PLAYBACK
-    const nextVideos = nextItems
-      .slice(0, 3)
-      .map((reel: any) => {
-        const sources = getReelVideoSources(reel);
-        return pickBestVideoUrl(sources, networkLevel);
-      });
-
-    nextVideos.forEach((url: string) => {
-      if (url) {
-        fetchAsBlobUrl(url, 'video').catch(() => {});
-      }
-    });
-
-    if (nextItems.length < 10) {
+    // ✅ Only stop if backend sends less than limit AND no fresh items
+    if (nextItems.length < 10 || addedCount === 0) {
       setHasMoreReels(false);
     }
   } catch (e) {
@@ -2377,9 +2366,10 @@ const loadMoreReels = useCallback(async () => {
   hasMoreReels,
   apiFetch,
   normalizeReel,
-  networkLevel,
   currentUser?.id,
 ]);
+
+
 
 // ✅ CLEANER TRIGGER EFFECT - Load more when user has about 6 videos left
 useEffect(() => {
