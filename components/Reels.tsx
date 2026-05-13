@@ -2275,11 +2275,6 @@ useEffect(() => {
   const warmupTimerRef = useRef<any>(null);
   const playRequestRef = useRef(0);
 
-  
-// ==================== FEED SEED FOR RANDOMIZATION ====================
-const feedSeedRef = useRef<number>(
-  Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 100000)
-);
 
   const activeIndex = useMemo(
     () => reels.findIndex((r) => r.id === activeReelId),
