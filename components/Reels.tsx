@@ -890,28 +890,25 @@ const ReelReactionButton: React.FC<{
           </div>
         </div>
       )}
-
-      <button
-        onClick={handleClick}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        disabled={isLoading}
-        className={`flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-transparent border border-white/25 active:scale-95 transition-all ${
-          isAnimating ? 'scale-110' : ''
-        } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
-      >
-        {activeReaction ? (
-          <>
-            <span className="text-2xl">{activeReaction.icon}</span>
-            <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
-          </>
-        ) : (
-          <>
-            <SparkReactIcon size={24} />
-            <span className="text-white text-sm font-bold ml-1">{formatViewCount(reactionCount)}</span>
-          </>
-        )}
-      </button>
+    <button
+  onClick={handleClick}
+  onTouchStart={handleTouchStart}
+  onTouchEnd={handleTouchEnd}
+  disabled={isLoading}
+  className={`flex items-center justify-center gap-1 px-4 py-2.5 rounded-full bg-[#1877F2]/20 backdrop-blur-md border-[2px] border-[#1877F2] shadow-[0_8px_24px_rgba(24,119,242,0.35)] active:scale-95 transition-all ${isAnimating ? 'scale-110' : ''} ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+>
+  {activeReaction ? (
+    <>
+      <span className="text-2xl">{activeReaction.icon}</span>
+      <span className="text-white text-sm font-bold ml-1 drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)]">{formatViewCount(reactionCount)}</span>
+    </>
+  ) : (
+    <>
+      <SparkReactIcon size={24} />
+      <span className="text-white text-sm font-bold ml-1 drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)]">{formatViewCount(reactionCount)}</span>
+    </>
+  )}
+</button>
     </div>
   );
 };
