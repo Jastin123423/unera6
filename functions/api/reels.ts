@@ -284,7 +284,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 /**
- * GET /api/reels?viewerId=123&page=1&limit=10
+ * GET /api/reels?viewerId=123&page=1&limit=10&seed=12345
  */
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   try {
@@ -294,6 +294,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const page = Math.max(1, toNum(url.searchParams.get('page'), 1));
     const limit = Math.min(30, Math.max(5, toNum(url.searchParams.get('limit'), 10)));
     const offset = (page - 1) * limit;
+    const seed = toNum(url.searchParams.get('seed'), Math.floor(Date.now() / 1000));
 
     const reelsRes = await env.DB.prepare(
       `
@@ -335,15 +336,15 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         COALESCE(sh.shares_count, 0) AS shares_count,
 
         (
-          /* Engagement: likes/comments/shares still matter */
+          /* Engagement */
           (COALESCE(rx.reactions_count, 0) * 4.0) +
           (COALESCE(cm.comments_count, 0) * 5.0) +
           (COALESCE(sh.shares_count, 0) * 6.0) +
 
-          /* Views reduced so old big videos do not dominate forever */
+          /* Reduced view dominance */
           (COALESCE(r.views, 0) * 0.01) +
 
-          /* Stronger freshness boost */
+          /* Fresh/new reels boost */
           CASE
             WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 3 THEN 95
             WHEN (julianday('now') - julianday(r.created_at)) * 24 <= 12 THEN 70
@@ -353,7 +354,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             ELSE 0
           END +
 
-          /* Small/new creator exposure boost */
+          /* Small/new creator boost */
           CASE
             WHEN COALESCE(r.views, 0) < 20 THEN 70
             WHEN COALESCE(r.views, 0) < 100 THEN 45
@@ -362,12 +363,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
             ELSE 0
           END +
 
-          /* Verified small boost only */
+          /* Small verified trust boost */
           CASE WHEN COALESCE(u.is_verified, 0) = 1 THEN 4 ELSE 0 END +
 
-          /* Page + viewer based fair mixing */
+          /* Session-seeded fair discovery mixing */
           (
-            ABS(((r.id * 1103515245) + (? * 12345) + (? * 777)) % 1000) / 1000.0
+            ABS(((r.id * 1103515245) + (? * 12345) + (? * 777) + (? * 99991)) % 1000) / 1000.0
           ) * 35
         ) AS rank_score
 
@@ -394,11 +395,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
       WHERE r.visibility = 'public'
 
-      ORDER BY rank_score DESC, r.created_at DESC, r.id DESC
+      ORDER BY rank_score DESC, r.id DESC
       LIMIT ? OFFSET ?
       `
     )
-      .bind(viewerId, page, limit, offset)
+      .bind(viewerId, page, seed, limit, offset)
       .all();
 
     const reels = Array.isArray(reelsRes.results) ? reelsRes.results : [];
