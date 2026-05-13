@@ -7790,9 +7790,14 @@ useEffect(() => {
     }
   }, [followUser, fetchPeopleYouMayKnow]);
 
-  const checkIsFollowing = useCallback((targetUserId: number): boolean => {
-    if (!currentUser || !targetUserId) return false;
-    
+  
+const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+  if (!currentUser || !targetUserId) return false;
+
+  return toIdArray((currentUser as any).following).includes(Number(targetUserId));
+}, [currentUser]);
+          
+
     const myFollowing = safeArray<number>((currentUser as any).following);
     return myFollowing.includes(Number(targetUserId));
   }, [currentUser]);
