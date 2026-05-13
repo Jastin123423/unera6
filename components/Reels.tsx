@@ -2300,7 +2300,39 @@ const apiFetch = useCallback(async (url: string) => {
   return res.json();
 }, []);
 
-  
+// ==================== LOAD MORE REELS (SILENT INFINITE SCROLL) ====================
+
+const normalizeReel = useCallback((reel: any): Reel => {
+  return {
+    ...reel,
+    id: Number(reel.id),
+    userId: Number(reel.userId ?? reel.user_id),
+    views: Number(reel.views ?? 0),
+    shares: Number(reel.shares ?? 0),
+    reactions: reel.reactions || [],
+    comments: reel.comments || [],
+    created_at: reel.created_at || reel.createdAt,
+  };
+}, []);
+
+const apiFetch = useCallback(async (url: string) => {
+  const token = localStorage.getItem('unera_token');
+
+  const res = await fetch(url, {
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {},
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return res.json();
+}, []);
+
 const loadMoreReels = useCallback(async () => {
   if (loadMoreLockRef.current) return;
   if (!hasMoreReels) return;
@@ -2331,7 +2363,6 @@ const loadMoreReels = useCallback(async () => {
 
     setReels((prev) => {
       const seen = new Set(prev.map((r: any) => Number(r.id)));
-
       const fresh = nextItems.filter(
         (r: any) => !seen.has(Number(r.id))
       );
@@ -2369,9 +2400,7 @@ const loadMoreReels = useCallback(async () => {
   currentUser?.id,
 ]);
 
-
-
-// ✅ CLEANER TRIGGER EFFECT - Load more when user has about 6 videos left
+// ✅ TRIGGER LOAD MORE - depends on activeIndex
 useEffect(() => {
   if (loadingMoreReels) return;
   if (!hasMoreReels) return;
@@ -2384,6 +2413,8 @@ useEffect(() => {
     loadMoreReels();
   }
 }, [activeIndex, reels.length, loadingMoreReels, hasMoreReels, loadMoreReels]);
+
+
 
 // ✅ SMART SYNC EFFECT - Doesn't reset loaded reels when initialReels changes
 useEffect(() => {
