@@ -2391,7 +2391,52 @@ useEffect(() => {
   loadMoreReels,
 ]);
 
+useEffect(() => {
+  let cancelled = false;
 
+  const fetchInitialReels = async () => {
+    try {
+      const viewerId = currentUser?.id || 0;
+
+      const data = await apiFetch(
+        `/api/reels?viewerId=${viewerId}&page=1&limit=10`
+      );
+
+      const fetchedReels = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.reels)
+        ? data.reels
+        : [];
+
+      if (cancelled) return;
+
+      const normalized = fetchedReels.map(normalizeReel);
+
+      setReels(normalized);
+      setReelsPage(1);
+      setHasMoreReels(fetchedReels.length >= 10);
+
+      // autoplay first reel
+      if (normalized.length > 0) {
+        const firstId = Number(normalized[0].id);
+
+        setActiveReelId(firstId);
+        setPlayingReelId(firstId);
+        activeIdRef.current = firstId;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch initial reels:', e);
+    }
+  };
+
+  if (initialReels.length === 0) {
+    fetchInitialReels();
+  }
+
+  return () => {
+    cancelled = true;
+  };
+}, [currentUser?.id, apiFetch, normalizeReel, initialReels.length]);
 
 
 
