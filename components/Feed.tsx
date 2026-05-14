@@ -1,4 +1,5 @@
 
+
 import React, {
   useEffect,
   useMemo,
@@ -8374,11 +8375,6 @@ interface FeedProps {
  * =========================
  */
 
-/**
- * =========================
- * ✅ MAIN FEED COMPONENT WITH INFINITE SCROLL (FACEBOOK STYLE)
- * =========================
- */
 
 export const Feed = memo(({
   items: itemsProp,
