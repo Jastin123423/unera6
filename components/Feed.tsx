@@ -5290,7 +5290,7 @@ export const ReactionButton = memo(
  * =========================
  */
 
-   export const Post = memo(
+export const Post = memo(
   ({
     post,
     author,
@@ -5510,13 +5510,13 @@ export const ReactionButton = memo(
     const productId = isMarketplace ? getMarketplaceProductId(p) : null;
     const productData = productId ? getProductData?.(productId) : null;
   
-   const mpImages = useMemo(() => 
-  isMarketplace ? getMarketplaceImages(p, productData) : []
-, [isMarketplace, p, productData]);
+    const mpImages = useMemo(() => 
+      isMarketplace ? getMarketplaceImages(p, productData) : []
+    , [isMarketplace, p, productData]);
 
-const { price, currency, loc } = isMarketplace
-  ? getMarketplacePriceLine(productData)
-  : { price: null, currency: 'TZS', loc: 'Marketplace' };
+    const { price, currency, loc } = isMarketplace
+      ? getMarketplacePriceLine(productData)
+      : { price: null, currency: 'TZS', loc: 'Marketplace' };
 
     const [galleryOpen, setGalleryOpen] = useState(false);
     const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
@@ -5605,39 +5605,38 @@ const { price, currency, loc } = isMarketplace
       return formatReactionText(finalReactionCount, reactorName);
     }, [finalReactionCount, reactorName]);
 
-   
-      // Inside Post component, after all the useMemo declarations, before the return
-const marketplaceGridData = useMemo(() => {
-  if (!isMarketplace) {
-    return {
-      mediaForGrid: [] as Array<{ url: string; thumb?: string; feed?: string; full?: string; }>,
-      galleryUrls: [] as string[],
-    };
-  }
-  
-  const variants = getMarketplaceImageVariants(p, productData);
-  const hasVariants = variants.length > 0;
-  
-  const mediaForGrid = hasVariants
-    ? variants.map((v) => ({
-        url: v.feed || v.thumb || v.full || '',
-        thumb: v.thumb || v.feed || v.full || '',
-        feed: v.feed || v.full || v.thumb || '',
-        full: v.full || v.feed || v.thumb || '',
-      }))
-    : mpImages.map((url) => ({
-        url,
-        thumb: url,
-        feed: url,
-        full: url,
-      }));
-  
-  const galleryUrls = hasVariants
-    ? variants.map((v) => v.full || v.feed || v.thumb || '').filter(Boolean)
-    : mpImages.filter(Boolean);
-  
-  return { mediaForGrid, galleryUrls };
-}, [isMarketplace, p, productData, mpImages]);
+    // Inside Post component, after all the useMemo declarations, before the return
+    const marketplaceGridData = useMemo(() => {
+      if (!isMarketplace) {
+        return {
+          mediaForGrid: [] as Array<{ url: string; thumb?: string; feed?: string; full?: string; }>,
+          galleryUrls: [] as string[],
+        };
+      }
+      
+      const variants = getMarketplaceImageVariants(p, productData);
+      const hasVariants = variants.length > 0;
+      
+      const mediaForGrid = hasVariants
+        ? variants.map((v) => ({
+            url: v.feed || v.thumb || v.full || '',
+            thumb: v.thumb || v.feed || v.full || '',
+            feed: v.feed || v.full || v.thumb || '',
+            full: v.full || v.feed || v.thumb || '',
+          }))
+        : mpImages.map((url) => ({
+            url,
+            thumb: url,
+            feed: url,
+            full: url,
+          }));
+      
+      const galleryUrls = hasVariants
+        ? variants.map((v) => v.full || v.feed || v.thumb || '').filter(Boolean)
+        : mpImages.filter(Boolean);
+      
+      return { mediaForGrid, galleryUrls };
+    }, [isMarketplace, p, productData, mpImages]);
 
     useEffect(() => {
       const newCommentCount =
@@ -5671,38 +5670,35 @@ const marketplaceGridData = useMemo(() => {
       if (onFollow && a.id) onFollow(safeUserId(a));
     };
 
-const handleReactClick = async (type: ReactionType) => {
-  if (!currentUser) {
-    alert("Please login to react.");
-    return;
-  }
-  
-  const source = String(
-    (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
-  ).toLowerCase();
-  const meta = (p as any)?.meta || {};
-  const groupId = Number(
-    (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
-  );
-  const groupPostId = Number(
-    (p as any)?.group_post_id || 
-    (p as any)?.groupPostId || 
-    (source === "group_post" ? (p as any)?.id : 0) || 
-    0
-  );
-  const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
+    // ✅ UPDATED: Complete handleReactClick with proper group post detection
+    const handleReactClick = async (type: ReactionType) => {
+      if (!currentUser) {
+        alert("Please login to react.");
+        return;
+      }
+      
+      const source = String(
+        (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
+      ).toLowerCase();
+      const meta = (p as any)?.meta || {};
+      const groupId = Number(
+        (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
+      );
+      const groupPostId = Number(
+        (p as any)?.group_post_id || 
+        (p as any)?.groupPostId || 
+        (source === "group_post" ? (p as any)?.id : 0) || 
+        0
+      );
+      const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
 
-  if (isGroupPost && onToggleGroupPostLike) {
-    await onToggleGroupPostLike(groupPostId || Number((p as any)?.id), type);
-    return;
-  }
+      if (isGroupPost && onToggleGroupPostLike) {
+        await onToggleGroupPostLike(groupPostId || Number((p as any)?.id), type);
+        return;
+      }
 
-  onReact?.(p, type);
-};
-
-
-    
- 
+      onReact?.(p, type);
+    };
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
@@ -5950,135 +5946,136 @@ const handleReactClick = async (type: ReactionType) => {
                 {p.content}
               </div>
             )}
-{isMarketplace ? (
-  <>
-    {marketplaceGridData.mediaForGrid.length > 0 && (
-      <div className="w-full">
-        <div className="w-full bg-black">
-          <MediaGrid
-            media={marketplaceGridData.mediaForGrid}
-            onOpen={(url, index) => {
-              openGallery(marketplaceGridData.galleryUrls, index);
-            }}
-          />
-        </div>
-      </div>
-    )}
+            
+            {isMarketplace ? (
+              <>
+                {marketplaceGridData.mediaForGrid.length > 0 && (
+                  <div className="w-full">
+                    <div className="w-full bg-black">
+                      <MediaGrid
+                        media={marketplaceGridData.mediaForGrid}
+                        onOpen={(url, index) => {
+                          openGallery(marketplaceGridData.galleryUrls, index);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-    {price && (
-      <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-        <div className="flex items-center gap-1">
-          <span className="text-[#E4E6EB] text-[19px] font-bold">
-            {currency}
-          </span>
-          <span className="text-[#E4E6EB] text-[22px] font-bold">
-            {price}
-          </span>
-        </div>
+                {price && (
+                  <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[#E4E6EB] text-[19px] font-bold">
+                        {currency}
+                      </span>
+                      <span className="text-[#E4E6EB] text-[22px] font-bold">
+                        {price}
+                      </span>
+                    </div>
 
-        <button
-          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (productId) onViewProduct?.(productId);
-          }}
-        >
-          View product
-        </button>
-      </div>
-    )}
+                    <button
+                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (productId) onViewProduct?.(productId);
+                      }}
+                    >
+                      View product
+                    </button>
+                  </div>
+                )}
 
-    {shouldShowSponsoredButton && (
-      <div className="px-3 pt-2 pb-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSponsoredClick();
-          }}
-          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
-        >
-          {sponsoredCtaText}
-        </button>
-      </div>
-    )}
+                {shouldShowSponsoredButton && (
+                  <div className="px-3 pt-2 pb-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSponsoredClick();
+                      }}
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+                    >
+                      {sponsoredCtaText}
+                    </button>
+                  </div>
+                )}
 
-    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-      <div className="flex items-center gap-2">
-        {finalReactionCount > 0 && (
-          <div
-            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenReactionsSheet();
-            }}
-          >
-            <div className="flex -space-x-2">
-              {emojiList.slice(0, 2).map((e, i) => (
-                <span
-                  key={i}
-                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                  style={{ zIndex: 10 - i }}
-                >
-                  {e}
-                </span>
-              ))}
-            </div>
+                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                  <div className="flex items-center gap-2">
+                    {finalReactionCount > 0 && (
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenReactionsSheet();
+                        }}
+                      >
+                        <div className="flex -space-x-2">
+                          {emojiList.slice(0, 2).map((e, i) => (
+                            <span
+                              key={i}
+                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                              style={{ zIndex: 10 - i }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
 
-            {reactionText && (
-              <span className="text-[17px] text-[#E4E6EB] font-bold">
-                {reactionText}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+                        {reactionText && (
+                          <span className="text-[17px] text-[#E4E6EB] font-bold">
+                            {reactionText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-      <div className="flex gap-4">
-        <span
-          className="hover:underline cursor-pointer text-[16px]"
-          onClick={() => handleOpenComments()}
-        >
-          {formatCount(commentCount)} Discussions
-        </span>
-        {shareCount > 0 && (
-          <span className="hover:underline text-[16px]">
-            {formatCount(shareCount)} Shares
-          </span>
-        )}
-      </div>
-    </div>
+                  <div className="flex gap-4">
+                    <span
+                      className="hover:underline cursor-pointer text-[16px]"
+                      onClick={() => handleOpenComments()}
+                    >
+                      {formatCount(commentCount)} Discussions
+                    </span>
+                    {shareCount > 0 && (
+                      <span className="hover:underline text-[16px]">
+                        {formatCount(shareCount)} Shares
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={finalMyReaction}
-        reactionCount={finalReactionCount}
-        onReact={handleReactClick}
-        isGuest={!currentUser}
-      />
-      <button
-        type="button"
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComments(e);
-        }}
-      >
-        <DiscussSignalIcon size={28} color="#1877F2" />
-        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-          Discuss
-        </span>
-      </button>
-      <button
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={() => {
-          if (!currentUser) {
-            alert('Please login to share posts.');
-            return;
-          }
-          setShowShareSheet(true);
-        }}
-      >
+                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                  <ReactionButton
+                    currentUserReactions={finalMyReaction}
+                    reactionCount={finalReactionCount}
+                    onReact={handleReactClick}
+                    isGuest={!currentUser}
+                  />
+                  <button
+                    type="button"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleOpenComments(e);
+                    }}
+                  >
+                    <DiscussSignalIcon size={28} color="#1877F2" />
+                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                      Discuss
+                    </span>
+                  </button>
+                  <button
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
+                  >
                     <i className="fas fa-share text-[22px]"></i>
                     <span className="text-[19px] font-bold">Share</span>
                   </button>
@@ -6087,20 +6084,20 @@ const handleReactClick = async (type: ReactionType) => {
               </>
             ) : (
               <>   
-   {!p.background && imageMedia.length > 0 && (
-  <MediaGrid
-    media={imageMedia.map((m) => ({
-      url: m.feed || m.url,
-      thumb: m.thumb || m.url,
-      feed: m.feed || m.url,
-      full: m.full || m.feed || m.url,
-    }))}
-    onOpen={(url, index) => {
-      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
-      openGallery(urls, index);
-    }}
-  />
-)}
+                {!p.background && imageMedia.length > 0 && (
+                  <MediaGrid
+                    media={imageMedia.map((m) => ({
+                      url: m.feed || m.url,
+                      thumb: m.thumb || m.url,
+                      feed: m.feed || m.url,
+                      full: m.full || m.feed || m.url,
+                    }))}
+                    onOpen={(url, index) => {
+                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+                      openGallery(urls, index);
+                    }}
+                  />
+                )}
 
                 {!p.background && videoMedia.length > 0 && (
                   <div
@@ -6387,6 +6384,8 @@ const handleReactClick = async (type: ReactionType) => {
   },
   postPropsEqual
 );
+
+                
 
 /**
  * =========================
