@@ -8328,7 +8328,6 @@ export {
  * ✅ FEED PROPS INTERFACE
  * =========================
  */
-
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
@@ -8430,7 +8429,17 @@ interface FeedProps {
   hasMoreFeed?: boolean;
 
   feedLoadingMore?: boolean;
+
+  // =========================
+  // ✅ GROUP POST REACTIONS
+  // =========================
+  onToggleGroupPostLike?: (
+    postId: number,
+    type?: ReactionType
+  ) => Promise<{ liked: boolean; likes_count: number } | void>;
 }
+
+
 
     
 /**
