@@ -7793,13 +7793,6 @@ useEffect(() => {
   
 const checkIsFollowing = useCallback((targetUserId: number): boolean => {
   if (!currentUser || !targetUserId) return false;
-
-  return toIdArray((currentUser as any).following).includes(Number(targetUserId));
-}, [currentUser]);
-          
-
-const checkIsFollowing = useCallback((targetUserId: number): boolean => {
-  if (!currentUser || !targetUserId) return false;
   const myFollowing = toIdArray((currentUser as any).following);
   return myFollowing.includes(Number(targetUserId));
 }, [currentUser]); 
