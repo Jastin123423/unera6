@@ -8297,6 +8297,9 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 // ============================================================================
 // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
 // ============================================================================
+// ============================================================================
+// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
+// ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth('Reacting')) return;
   if (!currentUser || !item) return;
@@ -8371,21 +8374,61 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       case 'event':
         endpoint = `/api/events/${itemId}/react`;
         break;
-      case 'group_post':
-        endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
+      
+      case 'group_post': {
+        // Safer group_post ID extraction with multiple fallbacks
+        const groupId = Number(
+          item?.group_id || 
+          item?.groupId || 
+          item?.meta?.group_id || 
+          item?.meta?.groupId || 
+          0
+        );
+        const groupPostId = Number(
+          item?.group_post_id || 
+          item?.groupPostId || 
+          item?.id || 
+          itemId || 
+          0
+        );
+        
+        if (!groupId || !groupPostId) {
+          throw new Error("Missing group post reaction ids");
+        }
+        endpoint = `/api/groups/${groupId}/posts/${groupPostId}/react`;
         break;
-      case 'product':
-        endpoint = `/api/products/${itemId}/react`;
+      }
+      
+      case 'product': {
+        // Safer product ID extraction with multiple fallbacks
+        const productId = Number(
+          item?.product_id2 || 
+          item?.product_id || 
+          item?.meta?.product_id || 
+          itemId || 
+          item?.id || 
+          0
+        );
+        if (!productId) {
+          throw new Error("Missing product reaction id");
+        }
+        endpoint = `/api/products/${productId}/react`;
         break;
+      }
+      
       case 'reel':
         endpoint = `/api/reels/${itemId}/react`;
         break;
+      
+      case 'song':
       case 'music':
         endpoint = `/api/songs/${itemId}/react`;
         break;
+      
       case 'podcast':
         endpoint = `/api/podcasts/${itemId}/react`;
         break;
+      
       default:
         endpoint = `/api/posts/${itemId}/react`;
     }
@@ -8435,6 +8478,8 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     setReacting(identity, false);
   }
 }, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
+    
+                                   
 
 // ============================================================================
 // ✅ HYBRID COMMENT HANDLERS
