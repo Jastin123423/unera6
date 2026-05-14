@@ -8631,15 +8631,37 @@ const createComment = useCallback(async (
           image_url: image_url || '',
         };
         break;
-      case 'group_post':
-        endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
-        payload = {
-          user_id: currentUser.id,
-          text: text || '',
-          parent_comment_id: parentCommentId ?? null,
-          image_url: image_url || '',
-        };
-        break;
+        case 'group_post': {
+  const groupId = Number(
+    item?.group_id ||
+    item?.groupId ||
+    item?.meta?.group_id ||
+    item?.meta?.groupId ||
+    0
+  );
+
+  const groupPostId = Number(
+    item?.group_post_id ||
+    item?.groupPostId ||
+    item?.id ||
+    id ||
+    0
+  );
+
+  if (!groupId || !groupPostId) {
+    throw new Error("Missing group post comment ids");
+  }
+
+  endpoint = `/api/groups/${groupId}/posts/${groupPostId}/comment`;
+
+  payload = {
+    user_id: currentUser.id,
+    text: text || '',
+    parent_comment_id: parentCommentId ?? null,
+    image_url: image_url || '',
+  };
+
+  break;
       case 'product':
         endpoint = `/api/products/${id}/review`;
         payload = {
