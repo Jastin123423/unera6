@@ -8297,9 +8297,8 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 // ============================================================================
 // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
 // ============================================================================
-// ============================================================================
-// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
-// ============================================================================
+
+
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth('Reacting')) return;
   if (!currentUser || !item) return;
@@ -8313,6 +8312,21 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     identity = getFeedKey(item);
     itemId = getFeedItemId(item);
     itemType = getFeedItemType(item);
+    
+    // DEBUG LOG - Check what type is being detected
+    console.log("REACTION_ROUTE_DEBUG", { 
+      identity, 
+      itemId, 
+      itemType, 
+      source: item?.source, 
+      item_type: item?.item_type, 
+      kind: item?.kind, 
+      id: item?.id, 
+      group_id: item?.group_id, 
+      group_post_id: item?.group_post_id,
+      meta: item?.meta
+    });
+    
   } catch (error) {
     console.error('Failed to get feed identity:', error);
     // Fallback to treating as post with ID
@@ -8327,6 +8341,19 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     }
     itemType = 'post';
   }
+  
+  // FORCE GROUP POST DETECTION before the switch
+  const source = String(
+    item?.source || 
+    item?.item_type || 
+    item?.kind || 
+    itemType || 
+    ""
+  ).toLowerCase();
+  
+  const isGroupPost = source === "group_post" || 
+                      Boolean(item?.group_post_id) || 
+                      Boolean(item?.group_id && item?.group_name);
   
   const meId = currentUser.id;
 
@@ -8370,68 +8397,60 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
   try {
     let endpoint = '';
-    switch (itemType) {
-      case 'event':
-        endpoint = `/api/events/${itemId}/react`;
-        break;
+    
+    // Handle GROUP_POST separately with forced detection
+    if (isGroupPost) {
+      const groupId = Number(
+        item?.group_id || 
+        item?.groupId || 
+        item?.meta?.group_id || 
+        item?.meta?.groupId || 
+        0
+      );
+      const groupPostId = Number(
+        item?.group_post_id || 
+        item?.groupPostId || 
+        item?.id || 
+        itemId || 
+        0
+      );
       
-      case 'group_post': {
-        // Safer group_post ID extraction with multiple fallbacks
-        const groupId = Number(
-          item?.group_id || 
-          item?.groupId || 
-          item?.meta?.group_id || 
-          item?.meta?.groupId || 
-          0
-        );
-        const groupPostId = Number(
-          item?.group_post_id || 
-          item?.groupPostId || 
-          item?.id || 
-          itemId || 
-          0
-        );
+      console.log("GROUP_POST_REACTION_ENDPOINT", { groupId, groupPostId });
+      
+      if (!groupId || !groupPostId) {
+        throw new Error("Missing group post reaction ids");
+      }
+      endpoint = `/api/groups/${groupId}/posts/${groupPostId}/react`;
+    } 
+    else {
+      // Handle all other types with the original switch
+      switch (itemType) {
+        case 'event':
+          endpoint = `/api/events/${itemId}/react`;
+          break;
         
-        if (!groupId || !groupPostId) {
-          throw new Error("Missing group post reaction ids");
-        }
-        endpoint = `/api/groups/${groupId}/posts/${groupPostId}/react`;
-        break;
+        case 'product':
+          endpoint = `/api/products/${itemId}/react`;
+          break;
+        
+        case 'reel':
+          endpoint = `/api/reels/${itemId}/react`;
+          break;
+        
+        case 'music':
+          endpoint = `/api/songs/${itemId}/react`;
+          break;
+        
+        case 'podcast':
+          endpoint = `/api/podcasts/${itemId}/react`;
+          break;
+        
+        default:
+          endpoint = `/api/posts/${itemId}/react`;
       }
-      
-      case 'product': {
-        // Safer product ID extraction with multiple fallbacks
-        const productId = Number(
-          item?.product_id2 || 
-          item?.product_id || 
-          item?.meta?.product_id || 
-          itemId || 
-          item?.id || 
-          0
-        );
-        if (!productId) {
-          throw new Error("Missing product reaction id");
-        }
-        endpoint = `/api/products/${productId}/react`;
-        break;
-      }
-      
-      case 'reel':
-        endpoint = `/api/reels/${itemId}/react`;
-        break;
-      
-      case 'song':
-      case 'music':
-        endpoint = `/api/songs/${itemId}/react`;
-        break;
-      
-      case 'podcast':
-        endpoint = `/api/podcasts/${itemId}/react`;
-        break;
-      
-      default:
-        endpoint = `/api/posts/${itemId}/react`;
     }
+
+    console.log("FINAL_REACTION_ENDPOINT", { endpoint, type, meId });
 
     const data = await apiFetch(endpoint, {
       method: 'POST',
@@ -8477,8 +8496,8 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   } finally {
     setReacting(identity, false);
   }
-}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
-    
+}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);    
+
                                    
 
 // ============================================================================
