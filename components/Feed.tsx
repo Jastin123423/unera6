@@ -8621,37 +8621,40 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-            <Post
-              post={post as PostType}
-              author={getPostAuthor?.(post as PostType) || post.author || post}
-              currentUser={currentUser}
-              users={users}
-              onProfileClick={onProfileClick}
-              onReact={onReact}
-              onShare={onShare}
-              onViewImage={onViewImage}
-              onOpenComments={onOpenComments}
-              onVideoClick={onVideoClick}
-              onPlayAudioTrack={onPlayAudioTrack}
-              groups={groups}
-              brands={brands}
-              chats={chats}
-              onHashtagClick={onHashtagClick}
-              isFollowing={isFollowing}
-              onFollow={() => onFollow?.(postAuthorId)}
-              followLoading={followLoading?.[postAuthorId] || false}
-              onViewProductFromPost={onViewProductFromPost}
-              onRSVP={onRSVPEvent}
-              pushButton={showPushButton ? (
-                <button
-                  onClick={() => onPushMore?.(post.id)}
-                  disabled={isPushed}
-                  className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-                >
-                  {isPushed ? "Pushed" : "Push More"}
-                </button>
-              ) : undefined}
-            />
+          <Post
+  post={post as PostType}
+  author={getPostAuthor?.(post as PostType) || post.author || post}
+  currentUser={currentUser}
+  users={users}
+  onProfileClick={onProfileClick}
+  onReact={onReact}
+  onShare={onShare}
+  onViewImage={onViewImage}
+  onOpenComments={onOpenComments}
+  onVideoClick={onVideoClick}
+  onPlayAudioTrack={onPlayAudioTrack}
+  groups={groups}
+  brands={brands}
+  chats={chats}
+  onHashtagClick={onHashtagClick}
+  isFollowing={isFollowing}
+  onFollow={() => onFollow?.(postAuthorId)}
+  followLoading={followLoading?.[postAuthorId] || false}
+  onViewProductFromPost={onViewProductFromPost}
+  onRSVP={onRSVPEvent}
+  onToggleGroupPostLike={onToggleGroupPostLike}
+  pushButton={showPushButton ? (
+    <button
+      onClick={() => onPushMore?.(post.id)}
+      disabled={isPushed}
+      className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+    >
+      {isPushed ? "Pushed" : "Push More"}
+    </button>
+  ) : undefined}
+/>
+            
+    
 
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
