@@ -9424,47 +9424,73 @@ return (
         },
         getProductData
       }}>
-        <Feed
-          items={mixedFeedItems}
-          onOpenStory={openStoryViewer}
-          feedItems={[]}
-          currentUser={currentUser}
-          users={users}
-          onProfileClick={openProfile}
-          onReact={(post, type) => reactToFeedItem(post, type)}
-          onShare={(id, newShareCount) => console.log('Share:', id, newShareCount)}
-          onOpenComments={handleOpenComments}
-          onViewImage={setFullScreenImage}
-          onVideoClick={handleVideoClick}
-          onPlayAudioTrack={onPlayTrack}
-          onHashtagClick={handleHashtagClick}
-          onFollow={followUser}
-          followLoading={followLoading}
-          checkIsFollowing={checkIsFollowing}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onViewProductFromPost={openProductFromPost}
-          onRSVPEvent={onRSVPEvent}
-          getPostAuthor={getPostAuthor}
-          onPushMore={pushMore}
-          pushedPosts={pushedPosts}
-          onOpenReel={(reelId) => {
-            setSelectedReelId(reelId);
-            navigateTo('reels');
-          }}
-          peopleYouMayKnow={peopleYouMayKnow}
-          peopleYouMayKnowInsertIndex1={peopleYouMayKnowInsertIndex1}
-          peopleYouMayKnowInsertIndex2={peopleYouMayKnowInsertIndex2}
-          onFollowFromPymk={followFromPymk}
-          pymkLoading={pymkLoading}
-          groupsYouMayJoin={groupsYouMayJoin}
-          groupsYouMayJoinInsertIndex={groupsYouMayJoinInsertIndex}
-          onJoinGroupSuggestion={joinFromSuggestion}
-          gymjLoading={gymjLoading}
-          onOpenGroup={(groupId) => navigateTo('groups')}
-          onLoginClick={() => setView('login')}
-        />
+     <Feed
+  items={mixedFeedItems}
+  onOpenStory={openStoryViewer}
+  feedItems={[]}
+  currentUser={currentUser}
+  users={users}
+  onProfileClick={openProfile}
+  onReact={(post, type) => reactToFeedItem(post, type)}
+  onShare={(id, newShareCount) =>
+    console.log("Share:", id, newShareCount)
+  }
+  onOpenComments={handleOpenComments}
+  onViewImage={setFullScreenImage}
+  onVideoClick={handleVideoClick}
+  onPlayAudioTrack={onPlayTrack}
+  onHashtagClick={handleHashtagClick}
+  onFollow={followUser}
+  followLoading={followLoading}
+  checkIsFollowing={checkIsFollowing}
+  groups={groups}
+  brands={brands}
+  chats={chats}
+  onViewProductFromPost={openProductFromPost}
+  onRSVPEvent={onRSVPEvent}
+  getPostAuthor={getPostAuthor}
+  onPushMore={pushMore}
+  pushedPosts={pushedPosts}
+
+  // =========================
+  // Reels
+  // =========================
+  onOpenReel={(reelId) => {
+    setSelectedReelId(reelId);
+    navigateTo("reels");
+  }}
+
+  // =========================
+  // People You May Know
+  // =========================
+  peopleYouMayKnow={peopleYouMayKnow}
+  peopleYouMayKnowInsertIndex1={peopleYouMayKnowInsertIndex1}
+  peopleYouMayKnowInsertIndex2={peopleYouMayKnowInsertIndex2}
+  onFollowFromPymk={followFromPymk}
+  pymkLoading={pymkLoading}
+
+  // =========================
+  // Groups You May Join
+  // =========================
+  groupsYouMayJoin={groupsYouMayJoin}
+  groupsYouMayJoinInsertIndex={groupsYouMayJoinInsertIndex}
+  onJoinGroupSuggestion={joinFromSuggestion}
+  gymjLoading={gymjLoading}
+
+  onOpenGroup={(groupId) => navigateTo("groups")}
+
+  // =========================
+  // Login
+  // =========================
+  onLoginClick={() => setView("login")}
+
+  // =========================
+  // ✅ INFINITE SCROLL
+  // =========================
+  onLoadMoreFeed={loadMoreFeed}
+  hasMoreFeed={hasMoreFeed}
+  feedLoadingMore={feedLoadingMore}
+/>
       </MarketplaceContext.Provider>
     </div>
   </div>
