@@ -8379,7 +8379,7 @@ interface FeedProps {
  * ✅ MAIN FEED COMPONENT
  * ✅ Original rendering preserved
  * ✅ Facebook-style silent infinite scroll
- * ✅ Works with normal browser + WebView scroll
+ * ✅ Uses oldest current post as first cursor
  * =========================
  */
 
@@ -8429,7 +8429,6 @@ export const Feed = memo(({
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
   const seedRef = useRef<number>(Math.floor(Date.now() / 1000));
-  const abortRef = useRef<AbortController | null>(null);
 
   const safeFeedItems = React.useMemo(() => {
     let base: any[] = [];
@@ -8455,12 +8454,9 @@ export const Feed = memo(({
     if (loadingMoreRef.current) return;
     if (!hasMoreFeed) return;
     if (!currentUser?.id) return;
+    if (safeFeedItems.length === 0) return;
 
     loadingMoreRef.current = true;
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
 
     try {
       const seenIds = safeFeedItems
@@ -8480,6 +8476,13 @@ export const Feed = memo(({
         .filter(Boolean)
         .slice(-250);
 
+      const oldestCreatedAt = safeFeedItems
+        .map((item: any) => String((item?.data || item)?.created_at || ""))
+        .filter(Boolean)
+        .sort()[0];
+
+      const cursorToUse = nextCursor || oldestCreatedAt;
+
       const params = new URLSearchParams({
         userId: String(currentUser.id),
         limit: "20",
@@ -8487,12 +8490,11 @@ export const Feed = memo(({
         seen: seenIds.join(","),
       });
 
-      if (nextCursor) {
-        params.set("cursor", nextCursor);
+      if (cursorToUse) {
+        params.set("cursor", cursorToUse);
       }
 
       const res = await fetch(`/api/feeds?${params.toString()}`, {
-        signal: controller.signal,
         headers: {
           ...authHeaders(),
         },
@@ -8507,6 +8509,11 @@ export const Feed = memo(({
         data: post,
         created_at: post.created_at,
       }));
+
+      if (incoming.length === 0) {
+        setHasMoreFeed(false);
+        return;
+      }
 
       setLoadedMoreItems(prev => {
         const map = new Map<string, any>();
@@ -8523,14 +8530,10 @@ export const Feed = memo(({
         return Array.from(map.values());
       });
 
-      setNextCursor(data.nextCursor || null);
-
-      // Keep true if backend returned items, even when hasMore is imperfect
-      setHasMoreFeed(Boolean((data.feed || []).length > 0 && data.nextCursor));
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        console.error("LOAD_MORE_FEED_ERROR", err);
-      }
+      setNextCursor(data.nextCursor || cursorToUse);
+      setHasMoreFeed(true);
+    } catch (err) {
+      console.error("LOAD_MORE_FEED_ERROR", err);
     } finally {
       loadingMoreRef.current = false;
     }
@@ -8541,75 +8544,48 @@ export const Feed = memo(({
     setNextCursor(null);
     setHasMoreFeed(true);
     seedRef.current = Math.floor(Date.now() / 1000);
-
-    return () => {
-      abortRef.current?.abort();
-      loadingMoreRef.current = false;
-    };
+    loadingMoreRef.current = false;
   }, [currentUser?.id]);
 
   useEffect(() => {
-    const shouldLoadMore = () => {
-      if (!hasMoreFeed) return;
-      if (loadingMoreRef.current) return;
-      if (!currentUser?.id) return;
+    const checkBottom = () => {
+      const trigger = feedMoreRef.current;
+      if (!trigger) return;
 
-      const scrollTop =
-        window.scrollY ||
-        document.documentElement.scrollTop ||
-        document.body.scrollTop ||
-        0;
+      const rect = trigger.getBoundingClientRect();
 
-      const windowHeight =
-        window.innerHeight || document.documentElement.clientHeight;
-
-      const docHeight = Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight
-      );
-
-      const distanceFromBottom = docHeight - (scrollTop + windowHeight);
-
-      if (distanceFromBottom < 1200) {
+      if (rect.top < window.innerHeight + 1200) {
         loadMoreFeed();
       }
     };
 
-    const el = feedMoreRef.current;
-    let observer: IntersectionObserver | null = null;
+    window.addEventListener("scroll", checkBottom, { passive: true });
+    window.addEventListener("resize", checkBottom);
 
-    if (el) {
-      observer = new IntersectionObserver(
-        entries => {
-          if (entries[0]?.isIntersecting) {
-            loadMoreFeed();
-          }
-        },
-        {
-          root: null,
-          rootMargin: "1200px 0px",
-          threshold: 0,
-        }
-      );
-
-      observer.observe(el);
-    }
-
-    window.addEventListener("scroll", shouldLoadMore, { passive: true });
-    window.addEventListener("resize", shouldLoadMore);
-
-    const timer = window.setTimeout(shouldLoadMore, 500);
+    const timer = window.setInterval(checkBottom, 1200);
+    const firstCheck = window.setTimeout(checkBottom, 600);
 
     return () => {
-      observer?.disconnect();
-      window.removeEventListener("scroll", shouldLoadMore);
-      window.removeEventListener("resize", shouldLoadMore);
-      window.clearTimeout(timer);
+      window.removeEventListener("scroll", checkBottom);
+      window.removeEventListener("resize", checkBottom);
+      window.clearInterval(timer);
+      window.clearTimeout(firstCheck);
     };
-  }, [loadMoreFeed, hasMoreFeed, currentUser?.id]);
+  }, [loadMoreFeed]);
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      onScrollCapture={() => {
+        const el = feedMoreRef.current;
+        if (!el) return;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight + 1200) {
+          loadMoreFeed();
+        }
+      }}
+    >
       {safeFeedItems.map((item, index) => {
         if (item.kind === "story") {
           return (
@@ -8736,7 +8712,7 @@ export const Feed = memo(({
         <div
           ref={feedMoreRef}
           style={{
-            height: 40,
+            height: 80,
             opacity: 0,
             pointerEvents: "none",
           }}
@@ -8745,7 +8721,6 @@ export const Feed = memo(({
     </div>
   );
 });
-  
 
 
        
