@@ -8374,10 +8374,10 @@ interface FeedProps {
  * =========================
  */
 
-   
+
 
 export const Feed = memo(({
-  items: itemsProp,
+  items,
   feedItems: feedItemsProp,
   onOpenStory,
   currentUser,
@@ -8414,232 +8414,98 @@ export const Feed = memo(({
   gymjLoading = false,
   onOpenGroup,
   onLoginClick,
-}: FeedProps) => {
-  
-  // ==================== INFINITE SCROLL STATE ====================
-  const [feedItems, setFeedItems] = useState<any[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasMoreFeed, setHasMoreFeed] = useState(true);
-  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const feedMoreRef = useRef<HTMLDivElement | null>(null);
-  const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // ==================== GET STABLE ITEM KEY (MUST BE BEFORE ANY EARLY RETURN) ====================
+  // ✅ new from App.tsx
+  onLoadMoreFeed,
+  hasMoreFeed = true,
+  feedLoadingMore = false,
+}: FeedProps) => {
+  const feedMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const safeFeedItems = React.useMemo(() => {
+    if (items && items.length > 0) {
+      return items;
+    }
+
+    if (feedItemsProp && feedItemsProp.length > 0) {
+      return feedItemsProp.map((item: any) => ({
+        kind: "post" as const,
+        data: item,
+        created_at: item.created_at,
+      }));
+    }
+
+    return [];
+  }, [items, feedItemsProp]);
+
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
   }, []);
 
-  // ==================== LOAD MORE FEED FUNCTION ====================
-  const loadMoreFeed = useCallback(async (isInitial = false) => {
-    // Prevent duplicate requests
+  const triggerLoadMore = useCallback(() => {
+    if (!onLoadMoreFeed) return;
+    if (!hasMoreFeed) return;
     if (feedLoadingMore) return;
-    
-    // Don't load if no more items and not initial load
-    if (!hasMoreFeed && !isInitial) return;
-    
-    // Don't load if no user
-    if (!currentUser?.id) {
-      if (isInitial) setInitialLoading(false);
-      return;
-    }
 
-    setFeedLoadingMore(true);
-    
-    // Cancel previous request if exists
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
+    onLoadMoreFeed();
+  }, [onLoadMoreFeed, hasMoreFeed, feedLoadingMore]);
 
-    try {
-      // IMPORTANT: For initial load, use empty seenIds array
-      // For subsequent loads, use last 250 seen IDs
-      const seenIds = isInitial 
-        ? [] 
-        : feedItems
-            .map((x: any) => Number(x?.id || x?.post_id || x?.event_id || x?.product_id2 || x?.product_id))
-            .filter(Boolean)
-            .slice(-250);
-
-      const params = new URLSearchParams({
-        userId: String(currentUser.id),
-        limit: "20",
-        seed: String(feedSeedRef.current),
-        seen: seenIds.join(","),
-      });
-      
-      if (nextCursor && !isInitial) {
-        params.set("cursor", nextCursor);
-      }
-
-      const response = await fetch(`/api/feeds?${params.toString()}`, {
-        signal: abortControllerRef.current.signal,
-        headers: {
-          ...authHeaders(),
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (data?.success) {
-        const newItems = data.feed || [];
-        
-        setFeedItems(prev => {
-          // Use Map to deduplicate by feed_key
-          const map = new Map<string, any>();
-          
-          // Add existing items first (for non-initial loads)
-          if (!isInitial) {
-            [...prev].forEach(item => {
-              const key = item.feed_key || `${item.source || item.item_type || 'post'}:${item.id}`;
-              if (!map.has(key)) {
-                map.set(key, item);
-              }
-            });
-          }
-          
-          // Add new items
-          newItems.forEach(item => {
-            const key = item.feed_key || `${item.source || item.item_type || 'post'}:${item.id}`;
-            if (!map.has(key)) {
-              map.set(key, item);
-            }
-          });
-          
-          return Array.from(map.values());
-        });
-        
-        setNextCursor(data.nextCursor || null);
-        setHasMoreFeed(Boolean(data.hasMore && data.nextCursor));
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // Request was cancelled, ignore
-        return;
-      }
-      console.error("LOAD_MORE_FEED_ERROR", err);
-    } finally {
-      setFeedLoadingMore(false);
-      if (isInitial) {
-        setInitialLoading(false);
-      }
-    }
-  }, [feedItems, nextCursor, hasMoreFeed, feedLoadingMore, currentUser?.id]);
-
-  // ==================== RESET FEED ON USER CHANGE ====================
   useEffect(() => {
-    // Reset all state when user changes
-    setFeedItems([]);
-    setNextCursor(null);
-    setHasMoreFeed(true);
-    setInitialLoading(true);
-    feedSeedRef.current = Math.floor(Date.now() / 1000);
-    
-    // Load initial feed
-    loadMoreFeed(true);
-    
-    // Cleanup
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+    const checkBottom = () => {
+      const el = feedMoreRef.current;
+      if (!el) return;
+
+      const rect = el.getBoundingClientRect();
+
+      if (rect.top < window.innerHeight + 1000) {
+        triggerLoadMore();
       }
     };
-  }, [currentUser?.id]);
 
-  // ==================== INTERSECTION OBSERVER FOR INFINITE SCROLL ====================
-  useEffect(() => {
-    const el = feedMoreRef.current;
-    if (!el) return;
-    
     const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (first.isIntersecting && !feedLoadingMore && hasMoreFeed && !initialLoading) {
-          loadMoreFeed(false);
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          triggerLoadMore();
         }
       },
       {
         root: null,
-        rootMargin: "900px 0px", // Start loading 900px before reaching bottom
-        threshold: 0.01,
+        rootMargin: "1000px 0px",
+        threshold: 0,
       }
     );
-    
-    observer.observe(el);
-    
+
+    if (feedMoreRef.current) {
+      observer.observe(feedMoreRef.current);
+    }
+
+    window.addEventListener("scroll", checkBottom, { passive: true });
+    window.addEventListener("resize", checkBottom);
+
+    const timer = window.setInterval(checkBottom, 1200);
+
     return () => {
       observer.disconnect();
+      window.removeEventListener("scroll", checkBottom);
+      window.removeEventListener("resize", checkBottom);
+      window.clearInterval(timer);
     };
-  }, [loadMoreFeed, feedLoadingMore, hasMoreFeed, initialLoading]);
+  }, [triggerLoadMore]);
 
-  // ==================== USE PROP ITEMS IF PROVIDED (FALLBACK) ====================
-  const effectiveFeedItems = React.useMemo(() => {
-    // If we're using infinite scroll (has currentUser), use feedItems state
-    if (currentUser?.id && feedItems.length > 0) {
-      return feedItems;
-    }
-    
-    // Fallback to props for backward compatibility
-    if (itemsProp && itemsProp.length > 0) {
-      return itemsProp;
-    }
-    
-    if (feedItemsProp && feedItemsProp.length > 0) {
-      return feedItemsProp.map((item: any) => ({
-        kind: 'post' as const,
-        data: item,
-        created_at: item.created_at
-      }));
-    }
-    
-    return [];
-  }, [itemsProp, feedItemsProp, feedItems, currentUser?.id]);
-
-  // ==================== SHOW SKELETON ON INITIAL LOAD ONLY ====================
-  if (initialLoading && effectiveFeedItems.length === 0) {
-    return (
-      <div className="space-y-2">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-[#242526] rounded-xl p-4 animate-pulse">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C]"></div>
-              <div className="flex-1">
-                <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2"></div>
-                <div className="h-3 bg-[#3A3B3C] rounded w-24"></div>
-              </div>
-            </div>
-            <div className="h-40 bg-[#3A3B3C] rounded-lg mb-3"></div>
-            <div className="flex gap-2">
-              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
-              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
-              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // ==================== RENDER FEED ====================
   return (
     <div className="space-y-2">
-      {effectiveFeedItems.map((item, index) => {
-        // Handle story items
-        if (item.kind === 'story') {
+      {safeFeedItems.map((item, index) => {
+        if (item.kind === "story") {
           return (
             <FeedStoryCard
-              key={`story-${item.data.id}`}
+              key={`story-${item.data.id}-${index}`}
               story={item.data}
               onOpen={onOpenStory}
             />
           );
         }
 
-        // Handle reel items
-        if (item.kind === 'reel') {
+        if (item.kind === "reel") {
           return (
             <ReelFeedCard
               key={`reel-${item.data.id}`}
@@ -8649,28 +8515,35 @@ export const Feed = memo(({
             />
           );
         }
-        
-        // Handle post items
-        const post = item.data || item;
+
+        const post = item.data;
         const postAuthorId = Number(post.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-        const isAdminUser = currentUser && currentUser.role === 'admin';
+        const isAdminUser = currentUser && currentUser.role === "admin";
         const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
         const isPushed = pushedPosts?.[post.id] || false;
 
-        // Insert People You May Know cards at specific positions
-        const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && 
-          peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
+        const showFirstPymk =
+          peopleYouMayKnow &&
+          peopleYouMayKnow.length > 0 &&
+          peopleYouMayKnowInsertIndex1 >= 0 &&
+          index === peopleYouMayKnowInsertIndex1;
 
-        const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && 
-          peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
+        const showSecondPymk =
+          peopleYouMayKnow &&
+          peopleYouMayKnow.length > 0 &&
+          peopleYouMayKnowInsertIndex2 >= 0 &&
+          index === peopleYouMayKnowInsertIndex2;
 
-        const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && 
-          groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
+        const showGroupsYouMayJoin =
+          groupsYouMayJoin &&
+          groupsYouMayJoin.length > 0 &&
+          groupsYouMayJoinInsertIndex >= 0 &&
+          index === groupsYouMayJoinInsertIndex;
 
         return (
-          <React.Fragment key={`item-${getStableItemKey(post)}`}>
+          <React.Fragment key={`post-${post.id}-${index}`}>
             <Post
               post={post as PostType}
               author={getPostAuthor?.(post as PostType) || post.author || post}
@@ -8698,7 +8571,7 @@ export const Feed = memo(({
                   disabled={isPushed}
                   className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
                 >
-                  {isPushed ? 'Pushed' : 'Push More'}
+                  {isPushed ? "Pushed" : "Push More"}
                 </button>
               ) : undefined}
             />
@@ -8745,39 +8618,20 @@ export const Feed = memo(({
           </React.Fragment>
         );
       })}
-      
-      {/* Invisible trigger for infinite scroll - Facebook style (no visible loader) */}
-      {hasMoreFeed && !initialLoading && (
-        <div 
-          ref={feedMoreRef} 
-          style={{ 
-            height: 1, 
-            opacity: 0, 
+
+      {hasMoreFeed && (
+        <div
+          ref={feedMoreRef}
+          style={{
+            height: 60,
+            opacity: 0,
             pointerEvents: "none",
-            marginTop: -1
-          }} 
+          }}
         />
       )}
-      
-      {/* No end message - Facebook doesn't show "You've seen everything" */}
     </div>
   );
-}, (prev, next) => {
-  // Custom comparison for memo - using correct prop names
-  if (prev.items !== next.items) return false;
-  if (prev.feedItems !== next.feedItems) return false;
-  if (prev.feedItems?.length !== next.feedItems?.length) return false;
-  for (let i = 0; i < (prev.feedItems?.length || 0); i++) {
-    if (!isSameFeedItem(prev.feedItems?.[i], next.feedItems?.[i])) return false;
-  }
-  if (prev.currentUser?.id !== next.currentUser?.id) return false;
-  if (prev.peopleYouMayKnow !== next.peopleYouMayKnow) return false;
-  if (prev.groupsYouMayJoin !== next.groupsYouMayJoin) return false;
-  return true;
-});  
-        
-        
-        
+});
 
 
        
