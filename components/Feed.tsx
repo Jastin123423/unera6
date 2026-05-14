@@ -8683,7 +8683,7 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
-  onToggleGroupPostLike={onToggleGroupPostLike}
+  
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
