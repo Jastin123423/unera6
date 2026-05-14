@@ -3647,6 +3647,99 @@ const handleMusicShareComplete = useCallback((destination: string, data?: any, t
     fetchPeopleYouMayKnow();
   }, [currentUser?.id, pymkHiddenIds]);
 
+
+//===INFINITE SCROLL ===
+      
+const [extraFeedItems, setExtraFeedItems] = useState<FeedItem[]>([]);
+const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
+const [hasMoreFeed, setHasMoreFeed] = useState(true);
+const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+
+const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
+
+const loadMoreFeed = useCallback(async () => {
+  if (feedLoadingMore) return;
+  if (!hasMoreFeed) return;
+  if (!currentUser?.id) return;
+
+  setFeedLoadingMore(true);
+
+  try {
+    const currentItems = [...mixedFeedItems, ...extraFeedItems];
+
+    const seenIds = currentItems
+      .map((item: any) => Number(item?.data?.id || item?.id))
+      .filter(Boolean)
+      .slice(-250);
+
+    const oldestCreatedAt = currentItems
+      .map((item: any) => String(item?.data?.created_at || item?.created_at || ""))
+      .filter(Boolean)
+      .sort()[0];
+
+    const params = new URLSearchParams({
+      userId: String(currentUser.id),
+      limit: "20",
+      seed: String(feedSeedRef.current),
+      seen: seenIds.join(","),
+    });
+
+    if (feedNextCursor || oldestCreatedAt) {
+      params.set("cursor", feedNextCursor || oldestCreatedAt);
+    }
+
+    const res = await fetch(`/api/feeds?${params.toString()}`, {
+      headers: {
+        ...authHeaders(),
+      },
+    });
+
+    const data = await res.json();
+
+    if (!data?.success) return;
+
+    const incoming: FeedItem[] = (data.feed || []).map((post: any) => ({
+      kind: "post" as const,
+      data: post,
+      created_at: post.created_at,
+    }));
+
+    if (incoming.length === 0) {
+      setHasMoreFeed(false);
+      return;
+    }
+
+    setExtraFeedItems(prev => {
+      const map = new Map<string, FeedItem>();
+
+      [...prev, ...incoming].forEach((item: any) => {
+        const post = item.data || item;
+        const key = post.feed_key || `${post.source || post.item_type || "post"}:${post.id}`;
+        if (!map.has(key)) map.set(key, item);
+      });
+
+      return Array.from(map.values());
+    });
+
+    setFeedNextCursor(data.nextCursor || null);
+    setHasMoreFeed(true);
+  } catch (err) {
+    console.error("APP_LOAD_MORE_FEED_ERROR", err);
+  } finally {
+    setFeedLoadingMore(false);
+  }
+}, [
+  feedLoadingMore,
+  hasMoreFeed,
+  currentUser?.id,
+  mixedFeedItems,
+  extraFeedItems,
+  feedNextCursor,
+]);
+
+
+        
+
   // ============================================================================
   // ✅ Groups You May Join - Helpers
   // ============================================================================
