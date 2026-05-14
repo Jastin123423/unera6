@@ -8298,39 +8298,22 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
 // ============================================================================
 
-
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
-  if (!requireAuth('Reacting')) return;
+  if (!requireAuth("Reacting")) return;
   if (!currentUser || !item) return;
 
-  // Get identity and ID safely
-  let identity = '';
+  let identity = "";
   let itemId = 0;
-  let itemType = 'post';
-  
+  let itemType = "post";
+
   try {
     identity = getFeedKey(item);
     itemId = getFeedItemId(item);
     itemType = getFeedItemType(item);
-    
-    // DEBUG LOG - Check what type is being detected
-    console.log("REACTION_ROUTE_DEBUG", { 
-      identity, 
-      itemId, 
-      itemType, 
-      source: item?.source, 
-      item_type: item?.item_type, 
-      kind: item?.kind, 
-      id: item?.id, 
-      group_id: item?.group_id, 
-      group_post_id: item?.group_post_id,
-      meta: item?.meta
-    });
-    
   } catch (error) {
-    console.error('Failed to get feed identity:', error);
-    // Fallback to treating as post with ID
-    if (typeof item === 'number') {
+    console.error("Failed to get feed identity:", error);
+
+    if (typeof item === "number") {
       itemId = item;
       identity = `post:${item}`;
     } else if (item?.id) {
@@ -8339,42 +8322,44 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     } else {
       return;
     }
-    itemType = 'post';
-  }
-  
-  // FORCE GROUP POST DETECTION before the switch
-  const source = String(
-    item?.source || 
-    item?.item_type || 
-    item?.kind || 
-    itemType || 
-    ""
-  ).toLowerCase();
-  
-  const isGroupPost = source === "group_post" || 
-                      Boolean(item?.group_post_id) || 
-                      Boolean(item?.group_id && item?.group_name);
-  
-  const meId = currentUser.id;
 
-  // Prevent multiple taps
+    itemType = "post";
+  }
+
+  const meId = Number(currentUser.id);
+  if (!meId) return;
+
   if (reactingMap[identity]) return;
 
-  // Get current item from appropriate source
-  const sourceList = view === 'profile' ? profilePosts : posts;
-  const previousItem = safeArray(sourceList).find((p: any) => {
-    try {
-      return getFeedKey(p) === identity;
-    } catch {
-      return Number(p?.id) === itemId;
-    }
-  }) || item;
-  
+  const source = String(
+    item?.source ||
+    item?.item_type ||
+    item?.kind ||
+    itemType ||
+    ""
+  ).toLowerCase();
+
+  const isGroupPost =
+    source === "group_post" ||
+    Boolean(item?.group_post_id) ||
+    Boolean(item?.groupPostId) ||
+    Boolean(item?.group_id && item?.group_name);
+
+  const sourceList = view === "profile" ? profilePosts : posts;
+
+  const previousItem =
+    safeArray(sourceList).find((p: any) => {
+      try {
+        return getFeedKey(p) === identity;
+      } catch {
+        return Number(p?.id) === itemId;
+      }
+    }) || item;
+
   if (!previousItem) return;
 
-  // Helper to replace item by identity or ID
-  const replaceItem = (list: any[], replacement: any) => 
-    safeArray(list).map(p => {
+  const replaceItem = (list: any[], replacement: any) =>
+    safeArray(list).map((p: any) => {
       try {
         if (getFeedKey(p) === identity) return replacement;
       } catch {
@@ -8383,120 +8368,195 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       return p;
     });
 
-  // Set reacting lock
+  const applyServerTruth = (
+    serverMy: ReactionType | null,
+    serverCount: number
+  ) => {
+    const applyOne = (p: any) => {
+      try {
+        if (getFeedKey(p) !== identity) return p;
+      } catch {
+        if (Number(p?.id) !== itemId) return p;
+      }
+
+      const prevArr = safeArray<any>(p?.reactions);
+      const withoutMe = prevArr.filter(
+        (r: any) => Number(r?.user_id ?? r?.userId) !== meId
+      );
+
+      const nextArr = serverMy
+        ? [...withoutMe, { user_id: meId, userId: meId, type: serverMy }]
+        : withoutMe;
+
+      return {
+        ...p,
+        reactions: nextArr,
+        my_reaction: serverMy,
+        myReaction: serverMy,
+        reactions_count: serverCount,
+        reactionsCount: serverCount,
+        likes_count: serverCount,
+        likesCount: serverCount,
+      };
+    };
+
+    setPosts((prev) => safeArray(prev).map(applyOne));
+    setProfilePosts((prev) => safeArray(prev).map(applyOne));
+    setCommentPostSnapshot((prev) => (prev ? applyOne(prev) : prev));
+  };
+
   setReacting(identity, true);
 
-  // Apply optimistic update
-  const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
-  setPosts(prev => replaceItem(prev, optimisticItem));
-  setProfilePosts(prev => replaceItem(prev, optimisticItem));
-  
+  const optimisticItem = applyOptimisticReaction(
+    previousItem,
+    identity,
+    type,
+    meId
+  );
+
+  setPosts((prev) => replaceItem(prev, optimisticItem));
+  setProfilePosts((prev) => replaceItem(prev, optimisticItem));
+
   if (activeCommentsIdentity === identity) {
     setCommentPostSnapshot(optimisticItem);
   }
 
   try {
-    let endpoint = '';
-    
-    // Handle GROUP_POST separately with forced detection
+    // ✅ GROUP POSTS: use the same endpoint that already works in Groups page
     if (isGroupPost) {
-      const groupId = Number(
-        item?.group_id || 
-        item?.groupId || 
-        item?.meta?.group_id || 
-        item?.meta?.groupId || 
-        0
-      );
       const groupPostId = Number(
-        item?.group_post_id || 
-        item?.groupPostId || 
-        item?.id || 
-        itemId || 
-        0
+        item?.group_post_id ||
+          item?.groupPostId ||
+          item?.id ||
+          itemId ||
+          0
       );
-      
-      console.log("GROUP_POST_REACTION_ENDPOINT", { groupId, groupPostId });
-      
-      if (!groupId || !groupPostId) {
-        throw new Error("Missing group post reaction ids");
+
+      if (!groupPostId) {
+        throw new Error("Missing group post reaction id");
       }
-      endpoint = `/api/groups/${groupId}/posts/${groupPostId}/react`;
-    } 
-    else {
-      // Handle all other types with the original switch
-      switch (itemType) {
-        case 'event':
-          endpoint = `/api/events/${itemId}/react`;
-          break;
-        
-        case 'product':
-          endpoint = `/api/products/${itemId}/react`;
-          break;
-        
-        case 'reel':
-          endpoint = `/api/reels/${itemId}/react`;
-          break;
-        
-        case 'music':
-          endpoint = `/api/songs/${itemId}/react`;
-          break;
-        
-        case 'podcast':
-          endpoint = `/api/podcasts/${itemId}/react`;
-          break;
-        
-        default:
-          endpoint = `/api/posts/${itemId}/react`;
-      }
+
+      const data = await apiFetch("/api/group-post-likes", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: meId,
+          post_id: groupPostId,
+          type,
+        }),
+      });
+
+      const serverMy = data?.liked ? type : null;
+      const serverCount = safeNumber(
+        data?.likes_count,
+        safeNumber(data?.reactions_count, 0)
+      );
+
+      applyServerTruth(serverMy, serverCount);
+      return;
     }
 
-    console.log("FINAL_REACTION_ENDPOINT", { endpoint, type, meId });
+    let endpoint = "";
+
+    switch (itemType) {
+      case "event": {
+        const eventId = Number(item?.event_id || itemId || item?.id || 0);
+        if (!eventId) throw new Error("Missing event reaction id");
+        endpoint = `/api/events/${eventId}/react`;
+        break;
+      }
+
+      case "product": {
+        const productId = Number(
+          item?.product_id2 ||
+            item?.product_id ||
+            item?.meta?.product_id ||
+            itemId ||
+            item?.id ||
+            0
+        );
+        if (!productId) throw new Error("Missing product reaction id");
+        endpoint = `/api/products/${productId}/react`;
+        break;
+      }
+
+      case "reel": {
+        const reelId = Number(item?.reel_id || itemId || item?.id || 0);
+        if (!reelId) throw new Error("Missing reel reaction id");
+        endpoint = `/api/reels/${reelId}/react`;
+        break;
+      }
+
+      case "song":
+      case "music": {
+        const songId = Number(
+          item?.song_id2 || item?.song_id || itemId || item?.id || 0
+        );
+        if (!songId) throw new Error("Missing song reaction id");
+        endpoint = `/api/songs/${songId}/react`;
+        break;
+      }
+
+      case "podcast": {
+        const podcastId = Number(
+          item?.podcast_id || itemId || item?.id || 0
+        );
+        if (!podcastId) throw new Error("Missing podcast reaction id");
+        endpoint = `/api/podcasts/${podcastId}/react`;
+        break;
+      }
+
+      default: {
+        const postId = Number(item?.post_id || itemId || item?.id || 0);
+        if (!postId) throw new Error("Missing post reaction id");
+        endpoint = `/api/posts/${postId}/react`;
+        break;
+      }
+    }
 
     const data = await apiFetch(endpoint, {
-      method: 'POST',
-      body: JSON.stringify({ type, user_id: meId }),
+      method: "POST",
+      body: JSON.stringify({
+        type,
+        user_id: meId,
+      }),
     });
 
-    if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
-      const serverMy = data.my_reaction ?? null;
-      const serverCount = safeNumber(data.reactions_count, 0);
+    if (data?.success || "reactions_count" in (data || {}) || "my_reaction" in (data || {})) {
+      const serverMy = data?.my_reaction ?? null;
+      const serverCount = safeNumber(data?.reactions_count, 0);
 
-      const applyServerTruth = (p: any) => {
-        try {
-          if (getFeedKey(p) !== identity) return p;
-        } catch {
-          if (Number(p?.id) !== itemId) return p;
-        }
-
-        const prevArr = safeArray<any>(p?.reactions);
-        const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
-        const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
-
-        return {
-          ...p,
-          reactions: nextArr,
-          my_reaction: serverMy,
-          myReaction: serverMy,
-          reactions_count: serverCount,
-          reactionsCount: serverCount,
-          likesCount: serverCount,
-        };
-      };
-
-      setPosts(prev => safeArray(prev).map(applyServerTruth));
-      setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-      setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
+      applyServerTruth(serverMy, serverCount);
     }
   } catch (error) {
-    console.error('Failed to react:', error);
-    // Restore previous state on failure
-    setPosts(prev => replaceItem(prev, previousItem));
-    setProfilePosts(prev => replaceItem(prev, previousItem));
-    setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
+    console.error("Failed to react:", error);
+
+    setPosts((prev) => replaceItem(prev, previousItem));
+    setProfilePosts((prev) => replaceItem(prev, previousItem));
+
+    setCommentPostSnapshot((prev) => {
+      if (!prev) return prev;
+
+      try {
+        return getFeedKey(prev) === identity ? previousItem : prev;
+      } catch {
+        return Number(prev?.id) === itemId ? previousItem : prev;
+      }
+    });
   } finally {
     setReacting(identity, false);
   }
-}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);    
+}, [
+  currentUser,
+  requireAuth,
+  reactingMap,
+  view,
+  posts,
+  profilePosts,
+  activeCommentsIdentity,
+  setReacting,
+]);
+
+
 
                                    
 
