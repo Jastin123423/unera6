@@ -8672,7 +8672,6 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
-
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
