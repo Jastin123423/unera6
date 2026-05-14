@@ -8375,6 +8375,11 @@ interface FeedProps {
  * =========================
  */
 
+/**
+ * =========================
+ * ✅ MAIN FEED COMPONENT WITH INFINITE SCROLL (FACEBOOK STYLE)
+ * =========================
+ */
 
 export const Feed = memo(({
   items: itemsProp,
@@ -8425,6 +8430,11 @@ export const Feed = memo(({
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
   const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // ==================== GET STABLE ITEM KEY (MUST BE BEFORE ANY EARLY RETURN) ====================
+  const getStableItemKey = useCallback((item: any) => {
+    return getFeedKey(item);
+  }, []);
 
   // ==================== LOAD MORE FEED FUNCTION ====================
   const loadMoreFeed = useCallback(async (isInitial = false) => {
@@ -8618,11 +8628,6 @@ export const Feed = memo(({
     );
   }
 
-  // ==================== GET STABLE ITEM KEY ====================
-  const getStableItemKey = useCallback((item: any) => {
-    return getFeedKey(item);
-  }, []);
-
   // ==================== RENDER FEED ====================
   return (
     <div className="space-y-2">
@@ -8776,8 +8781,8 @@ export const Feed = memo(({
   return true;
 });
 
-    
- 
+  
+            
        
 // ==================== ADDITIONAL EXPORTS ====================
 export default Feed;
