@@ -5787,25 +5787,27 @@ const handleReactClick = async (type: ReactionType) => {
                   </div>
                 </div>
 
-                {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && !isSponsored && (
-                  <button
-                    onClick={handleFollowClick}
-                    disabled={followLoading}
-                    className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
-                      isFollowing
-                        ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
-                        : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
-                    } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-                  >
-                    {followLoading ? (
-                      <i className="fas fa-spinner fa-spin"></i>
-                    ) : isFollowing ? (
-                      'Following'
-                    ) : (
-                      'Follow'
-                    )}
-                  </button>
-                )}
+      {/* ✅ ADD THIS FOLLOW BUTTON BACK */}
+  {onFollow && currentUser && safeUserId(a) !== safeUserId(currentUser) && !isSponsored && (
+    <button
+      onClick={handleFollowClick}
+      disabled={followLoading}
+      className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
+        isFollowing
+          ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+          : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+      } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+    >
+      {followLoading ? (
+        <i className="fas fa-spinner fa-spin"></i>
+      ) : isFollowing ? (
+        'Following'
+      ) : (
+        'Follow'
+      )}
+    </button>
+  )}
+
 
                 <PostMenu
                   item={{
