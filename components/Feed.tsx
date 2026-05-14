@@ -8374,16 +8374,8 @@ interface FeedProps {
  * =========================
  */
 
-/**
- * =========================
- * ✅ MAIN FEED COMPONENT
- * ✅ Original rendering preserved
- * ✅ Facebook-style silent infinite scroll
- * ✅ Uses oldest current post as first cursor
- * =========================
- */
 
-export const Feed = memo(({
+ export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
   onOpenStory,
@@ -8409,7 +8401,6 @@ export const Feed = memo(({
   onPushMore,
   pushedPosts = {},
   onOpenReel,
-  onOpenReelMenu,
   peopleYouMayKnow = [],
   peopleYouMayKnowInsertIndex1 = -1,
   peopleYouMayKnowInsertIndex2 = -1,
@@ -8422,79 +8413,86 @@ export const Feed = memo(({
   onOpenGroup,
   onLoginClick,
 }: FeedProps) => {
-  const [loadedMoreItems, setLoadedMoreItems] = useState<any[]>([]);
+  const [loadedItems, setLoadedItems] = useState<any[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMoreFeed, setHasMoreFeed] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(false);
 
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
-  const loadingMoreRef = useRef(false);
-  const seedRef = useRef<number>(Math.floor(Date.now() / 1000));
+  const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
+  const loadingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const safeFeedItems = React.useMemo(() => {
-    let base: any[] = [];
+  const normalizeFeedItem = useCallback((item: any) => {
+    if (!item) return null;
+    if (item.kind && item.data) return item;
 
-    if (items && items.length > 0) {
-      base = items;
-    } else if (feedItemsProp && feedItemsProp.length > 0) {
-      base = feedItemsProp.map((item: any) => ({
-        kind: "post" as const,
-        data: item,
-        created_at: item.created_at,
-      }));
+    if (item.item_type === "story" || item.source === "story") {
+      return { kind: "story" as const, data: item, created_at: item.created_at };
     }
 
-    return [...base, ...loadedMoreItems];
-  }, [items, feedItemsProp, loadedMoreItems]);
+    if (item.item_type === "reel" || item.source === "reel") {
+      return { kind: "reel" as const, data: item, created_at: item.created_at };
+    }
+
+    return {
+      kind: "post" as const,
+      data: item,
+      created_at: item.created_at,
+    };
+  }, []);
+
+  const baseItems = React.useMemo(() => {
+    const source =
+      loadedItems.length > 0
+        ? loadedItems
+        : items && items.length > 0
+          ? items
+          : feedItemsProp && feedItemsProp.length > 0
+            ? feedItemsProp
+            : [];
+
+    return source.map(normalizeFeedItem).filter(Boolean);
+  }, [loadedItems, items, feedItemsProp, normalizeFeedItem]);
 
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
   }, []);
 
-  const loadMoreFeed = useCallback(async () => {
-    if (loadingMoreRef.current) return;
-    if (!hasMoreFeed) return;
+  const loadMoreFeed = useCallback(async (isInitial = false) => {
+    if (loadingRef.current) return;
+    if (!hasMoreFeed && !isInitial) return;
     if (!currentUser?.id) return;
-    if (safeFeedItems.length === 0) return;
 
-    loadingMoreRef.current = true;
+    loadingRef.current = true;
+
+    if (isInitial) setInitialLoading(true);
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      const seenIds = safeFeedItems
-        .map((item: any) => {
-          const post = item?.data || item;
-          return Number(
-            post?.id ||
-            post?.post_id ||
-            post?.product_id2 ||
-            post?.product_id ||
-            post?.event_id ||
-            post?.group_post_id ||
-            post?.song_id2 ||
-            post?.podcast_id
-          );
-        })
-        .filter(Boolean)
-        .slice(-250);
-
-      const oldestCreatedAt = safeFeedItems
-        .map((item: any) => String((item?.data || item)?.created_at || ""))
-        .filter(Boolean)
-        .sort()[0];
-
-      const cursorToUse = nextCursor || oldestCreatedAt;
+      const seenIds = isInitial
+        ? []
+        : loadedItems
+            .map((x: any) => Number(x?.id || x?.data?.id || x?.post_id || x?.data?.post_id))
+            .filter(Boolean)
+            .slice(-250);
 
       const params = new URLSearchParams({
         userId: String(currentUser.id),
         limit: "20",
-        seed: String(seedRef.current),
+        seed: String(feedSeedRef.current),
         seen: seenIds.join(","),
       });
 
-      if (cursorToUse) {
-        params.set("cursor", cursorToUse);
+      if (nextCursor && !isInitial) {
+        params.set("cursor", nextCursor);
       }
 
       const res = await fetch(`/api/feeds?${params.toString()}`, {
+        signal: controller.signal,
         headers: {
           ...authHeaders(),
         },
@@ -8504,93 +8502,103 @@ export const Feed = memo(({
 
       if (!data?.success) return;
 
-      const incoming = (data.feed || []).map((post: any) => ({
-        kind: "post" as const,
-        data: post,
-        created_at: post.created_at,
-      }));
+      const incoming = Array.isArray(data.feed) ? data.feed : [];
 
-      if (incoming.length === 0) {
-        setHasMoreFeed(false);
-        return;
-      }
-
-      setLoadedMoreItems(prev => {
+      setLoadedItems(prev => {
         const map = new Map<string, any>();
 
-        [...prev, ...incoming].forEach(item => {
-          const post = item.data || item;
-          const key =
-            post.feed_key ||
-            `${post.source || post.item_type || "post"}:${post.id}`;
+        if (!isInitial) {
+          prev.forEach(item => {
+            const key = item.feed_key || item.data?.feed_key || `${item.source || item.item_type || item.kind || "post"}:${item.id || item.data?.id}`;
+            if (!map.has(key)) map.set(key, item);
+          });
+        }
 
+        incoming.forEach(item => {
+          const key = item.feed_key || `${item.source || item.item_type || "post"}:${item.id}`;
           if (!map.has(key)) map.set(key, item);
         });
 
         return Array.from(map.values());
       });
 
-      setNextCursor(data.nextCursor || cursorToUse);
-      setHasMoreFeed(true);
-    } catch (err) {
-      console.error("LOAD_MORE_FEED_ERROR", err);
+      setNextCursor(data.nextCursor || null);
+      setHasMoreFeed(Boolean(data.hasMore && data.nextCursor));
+    } catch (err: any) {
+      if (err?.name !== "AbortError") {
+        console.error("LOAD_MORE_FEED_ERROR", err);
+      }
     } finally {
-      loadingMoreRef.current = false;
+      loadingRef.current = false;
+      if (isInitial) setInitialLoading(false);
     }
-  }, [currentUser?.id, hasMoreFeed, nextCursor, safeFeedItems]);
+  }, [currentUser?.id, hasMoreFeed, loadedItems, nextCursor]);
 
   useEffect(() => {
-    setLoadedMoreItems([]);
+    setLoadedItems([]);
     setNextCursor(null);
     setHasMoreFeed(true);
-    seedRef.current = Math.floor(Date.now() / 1000);
-    loadingMoreRef.current = false;
+    feedSeedRef.current = Math.floor(Date.now() / 1000);
+
+    const t = window.setTimeout(() => {
+      loadMoreFeed(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(t);
+      abortRef.current?.abort();
+      loadingRef.current = false;
+    };
   }, [currentUser?.id]);
 
   useEffect(() => {
-    const checkBottom = () => {
-      const trigger = feedMoreRef.current;
-      if (!trigger) return;
+    const el = feedMoreRef.current;
+    if (!el) return;
 
-      const rect = trigger.getBoundingClientRect();
-
-      if (rect.top < window.innerHeight + 1200) {
-        loadMoreFeed();
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreFeed(false);
+        }
+      },
+      {
+        root: null,
+        rootMargin: "900px 0px",
+        threshold: 0.01,
       }
-    };
+    );
 
-    window.addEventListener("scroll", checkBottom, { passive: true });
-    window.addEventListener("resize", checkBottom);
+    observer.observe(el);
 
-    const timer = window.setInterval(checkBottom, 1200);
-    const firstCheck = window.setTimeout(checkBottom, 600);
-
-    return () => {
-      window.removeEventListener("scroll", checkBottom);
-      window.removeEventListener("resize", checkBottom);
-      window.clearInterval(timer);
-      window.clearTimeout(firstCheck);
-    };
+    return () => observer.disconnect();
   }, [loadMoreFeed]);
 
-  return (
-    <div
-      className="space-y-2"
-      onScrollCapture={() => {
-        const el = feedMoreRef.current;
-        if (!el) return;
+  if (initialLoading && baseItems.length === 0) {
+    return (
+      <div className="space-y-2">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="bg-[#242526] rounded-xl p-4 animate-pulse">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#3A3B3C]" />
+              <div className="flex-1">
+                <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2" />
+                <div className="h-3 bg-[#3A3B3C] rounded w-24" />
+              </div>
+            </div>
+            <div className="h-40 bg-[#3A3B3C] rounded-lg mb-3" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
-        const rect = el.getBoundingClientRect();
-        if (rect.top < window.innerHeight + 1200) {
-          loadMoreFeed();
-        }
-      }}
-    >
-      {safeFeedItems.map((item, index) => {
+  return (
+    <div className="space-y-2">
+      {baseItems.map((item: any, index: number) => {
         if (item.kind === "story") {
           return (
             <FeedStoryCard
-              key={`story-${item.data.id}-${index}`}
+              key={`story-${item.data.id}`}
               story={item.data}
               onOpen={onOpenStory}
             />
@@ -8608,7 +8616,7 @@ export const Feed = memo(({
           );
         }
 
-        const post = item.data;
+        const post = item.data || item;
         const postAuthorId = Number(post.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
@@ -8712,7 +8720,7 @@ export const Feed = memo(({
         <div
           ref={feedMoreRef}
           style={{
-            height: 80,
+            height: 1,
             opacity: 0,
             pointerEvents: "none",
           }}
@@ -8720,7 +8728,10 @@ export const Feed = memo(({
       )}
     </div>
   );
-});
+});     
+        
+        
+        
 
 
        
