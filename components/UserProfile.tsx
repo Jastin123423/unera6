@@ -255,6 +255,12 @@ interface UserProfileProps {
   onOpenReel?: (reelId: number | string) => void;
 }
 
+ <span className="mx-1 text-[#B0B3B8]">·</span>
+<span className="font-bold">
+  {safeArrayHelper<number>((user as any)?.following || []).length.toLocaleString()}
+</span>
+<span className="text-[#B0B3B8]"> following</span> 
+
 export const UserProfile: React.FC<UserProfileProps> = ({
   user,
   currentUser,
