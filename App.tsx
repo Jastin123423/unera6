@@ -9580,9 +9580,10 @@ return (
   // =========================
   // ✅ INFINITE SCROLL
   // =========================
-onLoadMoreFeed={() => {}}
-hasMoreFeed={false}
-feedLoadingMore={false} 
+items={[...mixedFeedItems, ...extraFeedItems]}
+onLoadMoreFeed={loadMoreFeed}
+hasMoreFeed={hasMoreFeed}
+feedLoadingMore={feedLoadingMore}
 />
       </MarketplaceContext.Provider>
     </div>
