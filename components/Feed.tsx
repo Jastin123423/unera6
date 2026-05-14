@@ -8315,62 +8315,110 @@ export {
  * ✅ FEED PROPS INTERFACE
  * =========================
  */
+
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
   onOpenStory?: (story: Story) => void;
   // ========== END NEW PROPS ==========
-  
+
   feedItems: any[];
+
   currentUser: User | null;
   users: User[];
+
   onProfileClick: (id: number) => void;
+
   onReact: (post: PostType, type: ReactionType) => void;
+
   onShare: (id: number, newShareCount: number) => void;
+
   onOpenComments: (post: PostType) => void;
+
   onViewImage: (url: string) => void;
+
   onVideoClick: (post: PostType) => void;
+
   onPlayAudioTrack?: (track: AudioTrack) => void;
+
   onHashtagClick?: (tag: string) => void;
+
   onFollow?: (id: number) => void;
+
   followLoading?: { [key: number]: boolean };
+
   checkIsFollowing?: (id: number) => boolean;
+
   groups?: Group[];
+
   brands?: Brand[];
+
   chats?: any[];
+
   onViewProductFromPost?: (productId: number) => void;
-  onRSVPEvent?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+  onRSVPEvent?: (
+    eventId: number,
+    status: "going" | "interested" | "not_going"
+  ) => Promise<void>;
+
   getPostAuthor?: (post: PostType) => User;
-  
+
+  // =========================
   // Push More button props
+  // =========================
   onPushMore?: (postId: number) => void;
+
   pushedPosts?: Record<number, boolean>;
-  
+
+  // =========================
   // Reel props
+  // =========================
   onOpenReel?: (reelId: number | string) => void;
+
   onOpenReelMenu?: (reel: any) => void;
-  
+
+  // =========================
   // People You May Know props
+  // =========================
   peopleYouMayKnow?: any[];
+
   peopleYouMayKnowInsertIndex1?: number;
+
   peopleYouMayKnowInsertIndex2?: number;
+
   onFollowFromPymk?: (id: number) => void;
+
   pymkLoading?: boolean;
-  
+
+  // =========================
   // Groups You May Join props
+  // =========================
   groupsYouMayJoin?: any[];
+
   groupsYouMayJoinInsertIndex?: number;
+
   onJoinGroupSuggestion?: (groupId: number) => void;
+
   gymjLoading?: boolean;
+
   onOpenGroup?: (groupId: number) => void;
-  
+
+  // =========================
   // Login
+  // =========================
   onLoginClick?: () => void;
+
+  // =========================
+  // ✅ INFINITE SCROLL
+  // =========================
+  onLoadMoreFeed?: () => void;
+
+  hasMoreFeed?: boolean;
+
+  feedLoadingMore?: boolean;
 }
-    
-onLoadMoreFeed?: () => void;
-hasMoreFeed?: boolean;
-feedLoadingMore?: boolean;
+
     
 /**
  * =========================
