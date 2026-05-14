@@ -5671,49 +5671,45 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-  const handleReactClick = async (type: ReactionType) => {
+const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
-  
+
   const source = String(
-    (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
+    (p as any)?.source ||
+    (p as any)?.item_type ||
+    (p as any)?.kind ||
+    ""
   ).toLowerCase();
+
   const meta = (p as any)?.meta || {};
-  const groupId = Number(
-    (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
-  );
+
   const groupPostId = Number(
-    (p as any)?.group_post_id || 
-    (p as any)?.groupPostId || 
-    (source === "group_post" ? (p as any)?.id : 0) || 
+    (p as any)?.group_post_id ||
+    (p as any)?.groupPostId ||
+    (source === "group_post" ? (p as any)?.id : 0) ||
     0
   );
-  const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
 
-  if (isGroupPost) {
-    // Call group post reaction endpoint directly
-    const endpoint = `/api/groups/${groupId}/posts/${groupPostId || (p as any)?.id}/react`;
-    try {
-      await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: safeUserId(currentUser), type }),
-      });
-      // Optionally update local state
-      // You may need to refresh the post or update reactions count
-    } catch (error) {
-      console.error('Group post reaction failed:', error);
-    }
+  const isGroupPost =
+    source === "group_post" ||
+    Boolean(groupPostId) ||
+    Boolean((p as any)?.group_id);
+
+  if (isGroupPost && onToggleGroupPostLike) {
+    await onToggleGroupPostLike(
+      groupPostId || Number((p as any)?.id),
+      type
+    );
     return;
   }
 
   onReact?.(p, type);
 };
       
-    
-    
-    
+      
     
     const handleReactClick = async (type: ReactionType) => {
       if (!currentUser) {
@@ -5722,7 +5718,6 @@ export const Post = memo(
       }
       
       
-
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
       setGalleryIndex(index);
