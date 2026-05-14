@@ -255,12 +255,6 @@ interface UserProfileProps {
   onOpenReel?: (reelId: number | string) => void;
 }
 
- <span className="mx-1 text-[#B0B3B8]">·</span>
-<span className="font-bold">
-  {safeArrayHelper<number>((user as any)?.following || []).length.toLocaleString()}
-</span>
-<span className="text-[#B0B3B8]"> following</span> 
-
 export const UserProfile: React.FC<UserProfileProps> = ({
   user,
   currentUser,
@@ -1614,14 +1608,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                       <i className="fas fa-check-circle text-[#1877F2] text-[19px] flex-shrink-0"></i>
                     )}
                   </h1>
+                  
+                  {/* Stats Row - Following removed */}
                   <div className="text-[#E4E6EB] text-[16px] md:text-[17px] mt-1 leading-snug">
                     <span className="font-bold">{followerCount.toLocaleString()}</span>
                     <span className="text-[#B0B3B8]"> followers</span>
-                    <span className="mx-1 text-[#B0B3B8]">·</span>
-                    <span className="font-bold">
-                      {safeArrayHelper<number>((user as any)?.following || []).length.toLocaleString()}
-                    </span>
-                    <span className="text-[#B0B3B8]"> following</span>
                     <span className="mx-1 text-[#B0B3B8]">·</span>
                     <span className="font-bold">
                       {filteredProfilePosts.length.toLocaleString()}
@@ -1822,8 +1813,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   disabled={isSelf}
                   onClick={() => !isSelf && onRestrictUser?.(user.id, "5d")}
                   className={`py-2 rounded font-semibold transition-colors active:scale-95 active:shadow-inner ${
-                    isSelf
-                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
+                    isSelf                      ? "bg-yellow-900/40 text-yellow-200/40 cursor-not-allowed"
                       : "bg-yellow-900/80 text-yellow-200 hover:bg-yellow-800"
                   }`}
                 >
