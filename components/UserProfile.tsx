@@ -1,4 +1,4 @@
-// UserProfile.tsx - Facebook-style like Tuko.co.ke
+// UserProfile.tsx - Facebook-style professional layout with infinite scroll
 import React, { useEffect, useState, useRef, useMemo, useContext, useCallback } from 'react';
 import { User, Post as PostType, ReactionType, Reel, AudioTrack, Product, Group, Brand } from '../types';
 import { ChatsList } from './ChatsList';
@@ -314,6 +314,13 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   
   const [isFollowButtonClicked, setIsFollowButtonClicked] = useState(false);
 
+  // ========== INFINITE SCROLL STATES ==========
+  const [profileNextCursor, setProfileNextCursor] = useState<string | null>(null);
+  const [profileHasMore, setProfileHasMore] = useState(true);
+  const [profileLoadingMore, setProfileLoadingMore] = useState(false);
+  const profileMoreRef = useRef<HTMLDivElement | null>(null);
+  const profileLoadingRef = useRef(false);
+
   // ========== FIX 1: STABLE FOLLOWERS CACHE ==========
   const [stableFollowers, setStableFollowers] = useState<number[]>(() =>
     safeArrayHelper<number>((user as any)?.followers || [])
@@ -494,27 +501,27 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   }, [fetchPostById]);
 
-  // ========== REFRESH ALL PROFILE POSTS ==========
-  const refreshProfilePosts = async () => {
-    if (!user?.id) return;
-    
-    const list = await fetchProfilePostsFromBackend(Number(user.id));
-    if (list.length > 0) {
-      setProfilePosts(list);
-      hasLoadedPostsRef.current = true;
-    }
-  };
-
-  // ========== FETCH PROFILE POSTS FROM BACKEND ==========
-  const fetchProfilePostsFromBackend = async (profileUserId: number): Promise<PostType[]> => {
+  // ========== FETCH PROFILE POSTS FROM BACKEND WITH CURSOR ==========
+  const fetchProfilePostsFromBackend = async (
+    profileUserId: number, 
+    cursor?: string | null, 
+    limit = 20
+  ): Promise<PostType[]> => {
     if (!profileUserId) return [];
     
     setIsLoadingPosts(true);
     
     try {
       const viewerId = currentUser?.id ?? 0;
+      const params = new URLSearchParams({
+        userId: String(profileUserId),
+        viewerId: String(viewerId),
+        limit: String(limit),
+      });
       
-      const url = `/api/posts/by-user?userId=${profileUserId}&viewerId=${viewerId}&limit=50`;
+      if (cursor) params.set("cursor", cursor);
+      
+      const url = `/api/posts/by-user?${params.toString()}`;
       console.log('📡 Fetching profile posts from:', url);
       
       const data = await apiFetch(url);
@@ -569,7 +576,69 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     }
   };
 
-  // ========== LOAD PROFILE POSTS ==========
+  // ========== LOAD MORE PROFILE POSTS (INFINITE SCROLL) ==========
+  const loadMoreProfilePosts = useCallback(async () => {
+    if (profileLoadingRef.current) return;
+    if (!profileHasMore) return;
+    if (!user?.id) return;
+    if (activeTab !== "Posts") return;
+    
+    profileLoadingRef.current = true;
+    setProfileLoadingMore(true);
+    
+    try {
+      const oldestCreatedAt = profileNextCursor || 
+        filteredProfilePosts
+          .map((p: any) => String(p?.created_at || ""))
+          .filter(Boolean)
+          .sort()[0];
+      
+      if (!oldestCreatedAt && filteredProfilePosts.length > 0) return;
+      
+      const morePosts = await fetchProfilePostsFromBackend(
+        Number(user.id),
+        oldestCreatedAt,
+        20
+      );
+      
+      if (!morePosts.length) {
+        setProfileHasMore(false);
+        return;
+      }
+      
+      setProfilePosts(prev => {
+        const map = new Map<number, PostType>();
+        [...prev, ...morePosts].forEach((p: any) => {
+          const id = safePostIdHelper(p);
+          if (id && !map.has(id)) map.set(id, p);
+        });
+        return Array.from(map.values()).sort((a: any, b: any) => 
+          String(b.created_at).localeCompare(String(a.created_at))
+        );
+      });
+      
+      const nextOldest = morePosts
+        .map((p: any) => String(p?.created_at || ""))
+        .filter(Boolean)
+        .sort()[0];
+      
+      setProfileNextCursor(nextOldest || oldestCreatedAt);
+      setProfileHasMore(morePosts.length >= 20);
+    } catch (error) {
+      console.error('Error loading more posts:', error);
+    } finally {
+      profileLoadingRef.current = false;
+      setProfileLoadingMore(false);
+    }
+  }, [
+    user?.id, 
+    activeTab, 
+    profileHasMore, 
+    profileNextCursor, 
+    filteredProfilePosts
+  ]);
+
+  // ========== LOAD INITIAL PROFILE POSTS ==========
   useEffect(() => {
     let cancelled = false;
     
@@ -583,7 +652,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           const viewerId = currentUser?.id ?? null;
           list = await fetchProfilePosts(Number(user.id), viewerId);
         } else {
-          list = await fetchProfilePostsFromBackend(Number(user.id));
+          list = await fetchProfilePostsFromBackend(Number(user.id), null, 20);
         }
         
         if (!cancelled) {
@@ -591,8 +660,10 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             setProfilePosts(list);
             hasLoadedPostsRef.current = true;
             seededFromPropsRef.current = true;
+            setProfileHasMore(list.length >= 20);
           } else if (!hasLoadedPostsRef.current) {
             setProfilePosts(list);
+            setProfileHasMore(false);
           }
         }
       } catch (error) {
@@ -604,6 +675,38 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     
     return () => { cancelled = true; };
   }, [user?.id, currentUser?.id]);
+
+  // ========== RESET INFINITE SCROLL WHEN USER CHANGES ==========
+  useEffect(() => {
+    setProfileNextCursor(null);
+    setProfileHasMore(true);
+    setProfileLoadingMore(false);
+    profileLoadingRef.current = false;
+  }, [user?.id]);
+
+  // ========== INFINITE SCROLL DETECTOR ==========
+  useEffect(() => {
+    if (activeTab !== "Posts") return;
+    
+    const checkBottom = () => {
+      const el = profileMoreRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight + 1000) {
+        loadMoreProfilePosts();
+      }
+    };
+    
+    window.addEventListener("scroll", checkBottom, { passive: true });
+    window.addEventListener("resize", checkBottom);
+    const timer = window.setInterval(checkBottom, 1200);
+    
+    return () => {
+      window.removeEventListener("scroll", checkBottom);
+      window.removeEventListener("resize", checkBottom);
+      window.clearInterval(timer);
+    };
+  }, [activeTab, loadMoreProfilePosts]);
 
   // User reels
   const userReels = useMemo(
@@ -725,7 +828,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({
       await onDeletePost(postId);
     } catch (err) {
       console.error("Delete failed:", err);
-      refreshProfilePosts(); // restore correct list on error
+      // Restore correct list on error
+      const freshPosts = await fetchProfilePostsFromBackend(Number(user.id));
+      setProfilePosts(freshPosts);
     }
 
     setPostMenuOpen(null);
@@ -852,7 +957,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     });
   }, [profilePosts]);
 
-  // ========== RENDER VIDEOS TAB - NO CONTAINER ==========
+  // ========== RENDER VIDEOS TAB ==========
   const renderVideos = () => {
     const normalizedReels = userReels.map(reel => normalizeReelFromFeed(reel));
 
@@ -894,7 +999,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 }
               }}
             >
-              {/* Thumbnail */}
               {reel.thumbnail ? (
                 <img
                   src={reel.thumbnail}
@@ -910,23 +1014,16 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                 />
               )}
 
-              {/* Gradient overlay */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-
-              {/* Play icon overlay on hover */}
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center border-2 border-white">
                   <i className="fas fa-play text-white text-xl ml-1"></i>
                 </div>
               </div>
-
-              {/* Views count */}
               <div className="absolute bottom-2 left-2 text-white text-xs flex items-center gap-1 drop-shadow-lg">
                 <i className="fas fa-eye"></i>
                 {formatReelCount(reel.views)}
               </div>
-
-              {/* Video indicator */}
               <div className="absolute top-2 right-2 text-white text-xs bg-black/50 px-2 py-1 rounded-full">
                 <i className="fas fa-video mr-1"></i>
                 Reel
@@ -938,7 +1035,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER STORIES TAB - NO CONTAINER ==========
+  // ========== RENDER STORIES TAB ==========
   const renderStories = () => {
     if (userStories.length === 0) {
       return (
@@ -994,10 +1091,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   />
                 )}
 
-                {/* Gradient overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
 
-                {/* Play icon for videos */}
                 {isVideo && (
                   <div className="absolute top-2 right-2 text-white text-xs bg-black/50 px-2 py-1 rounded-full">
                     <i className="fas fa-play mr-1"></i>
@@ -1005,7 +1100,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
                   </div>
                 )}
 
-                {/* Time indicator */}
                 {story.created_at && (
                   <div className="absolute bottom-2 left-2 text-white text-xs drop-shadow-lg">
                     {formatRelativeTime(story.created_at)}
@@ -1019,7 +1113,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER ABOUT TAB - NO CONTAINER, HIDDEN FIELDS ==========
+  // ========== RENDER ABOUT TAB ==========
   const renderAbout = () => (
     <div className="p-6 text-[#E4E6EB]">
       <div className="flex justify-between items-center mb-4">
@@ -1045,6 +1139,12 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             <div className="flex items-center gap-3">
               <i className="fas fa-briefcase text-[#B0B3B8] w-6 text-center"></i>
               <span>Works at {(user as any).work}</span>
+            </div>
+          )}
+          {(user as any).education && (
+            <div className="flex items-center gap-3">
+              <i className="fas fa-graduation-cap text-[#B0B3B8] w-6 text-center"></i>
+              <span>Studied at {(user as any).education}</span>
             </div>
           )}
         </div>
@@ -1077,7 +1177,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     </div>
   );
 
-  // ========== RENDER FOLLOWERS TAB - NO CONTAINER ==========
+  // ========== RENDER FOLLOWERS TAB ==========
   const renderFollowers = () => (
     <div className="p-4">
       <h2 className="text-xl font-bold text-[#E4E6EB] mb-4">Followers</h2>
@@ -1105,7 +1205,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     </div>
   );
 
-  // ========== RENDER PHOTOS TAB - NO CONTAINER, NO GAPS ==========
+  // ========== RENDER PHOTOS TAB ==========
   const renderPhotos = () => {
     const photoPosts = filteredProfilePosts.filter((p: any) => {
       const mediaInfo = getMediaTypeInfo(p);
@@ -1147,13 +1247,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     );
   };
 
-  // ========== RENDER POSTS TAB (MAIN FEED) - KEEP ORIGINAL CONTAINERS ==========
+  // ========== RENDER POSTS TAB ==========
   const renderPosts = () => (
     <div className="max-w-[1095px] mx-auto w-full flex flex-col md:flex-row gap-4 px-0 md:px-4 mt-4">
-      {/* Left Sidebar - Intro - DELETED COMPLETELY */}
+      {/* Left Sidebar */}
       <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col gap-4 px-4 md:px-0">
-        {/* Intro section completely removed */}
-
         {/* Suggested Products Widget */}
         {!isCurrentUser && products.length > 0 && currentUser && (
           <SuggestedProductsWidget
@@ -1177,8 +1275,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Loading indicator - NO CONTAINER */}
-        {isLoadingPosts && (
+        {/* Loading indicator */}
+        {isLoadingPosts && filteredProfilePosts.length === 0 && (
           <div className="text-center p-8 mb-4">
             <div className="flex justify-center items-center gap-2">
               <i className="fas fa-spinner fa-spin text-[#1877F2] text-xl"></i>
@@ -1187,8 +1285,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Stats for current user - NO CONTAINER */}
-        {isCurrentUser && !isLoadingPosts && (
+        {/* Stats for current user */}
+        {isCurrentUser && !isLoadingPosts && filteredProfilePosts.length > 0 && (
           <div className="mb-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#3A3B3C] p-3 rounded-lg">
@@ -1249,7 +1347,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({
         )}
 
         {/* People You May Know */}
-        {!isCurrentUser && peopleSuggestions.length > 0 && (
+        {!isCurrentUser && peopleSuggestions.length > 0 && filteredProfilePosts.length === 0 && (
           <div className="mb-4">
             <PeopleYouMayKnowGrid
               users={peopleSuggestions}
@@ -1261,115 +1359,129 @@ export const UserProfile: React.FC<UserProfileProps> = ({
           </div>
         )}
 
-        {/* Posts Feed - KEEP ORIGINAL CONTAINERS */}
+        {/* Posts Feed */}
         {!isLoadingPosts && filteredProfilePosts.length > 0 ? (
-          filteredProfilePosts.map((post: any) => {
-            // Check if it's an event post
-            const isEventPost =
-              post?.item_type === "event" ||
-              String(post?.feed_key || "").startsWith("event:") ||
-              post?.source === "event" ||
-              post?.type === 'event' ||
-              post?.post_type === 'event' ||
-              !!post?.event_id ||
-              !!post?.meta?.event;
+          <>
+            {filteredProfilePosts.map((post: any) => {
+              // Check if it's an event post
+              const isEventPost =
+                post?.item_type === "event" ||
+                String(post?.feed_key || "").startsWith("event:") ||
+                post?.source === "event" ||
+                post?.type === 'event' ||
+                post?.post_type === 'event' ||
+                !!post?.event_id ||
+                !!post?.meta?.event;
 
-            if (isEventPost) {
-              const event = normalizeEventFromFeed(post);
+              if (isEventPost) {
+                const event = normalizeEventFromFeed(post);
+                return (
+                  <div key={post.id} className="mb-4">
+                    <EventPost
+                      event={event}
+                      author={user}
+                      currentUser={currentUser}
+                      users={users}
+                      onProfileClick={onProfileClick}
+                      onRSVP={onRSVP}
+                      onFollow={onFollow}
+                      isFollowing={isFollowing}
+                      groups={groups}
+                      brands={brands}
+                      onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+                    />
+                  </div>
+                );
+              }
+
+              // Regular post with edit/delete menu
+              const isAuthor = currentUser && Number(post.user_id) === Number(currentUser.id);
+              
               return (
-                <div key={post.id} className="mb-4">
-                  <EventPost
-                    event={event}
+                <div key={post.id} className="relative mb-4">
+                  {/* Three-dot menu for post author */}
+                  {isAuthor && (
+                    <div className="absolute top-4 right-4 z-10">
+                      <button
+                        onClick={(e) => togglePostMenu(post.id, e)}
+                        className="w-8 h-8 rounded-full bg-black/20 hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
+                      >
+                        <i className="fas fa-ellipsis-h text-[#E4E6EB]"></i>
+                      </button>
+
+                      {postMenuOpen === post.id && (
+                        <div className="absolute right-0 mt-2 w-48 bg-[#242526] border border-[#3E4042] rounded-lg shadow-lg z-50">
+                          <button
+                            onClick={() => handleEditPost(post.id)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
+                          >
+                            <i className="fas fa-edit text-[#1877F2] w-5"></i>
+                            <span className="text-[#E4E6EB] font-medium">Edit Post</span>
+                          </button>
+                          
+                          <div className="h-[1px] bg-[#3E4042] my-1"></div>
+                          
+                          <button
+                            onClick={() => handleDeletePost(post.id)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
+                          >
+                            <i className="fas fa-trash text-red-500 w-5"></i>
+                            <span className="text-red-400 font-medium">Delete Post</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <Post
+                    post={post}
                     author={user}
                     currentUser={currentUser}
                     users={users}
                     onProfileClick={onProfileClick}
+                    onReact={handleProfileReact}
+                    onShare={(id, newCount) => {
+                      onShare(id, newCount);
+                      setProfilePosts(prev =>
+                        prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
+                      );
+                    }}
+                    onDelete={onDeletePost}
+                    onEdit={onEditPost}
+                    onViewImage={onViewImage}
+                    onOpenComments={handleOpenComments}
+                    onVideoClick={onVideoClick}
+                    onPlayAudioTrack={onPlayAudioTrack}
+                    onHashtagClick={onHashtagClick}
+                    onViewProductFromPost={onViewProductFromPost}
+                    onViewProduct={onViewProduct}
+                    getProductData={getProductData || marketplaceContext?.getProductData}
+                    onOpenAudio={onOpenAudio}
                     onRSVP={onRSVP}
-                    onFollow={onFollow}
-                    isFollowing={isFollowing}
                     groups={groups}
                     brands={brands}
-                    onEventClick={(eventId) => console.log('Event clicked:', eventId)}
+                    chats={[]}
+                    isFollowing={isFollowing}
+                    onFollow={onFollow}
+                    followLoading={false}
+                    onOpenReactions={handleOpenReactions}
                   />
                 </div>
               );
-            }
-
-            // Regular post with edit/delete menu
-            const isAuthor = currentUser && Number(post.user_id) === Number(currentUser.id);
+            })}
             
-            return (
-              <div key={post.id} className="relative mb-4">
-                {/* Three-dot menu for post author */}
-                {isAuthor && (
-                  <div className="absolute top-4 right-4 z-10">
-                    <button
-                      onClick={(e) => togglePostMenu(post.id, e)}
-                      className="w-8 h-8 rounded-full bg-black/20 hover:bg-[#3A3B3C] flex items-center justify-center transition-colors"
-                    >
-                      <i className="fas fa-ellipsis-h text-[#E4E6EB]"></i>
-                    </button>
-
-                    {postMenuOpen === post.id && (
-                      <div className="absolute right-0 mt-2 w-48 bg-[#242526] border border-[#3E4042] rounded-lg shadow-lg z-50">
-                        <button
-                          onClick={() => handleEditPost(post.id)}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
-                        >
-                          <i className="fas fa-edit text-[#1877F2] w-5"></i>
-                          <span className="text-[#E4E6EB] font-medium">Edit Post</span>
-                        </button>
-                        
-                        <div className="h-[1px] bg-[#3E4042] my-1"></div>
-                        
-                        <button
-                          onClick={() => handleDeletePost(post.id)}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3A3B3C] transition-colors text-left"
-                        >
-                          <i className="fas fa-trash text-red-500 w-5"></i>
-                          <span className="text-red-400 font-medium">Delete Post</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <Post
-                  post={post}
-                  author={user}
-                  currentUser={currentUser}
-                  users={users}
-                  onProfileClick={onProfileClick}
-                  onReact={handleProfileReact}
-                  onShare={(id, newCount) => {
-                    onShare(id, newCount);
-                    setProfilePosts(prev =>
-                      prev.map(p => safePostIdHelper(p) === id ? { ...p, shares: newCount } : p)
-                    );
-                  }}
-                  onDelete={onDeletePost}
-                  onEdit={onEditPost}
-                  onViewImage={onViewImage}
-                  onOpenComments={handleOpenComments}
-                  onVideoClick={onVideoClick}
-                  onPlayAudioTrack={onPlayAudioTrack}
-                  onHashtagClick={onHashtagClick}
-                  onViewProductFromPost={onViewProductFromPost}
-                  onViewProduct={onViewProduct}
-                  getProductData={getProductData || marketplaceContext?.getProductData}
-                  onOpenAudio={onOpenAudio}
-                  onRSVP={onRSVP}
-                  groups={groups}
-                  brands={brands}
-                  chats={[]}
-                  isFollowing={isFollowing}
-                  onFollow={onFollow}
-                  followLoading={false}
-                  onOpenReactions={handleOpenReactions}
-                />
+            {/* Infinite scroll trigger */}
+            {profileHasMore && activeTab === "Posts" && (
+              <div ref={profileMoreRef} style={{ height: 80, opacity: 0, pointerEvents: "none" }} />
+            )}
+            
+            {/* Silent loading indicator */}
+            {profileLoadingMore && (
+              <div className="py-4 text-center text-[#B0B3B8] text-sm">
+                Loading more posts...
               </div>
-            );
-          })
+            )}
+          </>
         ) : !isLoadingPosts && filteredProfilePosts.length === 0 && (
           <div className="bg-[#242526] rounded-xl p-8 text-center border border-[#3E4042]">
             <div className="text-[#B0B3B8] text-lg mb-2">No posts yet</div>
@@ -1460,154 +1572,207 @@ export const UserProfile: React.FC<UserProfileProps> = ({
             )}
           </div>
 
-          {/* Profile Picture and Info */}
-          <div className="px-4 pb-0">
-            <div className="flex flex-col md:flex-row items-center md:items-end -mt-[84px] md:-mt-[30px] relative z-10 mb-4">
-              <div className="w-[168px] h-[168px] rounded-full border-[6px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group">
-                {safeProfileImage ? (
-                  <img
-                    src={safeProfileImage}
-                    alt={safeStringHelper((user as any).name, 'User')}
-                    className="w-full h-full object-cover"
-                    onClick={() => onViewImage(safeProfileImage)}
-                  />
-                ) : (
-                  <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
-                    No Photo
+          {/* Profile Picture and Info - Facebook Style */}
+          <div className="px-4 pb-0 bg-[#242526]">
+            <div className="relative z-10">
+              {/* Avatar + Name Row */}
+              <div className="flex items-end gap-4 -mt-[70px] md:-mt-[86px]">
+                <div className="w-[142px] h-[142px] md:w-[168px] md:h-[168px] rounded-full border-[5px] border-[#242526] bg-[#242526] overflow-hidden cursor-pointer relative group flex-shrink-0 shadow-lg">
+                  {safeProfileImage ? (
+                    <img
+                      src={safeProfileImage}
+                      alt={safeStringHelper((user as any).name, "User")}
+                      className="w-full h-full object-cover"
+                      onClick={() => onViewImage(safeProfileImage)}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-[#3A3B3C] flex items-center justify-center text-[#B0B3B8]">
+                      <i className="fas fa-user text-5xl"></i>
+                    </div>
+                  )}
+                  {isCurrentUser && (
+                    <button
+                      type="button"
+                      onClick={() => profileInputRef.current?.click()}
+                      className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#3A3B3C] border-2 border-[#242526] flex items-center justify-center active:scale-95"
+                    >
+                      <i className="fas fa-camera text-white text-lg"></i>
+                    </button>
+                  )}
+                </div>
+                
+                <div className="flex-1 min-w-0 pb-2">
+                  <h1 className="text-[28px] md:text-[32px] leading-tight font-extrabold text-[#E4E6EB] flex items-center gap-2 truncate">
+                    {safeStringHelper((user as any).name, "User")}
+                    {(user as any).is_verified && (
+                      <i className="fas fa-check-circle text-[#1877F2] text-[19px] flex-shrink-0"></i>
+                    )}
+                  </h1>
+                  <div className="text-[#E4E6EB] text-[16px] md:text-[17px] mt-1 leading-snug">
+                    <span className="font-bold">{followerCount.toLocaleString()}</span>
+                    <span className="text-[#B0B3B8]"> followers</span>
+                    <span className="mx-1 text-[#B0B3B8]">·</span>
+                    <span className="font-bold">
+                      {safeArrayHelper<number>((user as any)?.following || []).length.toLocaleString()}
+                    </span>
+                    <span className="text-[#B0B3B8]"> following</span>
+                    <span className="mx-1 text-[#B0B3B8]">·</span>
+                    <span className="font-bold">
+                      {filteredProfilePosts.length.toLocaleString()}
+                    </span>
+                    <span className="text-[#B0B3B8]"> posts</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bio / About positioned like Facebook */}
+              <div className="mt-3">
+                {safeBio ? (
+                  <p className="text-[#E4E6EB] text-[20px] leading-snug whitespace-pre-line">
+                    {safeBio}
+                  </p>
+                ) : isCurrentUser ? (
+                  <button onClick={() => setShowEditProfile(true)} className="text-[#1877F2] text-[15px] font-semibold">
+                    Add bio
+                  </button>
+                ) : null}
+                
+                {(user as any).work && (
+                  <div className="flex items-center gap-2 mt-3 text-[#E4E6EB] text-[15px]">
+                    <i className="fas fa-briefcase text-[#B0B3B8] w-5 text-center"></i>
+                    <span className="font-semibold">{(user as any).work}</span>
                   </div>
                 )}
-
-                {isCurrentUser && (
-                  <>
-                    <div
-                      className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center transition-all active:scale-95"
-                      onClick={() => profileInputRef.current?.click()}
-                    >
-                      <i className="fas fa-camera text-white text-3xl"></i>
-                    </div>
-                    
-                    {!safeProfileImage && (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center bg-black/60 cursor-pointer active:scale-95 transition-transform"
-                        onClick={() => profileInputRef.current?.click()}
-                      >
-                        <div className="text-center">
-                          <i className="fas fa-camera text-white text-3xl mb-2"></i>
-                          <p className="text-white font-semibold text-sm">Add Profile Photo</p>
-                        </div>
-                      </div>
-                    )}
-                  </>
+                
+                {(user as any).location && (
+                  <div className="flex items-center gap-2 mt-2 text-[#E4E6EB] text-[15px]">
+                    <i className="fas fa-map-marker-alt text-[#B0B3B8] w-5 text-center"></i>
+                    <span>{(user as any).location}</span>
+                  </div>
                 )}
               </div>
 
-              <div className="flex-1 flex flex-col items-center md:items-start mt-4 md:mt-0 md:ml-6 text-center md:text-left md:mb-4">
-                <h1 className="text-[32px] font-bold text-[#E4E6EB] flex items-center gap-2">
-                  {safeStringHelper((user as any).name, 'User')}
-                  {(user as any).is_verified && (
-                    <i className="fas fa-check-circle text-[#1877F2] text-[20px]"></i>
-                  )}
-                  {(user.role === 'admin' || user.role === 'moderator') && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      user.role === 'admin' 
-                        ? 'bg-red-900/80 text-red-200' 
-                        : 'bg-purple-900/80 text-purple-200'
-                    }`}>
-                      {user.role}
+              {/* Followed by row / profile social proof */}
+              {!isCurrentUser && users.length > 0 && (
+                <div className="flex items-center gap-2 mt-4">
+                  <div className="flex -space-x-2">
+                    {users.slice(0, 3).map((u) => (
+                      <img
+                        key={u.id}
+                        src={avatarFrom(u)}
+                        alt=""
+                        className="w-8 h-8 rounded-full border-2 border-[#242526] object-cover"
+                      />
+                    ))}
+                  </div>
+                  <p className="text-[#E4E6EB] text-[15px] leading-snug">
+                    Followed by{" "}
+                    <span className="font-bold">
+                      {safeStringHelper((users[0] as any)?.name, "someone")}
                     </span>
-                  )}
-                </h1>
-                <span className="text-[#B0B3B8] font-semibold text-[17px] mt-1">
-                  {followerCount} Followers
-                </span>
-              </div>
+                    {users[1] && (
+                      <> ,{" "}
+                      <span className="font-bold">
+                        {safeStringHelper((users[1] as any)?.name, "someone")}
+                      </span>
+                      </>
+                    )}
+                    {users.length > 2 && (
+                      <> {" "} and <span className="font-bold">{users.length - 2} others</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 md:mt-0 md:mb-6">
+              {/* Action Buttons - Facebook Style */}
+              <div className="grid grid-cols-2 gap-2 mt-4">
                 {isCurrentUser ? (
-                  // Profile owner buttons
                   <>
                     <button
-                      className="bg-[#1877F2] text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2 hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
                       onClick={() => {
-                        if (onCreateStoryClick) {
-                          onCreateStoryClick();
-                        } else {
-                          setShowCreatePostModal(true);
-                        }
+                        if (onCreateStoryClick) onCreateStoryClick();
+                        else setShowCreatePostModal(true);
                       }}
+                      className="h-11 rounded-lg bg-[#1877F2] text-white font-bold text-[17px] flex items-center justify-center gap-2 active:scale-95"
                     >
                       <i className="fas fa-plus"></i>
-                      <span>Add to story</span>
+                      Add to story
                     </button>
                     
                     <button
                       onClick={handleSelfMessageClick}
-                      className={`bg-[#3A3B3C] text-[#E4E6EB] px-6 py-2 rounded-md font-semibold hover:bg-[#4E4F50] transition-colors active:scale-95 active:shadow-inner ${
-                        isChatsListOpen ? 'ring-2 ring-[#1877F2]' : ''
-                      }`}
+                      className="h-11 rounded-lg bg-[#3A3B3C] text-[#E4E6EB] font-bold text-[17px] flex items-center justify-center gap-2 active:scale-95"
                     >
-                      <span className="flex items-center gap-2">
-                        <i className="fas fa-comment"></i>
-                        {isChatsListOpen ? 'Chats Open' : 'Messages'}
-                      </span>
+                      <i className="fas fa-comment"></i>
+                      Messages
                     </button>
                   </>
                 ) : (
-                  // Other user buttons
                   <>
                     <button
                       onClick={handleOtherMessageClick}
-                      className="bg-[#1877F2] text-white px-6 py-2 rounded-md font-semibold hover:bg-[#166FE5] transition-colors active:scale-95 active:shadow-inner"
+                      className="h-11 rounded-lg bg-[#3A3B3C] text-[#E4E6EB] font-bold text-[17px] flex items-center justify-center gap-2 active:scale-95"
                     >
-                      <span className="flex items-center gap-2">
-                        <i className="fas fa-comment"></i>
-                        Message
-                      </span>
+                      <i className="fab fa-facebook-messenger"></i>
+                      Message
                     </button>
                     
                     <button
                       onClick={handleFollowClick}
-                      className={`${
-                        isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB]' : 'bg-[#1877F2] text-white'
-                      } px-6 py-2 rounded-md font-semibold transition-all duration-200 ${
-                        isFollowButtonClicked ? 'scale-95 shadow-inner' : 'hover:scale-105'
-                      } ${isFollowing ? 'hover:bg-[#4E4F50]' : 'hover:bg-[#166FE5]'}`}
                       disabled={isFollowButtonClicked}
+                      className={`h-11 rounded-lg font-bold text-[17px] flex items-center justify-center gap-2 active:scale-95 ${
+                        isFollowing ? "bg-[#3A3B3C] text-[#E4E6EB]" : "bg-[#1877F2] text-white"
+                      }`}
                     >
-                      {isFollowing ? (
-                        <span className="flex items-center gap-2">
-                          <i className="fas fa-check"></i>
-                          Following
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <i className="fas fa-user-plus"></i>
-                          Follow
-                        </span>
-                      )}
+                      <i className={isFollowing ? "fas fa-check" : "fas fa-user-plus"}></i>
+                      {isFollowing ? "Following" : "Follow"}
                     </button>
                   </>
                 )}
               </div>
-            </div>
 
-            {/* Tabs */}
-            <div className="h-[1px] bg-[#3E4042] w-full mt-4"></div>
-            <div className="flex items-center gap-1 pt-1 overflow-x-auto whitespace-nowrap scrollbar-hide">
-              {(['Posts', 'Videos', 'Stories', 'Photos', 'About', 'Followers'] as const).map((tab) => (
-                <div
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-3 cursor-pointer whitespace-nowrap text-[15px] font-semibold border-b-[3px] transition-colors active:scale-95 ${
-                    activeTab === tab
-                      ? 'text-[#1877F2] border-[#1877F2]'
-                      : 'text-[#B0B3B8] border-transparent hover:bg-[#3A3B3C] rounded-t-md'
-                  }`}
-                >
-                  {tab}
+              {/* Things in common / About Card */}
+              {!isCurrentUser && (
+                <div className="mt-4 rounded-2xl border border-[#3E4042] bg-[#242526] p-4">
+                  <div className="flex items-start gap-3">
+                    <i className="fas fa-user-friends text-[#E4E6EB] text-2xl mt-1"></i>
+                    <div className="min-w-0">
+                      <h3 className="text-[#E4E6EB] font-extrabold text-[20px]">
+                        Things in common
+                      </h3>
+                      <p className="text-[#E4E6EB] text-[16px] mt-1 leading-snug">
+                        You both are part of UNERA community
+                        {groups.length > 0 && (
+                          <> {" "}and joined{" "}
+                          <span className="font-bold">
+                            {safeStringHelper((groups[0] as any)?.name, "groups")}
+                          </span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {/* Tabs */}
+              <div className="h-[8px] bg-[#3A3B3C] -mx-4 mt-5"></div>
+              <div className="flex items-center justify-around overflow-x-auto whitespace-nowrap scrollbar-hide bg-[#242526] -mx-4 px-2">
+                {(["Posts", "Videos", "Photos", "About", "Followers"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`flex-1 min-w-[90px] px-4 py-3 text-[16px] font-semibold border-b-[3px] transition-colors ${
+                      activeTab === tab
+                        ? "text-[#1877F2] border-[#1877F2]"
+                        : "text-[#B0B3B8] border-transparent"
+                    }`}
+                  >
+                    {tab === "Posts" ? "All" : tab === "Videos" ? "Reels" : tab}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
