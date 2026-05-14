@@ -7679,92 +7679,142 @@ useEffect(() => {
     }
   };
 
-  // followUser
-  const followUser = useCallback(
-    async (targetUserId: number) => {
-      if (!requireAuth('Following')) return;
-      if (!currentUser) return;
+  //==÷ followUser
+const toIdArray = (v: any): number[] =>
+  safeArray<any>(v)
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
 
-      const meId = Number(currentUser.id);
-      const targetId = Number(targetUserId);
+const followUser = useCallback(
+  async (targetUserId: number) => {
+    if (!requireAuth('Following')) return;
+    if (!currentUser) return;
 
-      if (!targetId || targetId === meId) return;
+    const meId = Number(currentUser.id);
+    const targetId = Number(targetUserId);
 
-      const myFollowing = new Set<number>(safeArray<number>((currentUser as any).following));
-      const isFollowingNow = myFollowing.has(targetId);
+    if (!meId || !targetId || targetId === meId) return;
 
-      setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+    const myFollowing = new Set<number>(toIdArray((currentUser as any).following));
+    const isFollowingNow = myFollowing.has(targetId);
 
-      const originalUsers = [...users];
-      const originalCurrentUser = { ...currentUser };
+    setFollowLoading(prev => {
+      if (prev[targetId]) return prev;
+      return { ...prev, [targetId]: true };
+    });
 
-      setUsers((prev) => {
-        const arr = safeArray(prev).map(normalizeUser);
+    let rollbackUsers: User[] | null = null;
+    let rollbackCurrentUser: User | null = null;
 
-        return arr.map((u) => {
-          const uid = Number(u.id);
+    setUsers(prev => {
+      rollbackUsers = prev;
 
-          if (uid === meId) {
-            const following = new Set<number>(safeArray<number>((u as any).following));
-            if (isFollowingNow) following.delete(targetId);
-            else following.add(targetId);
-            return normalizeUser({ ...u, following: Array.from(following) });
-          }
+      return safeArray(prev).map((raw) => {
+        const u = normalizeUser(raw);
+        const uid = Number(u.id);
 
-          if (uid === targetId) {
-            const followers = new Set<number>(safeArray<number>((u as any).followers));
-            if (isFollowingNow) followers.delete(meId);
-            else followers.add(meId);
-            return normalizeUser({ ...u, followers: Array.from(followers) });
-          }
+        if (uid === meId) {
+          const following = new Set<number>(toIdArray((u as any).following));
 
-          return u;
-        });
-      });
+          if (isFollowingNow) following.delete(targetId);
+          else following.add(targetId);
 
-      setCurrentUser((prev) => {
-        if (!prev) return prev;
-        const following = new Set<number>(safeArray<number>((prev as any).following));
-        if (isFollowingNow) following.delete(targetId);
-        else following.add(targetId);
-        const next = normalizeUser({ ...prev, following: Array.from(following) });
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
-        return next;
-      });
-
-      try {
-        if (isFollowingNow) {
-          await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
-            method: 'DELETE',
-          });
-        } else {
-          await apiFetch('/api/user-follows', {
-            method: 'POST',
-            body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+          return normalizeUser({
+            ...u,
+            following: Array.from(following),
           });
         }
 
-        fetchUserFollowDataForUI(targetId).catch(() => {});
-        fetchUserFollowDataForUI(meId).catch(() => {});
+        if (uid === targetId) {
+          const followers = new Set<number>(toIdArray((u as any).followers));
 
-        scheduleSilentRefresh();
-      } catch (e: any) {
-        console.error('Follow toggle failed:', e);
+          if (isFollowingNow) followers.delete(meId);
+          else followers.add(meId);
 
-        setUsers(originalUsers);
-        setCurrentUser(originalCurrentUser);
-        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
-        
-        fetchUserFollowDataForUI(targetId).catch(() => {});
-        fetchUserFollowDataForUI(meId).catch(() => {});
-        
-        setLoginError(`Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${e.message || 'Unknown error'}`);
-      } finally {
-        setFollowLoading(prev => ({ ...prev, [targetId]: false }));
+          return normalizeUser({
+            ...u,
+            followers: Array.from(followers),
+          });
+        }
+
+        return u;
+      });
+    });
+
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+
+      rollbackCurrentUser = prev;
+
+      const following = new Set<number>(toIdArray((prev as any).following));
+
+      if (isFollowingNow) following.delete(targetId);
+      else following.add(targetId);
+
+      const next = normalizeUser({
+        ...prev,
+        following: Array.from(following),
+      });
+
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    try {
+      if (isFollowingNow) {
+        await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+          method: 'DELETE',
+        });
+      } else {
+        await apiFetch('/api/user-follows', {
+          method: 'POST',
+          body: JSON.stringify({
+            follower_id: meId,
+            following_id: targetId,
+          }),
+        });
       }
-    },
-    [requireAuth, currentUser, users, scheduleSilentRefresh, fetchUserFollowDataForUI]
-  );
+
+      fetchUserFollowDataForUI(targetId).catch(() => {});
+      fetchUserFollowDataForUI(meId).catch(() => {});
+
+      scheduleSilentRefresh();
+    } catch (e: any) {
+      console.error('FOLLOW_TOGGLE_FAILED', e);
+
+      if (rollbackUsers) setUsers(rollbackUsers);
+
+      if (rollbackCurrentUser) {
+        setCurrentUser(rollbackCurrentUser);
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(rollbackCurrentUser));
+      }
+
+      setLoginError(
+        `Failed to ${isFollowingNow ? 'unfollow' : 'follow'}: ${
+          e?.message || 'Unknown error'
+        }`
+      );
+
+      fetchUserFollowDataForUI(targetId).catch(() => {});
+      fetchUserFollowDataForUI(meId).catch(() => {});
+    } finally {
+      setFollowLoading(prev => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+    }
+  },
+  [
+    requireAuth,
+    currentUser,
+    fetchUserFollowDataForUI,
+    scheduleSilentRefresh,
+  ]
+);
+
+
+
 
   // followFromPymk
   const followFromPymk = useCallback(async (targetUserId: number) => {
