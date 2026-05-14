@@ -4885,6 +4885,100 @@ const createMarketplacePost = useCallback(
   [currentUser, selectedUserId]
 );
 
+const followUser = useCallback(
+  async (targetUserId: number) => {
+    if (!requireAuth('Following')) return;
+    if (!currentUser) return;
+    
+    const meId = Number(currentUser.id);
+    const targetId = Number(targetUserId);
+    
+    if (!meId || !targetId || targetId === meId) return;
+    
+    setFollowLoading(prev => ({ ...prev, [targetId]: true }));
+    
+    // Store original state for rollback
+    const originalUsers = [...users];
+    const originalCurrentUser = { ...currentUser };
+    
+    // Optimistic update
+    setUsers(prev => 
+      prev.map(u => {
+        if (u.id === meId) {
+          const following = new Set<number>((u as any).following || []);
+          if (following.has(targetId)) {
+            following.delete(targetId);
+          } else {
+            following.add(targetId);
+          }
+          return { ...u, following: Array.from(following) };
+        }
+        if (u.id === targetId) {
+          const followers = new Set<number>((u as any).followers || []);
+          if (followers.has(meId)) {
+            followers.delete(meId);
+          } else {
+            followers.add(meId);
+          }
+          return { ...u, followers: Array.from(followers) };
+        }
+        return u;
+      })
+    );
+    
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      const following = new Set<number>((prev as any).following || []);
+      if (following.has(targetId)) {
+        following.delete(targetId);
+      } else {
+        following.add(targetId);
+      }
+      const next = { ...prev, following: Array.from(following) };
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(next));
+      return next;
+    });
+    
+    try {
+      const isFollowing = (currentUser as any).following?.includes(targetId);
+      
+      if (isFollowing) {
+        await apiFetch(`/api/user-follows?follower_id=${meId}&following_id=${targetId}`, {
+          method: 'DELETE',
+        });
+      } else {
+        await apiFetch('/api/user-follows', {
+          method: 'POST',
+          body: JSON.stringify({ follower_id: meId, following_id: targetId }),
+        });
+      }
+      
+      fetchUserFollowDataForUI(targetId).catch(() => {});
+      fetchUserFollowDataForUI(meId).catch(() => {});
+      scheduleSilentRefresh();
+      
+    } catch (e: any) {
+      console.error('FOLLOW_TOGGLE_FAILED', e);
+      setUsers(originalUsers);
+      setCurrentUser(originalCurrentUser);
+      if (originalCurrentUser) {
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(originalCurrentUser));
+      }
+      setLoginError(`Failed to follow: ${e?.message || 'Unknown error'}`);
+      fetchUserFollowDataForUI(targetId).catch(() => {});
+      fetchUserFollowDataForUI(meId).catch(() => {});
+      
+    } finally {
+      setFollowLoading(prev => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+    }
+  },
+  [requireAuth, currentUser, users, fetchUserFollowDataForUI, scheduleSilentRefresh]
+);
+  
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
     if (!currentUser) return;
