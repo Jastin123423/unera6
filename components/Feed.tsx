@@ -5289,7 +5289,6 @@ export const ReactionButton = memo(
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
-
 export const Post = memo(
   ({
     post,
@@ -5327,33 +5326,66 @@ export const Post = memo(
     author: User | any;
     currentUser: User | null;
     users?: User[];
+
     onProfileClick: (id: number) => void;
+
     onReact: (post: PostType, type: ReactionType) => void;
+
     onShare: (id: number, newShareCount: number) => void;
+
     onDelete?: (id: number) => void;
+
     onEdit?: (id: number, content: string) => void;
+
     onViewImage: (url: string) => void;
+
     onOpenComments: (post: PostType) => void;
+
     onVideoClick: (p: PostType) => void;
+
     onPlayAudioTrack?: (t: AudioTrack) => void;
+
     onHashtagClick?: (tag: string) => void;
+
     onViewProductFromPost?: (productId: number) => void;
+
     onOpenGroup?: (groupId: number) => void;
+
     onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+    onRSVP?: (
+      eventId: number,
+      status: 'going' | 'interested' | 'not_going'
+    ) => Promise<void>;
+
     groups?: Group[];
+
     brands?: Brand[];
+
     chats?: any[];
+
     isFollowing?: boolean;
+
     onFollow?: (id: number) => void;
+
     followLoading?: boolean;
+
     onEventClick?: (eventId: number) => void;
+
     onOpenReactions?: (post: PostType) => void;
+
     onReport?: (postId: number, reason?: string) => void;
+
     onHide?: (postId: number) => void;
+
     pushButton?: React.ReactNode;
-    onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
-  }) => {   
+
+    onToggleGroupPostLike?: (
+      postId: number,
+      type?: ReactionType
+    ) => Promise<{ liked: boolean; likes_count: number } | void>;
+  }) => {
+
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
