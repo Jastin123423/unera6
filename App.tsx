@@ -7798,9 +7798,11 @@ const checkIsFollowing = useCallback((targetUserId: number): boolean => {
 }, [currentUser]);
           
 
-    const myFollowing = safeArray<number>((currentUser as any).following);
-    return myFollowing.includes(Number(targetUserId));
-  }, [currentUser]);
+const checkIsFollowing = useCallback((targetUserId: number): boolean => {
+  if (!currentUser || !targetUserId) return false;
+  const myFollowing = toIdArray((currentUser as any).following);
+  return myFollowing.includes(Number(targetUserId));
+}, [currentUser]); 
 
   const handleLogout = () => {
     localStorage.removeItem(LS_USER_KEY);
