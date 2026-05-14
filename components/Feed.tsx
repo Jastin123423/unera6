@@ -8373,6 +8373,15 @@ interface FeedProps {
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
+
+/**
+ * =========================
+ * ✅ MAIN FEED COMPONENT
+ * ✅ Original rendering preserved
+ * ✅ Facebook-style silent infinite scroll added
+ * =========================
+ */
+
 export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
@@ -8411,81 +8420,63 @@ export const Feed = memo(({
   onOpenGroup,
   onLoginClick,
 }: FeedProps) => {
-  const [loadedItems, setLoadedItems] = useState<any[]>([]);
+  const [loadedMoreItems, setLoadedMoreItems] = useState<any[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMoreFeed, setHasMoreFeed] = useState(true);
-  const [initialLoading, setInitialLoading] = useState(false);
 
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
-  const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
-  const loadingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const seedRef = useRef<number>(Math.floor(Date.now() / 1000));
   const abortRef = useRef<AbortController | null>(null);
 
-  const normalizeFeedItem = useCallback((item: any) => {
-    if (!item) return null;
-    if (item.kind && item.data) return item;
+  const safeFeedItems = React.useMemo(() => {
+    let base: any[] = [];
 
-    if (item.item_type === "story" || item.source === "story") {
-      return { kind: "story" as const, data: item, created_at: item.created_at };
+    if (items && items.length > 0) {
+      base = items;
+    } else if (feedItemsProp && feedItemsProp.length > 0) {
+      base = feedItemsProp.map((item: any) => ({
+        kind: "post" as const,
+        data: item,
+        created_at: item.created_at,
+      }));
     }
 
-    if (item.item_type === "reel" || item.source === "reel") {
-      return { kind: "reel" as const, data: item, created_at: item.created_at };
-    }
-
-    return {
-      kind: "post" as const,
-      data: item,
-      created_at: item.created_at,
-    };
-  }, []);
-
-  const baseItems = React.useMemo(() => {
-    const source =
-      loadedItems.length > 0
-        ? loadedItems
-        : items && items.length > 0
-          ? items
-          : feedItemsProp && feedItemsProp.length > 0
-            ? feedItemsProp
-            : [];
-
-    return source.map(normalizeFeedItem).filter(Boolean);
-  }, [loadedItems, items, feedItemsProp, normalizeFeedItem]);
+    return [...base, ...loadedMoreItems];
+  }, [items, feedItemsProp, loadedMoreItems]);
 
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
   }, []);
 
-  const loadMoreFeed = useCallback(async (isInitial = false) => {
-    if (loadingRef.current) return;
-    if (!hasMoreFeed && !isInitial) return;
+  const loadMoreFeed = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    if (!hasMoreFeed) return;
     if (!currentUser?.id) return;
 
-    loadingRef.current = true;
-
-    if (isInitial) setInitialLoading(true);
+    loadingMoreRef.current = true;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const seenIds = isInitial
-        ? []
-        : loadedItems
-            .map((x: any) => Number(x?.id || x?.data?.id || x?.post_id || x?.data?.post_id))
-            .filter(Boolean)
-            .slice(-250);
+      const seenIds = safeFeedItems
+        .map((item: any) => {
+          const post = item?.data || item;
+          return Number(post?.id || post?.post_id || post?.product_id2 || post?.event_id);
+        })
+        .filter(Boolean)
+        .slice(-250);
 
       const params = new URLSearchParams({
         userId: String(currentUser.id),
         limit: "20",
-        seed: String(feedSeedRef.current),
+        seed: String(seedRef.current),
         seen: seenIds.join(","),
       });
 
-      if (nextCursor && !isInitial) {
+      if (nextCursor) {
         params.set("cursor", nextCursor);
       }
 
@@ -8500,20 +8491,21 @@ export const Feed = memo(({
 
       if (!data?.success) return;
 
-      const incoming = Array.isArray(data.feed) ? data.feed : [];
+      const incoming = (data.feed || []).map((post: any) => ({
+        kind: "post" as const,
+        data: post,
+        created_at: post.created_at,
+      }));
 
-      setLoadedItems(prev => {
+      setLoadedMoreItems(prev => {
         const map = new Map<string, any>();
 
-        if (!isInitial) {
-          prev.forEach(item => {
-            const key = item.feed_key || item.data?.feed_key || `${item.source || item.item_type || item.kind || "post"}:${item.id || item.data?.id}`;
-            if (!map.has(key)) map.set(key, item);
-          });
-        }
+        [...prev, ...incoming].forEach(item => {
+          const post = item.data || item;
+          const key =
+            post.feed_key ||
+            `${post.source || post.item_type || "post"}:${post.id}`;
 
-        incoming.forEach(item => {
-          const key = item.feed_key || `${item.source || item.item_type || "post"}:${item.id}`;
           if (!map.has(key)) map.set(key, item);
         });
 
@@ -8527,25 +8519,19 @@ export const Feed = memo(({
         console.error("LOAD_MORE_FEED_ERROR", err);
       }
     } finally {
-      loadingRef.current = false;
-      if (isInitial) setInitialLoading(false);
+      loadingMoreRef.current = false;
     }
-  }, [currentUser?.id, hasMoreFeed, loadedItems, nextCursor]);
+  }, [currentUser?.id, hasMoreFeed, nextCursor, safeFeedItems]);
 
   useEffect(() => {
-    setLoadedItems([]);
+    setLoadedMoreItems([]);
     setNextCursor(null);
     setHasMoreFeed(true);
-    feedSeedRef.current = Math.floor(Date.now() / 1000);
-
-    const t = window.setTimeout(() => {
-      loadMoreFeed(true);
-    }, 0);
+    seedRef.current = Math.floor(Date.now() / 1000);
 
     return () => {
-      window.clearTimeout(t);
       abortRef.current?.abort();
-      loadingRef.current = false;
+      loadingMoreRef.current = false;
     };
   }, [currentUser?.id]);
 
@@ -8556,7 +8542,7 @@ export const Feed = memo(({
     const observer = new IntersectionObserver(
       entries => {
         if (entries[0]?.isIntersecting) {
-          loadMoreFeed(false);
+          loadMoreFeed();
         }
       },
       {
@@ -8571,32 +8557,13 @@ export const Feed = memo(({
     return () => observer.disconnect();
   }, [loadMoreFeed]);
 
-  if (initialLoading && baseItems.length === 0) {
-    return (
-      <div className="space-y-2">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="bg-[#242526] rounded-xl p-4 animate-pulse">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C]" />
-              <div className="flex-1">
-                <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2" />
-                <div className="h-3 bg-[#3A3B3C] rounded w-24" />
-              </div>
-            </div>
-            <div className="h-40 bg-[#3A3B3C] rounded-lg mb-3" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-2">
-      {baseItems.map((item: any, index: number) => {
+      {safeFeedItems.map((item, index) => {
         if (item.kind === "story") {
           return (
             <FeedStoryCard
-              key={`story-${item.data.id}`}
+              key={`story-${item.data.id}-${index}`}
               story={item.data}
               onOpen={onOpenStory}
             />
@@ -8614,7 +8581,7 @@ export const Feed = memo(({
           );
         }
 
-        const post = item.data || item;
+        const post = item.data;
         const postAuthorId = Number(post.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
