@@ -5676,28 +5676,33 @@ const handleReactClick = async (type: ReactionType) => {
     alert("Please login to react.");
     return;
   }
-
-  const isGroupPost = Boolean((p as any)?.group_id);
   
-  console.log("🔍 REACTION DEBUG:", { 
-    postId: p.id, 
-    type, 
-    isGroupPost, 
-    group_id: (p as any)?.group_id,
-    hasToggleGroupPostLike: !!onToggleGroupPostLike 
-  });
+  const source = String(
+    (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
+  ).toLowerCase();
+  const meta = (p as any)?.meta || {};
+  const groupId = Number(
+    (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
+  );
+  const groupPostId = Number(
+    (p as any)?.group_post_id || 
+    (p as any)?.groupPostId || 
+    (source === "group_post" ? (p as any)?.id : 0) || 
+    0
+  );
+  const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
 
-  if (isGroupPost) {
-    console.log("📡 Calling onToggleGroupPostLike for post:", p.id);
-    await onToggleGroupPostLike?.(Number(p.id), type);
+  if (isGroupPost && onToggleGroupPostLike) {
+    await onToggleGroupPostLike(groupPostId || Number((p as any)?.id), type);
     return;
   }
 
-  console.log("📡 Calling regular onReact for post:", p.id);
   onReact?.(p, type);
 };
 
-      
+
+    
+ 
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
