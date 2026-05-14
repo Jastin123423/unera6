@@ -8433,7 +8433,16 @@ interface FeedProps {
   // Login
   // =========================
   onLoginClick?: () => void;
-
+  
+  // =========================
+  // ✅ GROUP POST REACTIONS
+  // =========================
+  onToggleGroupPostLike?: (
+    postId: number,
+    type?: ReactionType
+  ) => Promise<{ liked: boolean; likes_count: number } | void>;
+}
+    
   // =========================
   // ✅ INFINITE SCROLL
   // =========================
