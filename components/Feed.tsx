@@ -8378,7 +8378,8 @@ interface FeedProps {
  * =========================
  * ✅ MAIN FEED COMPONENT
  * ✅ Original rendering preserved
- * ✅ Facebook-style silent infinite scroll added
+ * ✅ Facebook-style silent infinite scroll
+ * ✅ Works with normal browser + WebView scroll
  * =========================
  */
 
@@ -8408,6 +8409,7 @@ export const Feed = memo(({
   onPushMore,
   pushedPosts = {},
   onOpenReel,
+  onOpenReelMenu,
   peopleYouMayKnow = [],
   peopleYouMayKnowInsertIndex1 = -1,
   peopleYouMayKnowInsertIndex2 = -1,
@@ -8464,7 +8466,16 @@ export const Feed = memo(({
       const seenIds = safeFeedItems
         .map((item: any) => {
           const post = item?.data || item;
-          return Number(post?.id || post?.post_id || post?.product_id2 || post?.event_id);
+          return Number(
+            post?.id ||
+            post?.post_id ||
+            post?.product_id2 ||
+            post?.product_id ||
+            post?.event_id ||
+            post?.group_post_id ||
+            post?.song_id2 ||
+            post?.podcast_id
+          );
         })
         .filter(Boolean)
         .slice(-250);
@@ -8513,7 +8524,9 @@ export const Feed = memo(({
       });
 
       setNextCursor(data.nextCursor || null);
-      setHasMoreFeed(Boolean(data.hasMore && data.nextCursor));
+
+      // Keep true if backend returned items, even when hasMore is imperfect
+      setHasMoreFeed(Boolean((data.feed || []).length > 0 && data.nextCursor));
     } catch (err: any) {
       if (err?.name !== "AbortError") {
         console.error("LOAD_MORE_FEED_ERROR", err);
@@ -8536,26 +8549,64 @@ export const Feed = memo(({
   }, [currentUser?.id]);
 
   useEffect(() => {
-    const el = feedMoreRef.current;
-    if (!el) return;
+    const shouldLoadMore = () => {
+      if (!hasMoreFeed) return;
+      if (loadingMoreRef.current) return;
+      if (!currentUser?.id) return;
 
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0]?.isIntersecting) {
-          loadMoreFeed();
-        }
-      },
-      {
-        root: null,
-        rootMargin: "900px 0px",
-        threshold: 0.01,
+      const scrollTop =
+        window.scrollY ||
+        document.documentElement.scrollTop ||
+        document.body.scrollTop ||
+        0;
+
+      const windowHeight =
+        window.innerHeight || document.documentElement.clientHeight;
+
+      const docHeight = Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight
+      );
+
+      const distanceFromBottom = docHeight - (scrollTop + windowHeight);
+
+      if (distanceFromBottom < 1200) {
+        loadMoreFeed();
       }
-    );
+    };
 
-    observer.observe(el);
+    const el = feedMoreRef.current;
+    let observer: IntersectionObserver | null = null;
 
-    return () => observer.disconnect();
-  }, [loadMoreFeed]);
+    if (el) {
+      observer = new IntersectionObserver(
+        entries => {
+          if (entries[0]?.isIntersecting) {
+            loadMoreFeed();
+          }
+        },
+        {
+          root: null,
+          rootMargin: "1200px 0px",
+          threshold: 0,
+        }
+      );
+
+      observer.observe(el);
+    }
+
+    window.addEventListener("scroll", shouldLoadMore, { passive: true });
+    window.addEventListener("resize", shouldLoadMore);
+
+    const timer = window.setTimeout(shouldLoadMore, 500);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("scroll", shouldLoadMore);
+      window.removeEventListener("resize", shouldLoadMore);
+      window.clearTimeout(timer);
+    };
+  }, [loadMoreFeed, hasMoreFeed, currentUser?.id]);
 
   return (
     <div className="space-y-2">
@@ -8685,7 +8736,7 @@ export const Feed = memo(({
         <div
           ref={feedMoreRef}
           style={{
-            height: 1,
+            height: 40,
             opacity: 0,
             pointerEvents: "none",
           }}
@@ -8694,8 +8745,7 @@ export const Feed = memo(({
     </div>
   );
 });
-
-
+  
 
 
        
