@@ -4452,20 +4452,22 @@ export const EventPost = memo(
 
     const handleReact = async (type: ReactionType) => {
   if (!currentUser || !event.id || !onReact) return;
+      
 
   const eventAsPost = {
-    ...event,
-    id: event.id,
-    event_id: event.id,
-    source: "event",
-    item_type: "event",
-    type: "event",
-    post_type: "event",
-    kind: "event",
-  };
-
-  onReact(eventAsPost as any, type);
+  ...event,
+  id: event.id,
+  event_id: event.id,
+  source: "event",
+  item_type: "event",
+  type: "event",
+  post_type: "event",
+  kind: "event",
 };
+  
+ onReact(eventAsPost as any, type);
+};
+
 
 
     const handleShare = () => {
@@ -4701,14 +4703,14 @@ export const EventPost = memo(
               className="px-2 py-1 border-t border-white/10 flex items-center justify-between"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex-1">
-                <ReactionButton
-                  currentUserReactions={undefined}
-                  reactionCount={0}
-                  onReact={handleReact}
-                  isGuest={!currentUser}
-                />
-              </div>
+          <div className="flex-1">
+  <ReactionButton
+    currentUserReactions={(event as any).my_reaction || undefined}
+    reactionCount={Number((event as any).reactions_count || 0)}
+    onReact={handleReact}
+    isGuest={!currentUser}
+  />
+</div>
               <button
                 className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
                 onClick={handleOpenComments}
