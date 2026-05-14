@@ -8367,7 +8367,11 @@ interface FeedProps {
   // Login
   onLoginClick?: () => void;
 }
-
+    
+onLoadMoreFeed?: () => void;
+hasMoreFeed?: boolean;
+feedLoadingMore?: boolean;
+    
 /**
  * =========================
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
