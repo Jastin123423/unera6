@@ -8641,7 +8641,8 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-           <Post
+         
+<Post
   post={post as PostType}
   author={getPostAuthor?.(post as PostType) || post.author || post}
   currentUser={currentUser}
@@ -8662,6 +8663,7 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
+  onToggleGroupPostLike={onToggleGroupPostLike}  // ✅ PASS DIRECTLY
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -8672,6 +8674,7 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
+            
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
