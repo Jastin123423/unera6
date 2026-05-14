@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 // -------------------- ADDED: Import ranking utility --------------------
 import { rankStoriesForReel } from '../utils/ranking';
-import { apiFetch, avatarFrom, formatRelativeTime, RichText } from './Feed';
+import { avatarFrom, formatRelativeTime, RichText } from './Feed';
 
 // -------------------- ADDED: Import filters --------------------
 import Filters, { 
