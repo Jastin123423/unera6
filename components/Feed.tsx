@@ -5703,46 +5703,16 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-   
       
-      
-      const handleReactClick = async (type: ReactionType) => {
+   const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
 
-  const source = String(
-    (p as any)?.source ||
-    (p as any)?.item_type ||
-    (p as any)?.kind ||
-    ""
-  ).toLowerCase();
-
-  const meta = (p as any)?.meta || {};
-
-  const groupPostId = Number(
-    (p as any)?.group_post_id ||
-    (p as any)?.groupPostId ||
-    (source === "group_post" ? (p as any)?.id : 0) ||
-    0
-  );
-
-  const isGroupPost =
-    source === "group_post" ||
-    Boolean(groupPostId) ||
-    Boolean((p as any)?.group_id);
-
-  if (isGroupPost && onToggleGroupPostLike) {
-    await onToggleGroupPostLike(
-      groupPostId || Number((p as any)?.id),
-      type
-    );
-    return;
-  }
-
   onReact?.(p, type);
 };
+      
       
 
     const openGallery = (urls: string[], index: number) => {
