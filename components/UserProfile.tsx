@@ -397,6 +397,22 @@ export const UserProfile: React.FC<UserProfileProps> = ({
   // Local state for profile posts
   const [profilePosts, setProfilePosts] = useState<PostType[]>(() => safeArrayHelper(posts));
 
+  // ========== FILTER OUT GROUP POSTS - MOVED UP BEFORE USAGE ==========
+  const filteredProfilePosts = useMemo(() => {
+    return (profilePosts || []).filter((p: any) => {
+      const meta = p?.meta || {};
+      const hasGroup =
+        !!p?.group_id ||
+        !!p?.groupId ||
+        !!meta?.group_id ||
+        !!meta?.groupId ||
+        p?.type === 'group_post' ||
+        p?.post_type === 'group_post' ||
+        meta?.type === 'group_post';
+      return !hasGroup;
+    });
+  }, [profilePosts]);
+
   // ========== FIX 2: GUARDED PROPS SYNC ==========
   useEffect(() => {
     const incoming = safeArrayHelper(posts);
@@ -940,22 +956,6 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     setGalleryIndex(index);
     setGalleryOpen(true);
   };
-
-  // ========== FILTER OUT GROUP POSTS ==========
-  const filteredProfilePosts = useMemo(() => {
-    return (profilePosts || []).filter((p: any) => {
-      const meta = p?.meta || {};
-      const hasGroup =
-        !!p?.group_id ||
-        !!p?.groupId ||
-        !!meta?.group_id ||
-        !!meta?.groupId ||
-        p?.type === 'group_post' ||
-        p?.post_type === 'group_post' ||
-        meta?.type === 'group_post';
-      return !hasGroup;
-    });
-  }, [profilePosts]);
 
   // ========== RENDER VIDEOS TAB ==========
   const renderVideos = () => {
