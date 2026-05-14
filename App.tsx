@@ -9487,9 +9487,9 @@ return (
   // =========================
   // ✅ INFINITE SCROLL
   // =========================
-  onLoadMoreFeed={loadMoreFeed}
-  hasMoreFeed={hasMoreFeed}
-  feedLoadingMore={feedLoadingMore}
+onLoadMoreFeed={() => {}}
+hasMoreFeed={false}
+feedLoadingMore={false} 
 />
       </MarketplaceContext.Provider>
     </div>
