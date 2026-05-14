@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Login, Register } from './components/Auth';
 import { Header, Sidebar, RightSidebar } from './components/Layout';
@@ -13,8 +11,9 @@ import {
   GroupsYouMayJoinCard,
   ReelFeedCard,
   FeedItem,
+  Feed,
 } from './components/Feed';
-import { StoryReel, CreateStoryModal, StoryViewerModal } from './components/Story';
+import { StoryReel, CreateStoryModal, StoryViewerModal, StoryCommentsSheet } from './components/Story';
 import { UserProfile } from './components/UserProfile';
 import { MarketplacePage, ProductDetailModal } from './components/Marketplace';
 import { ReelsFeed, CreateReelModal } from './components/Reels';
@@ -29,7 +28,7 @@ import {
 import { HelpSupportPage } from './components/HelpSupport';
 import { CreateEventModal } from './components/Events';
 import { BrandsPage } from './components/Brands';
-import MusicSystem, { GlobalAudioPlayer } from './components/MusicSystem';
+import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components/MusicSystem';
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
@@ -38,6 +37,7 @@ import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
 import { CallScreen } from './components/CallScreen';
 import Recorder from './components/Recorder';
+import { ReelCameraCreator } from './components/Reels';
 import { NotificationsPage } from './components/NotificationsPage';
 import Dashboard from './components/Dashboard';
 import AdCreator from './components/AdCreator';
@@ -296,19 +296,35 @@ const parseJSON = (v: any) => {
   return v;
 };
 
-/** ✅ safeImages helper for marketplace product posts */
-const safeImages = (imgs: any): string[] => {
-  if (Array.isArray(imgs)) return imgs.filter(Boolean);
-  if (typeof imgs === 'string') {
+ const safeImageVariants = (value: any) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => ({
+        thumb: String(v?.thumb || '').trim(),
+        feed: String(v?.feed || v?.full || '').trim(),
+        full: String(v?.feed || v?.full || '').trim(),
+        type: 'image',
+      }))
+      .filter((v) => v.feed);
+  }
+  if (typeof value === 'string') {
     try {
-      const p = JSON.parse(imgs);
-      return Array.isArray(p) ? p.filter(Boolean) : [];
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((v: any) => ({
+          thumb: String(v?.thumb || '').trim(),
+          feed: String(v?.feed || v?.full || '').trim(),
+          full: String(v?.feed || v?.full || '').trim(),
+          type: 'image',
+        }))
+        .filter((v: any) => v.feed);
     } catch {
       return [];
     }
   }
   return [];
-};
+}; 
 
 /** ---------- Constants ---------- */
 const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy6j485fh_1769336848_img_0.webp';
@@ -354,6 +370,166 @@ const resolveVideoId = (item: any): number | null => {
   return null;
 };
 
+//=====VIDEO AUDIO EXTRACTOR=====
+  
+async function extractAudioFromVideo(file: File): Promise<File | null> {
+  let video: HTMLVideoElement | null = null;
+  let audioContext: AudioContext | null = null;
+  let sourceNode: MediaElementAudioSourceNode | null = null;
+  let mediaRecorder: MediaRecorder | null = null;
+  let stream: MediaStream | null = null;
+  let isStopped = false;
+  
+  try {
+    const videoUrl = URL.createObjectURL(file);
+    video = document.createElement('video');
+    video.src = videoUrl;
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    
+    await new Promise<void>((resolve, reject) => {
+      if (!video) return reject(new Error('Video element not created'));
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('Failed to load video metadata'));
+    });
+    
+    const duration = video.duration;
+    if (!duration || duration <= 0) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    sourceNode = audioContext.createMediaElementSource(video);
+    
+    const dest = audioContext.createMediaStreamDestination();
+    sourceNode.connect(dest);
+    // IMPORTANT: DO NOT connect to speakers
+    
+    stream = dest.stream;
+    
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : '';
+    
+    if (!mimeType) {
+      URL.revokeObjectURL(videoUrl);
+      return null;
+    }
+    
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
+    
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    
+    mediaRecorder.start(250);
+    await video.play();
+    
+    await new Promise<void>((resolve) => {
+      const stopAt = Math.min(duration, 60);
+      const timer = setTimeout(() => {
+        if (!isStopped) {
+          isStopped = true;
+          resolve();
+        }
+      }, stopAt * 1000);
+      
+      if (video) {
+        video.onended = () => {
+          if (!isStopped) {
+            isStopped = true;
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+      }
+    });
+    
+    const recordingStopped = new Promise<Blob>((resolve) => {
+      if (!mediaRecorder) return resolve(new Blob());
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        resolve(blob);
+      };
+      mediaRecorder.stop();
+    });
+    
+    if (video) video.pause();
+    const recordedBlob = await recordingStopped;
+    URL.revokeObjectURL(videoUrl);
+    
+    if (!recordedBlob.size) return null;
+    
+    return new File(
+      [recordedBlob],
+      `original-audio-${Date.now()}.webm`,
+      { type: mimeType }
+    );
+    
+  } catch (error) {
+    console.warn('Audio extraction from video failed:', error);
+    return null;
+  } finally {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch {}
+    }
+    if (sourceNode && audioContext) {
+      try { sourceNode.disconnect(); } catch {}
+    }
+    if (audioContext) {
+      try { await audioContext.close(); } catch {}
+    }
+    if (video) {
+      try { video.pause(); } catch {}
+      try { video.remove(); } catch {}
+    }
+    if (stream) {
+      try { stream.getTracks().forEach(track => track.stop()); } catch {}
+    }
+  }
+}  
+
+  //===OTHER RECORDER SOUND EXTRACTOR HELPERS ===
+      
+const isVideoLikeAudioUrl = (url?: string) => {
+  const u = String(url || '').toLowerCase().split('?')[0];
+
+  return (
+    u.endsWith('.mp4') ||
+    u.endsWith('.mov') ||
+    u.endsWith('.webm') ||
+    u.endsWith('.m4v') ||
+    u.includes('/uploads/videos/')
+  );
+};
+
+const remoteUrlToVideoFile = async (url: string): Promise<File> => {
+  const res = await fetch(url, { cache: 'force-cache' });
+
+  if (!res.ok) {
+    throw new Error('Failed to load original sound video');
+  }
+
+  const blob = await res.blob();
+  const type = blob.type || 'video/mp4';
+
+  return new File(
+    [blob],
+    `original-sound-video-${Date.now()}.mp4`,
+    { type }
+  );
+};
 /** ---------- Stable key generator ---------- */
 const getStableItemKey = (item: any, prefix = 'item'): string => {
   const id = resolveVideoId(item);
@@ -875,23 +1051,91 @@ const normalizeEvent = (e: any): Event => {
     user_rsvp_status: e?.user_rsvp_status ?? null,
   } as any;
 };
-
 /** Normalize story data */
-const normalizeStory = (s: any, existingUser?: User): Story => {
+    const normalizeStory = (s: any, existingUser?: User): Story => {
   const resolvedId = safeNumber(s?.id ?? s?.story_id ?? 0);
   const userId = safeNumber(s?.user_id ?? s?.userId ?? 0);
-  
+
   let storyUser = s?.user;
   if (existingUser && storyUser) {
     storyUser = mergeUserSafe(existingUser, storyUser);
   }
-  
+
+  const rawMediaUrl = String(s?.media_url ?? s?.mediaUrl ?? '').trim();
+  const rawText = String(s?.text_content ?? s?.text ?? '').trim();
+
+  const normalizedType =
+    s?.type === 'text' || s?.type === 'video' || s?.type === 'image'
+      ? s.type
+      : rawMediaUrl.toLowerCase().match(/\.(mp4|webm|mov|m4v)(\?|$)/)
+      ? 'video'
+      : rawText
+      ? 'text'
+      : 'image';
+
+  let mediaMeta: any[] = [];
+  if (Array.isArray(s?.media_meta)) {
+    mediaMeta = s.media_meta.map((m: any) => ({
+      thumb: String(m?.thumb || '').trim(),
+      feed: String(m?.feed || m?.full || m?.thumb || '').trim(),
+      full: String(m?.feed || m?.full || m?.thumb || '').trim(),
+      type: m?.type || normalizedType,
+    }));
+  } else if (typeof s?.media_meta === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_meta);
+      if (Array.isArray(parsed)) {
+        mediaMeta = parsed.map((m: any) => ({
+          thumb: String(m?.thumb || '').trim(),
+          feed: String(m?.feed || m?.full || m?.thumb || '').trim(),
+          full: String(m?.feed || m?.full || m?.thumb || '').trim(),
+          type: m?.type || normalizedType,
+        }));
+      }
+    } catch {}
+  }
+
+  let mediaUrls: string[] = [];
+  if (Array.isArray(s?.media_urls)) {
+    mediaUrls = s.media_urls.map((x: any) => String(x || '').trim()).filter(Boolean);
+  } else if (typeof s?.media_urls === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_urls);
+      if (Array.isArray(parsed)) {
+        mediaUrls = parsed.map((x: any) => String(x || '').trim()).filter(Boolean);
+    }
+    } catch {}
+  }
+
+  let mediaTypes: string[] = [];
+  if (Array.isArray(s?.media_types)) {
+    mediaTypes = s.media_types.map((x: any) => String(x || '').trim()).filter(Boolean);
+  } else if (typeof s?.media_types === 'string') {
+    try {
+      const parsed = JSON.parse(s.media_types);
+      if (Array.isArray(parsed)) {
+        mediaTypes = parsed.map((x: any) => String(x || '').trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  const finalMediaUrl =
+    rawMediaUrl ||
+    mediaMeta[0]?.feed ||
+    mediaMeta[0]?.full ||
+    mediaMeta[0]?.thumb ||
+    mediaUrls[0] ||
+    '';
+
   return {
     id: resolvedId,
     user_id: userId,
-    type: (s?.type ?? 'image') as 'text' | 'image' | 'video',
-    text_content: s?.text_content ?? s?.text ?? '',
-    media_url: s?.media_url ?? s?.mediaUrl ?? '',
+    type: normalizedType as 'text' | 'image' | 'video',
+    text_content: rawText,
+    media_url: finalMediaUrl,
+    media_urls: mediaUrls,
+    media_types: mediaTypes,
+    media_meta: mediaMeta,
     background_style: s?.background_style ?? s?.backgroundStyle ?? '',
     music_url: s?.music_url ?? s?.musicUrl ?? '',
     music_title: s?.music_title ?? s?.musicTitle ?? '',
@@ -903,11 +1147,12 @@ const normalizeStory = (s: any, existingUser?: User): Story => {
     liked_by_me: Boolean(s?.liked_by_me ?? s?.likedByMe ?? false),
     user: storyUser,
     views: safeArray(s?.views),
-    
     views_count: safeNumber(s?.views_count ?? s?.viewsCount, 0),
     reactions_count: safeNumber(s?.reactions_count ?? s?.reactionsCount, 0),
     my_reaction: s?.my_reaction ?? s?.myReaction ?? null,
     reaction_breakdown: s?.reaction_breakdown ?? {},
+    expires_at: null,
+    is_active: true,
   } as any;
 };
 
@@ -1040,8 +1285,19 @@ const normalizeReel = (r: any): Reel => {
     verified: !!(r?.verified || r?.is_verified),
     isTrimmedAudio,
     feed_key: `reel:${resolvedId}`,
+    
+    // ✅ ADD LYRICS AND DESCRIPTION FIELDS
+    lyricsText: r?.lyricsText ?? r?.lyrics_text ?? '',
+    lyrics_text: r?.lyrics_text ?? r?.lyricsText ?? '',
+    lyricsTheme: r?.lyricsTheme ?? r?.lyrics_theme ?? 'karaoke',
+    lyrics_theme: r?.lyrics_theme ?? r?.lyricsTheme ?? 'karaoke',
+    lyricsEnabled: !!(r?.lyricsEnabled ?? r?.lyrics_enabled),
+    lyrics_enabled: r?.lyrics_enabled ?? (r?.lyricsEnabled ? 1 : 0),
+    descriptionHtml: r?.descriptionHtml ?? r?.description_html ?? '',
+    description_html: r?.description_html ?? r?.descriptionHtml ?? '',
   } as any;
 };
+
 
 /**
  * Normalize song data
@@ -1068,17 +1324,33 @@ const normalizeSong = (s: any): Song => {
 const normalizeProduct = (p: any) => {
   let imgs: string[] = [];
   try {
-    const parsed = typeof p?.images === "string" ? JSON.parse(p.images) : p.images;
+    const parsed = typeof p?.images === 'string' ? JSON.parse(p.images) : p.images;
     imgs = Array.isArray(parsed) ? parsed : [];
-  } catch { imgs = []; }
+  } catch {
+    imgs = [];
+  }
+
+  let imageVariants: any[] = [];
+  try {
+    const parsed = typeof p?.image_variants === 'string' ? JSON.parse(p.image_variants) : p?.image_variants;
+    imageVariants = Array.isArray(parsed) ? parsed.map((v: any) => ({
+      thumb: v?.thumb || '',
+      feed: v?.feed || v?.full || '',
+      full: v?.feed || v?.full || '',
+      type: v?.type || 'image',
+    })) : [];
+  } catch {
+    imageVariants = [];
+  }
 
   return {
     ...p,
     id: safeNumber(p?.id),
     seller_id: safeNumber(p?.seller_id),
-    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? "Seller"),
-    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ""),
+    seller_name: safeString(p?.seller_name ?? p?.sellerName ?? 'Seller'),
+    seller_avatar: safeString(p?.seller_avatar ?? p?.sellerAvatar ?? ''),
     images: imgs.length ? imgs : [],
+    image_variants: imageVariants,
     main_price: safeNumber(p?.main_price),
     discount_price: p?.discount_price == null ? null : safeNumber(p?.discount_price),
     quantity: safeNumber(p?.quantity, 1),
@@ -1087,24 +1359,409 @@ const normalizeProduct = (p: any) => {
     description: safeString(p?.description),
     category: safeString(p?.category),
     country: safeString(p?.country),
-    phone_number: safeString(p?.phone_number ?? ""),
+    phone_number: safeString(p?.phone_number ?? ''),
     created_at: p?.created_at ?? new Date().toISOString(),
   } as any;
 };
 
 // ============================================================================
+// ✅ NOTIFICATION ENRICHMENT HELPERS
+// ============================================================================
+
+const getFirstMediaPreview = (item: any): string => {
+  if (!item) return "";
+  if (typeof item.image === "string" && item.image) return item.image;
+  if (typeof item.image_url === "string" && item.image_url) return item.image_url;
+  if (typeof item.thumbnail === "string" && item.thumbnail) return item.thumbnail;
+  if (typeof item.thumbnail_url === "string" && item.thumbnail_url) return item.thumbnail_url;
+  if (typeof item.cover_url === "string" && item.cover_url) return item.cover_url;
+  if (typeof item.poster_url === "string" && item.poster_url) return item.poster_url;
+  if (typeof item.preview_image === "string" && item.preview_image) return item.preview_image;
+  
+  const mediaMeta = (item as any).media_meta;
+  if (typeof mediaMeta === "string") {
+    try {
+      const parsed = JSON.parse(mediaMeta);
+      if (Array.isArray(parsed) && parsed[0]) {
+        return parsed[0].thumb || parsed[0].feed || parsed[0].full || "";
+      }
+    } catch {}
+  }
+  if (Array.isArray(mediaMeta) && mediaMeta[0]) {
+    return mediaMeta[0].thumb || mediaMeta[0].feed || mediaMeta[0].full || "";
+  }
+  return "";
+};
+
+const getContentPreviewText = (item: any, kind: string): string => {
+  if (!item) return "";
+  if (kind === "post" || kind === "group_post") {
+    return String(item.content || "").trim();
+  }
+  if (kind === "reel") {
+    return String(item.caption || item.content || "").trim();
+  }
+  if (kind === "story") {
+    return String(item.caption || item.content || "").trim();
+  }
+  if (kind === "song") {
+    return String(item.title || item.description || item.caption || "").trim();
+  }
+  if (kind === "podcast") {
+    return String(item.title || item.description || "").trim();
+  }
+  if (kind === "event") {
+    return String(item.title || item.description || "").trim();
+  }
+  if (kind === "product") {
+    return String(item.name || item.description || "").trim();
+  }
+  return "";
+};
+
+const enrichNotification = (
+  n: any,
+  ctx: {
+    posts: PostType[];
+    reels: Reel[];
+    stories: Story[];
+    songs: Song[];
+    podcasts: any[];
+    products: Product[];
+    events: Event[];
+    groupPosts: any[];
+  }
+): any => {
+  const entityType = String(n?.entity_type || "").toLowerCase();
+  const entityId = Number(n?.entity_id || 0);
+  
+  let target_type = entityType;
+  let target_id = entityId;
+  let preview_text = "";
+  let preview_image = "";
+  
+  if (entityType === "post") {
+    const item = ctx.posts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "post");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "post";
+    target_id = entityId;
+  } else if (entityType === "reel") {
+    const item = ctx.reels.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "reel");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "reel";
+    target_id = entityId;
+  } else if (entityType === "story") {
+    const item = ctx.stories.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "story");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "story";
+    target_id = entityId;
+  } else if (entityType === "song") {
+    const item = ctx.songs.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "song");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "song";
+    target_id = entityId;
+  } else if (entityType === "podcast") {
+    const item = ctx.podcasts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "podcast");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "podcast";
+    target_id = entityId;
+  } else if (entityType === "product") {
+    const item = ctx.products.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "product");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "product";
+    target_id = entityId;
+  } else if (entityType === "event") {
+    const item = ctx.events.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "event");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "event";
+    target_id = entityId;
+  } else if (entityType === "group_post") {
+    const item = ctx.groupPosts.find((x) => Number(x.id) === entityId);
+    preview_text = getContentPreviewText(item, "group_post");
+    preview_image = getFirstMediaPreview(item);
+    target_type = "group_post";
+    target_id = entityId;
+  }
+  
+  return {
+    ...n,
+    target_type,
+    target_id,
+    preview_text,
+    preview_image,
+  };
+};
+    
+// ==================== GROUP POST IMAGE BUNDLE HELPERS ====================
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number
+): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const loadImageElement = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = src;
+  });
+
+const loadVideoElement = (src: string): Promise<HTMLVideoElement> =>
+  new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.playsInline = true;
+    v.muted = true;
+    v.src = src;
+    const cleanup = () => {
+      v.onloadedmetadata = null;
+      v.onerror = null;
+    };
+    v.onloadedmetadata = () => {
+      cleanup();
+      resolve(v);
+    };
+    v.onerror = () => {
+      cleanup();
+      reject(new Error('Failed to load video'));
+    };
+  });
+
+const calcContainSize = (w: number, h: number, max: number) => {
+  if (!w || !h) return { width: max, height: max };
+  if (Math.max(w, h) <= max) return { width: w, height: h };
+  const scale = max / Math.max(w, h);
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    height: Math.max(1, Math.round(h * scale)),
+  };
+};
+
+const buildGroupImageBundle = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    const thumbSize = calcContainSize(img.naturalWidth, img.naturalHeight, 320);
+    const feedSize = calcContainSize(img.naturalWidth, img.naturalHeight, 1280);
+
+    const drawToCanvas = (width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas context not available');
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas;
+    };
+
+    const thumbCanvas = drawToCanvas(thumbSize.width, thumbSize.height);
+    const feedCanvas = drawToCanvas(feedSize.width, feedSize.height);
+
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+
+    const ts = Date.now();
+    return {
+      thumb: new File([thumbBlob], `${ts}-thumbnail.webp`, { type: 'image/webp' }),
+      feed: new File([feedBlob], `${ts}-feed.webp`, { type: 'image/webp' }),
+      full: new File([feedBlob], `${ts}-feed.webp`, { type: 'image/webp' }), // full = feed
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const buildGroupVideoThumbnail = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    const seekTo = Math.min(
+      Math.max((video.duration || 1) * 0.2, 0.1),
+      Math.max((video.duration || 1) - 0.1, 0.1)
+    );
+
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+
+    const thumbSize = calcContainSize(video.videoWidth || 320, video.videoHeight || 320, 320);
+    const canvas = document.createElement('canvas');
+    canvas.width = thumbSize.width;
+    canvas.height = thumbSize.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available');
+    ctx.drawImage(video, 0, 0, thumbSize.width, thumbSize.height);
+
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    const ts = Date.now();
+    return new File([thumbBlob], `${ts}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadGroupImageBundle = async (file: File) => {
+  const bundle = await buildGroupImageBundle(file);
+  const formData = new FormData();
+  formData.append('thumbnail', bundle.thumb);
+  formData.append('feed', bundle.feed);
+  formData.append('original', bundle.full);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) {
+    throw new Error(result?.error || 'Group image upload failed');
+  }
+
+  const thumb = result?.uploaded?.thumbnail?.url || result?.media_urls?.thumb || '';
+  const feed = result?.uploaded?.feed?.url || result?.media_urls?.feed || '';
+
+  if (!feed) {
+    throw new Error('Group image upload failed: missing feed URL');
+  }
+
+  return {
+    kind: 'image' as const,
+    thumb: thumb || feed,
+    feed,
+    full: feed,
+    type: 'image',
+  };
+};
+
+const uploadGroupVideoBundle = async (file: File) => {
+  const thumbFile = await buildGroupVideoThumbnail(file);
+  const formData = new FormData();
+  formData.append('thumbnail', thumbFile);
+  formData.append('original', file);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) {
+    throw new Error(result?.error || 'Group video upload failed');
+  }
+
+  const thumb = result?.uploaded?.thumbnail?.url || result?.media_urls?.thumb || '';
+  const original = result?.uploaded?.original?.url || result?.url || '';
+
+  if (!original) {
+    throw new Error('Group video upload failed: missing original video URL');
+  }
+
+  return {
+    kind: 'video' as const,
+    thumb,
+    feed: '',
+    full: original,
+    type: 'video',
+  };
+};
+
+ // ============================================================================
+// ✅ NATIVE VIDEO HELPERS
+// ============================================================================
+
+const isUneraNativeApp = (): boolean => {
+  if ((window as any).UNERA_IS_NATIVE_APP === true) return true;
+  if ((window as any).UneraNative?.postMessage) return true;
+  if ((window as any).flutter_inappwebview?.callHandler) return true;
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('uneraapp')) return true;
+  return false;
+};
+
+const openNativeReelGallery = (sound?: any): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ 
+        action: 'open_reel_gallery_native',
+        sound: sound || null 
+      })
+    );
+    return true;
+  }
+  
+  if ((window as any).flutter_inappwebview?.callHandler) {
+    (window as any).flutter_inappwebview.callHandler('openReelGallery', sound);
+    return true;
+  }
+  
+  return false;
+};
+
+const openNativeVideoPicker = (): boolean => {
+  if ((window as any).UneraNative?.postMessage) {
+    (window as any).UneraNative.postMessage(
+      JSON.stringify({ action: 'pick_video' })
+    );
+    return true;
+  }
+  return false;
+};
+
+      
+// ============================================================================
 // 🔧 Normalize groups
 // ============================================================================
+
 const normalizeGroup = (g: any): Group => {
   const id = safeNumber(g?.id ?? g?.group_id ?? g?.groupId);
   const name = safeString(g?.name, "Untitled Group");
   const description = safeString(g?.description, "");
   const type = String(g?.type || "public").toLowerCase() === "private" ? "private" : "public";
-  
+
   const members =
     g?.members === undefined || g?.members === null
       ? undefined
-      : safeArray(g.members).map(Number).filter(Number.isFinite);
+      : safeArray(g.members)
+          .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+          .filter(Number.isFinite);
+
+  const rawIsMember = g?.is_member ?? g?.isMember;
+  const normalizedIsMember =
+    rawIsMember === true ||
+    rawIsMember === 1 ||
+    rawIsMember === "1" ||
+    rawIsMember === "true"
+      ? true
+      : rawIsMember === false ||
+        rawIsMember === 0 ||
+        rawIsMember === "0" ||
+        rawIsMember === "false"
+      ? false
+      : undefined;
 
   return {
     ...g,
@@ -1113,7 +1770,7 @@ const normalizeGroup = (g: any): Group => {
     name,
     description,
     type,
-    category: (g?.category as any) || 'general',
+    category: (g?.category as any) || "general",
     cover_image: safeString(g?.cover_image ?? g?.coverImage ?? ""),
     profile_image: safeString(g?.profile_image ?? g?.profileImage ?? ""),
     created_at: g?.created_at ?? new Date().toISOString(),
@@ -1122,11 +1779,110 @@ const normalizeGroup = (g: any): Group => {
     events: safeArray(g?.events),
     member_posting_allowed: Boolean(g?.member_posting_allowed ?? true),
     members_count: safeNumber(g?.members_count ?? members?.length ?? 0),
-    is_member: g?.is_member === true ? true : 
-               g?.is_member === false ? false : 
-               undefined,
+    is_member: normalizedIsMember,
   } as any;
 };
+      
+  //=======GALLERY CREATOR COMPONENT ======
+// Reel Gallery Creator Component - Stable bridge to Flutter
+const ReelGalleryCreator: React.FC<{
+  sound?: UseSoundPayload;
+  onClose: () => void;
+  onDone: (payload: {
+    file?: File;
+    thumbnailFile?: File;
+    sound?: UseSoundPayload;
+    effectId?: string;
+    nativeVideoUrl?: string;
+    nativeVideoMeta?: any;
+  }) => void;
+}> = ({ sound, onClose, onDone }) => {
+  const openedRef = useRef(false);
+  const closedRef = useRef(false);
+
+  useEffect(() => {
+    const finishClose = () => {
+      if (closedRef.current) return;
+      closedRef.current = true;
+      onClose();
+    };
+
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      if (!media || media.type !== "video") return;
+
+      closedRef.current = true;
+
+      onDone({
+        file: undefined,
+        thumbnailFile: undefined,
+        sound,
+        effectId: media.effectId || "none",
+        nativeVideoUrl: media.full || media.feed || media.url,
+        nativeVideoMeta: {
+          thumb: media.thumb || media.thumbnail || "",
+          feed: media.feed || media.full || media.url || "",
+          full: media.full || media.feed || media.url || "",
+          type: "video",
+          mimeType: media.mimeType || "video/mp4",
+          fileName: media.fileName || `reel-${Date.now()}.mp4`,
+        },
+      });
+    };
+
+    const handleCancel = () => finishClose();
+    const handleError = () => finishClose();
+
+    window.addEventListener("uneraNativeUpload", handleNativeUpload);
+    window.addEventListener("uneraNativeUploadCancel", handleCancel);
+    window.addEventListener("uneraNativeUploadError", handleError);
+
+    const timer = window.setTimeout(() => {
+      if (openedRef.current) return;
+      openedRef.current = true;
+
+      const native = (window as any).UneraNative;
+
+      if (native?.postMessage) {
+        native.postMessage(
+          JSON.stringify({
+            action: "open_reel_gallery_native",
+            sound: sound
+              ? {
+                  songName: sound.songName,
+                  audioUrl: sound.audioUrl,
+                  audioStart: sound.audioStart,
+                  audioEnd: sound.audioEnd,
+                  songId: sound.songId,
+                }
+              : null,
+          })
+        );
+      } else {
+        alert("Native app required for reel creation");
+        finishClose();
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("uneraNativeUpload", handleNativeUpload);
+      window.removeEventListener("uneraNativeUploadCancel", handleCancel);
+      window.removeEventListener("uneraNativeUploadError", handleError);
+    };
+  }, [sound, onClose, onDone]);
+
+  return (
+    <div className="fixed inset-0 z-[10000] bg-black flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 border-[3px] border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-white font-bold">Opening gallery...</p>
+      </div>
+    </div>
+  );
+};
+
+      
 
 /** ---------- Marketplace Context ---------- */
 export const MarketplaceContext = React.createContext<{
@@ -1187,6 +1943,95 @@ const applyOptimisticReelReaction = (r: any, reelId: number, type: ReactionType,
     reactions_count: newReactions.length,
   };
 };
+ // Add this helper function near your other utility functions (around line 200-300)
+
+// Rotate stories - returns 8-10 different stories, different order on each refresh
+const getRotatedStories = (stories: Story[], currentUser: User | null): Story[] => {
+  if (!stories || stories.length === 0) return [];
+  
+  const meId = currentUser?.id || 0;
+  const following = new Set(currentUser?.following || []);
+  
+  // Get unseen stories first
+  const unseenStories = stories.filter(s => !s.viewed_by_me);
+  const seenStories = stories.filter(s => s.viewed_by_me);
+  const myStories = stories.filter(s => s.user_id === meId);
+  
+  // Score each story for priority
+  const scoredStories = stories.map(story => {
+    let score = 0;
+    const uid = story.user_id;
+    const isMine = uid === meId;
+    const isFollowing = following.has(uid);
+    const isUnseen = !story.viewed_by_me;
+    
+    if (isUnseen) score += 100;
+    if (isFollowing) score += 50;
+    if (isMine) score += 30;
+    
+    // Fresher stories get higher score
+    const ageHours = (Date.now() - new Date(story.created_at).getTime()) / (1000 * 60 * 60);
+    score += Math.max(0, 48 - ageHours) * 1.5;
+    
+    return { story, score };
+  });
+  
+  // Sort by score
+  scoredStories.sort((a, b) => b.score - a.score);
+  
+  // Select 8-10 random stories from the top 20
+  const topStories = scoredStories.slice(0, 20).map(s => s.story);
+  const storyCount = Math.min(topStories.length, Math.floor(Math.random() * 3) + 8); // 8, 9, or 10
+  
+  // Shuffle the selected stories for random order
+  const shuffled = [...topStories];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  
+  return shuffled.slice(0, storyCount);
+};
+
+// Interleave stories and posts - never put stories consecutively
+const interleaveItems = (posts: any[], stories: any[]) => {
+  if (stories.length === 0) return posts;
+  if (posts.length === 0) return stories;
+  
+  const result: any[] = [];
+  const postsCopy = [...posts];
+  const storiesCopy = [...stories];
+  
+  // Calculate spacing - insert story every 3-5 posts
+  const storyInterval = Math.max(3, Math.floor(posts.length / (stories.length + 1)));
+  
+  let storyIndex = 0;
+  let postIndex = 0;
+  let postsSinceLastStory = 0;
+  
+  while (postIndex < postsCopy.length || storyIndex < storiesCopy.length) {
+    const shouldInsertStory = storyIndex < storiesCopy.length && 
+      (postsSinceLastStory >= storyInterval || 
+       (postIndex >= postsCopy.length && storyIndex < storiesCopy.length));
+    
+    if (shouldInsertStory) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+      postsSinceLastStory = 0;
+    } else if (postIndex < postsCopy.length) {
+      result.push(postsCopy[postIndex]);
+      postIndex++;
+      postsSinceLastStory++;
+    } else if (storyIndex < storiesCopy.length) {
+      result.push(storiesCopy[storyIndex]);
+      storyIndex++;
+    } else {
+      break;
+    }
+  }
+  
+  return result;
+}; 
 
 const isHttpUrl2 = (u: string) => u.startsWith('http://') || u.startsWith('https://');
 const isBlobUrl = (u: string) => u.startsWith('blob:');
@@ -1395,6 +2240,16 @@ type ReelSound = {
   isTrimmedAudio?: boolean;
   originalUrl?: string;
 };
+  type UseSoundPayload = {
+  songName?: string;
+  audioUrl?: string;
+  originalUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+  songId?: string | number;
+  soundKey?: string;
+  isTrimmedAudio?: boolean;
+};
 
 export type View =
   | 'home'
@@ -1559,17 +2414,35 @@ export default function App() {
   useLanguage();
 
   /** ---------- State ---------- */
-  const [users, setUsers] = useState<User[]>([]);
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
-  const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [chats, setChats] = useState<any[]>([]);
+const [users, setUsers] = useState<User[]>([]);
+const [posts, setPosts] = useState<PostType[]>([]);
+const [pushedPosts, setPushedPosts] = useState<Record<number, boolean>>({});
+const [profilePosts, setProfilePosts] = useState<PostType[]>([]);
+const [stories, setStories] = useState<Story[]>([]);
+const [reels, setReels] = useState<Reel[]>([]);
+const [products, setProducts] = useState<Product[]>([]);
+const [groups, setGroups] = useState<Group[]>([]);
+const [brands, setBrands] = useState<Brand[]>([]);
+const [events, setEvents] = useState<Event[]>([]);
+const [chats, setChats] = useState<any[]>([]);
+const [storyCreateLoading, setStoryCreateLoading] = useState(false);
+const [nativeReelVideoUrl, setNativeReelVideoUrl] = useState<string>('');
+const [nativeReelMediaMeta, setNativeReelMediaMeta] = useState<any | null>(null);
+
+  // REEL PUBLISHING STATES 
+const [reelPublishing, setReelPublishing] = useState(false);
+const [reelPublishingProgress, setReelPublishingProgress] = useState(0);
+const [reelPublishingText, setReelPublishingText] = useState('');
+
+  // Reel gallery creator states
+const [showReelGallery, setShowReelGallery] = useState(false);
+const [selectedReelSoundForGallery, setSelectedReelSoundForGallery] = useState<UseSoundPayload | undefined>(undefined);
+const [pendingReelThumbnailFile, setPendingReelThumbnailFile] = useState<File | null>(null);
+const [pendingReelEffectId, setPendingReelEffectId] = useState('none');
+
+// Story comments states
+const [activeStoryCommentId, setActiveStoryCommentId] = useState<number | null>(null);
+const [showStoryComments, setShowStoryComments] = useState(false);
 
   const [songs, setSongs] = useState<Song[]>([]);
   
@@ -1578,10 +2451,19 @@ export default function App() {
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [showCreateStoryModal, setShowCreateStoryModal] = useState(false);
 
+
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'reels' | 'marketplace' | 'groups'>('home');
   const [view, setView] = useState<View>('home');
   const [selectedReelId, setSelectedReelId] = useState<number | string | null>(null);
+  const [badgeCounts, setBadgeCounts] = useState({
+  home: 0,
+  music: 0,
+  messages: 0,
+  reels: 0,
+  notifications: 0,
+  marketplace: 0,
+});
 
   // Navigation history state
   const [navigationHistory, setNavigationHistory] = useState<View[]>(['home']);
@@ -1618,9 +2500,17 @@ export default function App() {
   // ============================================================================
   // ✅ COMMENTS IDENTITY STATE
   // ============================================================================
-  const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<string | null>(null);
-  const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
 
+type ActiveCommentsIdentity = {
+  type: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post';
+  id: string | number;
+};
+
+
+const [activeCommentsIdentity, setActiveCommentsIdentity] = useState<ActiveCommentsIdentity | null>(null);
+const [commentPostSnapshot, setCommentPostSnapshot] = useState<PostType | null>(null);
+                   
+  
   // ============================================================================
   // ✅ People You May Know - State declarations
   // ============================================================================
@@ -1667,6 +2557,55 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
 
   const unreadNotifications = notifications.filter(n => !n.is_read).length;
+   useEffect(() => {
+  const unreadMessages = chats.reduce((sum, chat) => sum + (chat.unread_count || 0), 0);
+  const newReels = reels.filter(r => {
+    const hoursOld = (Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const newMusic = songs.filter(s => {
+    const hoursOld = (Date.now() - new Date(s.created_at || s.release_date || 0).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+  const marketplaceActivity = products.filter(p => p.has_new_activity).length;
+  const newHomePosts = posts.filter(p => {
+    const hoursOld = (Date.now() - new Date(p.created_at).getTime()) / (1000 * 60 * 60);
+    return hoursOld < 24;
+  }).length;
+
+  setBadgeCounts({
+    home: newHomePosts,
+    music: newMusic,
+    messages: unreadMessages,
+    reels: newReels,
+    notifications: unreadNotifications,
+    marketplace: marketplaceActivity,
+  });
+}, [chats, reels, songs, products, posts, unreadNotifications]);
+
+    //=====NOTIFICATION DECLARATIONS ===
+const enrichedNotifications = useMemo(() => {
+  return (Array.isArray(notifications) ? notifications : []).map((n) =>
+    enrichNotification(n, {
+      posts: Array.isArray(posts) ? posts : [],
+      reels: Array.isArray(reels) ? reels : [],
+      stories: Array.isArray(stories) ? stories : [],
+      songs: Array.isArray(songs) ? songs : [],
+      podcasts: [],
+      products: Array.isArray(products) ? products : [],
+      events: Array.isArray(events) ? events : [],
+      groupPosts: [],
+    })
+  );
+}, [notifications, posts, reels, stories, songs, products, events]);
+  // ============================================================================
+  // ✅ MUSIC REACTION/COMMENT/SHARE STATE (NEW)
+  // ============================================================================
+  const [trackReactions, setTrackReactions] = useState<Record<string, { count: number; myReaction?: ReactionType }>>({});
+  const [trackComments, setTrackComments] = useState<Record<string, number>>({});
+  const [trackShares, setTrackShares] = useState<Record<string, number>>({});
+  const [showMusicComments, setShowMusicComments] = useState(false);
+  const [selectedMusicTrack, setSelectedMusicTrack] = useState<AudioTrack | null>(null);
 
   const requireAuth = useCallback(
     (actionName = 'This action') => {
@@ -1678,12 +2617,21 @@ export default function App() {
     [currentUser]
   );
 
+      //==== REF====
   const usersRef = useRef<User[]>([]);
   const storiesInFlightRef = useRef(false);
   const reelsInFlightRef = useRef(false);
   const postsInFlightRef = useRef(false);
   const usersInFlightRef = useRef(false);
   const otherDataInFlightRef = useRef(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+const streamRef = useRef<MediaStream | null>(null);
+const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+const [recordingTime, setRecordingTime] = useState(0);
+const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
+const [isRecording, setIsRecording] = useState(false);
+const [recorderActiveTab, setRecorderActiveTab] = useState<'record' | 'preview'>('record'); 
   
   const reelsRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -1811,6 +2759,504 @@ export default function App() {
     }
   }, [activeStoryId, orderedStories, closeStoryViewer, markStorySeen, preloadStoryMedia]);
 
+const [deleteStoryLoading, setDeleteStoryLoading] = useState(false);
+
+const deleteStory = useCallback(async (storyId: number) => {
+  if (!requireAuth('Deleting stories')) return;
+  if (!currentUser) return;
+
+  setDeleteStoryLoading(true);
+  try {
+    await apiFetch(`/api/stories/${storyId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+
+    setStories(prev => prev.filter(story => Number(story.id) !== Number(storyId)));
+
+    setActiveStoryId(prev => (Number(prev) === Number(storyId) ? null : prev));
+
+    try {
+      const cached = readStoriesCache();
+      const nextCached = safeArray(cached?.stories).filter((s: any) => Number(s?.id) !== Number(storyId));
+      writeStoriesCache(nextCached);
+    } catch {}
+
+    const toast = document.createElement('div');
+    toast.className =
+      'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story deleted!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  } catch (error) {
+    console.error('Failed to delete story:', error);
+    setLoginError('Failed to delete story');
+  } finally {
+    setDeleteStoryLoading(false);
+  }
+}, [currentUser, requireAuth]);
+
+// ============================================================================
+// ✅ STORY UPLOAD HELPERS
+// ============================================================================
+
+const STORY_VIDEO_MAX_SECONDS = 90;
+
+const loadImageElement = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
+const loadVideoElement = (src: string) => new Promise<HTMLVideoElement>((resolve, reject) => {
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.playsInline = true;
+  v.muted = true;
+  v.src = src;
+  const cleanup = () => {
+    v.onloadedmetadata = null;
+    v.onerror = null;
+  };
+  v.onloadedmetadata = () => {
+    cleanup();
+    resolve(v);
+  };
+  v.onerror = () => {
+    cleanup();
+    reject(new Error('Failed to load video'));
+  };
+});
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => 
+  new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed'));
+    }, type, quality);
+  });
+
+const makeStoryImageVariants = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(objectUrl);
+    
+    const calcSize = (w: number, h: number, max: number) => {
+      if (Math.max(w, h) <= max) return { width: w, height: h };
+      const scale = max / Math.max(w, h);
+      return {
+        width: Math.round(w * scale),
+        height: Math.round(h * scale),
+      };
+    };
+    
+    const feedSize = calcSize(img.naturalWidth, img.naturalHeight, 1080);
+    const thumbSize = calcSize(img.naturalWidth, img.naturalHeight, 320);
+    
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = img.naturalWidth;
+    fullCanvas.height = img.naturalHeight;
+    fullCanvas.getContext('2d')!.drawImage(img, 0, 0);
+    
+    const feedCanvas = document.createElement('canvas');
+    feedCanvas.width = feedSize.width;
+    feedCanvas.height = feedSize.height;
+    feedCanvas.getContext('2d')!.drawImage(img, 0, 0, feedSize.width, feedSize.height);
+    
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = thumbSize.width;
+    thumbCanvas.height = thumbSize.height;
+    thumbCanvas.getContext('2d')!.drawImage(img, 0, 0, thumbSize.width, thumbSize.height);
+    
+    const fullFile = file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp' 
+      ? file 
+      : new File([await canvasToBlob(fullCanvas, 'image/jpeg', 0.92)], `${Date.now()}-original.jpg`, { type: 'image/jpeg' });
+    
+    const feedBlob = await canvasToBlob(feedCanvas, 'image/webp', 0.82);
+    const thumbBlob = await canvasToBlob(thumbCanvas, 'image/webp', 0.72);
+    
+    const feedFile = new File([feedBlob], `${Date.now()}-feed.webp`, { type: 'image/webp' });
+    const thumbFile = new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+    
+    return { fullFile, feedFile, thumbFile };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const makeStoryVideoThumbnail = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const video = await loadVideoElement(objectUrl);
+    
+    if (Number.isFinite(video.duration) && video.duration > STORY_VIDEO_MAX_SECONDS) {
+      throw new Error('Story video must be 1 minute 30 seconds or less');
+    }
+    
+    const seekTo = Math.min(Math.max(video.duration * 0.2, 0.1), Math.max(video.duration - 0.1, 0.1));
+    
+    await new Promise<void>((resolve, reject) => {
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('error', onError);
+        reject(new Error('Could not generate video thumbnail'));
+      };
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      try {
+        video.currentTime = seekTo;
+      } catch {
+        resolve();
+      }
+    });
+    
+    const max = 320;
+    const scale = max / Math.max(video.videoWidth || max, video.videoHeight || max);
+    const width = Math.max(1, Math.round((video.videoWidth || max) * Math.min(scale, 1)));
+    const height = Math.max(1, Math.round((video.videoHeight || max) * Math.min(scale, 1)));
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d')!.drawImage(video, 0, 0, width, height);
+    
+    const thumbBlob = await canvasToBlob(canvas, 'image/webp', 0.72);
+    return new File([thumbBlob], `${Date.now()}-thumbnail.webp`, { type: 'image/webp' });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
+const uploadStoryImageBundle = async (file: File) => {
+  const { fullFile, feedFile, thumbFile } = await makeStoryImageVariants(file);
+  const fd = new FormData();
+  fd.append('original', fullFile);
+  fd.append('feed', feedFile);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story image');
+  }
+  
+  return {
+    media_url: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.feed?.url || data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['image'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: data?.uploaded?.feed?.url || data?.uploaded?.original?.url || null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'image',
+    }],
+  };
+};
+
+const uploadStoryVideoBundle = async (file: File) => {
+  const thumbFile = await makeStoryVideoThumbnail(file);
+  const fd = new FormData();
+  fd.append('original', file);
+  fd.append('thumbnail', thumbFile);
+  
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json().catch(() => null);
+  
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.error || 'Failed to upload story video');
+  }
+  
+  return {
+    media_url: data?.uploaded?.original?.url || null,
+    media_urls: [data?.uploaded?.original?.url].filter(Boolean),
+    media_types: ['video'],
+    media_meta: [{
+      thumb: data?.uploaded?.thumbnail?.url || null,
+      feed: null,
+      full: data?.uploaded?.original?.url || null,
+      type: 'video',
+    }],
+  };
+};
+
+// ==================== STORY REACTIONS, SHARE & COMMENT HANDLERS ====================
+
+const fetchStoryReactions = useCallback(async (storyId: number) => {
+  try {
+    const data = await apiFetch(`/api/stories/${storyId}/reactions?limit=50`);
+    const reactions = Array.isArray(data?.reactions) ? data.reactions : [];
+    const counts = data?.counts || {};
+    
+    const totalCount = Object.values(counts).reduce((a: number, b: number) => a + b, 0) || reactions.length;
+    
+    return {
+      reactions,
+      counts: {
+        ...counts,
+        total: totalCount
+      }
+    };
+  } catch (error) {
+    console.error('Failed to fetch story reactions:', error);
+    return { reactions: [], counts: {} };
+  }
+}, []);
+
+const handleStoryShare = useCallback(async (storyId: number) => {
+  if (!requireAuth('Sharing stories')) return;
+  if (!currentUser) return;
+
+  try {
+    await apiFetch(`/api/stories/${storyId}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story shared!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  } catch (error) {
+    console.error('Failed to share story:', error);
+    setLoginError('Failed to share story');
+  }
+}, [currentUser, requireAuth]);
+
+// Updated: Opens the story comments modal
+const handleStoryComment = useCallback((storyId: number) => {
+  if (!requireAuth('Commenting on stories')) return;
+  if (!currentUser) return;
+  
+  setActiveStoryCommentId(storyId);
+  setShowStoryComments(true);
+}, [currentUser, requireAuth]);
+
+// ✅ END OF STORY HANDLERS ✅
+
+  // ============================================================================
+// ==================== ✅ HELPERS FOR MIXED FEED ✅ ===========================
+// ============================================================================
+
+const seededRand01Feed = (seed: number) => {
+  let x = seed | 0;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  return ((x >>> 0) % 1_000_000) / 1_000_000;
+};
+
+const safeNum = (v: any, fallback = 0) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const getRotatedReels = (input: any[], currentUser: any, seed: number) => {
+  const arr = Array.isArray(input) ? input.slice() : [];
+  if (!arr.length) return [];
+
+  const meId = safeNum(currentUser?.id, 0);
+  const following = new Set(
+    (Array.isArray(currentUser?.following) ? currentUser.following : []).map((x: any) => safeNum(x))
+  );
+
+  const scored = arr.map((reel, index) => {
+    const authorId = safeNum(reel?.user_id ?? reel?.user?.id, 0);
+    const isMine = !!meId && authorId === meId;
+    const isFollowing = !!authorId && following.has(authorId);
+
+    let score = 0;
+
+    // don't force my reels at top
+    if (isMine) score -= 40;
+
+    // followed creators get gentle boost
+    if (isFollowing) score += 15;
+
+    // keep fresh-ish order but allow rotation
+    score += Math.max(0, 12 - index);
+
+    // refresh rotation
+    score += seededRand01Feed(seed + safeNum(reel?.id, index) * 181) * 10;
+
+    return { reel, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  const out: any[] = [];
+  const usedAuthors = new Set<number>();
+
+  for (const item of scored) {
+    const authorId = safeNum(item.reel?.user_id ?? item.reel?.user?.id, 0);
+    if (authorId && usedAuthors.has(authorId)) continue;
+    out.push(item.reel);
+    if (authorId) usedAuthors.add(authorId);
+    if (out.length >= 8) break;
+  }
+
+  for (const item of scored) {
+    if (out.length >= 10) break;
+    if (!out.some((x) => safeNum(x?.id) === safeNum(item.reel?.id))) {
+      out.push(item.reel);
+    }
+  }
+
+  return out;
+};
+
+const interleaveFeedItems = (
+  postItems: Array<{ kind: 'post'; data: any; created_at: string }>,
+  storyItems: Array<{ kind: 'story'; data: any; created_at: string }>,
+  reelItems: Array<{ kind: 'reel'; data: any; created_at: string }>
+) => {
+  // IMPORTANT: keep posts exactly as feeds.ts gave them
+  const feed = [...postItems];
+  const stories = [...storyItems];
+  const reels = [...reelItems];
+
+  const out: Array<{ kind: 'post' | 'story' | 'reel'; data: any; created_at: string }> = [];
+
+  let postIndex = 0;
+  let storyIndex = 0;
+  let reelIndex = 0;
+
+  // spaced slots so stories/reels don't congest top
+  let nextStorySlot = 2; // first story after ~2 feed items
+  let nextReelSlot = 5;  // first reel after ~5 feed items
+
+  while (postIndex < feed.length || storyIndex < stories.length || reelIndex < reels.length) {
+    const len = out.length;
+    const lastKind = len ? out[len - 1].kind : '';
+
+    const canPlaceStory =
+      storyIndex < stories.length &&
+      len >= nextStorySlot &&
+      lastKind !== 'story';
+
+    const canPlaceReel =
+      reelIndex < reels.length &&
+      len >= nextReelSlot &&
+      lastKind !== 'reel';
+
+    // prefer story first, then reel, but never bunch them too tightly
+    if (canPlaceStory && lastKind !== 'reel') {
+      out.push(stories[storyIndex++]);
+      nextStorySlot += 7;
+      continue;
+    }
+
+    if (canPlaceReel && lastKind !== 'story') {
+      out.push(reels[reelIndex++]);
+      nextReelSlot += 8;
+      continue;
+    }
+
+    if (postIndex < feed.length) {
+      out.push(feed[postIndex++]);
+      continue;
+    }
+
+    if (storyIndex < stories.length && lastKind !== 'story') {
+      out.push(stories[storyIndex++]);
+      continue;
+    }
+
+    if (reelIndex < reels.length && lastKind !== 'reel') {
+      out.push(reels[reelIndex++]);
+      continue;
+    }
+
+    if (storyIndex < stories.length) {
+      out.push(stories[storyIndex++]);
+      continue;
+    }
+
+    if (reelIndex < reels.length) {
+      out.push(reels[reelIndex++]);
+      continue;
+    }
+
+    break;
+  }
+
+  return out;
+};
+
+// ============================================================================
+// ==================== ✅ MIXED FEED ITEMS (STORIES + POSTS + REELS) ✅ ======
+// ============================================================================
+
+// changes only on full manual page/app refresh
+const feedRefreshSeedRef = useRef<number>(Date.now());
+
+// freeze only stories + reels for current page session
+const frozenStoriesRef = useRef<any[] | null>(null);
+const frozenReelsRef = useRef<any[] | null>(null);
+
+// build frozen stories once per page session
+useEffect(() => {
+  if (
+    frozenStoriesRef.current === null &&
+    Array.isArray(orderedStories) &&
+    orderedStories.length > 0
+  ) {
+    frozenStoriesRef.current = getRotatedStories(
+      orderedStories,
+      currentUser,
+      feedRefreshSeedRef.current
+    );
+  }
+}, [orderedStories, currentUser]);
+
+// build frozen reels once per page session
+useEffect(() => {
+  if (
+    frozenReelsRef.current === null &&
+    Array.isArray(reels) &&
+    reels.length > 0
+  ) {
+    frozenReelsRef.current = getRotatedReels(
+      reels,
+      currentUser,
+      feedRefreshSeedRef.current + 999
+    );
+  }
+}, [reels, currentUser]);
+
+const mixedFeedItems = useMemo(() => {
+  // IMPORTANT: posts stay exactly as feeds.ts returned them
+  const postItems = safeArray(posts).map((post) => ({
+    kind: 'post' as const,
+    data: post,
+    created_at: post?.created_at || '',
+  }));
+
+  const storyItems = safeArray(frozenStoriesRef.current || []).map((story) => ({
+    kind: 'story' as const,
+    data: story,
+    created_at: story?.created_at || '',
+  }));
+
+  const reelItems = safeArray(frozenReelsRef.current || []).map((reel) => ({
+    kind: 'reel' as const,
+    data: reel,
+    created_at: reel?.created_at || '',
+  }));
+
+  return interleaveFeedItems(postItems, storyItems, reelItems);
+}, [posts]);
+
+// ============================================================================
+// ==================== ✅ END MIXED FEED ITEMS ✅ =============================
+// ============================================================================
+
+               
   const handleStoryPrev = useCallback(() => {
     if (!activeStoryId) return;
     
@@ -1908,6 +3354,130 @@ export default function App() {
     
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
+
+  // ============================================================================
+  // ✅ MUSIC HANDLERS
+  // ============================================================================
+
+  // Handle reaction for music tracks
+  const handleMusicReact = useCallback(async (track: AudioTrack, reactionType: ReactionType) => {
+  if (!currentUser) {
+    setLoginError('Please login to react');
+    setView('login');
+    return;
+  }
+
+  const key = `${track.type}:${String(track.id)}`;
+  const userId = currentUser.id;
+
+  // Optimistic update
+  setTrackReactions(prev => {
+    const current = prev[key] || { count: 0, myReaction: undefined };
+    const isSameReaction = current.myReaction === reactionType;
+    const newCount = isSameReaction 
+      ? Math.max(0, current.count - 1)
+      : current.myReaction 
+        ? current.count
+        : current.count + 1;
+    const newMyReaction = isSameReaction ? undefined : reactionType;
+    
+    return {
+      ...prev,
+      [key]: { count: newCount, myReaction: newMyReaction }
+    };
+  });
+
+  try {
+    const endpoint = track.type === 'music'
+      ? `/api/songs/${track.id}/react`
+      : `/api/podcasts/${track.id}/react`;
+    
+    const result = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, type: reactionType }),
+    });
+    
+    if (result) {
+      setTrackReactions(prev => ({
+        ...prev,
+        [key]: {
+          count: result.reactions_count || 0,
+          myReaction: result.my_reaction || undefined
+        }
+      }));
+    }
+  } catch (error) {
+    console.error('Failed to react:', error);
+    setTrackReactions(prev => {
+      const current = prev[key];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [key]: {
+          count: current.count,
+          myReaction: current.myReaction === reactionType ? undefined : current.myReaction
+        }
+      };
+    });
+    setLoginError('Failed to react. Please try again.');
+  }
+}, [currentUser]);
+
+  // Handle open music comments
+  const handleOpenMusicComments = useCallback((track: AudioTrack) => {
+    if (!currentUser) {
+      setLoginError('Please login to comment');
+      setView('login');
+      return;
+    }
+    setSelectedMusicTrack(track);
+    setShowMusicComments(true);
+  }, [currentUser]);
+
+  // Handle music share
+  const handleMusicShare = useCallback((track: AudioTrack) => {
+    if (!currentUser) {
+      setLoginError('Please login to share');
+      setView('login');
+      return;
+    }
+    
+    // Create a post-like object for the music track
+    const musicPost = {
+      id: track.id,
+      user_id: currentUser.id,
+      content: `${track.title} by ${track.artist}`,
+      type: track.type,
+      media_url: track.cover,
+      author: {
+        name: currentUser.name,
+        username: currentUser.username,
+        profile_image_url: currentUser.profile_image_url,
+      },
+      created_at: new Date().toISOString(),
+    };
+    
+    setActiveSharePost(musicPost);
+    setShowShareSheet(true);
+  }, [currentUser]);
+
+  // Handle comment added for music track
+  const handleMusicCommentAdded = useCallback((trackId: string) => {
+    setTrackComments(prev => ({
+      ...prev,
+      [trackId]: (prev[trackId] || 0) + 1
+    }));
+  }, []);
+    // Handle share complete for music track
+const handleMusicShareComplete = useCallback((destination: string, data?: any, track?: AudioTrack) => {
+  if (data?.success && track) {
+    const key = `${track.type}:${String(track.id)}`;
+    setTrackShares(prev => ({
+      ...prev,
+      [key]: (prev[key] || 0) + 1
+    }));
+  }
+}, []);
 
   // Incoming call polling effect
   useEffect(() => {
@@ -2550,55 +4120,183 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  const createStory = useCallback(async (storyData: Partial<Story> & { media_file?: File; audio_file?: File }) => {
-    if (!requireAuth('Creating stories')) return;
-    if (!currentUser) return;
-
-    try {
-      let mediaUrl = storyData.media_url;
-      let musicUrl = storyData.music_url;
-
-      if (storyData.media_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.media_file, 'stories');
-        mediaUrl = uploadResult.url;
+const createStory = useCallback(async (storyData: Partial<Story> & { 
+  media_file?: File; 
+  audio_file?: File; 
+  video_file?: File;
+  media_urls?: string[];
+  media_types?: string[];
+  media_meta?: any[];
+}) => {
+  if (!requireAuth('Creating stories')) return;
+  if (!currentUser) return;
+  
+  const hasText = storyData.text_content && storyData.text_content.trim().length > 0;
+  const hasMedia = storyData.media_file || storyData.video_file || storyData.media_url;
+  
+  if (!hasText && !hasMedia) {
+    setLoginError('Please add text or media to your story');
+    return;
+  }
+  
+  setShowCreateStoryModal(false);
+  setStoryCreateLoading(true);
+  
+  try {
+    let mediaUrl = storyData.media_url || null;
+    let musicUrl = storyData.music_url || null;
+    let mediaType = storyData.type || 'text';
+    let mediaUrls: string[] | null = Array.isArray((storyData as any).media_urls) ? (storyData as any).media_urls : null;
+    let mediaTypes: string[] | null = Array.isArray((storyData as any).media_types) ? (storyData as any).media_types : null;
+    let mediaMeta: any[] | null = Array.isArray((storyData as any).media_meta) ? (storyData as any).media_meta : null;
+    
+    // VIDEO
+    if (storyData.video_file) {
+      const videoFile = storyData.video_file;
+      if (videoFile.size > 50 * 1024 * 1024) {
+        throw new Error('Video file size must be less than 50MB');
+      }
+      const validVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+      if (!validVideoTypes.includes(videoFile.type)) {
+        throw new Error('Please upload a valid video file (MP4, WebM, or MOV)');
       }
 
-      if (storyData.audio_file) {
-        const uploadResult = await uploadToCloudflareR2(storyData.audio_file, 'story-audio');
-        musicUrl = uploadResult.url;
-      }
+      const uploaded = await uploadStoryVideoBundle(videoFile);
 
-      const payload = {
-        user_id: currentUser.id,
-        type: storyData.type || 'text',
-        text_content: storyData.text_content || null,
-        media_url: mediaUrl || null,
-        background_style: storyData.background_style || null,
-        music_url: musicUrl || null,
-        music_title: storyData.music_title || null,
-        created_at: new Date().toISOString(),
-      };
+      mediaUrl = uploaded.media_url;
+      mediaUrls = uploaded.media_urls;
+      mediaTypes = uploaded.media_types;
+      mediaMeta = Array.isArray(uploaded.media_meta)
+        ? uploaded.media_meta.map((m: any) => ({
+            ...m,
+            thumb: m?.thumb || '',
+            feed: m?.feed || m?.full || m?.thumb || '',
+            full: m?.feed || m?.full || m?.thumb || '', // ✅ full = feed
+            type: m?.type || 'video',
+          }))
+        : uploaded.media_meta;
 
-      const data = await apiFetch('/api/stories', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newStory = normalizeStory(data?.story ?? data, currentUser);
-      newStory.user = currentUser;
-
-      setStories(prev => [newStory, ...prev]);
-
-      writeStoriesCache([newStory, ...stories]);
-
-      setLoginError('Story created successfully!');
-      
-    } catch (error: any) {
-      console.error('Failed to create story:', error);
-      setLoginError(error?.message || 'Failed to create story');
+      mediaType = 'video';
     }
-  }, [currentUser, requireAuth, stories]);
+    // IMAGE
+    else if (storyData.media_file) {
+      const imageFile = storyData.media_file;
+      if (imageFile.size > 10 * 1024 * 1024) {
+        throw new Error('Image file size must be less than 10MB');
+      }
+      const validImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validImageTypes.includes(imageFile.type)) {
+        throw new Error('Please upload a valid image file (JPEG, PNG, WebP, or GIF)');
+      }
 
+      const uploaded = await uploadStoryImageBundle(imageFile);
+
+      mediaUrl = uploaded.media_url;
+      mediaUrls = uploaded.media_urls;
+      mediaTypes = uploaded.media_types;
+      mediaMeta = Array.isArray(uploaded.media_meta)
+        ? uploaded.media_meta.map((m: any) => ({
+            ...m,
+            thumb: m?.thumb || '',
+            feed: m?.feed || m?.full || m?.thumb || '',
+            full: m?.feed || m?.full || m?.thumb || '', // ✅ full = feed
+            type: m?.type || 'image',
+          }))
+        : uploaded.media_meta;
+
+      mediaType = 'image';
+    }
+
+    // AUDIO
+    if (storyData.audio_file) {
+      const audioFile = storyData.audio_file;
+      if (audioFile.size > 5 * 1024 * 1024) {
+        throw new Error('Audio file size must be less than 5MB');
+      }
+      const uploadResult = await uploadToCloudflareR2(audioFile, 'story-audio');
+      musicUrl = uploadResult.url;
+    }
+
+    // ✅ final safety normalization
+    if (Array.isArray(mediaMeta)) {
+      mediaMeta = mediaMeta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '', // ✅ full always feed
+        type: m?.type || mediaType,
+      }));
+    }
+    
+    const payload = {
+      user_id: currentUser.id,
+      type: mediaType,
+      text_content: storyData.text_content?.trim() || null,
+      media_url: mediaUrl || null,
+      media_urls: mediaUrls || null,
+      media_types: mediaTypes || null,
+      media_meta: mediaMeta || null,
+      background_style: storyData.background_style || null,
+      music_url: musicUrl || null,
+      music_title: storyData.music_title || null,
+      created_at: new Date().toISOString(),
+    };
+    
+    const data = await apiFetch('/api/stories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    
+    const newStory = normalizeStory(data?.story ?? data, currentUser);
+    newStory.user = currentUser;
+    newStory.author_name = currentUser.name;
+    newStory.author_username = currentUser.username;
+    newStory.author_image = currentUser.profile_image_url;
+
+    // ✅ keep full = feed after response too
+    if (Array.isArray((newStory as any).media_meta)) {
+      (newStory as any).media_meta = (newStory as any).media_meta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '',
+        type: m?.type || newStory.type || 'image',
+      }));
+    }
+    
+    setStories(prev => [newStory, ...safeArray(prev)]);
+    
+    try {
+      const cached = readStoriesCache();
+      const updatedCache = [newStory, ...safeArray(cached?.stories)];
+      writeStoriesCache(updatedCache);
+    } catch (error) {
+      console.warn('Failed to update stories cache:', error);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Story posted successfully!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+    
+    return newStory;
+  } catch (error: any) {
+    console.error('Failed to create story:', error);
+    setLoginError(error?.message || 'Failed to create story');
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = error?.message || 'Failed to create story';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+    
+    throw error;
+  } finally {
+    setStoryCreateLoading(false);
+  }
+}, [currentUser, requireAuth, setStories, setShowCreateStoryModal]);
+  
   useEffect(() => {
     if (!authHydrated) return;
 
@@ -2978,63 +4676,81 @@ export default function App() {
   }, [currentUser, requireAuth, fetchMyAds]);
 
   // Helper to create marketplace posts
-  const createMarketplacePost = useCallback(
-    async (product: any) => {
-      if (!currentUser) return;
+const createMarketplacePost = useCallback(
+  async (product: any) => {
+    if (!currentUser) return;
 
-      const images: string[] = safeImages(product.images);
-      const media_url = images[0] || '';
-      const media_type = media_url ? 'image' : null;
+    const variants = safeImageVariants(product.image_variants);
+    const images: string[] = safeImages(product.images);
+    
+    const mediaMeta = variants.length > 0 
+      ? variants.map((v) => ({
+          thumb: v.thumb || v.feed,
+          feed: v.feed,
+          full: v.feed, // keep full = feed
+          type: 'image',
+        }))
+      : images.map((url) => ({
+          thumb: url,
+          feed: url,
+          full: url,
+          type: 'image',
+        }));
+    
+    const media_urls = variants.length > 0 
+      ? variants.map((v) => v.feed).filter(Boolean) 
+      : images;
+    
+    const media_url = media_urls[0] || '';
+    const media_type = media_url ? 'image' : null;
 
-      const payload = {
-        user_id: currentUser.id,
-        
-        content: product.title || '',
-        visibility: 'public',
-        
-        type: "marketplace",
-        post_type: "product",
+    const payload = {
+      user_id: currentUser.id,
+      content: product.title || '',
+      visibility: 'public',
+      type: 'marketplace',
+      post_type: 'product',
+      product_id: product.id,
+      media_url,
+      media_type,
+      media_urls,
+      media_types: media_urls.map(() => 'image'),
+      media_meta: mediaMeta,
+      meta: {
+        kind: 'product',
         product_id: product.id,
-        
-        media_url,
-        media_type,
-        media_urls: images,
-        media_types: images.map(() => 'image'),
-        
-        meta: {
-          kind: "product",
+        marketplace: {
+          id: product.id,
           product_id: product.id,
-          marketplace: {
-            id: product.id,
-            product_id: product.id,
-            price: product.discount_price ?? product.main_price ?? null,
-            currency: product.currency_symbol || 'TZS',
-            location: product.address || '',
-            title: product.title,
-            images: images,
-          }
-        }
-      };
+          price: product.discount_price ?? product.main_price ?? null,
+          currency: product.currency_symbol || 'TZS',
+          location: product.address || '',
+          title: product.title,
+          images: media_urls,
+          image_variants: mediaMeta,
+        },
+      },
+    };
 
-      const created = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    const created = await apiFetch('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      const newPost = normalizePost(created?.post ?? created);
-      
-      setPosts(prev => [newPost, ...safeArray(prev)]);
-      
-      if (Number(currentUser.id) === Number(selectedUserId)) {
-        setProfilePosts(prev => [newPost, ...safeArray(prev)]);
-      }
+    const newPost = normalizePost(created?.post ?? created);
+    
+    setPosts(prev => [newPost, ...safeArray(prev)]);
+    
+    if (Number(currentUser.id) === Number(selectedUserId)) {
+      setProfilePosts(prev => [newPost, ...safeArray(prev)]);
+    }
 
-      scheduleSilentRefresh();
-      
-      return newPost;
-    },
-    [currentUser, selectedUserId]
-  );
+    scheduleSilentRefresh();
+    
+    return newPost;
+  },
+  [currentUser, selectedUserId]
+);
 
   const createProduct = useCallback(async (productData: any) => {
     if (!requireAuth("Creating products")) return;
@@ -3185,6 +4901,7 @@ export default function App() {
       usersInFlightRef.current = false;
     }
   }, []);
+  
 
   // fetchReels
   const fetchReels = useCallback(async () => {
@@ -3230,68 +4947,149 @@ export default function App() {
   }, [users]);
 
   const generateSoundKey = useCallback((reelData: any, selectedReelSound: ReelSound | null): string => {
-    if (reelData.soundKey) return String(reelData.soundKey);
-    
-    if (selectedReelSound?.songId) {
-      return `song:${selectedReelSound.songId}`;
-    }
-    
-    if (reelData.originalSoundId) {
-      return `original-song:${reelData.originalSoundId}`;
-    }
-    
-    if (selectedReelSound?.audioUrl) {
-      return `audio:${selectedReelSound.audioUrl}`;
-    }
-    
-    if (reelData.audioUrl) {
-      return `audio:${reelData.audioUrl}`;
-    }
-    
-    return 'original:none';
-  }, []);
+  if (reelData.soundKey) return String(reelData.soundKey);
 
-  const createReel = useCallback(async (
-    reelData: Partial<Reel> & {
-      videoFile?: File | Blob;
-      thumbnailFile?: File | Blob;
-      audioFile?: File | Blob;
-      originalSoundId?: string | number;
-    }
-  ) => {
-    if (!requireAuth('Creating reels')) return;
-    if (!currentUser) return;
+  // ✅ NEW: prioritize extracted/original audio first
+  if (reelData.audioFile && !reelData.originalSoundId) {
+    return `original:extracted:${Date.now()}`;
+  }
 
-    console.log("createReel input:", reelData);
-    setIsFeedRefreshing(true);
+  if (reelData.originalSoundId) {
+    return `song:${reelData.originalSoundId}`;
+  }
 
-    try {
-      const videoFile = reelData.videoFile;
-      const thumbnailFile = reelData.thumbnailFile;
-      const audioFile = reelData.audioFile;
+  // keep existing logic
+  if (selectedReelSound?.songId) {
+    return `song:${selectedReelSound.songId}`;
+  }
 
-      if (!videoFile) {
-        throw new Error('Video is required');
-      }
+  if (selectedReelSound?.audioUrl) {
+    return `audio:${selectedReelSound.audioUrl}`;
+  }
 
-      let videoUrl = '';
-      let videoUrlLow = '';
-      let videoUrlMedium = '';
-      let videoUrlHd = '';
-      let thumbnailUrl = '';
+  if (reelData.audioUrl) {
+    return `audio:${reelData.audioUrl}`;
+  }
+
+  return 'original:none';
+}, []);
+
+  
+const isVideoLikeAudioUrl = (url?: string) => {
+  const u = String(url || '').toLowerCase().split('?')[0];
+
+  return (
+    u.endsWith('.mp4') ||
+    u.endsWith('.mov') ||
+    u.endsWith('.webm') ||
+    u.endsWith('.m4v') ||
+    u.includes('/uploads/videos/')
+  );
+};
+
+const remoteUrlToVideoFile = async (url: string): Promise<File> => {
+  const res = await fetch(url, { cache: 'force-cache' });
+
+  if (!res.ok) {
+    throw new Error('Failed to load original sound video');
+  }
+
+  const blob = await res.blob();
+  const type = blob.type || 'video/mp4';
+
+  return new File(
+    [blob],
+    `original-sound-video-${Date.now()}.mp4`,
+    { type }
+  );
+};
+
+
+
+  
+  //===CREATE REEL FUNCTION ====
+
+const createReel = useCallback(async (
+  reelData: Partial<Reel> & {
+  videoFile?: File | Blob;
+  thumbnailFile?: File | Blob;
+  audioFile?: File | Blob;
+  originalSoundId?: string | number;
+  nativeVideoUrl?: string;
+  nativeVideoMeta?: any;
+
+  lyricsText?: string;
+  lyricsTheme?: string;
+  lyricsEnabled?: boolean;
+  descriptionHtml?: string;
+}
+) => {
+  if (!requireAuth('Creating reels')) return;
+  if (!currentUser) return;
+
+  console.log("createReel input:", reelData);
+  setIsFeedRefreshing(true);
+
+  try {
+    let videoUrl = '';
+    let videoUrlLow = '';
+    let videoUrlMedium = '';
+    let videoUrlHd = '';
+    let thumbnailUrl = '';
+    let mediaMeta: any = null;
+
+    setReelPublishingProgress(5);
+    setReelPublishingText('Preparing your reel...');
+
+    const isNativeVideo = !!reelData.nativeVideoUrl;
+
+    if (isNativeVideo) {
+      setReelPublishingProgress(20);
+      setReelPublishingText('Processing video...');
+
+      videoUrl = String(reelData.nativeVideoUrl || '');
+      videoUrlLow = videoUrl;
+      videoUrlMedium = videoUrl;
+      videoUrlHd = '';
+
+      mediaMeta = reelData.nativeVideoMeta || {
+        thumb: videoUrl,
+        feed: videoUrl,
+        full: videoUrl,
+        url: videoUrl,
+        type: 'video',
+      };
+
+      thumbnailUrl =
+        mediaMeta.thumb ||
+        mediaMeta.thumbnail ||
+        mediaMeta.thumbnail_url ||
+        mediaMeta.feed ||
+        mediaMeta.full ||
+        videoUrl;
+
+      setReelPublishingProgress(35);
+      setReelPublishingText('Video ready, preparing...');
+    } else if (reelData.videoFile) {
+      setReelPublishingProgress(15);
+      setReelPublishingText('Uploading video...');
 
       videoUrlMedium = await ensureR2Url(
-        videoFile,
+        reelData.videoFile,
         'reels',
         `reel-${Date.now()}.mp4`
       );
+
       videoUrlLow = videoUrlMedium;
       videoUrl = videoUrlMedium;
       videoUrlHd = '';
 
-      if (thumbnailFile) {
+      setReelPublishingProgress(45);
+      setReelPublishingText('Preparing thumbnail...');
+
+      if (reelData.thumbnailFile) {
         thumbnailUrl = await ensureR2Url(
-          thumbnailFile,
+          reelData.thumbnailFile,
           'reels-thumbs',
           `reel-thumb-${Date.now()}.webp`
         );
@@ -3300,79 +5098,157 @@ export default function App() {
       if (!videoUrl || !videoUrl.startsWith('http')) {
         throw new Error('Video upload failed');
       }
-
-      let audioUrl = null;
-      if (audioFile) {
-        audioUrl = await ensureR2Url(
-          audioFile,
-          'reel-audio',
-          `audio-${Date.now()}.wav`
-        );
-      } else if (reelData.audioUrl) {
-        audioUrl = reelData.audioUrl;
-      }
-
-      const soundKey = generateSoundKey(reelData, selectedReelSound);
-      const isTrimmedAudio = soundKey.startsWith('trimmed:');
-      const audioStart = isTrimmedAudio ? 0 : (reelData.audioStart || 0);
-      const audioEnd = isTrimmedAudio ? 0 : (reelData.audioEnd || 0);
-
-      const soundPayload = selectedReelSound || {
-        songName: reelData.songName || 'Original Sound',
-        audioUrl: audioUrl || '',
-        audioStart,
-        audioEnd,
-        songId: reelData.originalSoundId,
-      };
-
-      const payload = {
-        user_id: currentUser.id,
-        caption: reelData.caption || '',
-        video_url: videoUrl,
-        video_url_low: videoUrlLow,
-        video_url_medium: videoUrlMedium,
-        video_url_hd: videoUrlHd,
-        thumbnail_url: thumbnailUrl || '',
-        song_name: soundPayload.songName,
-        audio_url: audioUrl,
-        audio_start: audioStart,
-        audio_end: audioEnd,
-        song_id: soundPayload.songId || null,
-        sound_key: soundKey,
-        visibility: reelData.visibility || 'public',
-        location: reelData.location || '',
-        views: 0,
-        shares: 0,
-      };
-
-      console.log("Sending to API:", payload);
-
-      const data = await apiFetch('/api/reels', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newReel = normalizeReel(data.reel || data);
-
-      newReel.author = currentUser.name;
-      newReel.author_name = currentUser.name;
-      newReel.avatar = currentUser.profile_image_url;
-      newReel.avatar_url = currentUser.profile_image_url;
-      newReel.verified = currentUser.is_verified;
-
-      setReels(prev => [newReel, ...safeArray(prev)]);
-      setLoginError('Reel posted successfully!');
-      setSelectedReelSound(null);
-    } catch (error: any) {
-      console.error('Failed to create reel:', error);
-      setLoginError(error?.message || 'Failed to create reel');
-      throw error;
-    } finally {
-      setIsFeedRefreshing(false);
-      setShowCreateReelModal(false);
+    } else {
+      throw new Error('No video source provided');
     }
-  }, [currentUser, requireAuth, selectedReelSound, generateSoundKey]);
 
+    setReelPublishingProgress(60);
+    setReelPublishingText('Processing audio track...');
+
+    let audioUrl = '';
+
+    if (reelData.audioFile) {
+      audioUrl = await ensureR2Url(
+        reelData.audioFile,
+        'reel-audio',
+        `audio-${Date.now()}.webm`
+      );
+    } else {
+      const candidateAudioUrl =
+        reelData.audioUrl ||
+        selectedReelSound?.originalUrl ||
+        selectedReelSound?.audioUrl ||
+        '';
+
+      // ✅ IMPORTANT:
+      // Keep original-sound MP4 as audio_url.
+      // Do not extract/convert to webm here.
+      audioUrl = candidateAudioUrl;
+    }
+
+    const soundKey = generateSoundKey(reelData, selectedReelSound);
+    const isTrimmedAudio = soundKey.startsWith('trimmed:');
+
+    const audioStart = isTrimmedAudio
+      ? 0
+      : reelData.audioStart ?? selectedReelSound?.audioStart ?? 0;
+
+    const audioEnd = isTrimmedAudio
+      ? 0
+      : reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0;
+
+    setReelPublishingProgress(75);
+    setReelPublishingText('Publishing your reel...');
+
+    const payload = {
+  user_id: currentUser.id,
+  caption: reelData.caption || '',
+
+  video_url: videoUrl,
+  video_url_low: videoUrlLow,
+  video_url_medium: videoUrlMedium,
+  video_url_hd: videoUrlHd,
+
+  thumbnail_url: thumbnailUrl || '',
+  media_meta: mediaMeta ? JSON.stringify(mediaMeta) : null,
+
+  song_name:
+    reelData.songName ||
+    selectedReelSound?.songName ||
+    'Original Sound',
+
+  // ✅ For original sound, this may be MP4.
+  audio_url: audioUrl,
+
+  audio_start: audioStart,
+  audio_end: audioEnd,
+
+  song_id:
+    reelData.originalSoundId ||
+    selectedReelSound?.songId ||
+    null,
+
+  sound_key: soundKey,
+
+  // ✅ IMPORTANT: Recorder.tsx sends camelCase
+  // Backend expects snake_case
+  lyrics_text:
+    (reelData as any).lyrics_text ??
+    reelData.lyricsText ??
+    '',
+
+  lyrics_theme:
+    (reelData as any).lyrics_theme ??
+    reelData.lyricsTheme ??
+    'karaoke',
+
+  lyrics_enabled:
+    (reelData as any).lyrics_enabled !== undefined
+      ? ((reelData as any).lyrics_enabled ? 1 : 0)
+      : reelData.lyricsEnabled
+        ? 1
+        : 0,
+
+  description_html:
+    (reelData as any).description_html ??
+    reelData.descriptionHtml ??
+    '',
+
+  visibility: reelData.visibility || 'public',
+  location: reelData.location || '',
+
+  views: 0,
+  shares: 0,
+
+  filter_id:
+    (reelData as any).filterId ||
+    (reelData as any).effectId ||
+    'none',
+
+  filter_intensity: (reelData as any).filterIntensity ?? 0.75,
+};
+
+    console.log("Sending reel to API:", payload);
+
+    const data = await apiFetch('/api/reels', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    setReelPublishingProgress(100);
+    setReelPublishingText('Reel posted successfully!');
+
+    const newReel = normalizeReel(data.reel || data);
+
+    newReel.author = currentUser.name;
+    newReel.author_name = currentUser.name;
+    newReel.avatar = currentUser.profile_image_url;
+    newReel.avatar_url = currentUser.profile_image_url;
+    newReel.verified = currentUser.is_verified;
+
+    setReels(prev => [newReel, ...safeArray(prev)]);
+    setLoginError('Reel posted successfully!');
+    setSelectedReelSound(null);
+  } catch (error: any) {
+    console.error('Failed to create reel:', error);
+    setReelPublishingText(error?.message || 'Failed to create reel');
+    setReelPublishingProgress(0);
+    setLoginError(error?.message || 'Failed to create reel');
+    throw error;
+  } finally {
+    setIsFeedRefreshing(false);
+    setShowCreateReelModal(false);
+  }
+}, [
+  currentUser,
+  requireAuth,
+  selectedReelSound,
+  generateSoundKey,
+]);
+
+
+
+    
   const reactToReel = useCallback(async (reelId: number, type?: ReactionType) => {
     if (!requireAuth('Reacting to reels')) return;
     if (!currentUser) return;
@@ -4083,101 +5959,156 @@ export default function App() {
     return newEvent;
   }, [currentUser, requireAuth, selectedUserId]);
 
-  // Refresh group members helper
-  const refreshGroupMembers = useCallback(async (groupId: number) => {
-    try {
-      const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
-      const members = safeArray(res?.members)
-        .map((m: any) => Number(m.user_id ?? m))
-        .filter(Number.isFinite);
-      
-      setGroups(prev => prev.map(g => {
+  //====Refresh group members helper
+
+
+const refreshGroupMembers = useCallback(async (groupId: number) => {
+  try {
+    const res = await apiFetch(`/api/group-members?group_id=${Number(groupId)}`);
+    const members = safeArray((res as any)?.members)
+      .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+      .filter(Number.isFinite);
+
+    const meId = currentUser?.id ? Number(currentUser.id) : 0;
+
+    setGroups(prev =>
+      prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
-        return { 
-          ...g, 
-          members, 
-          members_count: members.length 
+
+        const amMember =
+          !!meId &&
+          (Number(g.admin_id) === meId || members.includes(meId));
+
+        return {
+          ...g,
+          members,
+          members_count: members.length,
+          is_member: amMember,
         };
-      }));
-    } catch (error) {
-      console.error('Failed to refresh group members:', error);
-    }
-  }, []);
+      })
+    );
+  } catch (error) {
+    console.error('Failed to refresh group members:', error);
+  }
+}, [currentUser]);
 
-  // fetchOtherData
-  const fetchOtherData = useCallback(async () => {
-    if (otherDataInFlightRef.current) return;
-    otherDataInFlightRef.current = true;
-    
-    try {
-      const [pr, g, b, c] = await Promise.all([
-        apiFetch('/api/products').catch(() => []),
-        apiFetch('/api/groups').catch(() => []),
-        apiFetch('/api/brands').catch(() => []),
-        apiFetch('/api/chats').catch(() => []),
-      ]);
+  //===fetch otherdata ===
 
-      const prRaw = pr;
-      const prList =
-        Array.isArray(prRaw) ? prRaw :
-        Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
-        Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
-        Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
-        Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
-        [];
+const fetchOtherData = useCallback(async () => {
+  if (otherDataInFlightRef.current) return;
+  otherDataInFlightRef.current = true;
 
-      setProducts(prList.map(normalizeProduct));
-      
-      const gRaw = g;
-      const gList = Array.isArray(gRaw)
-        ? gRaw
-        : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
-        : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
-        : [];
-      
-      setGroups(prev => {
-        const byId = new Map(prev.map(g => [Number(g.id), g]));
-        
-        return gList.map((ng: any) => {
-          const old = byId.get(Number(ng.id));
-          
-          const hasMembers = ng.members !== undefined && ng.members !== null && Array.isArray(ng.members);
-          
-          const members = hasMembers ? ng.members : old?.members;
-          
-          const members_count = hasMembers 
-            ? ng.members.length 
-            : safeNumber(ng.members_count ?? old?.members_count ?? old?.members?.length ?? 0);
-          
-          const is_member = ng.is_member === true ? true : 
-                           ng.is_member === false ? false : 
-                           old?.is_member;
-          
-          const category = ng.category || old?.category || 'general';
-          
-          return normalizeGroup({
-            ...old,
-            ...ng,
-            members,
-            members_count,
-            is_member,
-            category,
-          });
+  try {
+    const [pr, b, c] = await Promise.all([
+      apiFetch('/api/products').catch(() => []),
+      apiFetch('/api/brands').catch(() => []),
+      apiFetch('/api/chats').catch(() => []),
+    ]);
+
+    const prRaw = pr;
+    const prList =
+      Array.isArray(prRaw) ? prRaw :
+      Array.isArray((prRaw as any)?.products) ? (prRaw as any).products :
+      Array.isArray((prRaw as any)?.data) ? (prRaw as any).data :
+      Array.isArray((prRaw as any)?.results) ? (prRaw as any).results :
+      Array.isArray((prRaw as any)?.items) ? (prRaw as any).items :
+      [];
+
+    setProducts(prList.map(normalizeProduct));
+    setBrands(safeArray(b));
+
+    const eventsData = await fetchEvents().catch(() => []);
+    setEvents(eventsData);
+
+    setChats(safeArray(c));
+  } catch (error) {
+    console.error('Failed to fetch other data:', error);
+  } finally {
+    otherDataInFlightRef.current = false;
+  }
+}, [fetchEvents]);
+
+              
+            
+  //===fetch Group for viewers====
+            
+
+const fetchGroupsForViewer = useCallback(async () => {
+  const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+
+  try {
+    const g = await apiFetch(`/api/groups?viewerId=${viewerId}`).catch(() => []);
+    const gRaw = g;
+    const gList = Array.isArray(gRaw)
+      ? gRaw
+      : Array.isArray((gRaw as any)?.groups) ? (gRaw as any).groups
+      : Array.isArray((gRaw as any)?.results) ? (gRaw as any).results
+      : [];
+
+    setGroups(prev => {
+      const byId = new Map(prev.map(g => [Number(g.id), g]));
+
+      return gList.map((ng: any) => {
+        const old = byId.get(Number(ng.id));
+
+        const hasMembers =
+          ng?.members !== undefined &&
+          ng?.members !== null &&
+          Array.isArray(ng.members);
+
+        const members = hasMembers
+          ? ng.members
+              .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+              .filter(Number.isFinite)
+          : old?.members;
+
+        const members_count = hasMembers
+          ? members.length
+          : safeNumber(
+              ng?.members_count ??
+              old?.members_count ??
+              old?.members?.length ??
+              0
+            );
+
+        const rawIsMember = ng?.is_member ?? ng?.isMember;
+        const parsedIncomingIsMember =
+          rawIsMember === true ||
+          rawIsMember === 1 ||
+          rawIsMember === "1" ||
+          rawIsMember === "true"
+            ? true
+            : rawIsMember === false ||
+              rawIsMember === 0 ||
+              rawIsMember === "0" ||
+              rawIsMember === "false"
+            ? false
+            : undefined;
+
+        const is_member =
+          parsedIncomingIsMember !== undefined
+            ? parsedIncomingIsMember
+            : old?.is_member ?? false;
+
+        const category = ng?.category || old?.category || "general";
+
+        return normalizeGroup({
+          ...old,
+          ...ng,
+          members,
+          members_count,
+          is_member,
+          category,
         });
       });
-      
-      setBrands(safeArray(b));
-      
-      const eventsData = await fetchEvents().catch(() => []);
-      setEvents(eventsData);
-      
-      setChats(safeArray(c));
-    } catch (error) {
-      console.error('Failed to fetch other data:', error);
-    } finally {
-      otherDataInFlightRef.current = false;
-    }
-  }, [fetchEvents]);
+    });
+  } catch (error) {
+    console.error('Failed to fetch groups for viewer:', error);
+  }
+}, [currentUser]);
+                    
+
+            
 
   const isGroupMember = useCallback((group: Group): boolean => {
     if (!currentUser) return false;
@@ -4240,6 +6171,8 @@ export default function App() {
     }
   }, []);
 
+//===CREATE GROUP COMMENT===
+            
   const createGroupPostComment = useCallback(async (postId: number, text: string, parent_comment_id?: number | null) => {
     if (!requireAuth("Commenting")) return;
     const meId = Number(currentUser!.id);
@@ -4262,60 +6195,91 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  const joinGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Joining groups")) return;
-    if (!currentUser) return;
+        //===JOIN GROUP ===
+            
+const joinGroup = useCallback(async (groupId: number) => {
+  if (!requireAuth("Joining groups")) return;
+  if (!currentUser) return;
 
-    const meId = Number(currentUser.id);
+  const meId = Number(currentUser.id);
 
+  // optimistic update in main groups state
+  setGroups(prev =>
+    prev.map(g => {
+      if (Number(g.id) !== Number(groupId)) return g;
+
+      const currentMembers = Array.isArray(g.members) ? g.members : [];
+      const nextMembers = currentMembers.includes(meId)
+        ? currentMembers
+        : [...currentMembers, meId];
+
+      return {
+        ...g,
+        members: nextMembers,
+        members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
+        is_member: true,
+      };
+    })
+  );
+
+  try {
+    const result = await apiFetch("/api/group-members", {
+      method: "POST",
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        user_id: meId,
+        role: "member",
+      }),
+    });
+
+    // hard refresh members after join
+    await refreshGroupMembers(groupId);
+
+    // keep joined state durable in main groups state
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
-        
+
         const currentMembers = Array.isArray(g.members) ? g.members : [];
-        if (currentMembers.includes(meId)) return g;
-        
-        const nextMembers = [...currentMembers, meId];
-        
+        const nextMembers = currentMembers.includes(meId)
+          ? currentMembers
+          : [...currentMembers, meId];
+
         return {
           ...g,
           members: nextMembers,
-          members_count: nextMembers.length,
+          members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
           is_member: true,
         };
       })
     );
 
-    try {
-      const result = await apiFetch("/api/group-members", {
-        method: "POST",
-        body: JSON.stringify({ group_id: Number(groupId), user_id: meId, role: "member" }),
-      });
+    return result;
+  } catch (error) {
+    console.error('Failed to join group:', error);
 
-      await refreshGroupMembers(groupId);
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to join group:', error);
-      setGroups(prev =>
-        prev.map(g => {
-          if (Number(g.id) !== Number(groupId)) return g;
-          
-          const currentMembers = Array.isArray(g.members) ? g.members : [];
-          const nextMembers = currentMembers.filter(id => id !== meId);
-          
-          return {
-            ...g,
-            members: nextMembers,
-            members_count: nextMembers.length,
-            is_member: false,
-          };
-        })
-      );
-      setLoginError('Failed to join group');
-      throw error;
-    }
-  }, [currentUser, requireAuth, refreshGroupMembers]);
+    // rollback
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.filter(id => id !== meId);
+
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: nextMembers.length,
+          is_member: false,
+        };
+      })
+    );
+
+    setLoginError('Failed to join group');
+    throw error;
+  }
+}, [currentUser, requireAuth, refreshGroupMembers]);
+
 
   // Join from Groups You May Join
   const joinFromSuggestion = useCallback(async (groupId: number) => {
@@ -4337,19 +6301,47 @@ export default function App() {
     }
   }, [joinGroup]);
 
-  const leaveGroup = useCallback(async (groupId: number) => {
-    if (!requireAuth("Leaving groups")) return;
-    if (!currentUser) return;
+   //===LEAVE GROUP ======
 
-    const meId = Number(currentUser.id);
+const leaveGroup = useCallback(async (groupId: number) => {
+  if (!requireAuth("Leaving groups")) return;
+  if (!currentUser) return;
 
+  const meId = Number(currentUser.id);
+
+  // optimistic update in main groups state
+  setGroups(prev =>
+    prev.map(g => {
+      if (Number(g.id) !== Number(groupId)) return g;
+
+      const currentMembers = Array.isArray(g.members) ? g.members : [];
+      const nextMembers = currentMembers.filter(id => id !== meId);
+
+      return {
+        ...g,
+        members: nextMembers,
+        members_count: nextMembers.length,
+        is_member: false,
+      };
+    })
+  );
+
+  try {
+    const result = await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
+      { method: "DELETE" }
+    );
+
+    await refreshGroupMembers(groupId);
+
+    // keep leave state durable in main groups state
     setGroups(prev =>
       prev.map(g => {
         if (Number(g.id) !== Number(groupId)) return g;
-        
+
         const currentMembers = Array.isArray(g.members) ? g.members : [];
         const nextMembers = currentMembers.filter(id => id !== meId);
-        
+
         return {
           ...g,
           members: nextMembers,
@@ -4359,127 +6351,158 @@ export default function App() {
       })
     );
 
-    try {
-      const result = await apiFetch(
-        `/api/group-members?group_id=${Number(groupId)}&user_id=${meId}`,
-        { method: "DELETE" }
-      );
+    return result;
+  } catch (error) {
+    console.error('Failed to leave group:', error);
 
-      await refreshGroupMembers(groupId);
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to leave group:', error);
-      setGroups(prev =>
-        prev.map(g => {
-          if (Number(g.id) !== Number(groupId)) return g;
-          
-          const currentMembers = Array.isArray(g.members) ? g.members : [];
-          if (currentMembers.includes(meId)) return g;
-          
-          const nextMembers = [...currentMembers, meId];
-          
+    // rollback
+    setGroups(prev =>
+      prev.map(g => {
+        if (Number(g.id) !== Number(groupId)) return g;
+
+        const currentMembers = Array.isArray(g.members) ? g.members : [];
+        const nextMembers = currentMembers.includes(meId)
+          ? currentMembers
+          : [...currentMembers, meId];
+
+        return {
+          ...g,
+          members: nextMembers,
+          members_count: Math.max(Number(g.members_count || 0), nextMembers.length),
+          is_member: true,
+        };
+      })
+    );
+
+    setLoginError('Failed to leave group');
+    throw error;
+  }
+}, [currentUser, requireAuth, refreshGroupMembers]);
+    
+  //===CREATE GROUP POST =====
+            
+ const createGroupPost = useCallback(async (
+  groupId: number,
+  text: string,
+  files?: File[] | File | null,
+  metadata?: any
+) => {
+  if (!requireAuth("Posting")) return;
+  const meId = Number(currentUser!.id);
+
+  let media_url: string | null = null;
+  let media_type: string | null = null;
+  let media_urls: string[] = [];
+  let media_types: string[] = [];
+  let media_meta: any[] = [];
+
+  if (files) {
+    const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
+    
+    if (fileArray.length > 0) {
+      try {
+        const uploadResults = await Promise.all(
+          fileArray.map(async (file) => {
+            if (file.type.startsWith('image/')) {
+              return await uploadGroupImageBundle(file);
+            }
+            if (file.type.startsWith('video/')) {
+              return await uploadGroupVideoBundle(file);
+            }
+            throw new Error(`Unsupported file type: ${file.type}`);
+          })
+        );
+
+        media_meta = uploadResults.map((r) => {
+          if (r.kind === 'image') {
+            return {
+              thumb: r.thumb,
+              feed: r.feed,
+              full: r.feed, // full = feed
+              type: 'image',
+            };
+          }
           return {
-            ...g,
-            members: nextMembers,
-            members_count: nextMembers.length,
-            is_member: true,
+            thumb: r.thumb || '',
+            feed: '',
+            full: r.full,
+            type: 'video',
           };
-        })
-      );
-      setLoginError('Failed to leave group');
-      throw error;
-    }
-  }, [currentUser, requireAuth, refreshGroupMembers]);
+        });
 
-  const createGroupPost = useCallback(async (
-    groupId: number, 
-    text: string, 
-    files?: File[] | File | null,
-    metadata?: any
-  ) => {
-    if (!requireAuth("Posting")) return;
-    const meId = Number(currentUser!.id);
-
-    let media_url: string | null = null;
-    let media_urls: string[] = [];
-    let media_types: string[] = [];
-
-    if (files) {
-      const fileArray = Array.isArray(files) ? files : (files ? [files] : []);
-      
-      if (fileArray.length > 0) {
-        try {
-          const uploadPromises = fileArray.map(file => 
-            uploadToCloudflareR2(file, "group-posts")
-          );
-          
-          const uploadResults = await Promise.all(uploadPromises);
-          
-          media_urls = uploadResults.map(r => r.url);
-          media_types = uploadResults.map(r => r.type);
-          
-          media_url = media_urls[0] || null;
-        } catch (error) {
-          console.error('Failed to upload files:', error);
-          throw new Error('Failed to upload files');
-        }
+        media_urls = uploadResults
+          .map((r) => (r.kind === 'image' ? r.feed : r.full))
+          .filter(Boolean);
+        
+        media_types = uploadResults.map((r) => r.type);
+        media_url = media_urls[0] || null;
+        media_type = media_types[0] || null;
+      } catch (error) {
+        console.error('Failed to upload files:', error);
+        throw new Error('Failed to upload files');
       }
     }
+  }
 
-    try {
-      const payload: any = {
-        group_id: Number(groupId),
-        user_id: meId,
-        content: String(text || "").trim() || null,
-        media_url,
-      };
-      
-      if (media_urls.length > 0) {
-        payload.media_urls = media_urls;
-        payload.media_types = media_types;
-      }
+  try {
+    const payload: any = {
+      group_id: Number(groupId),
+      user_id: meId,
+      content: String(text || "").trim() || null,
+      media_url,
+      media_type,
+    };
 
-      if (metadata) {
-        if (metadata.job_title) payload.job_title = metadata.job_title;
-        if (metadata.company) payload.company = metadata.company;
-        if (metadata.street) payload.street = metadata.street;
-        if (metadata.district) payload.district = metadata.district;
-        if (metadata.region) payload.region = metadata.region;
-        if (metadata.country) payload.country = metadata.country;
-        if (metadata.location) payload.location = metadata.location;
-        if (metadata.salary) payload.salary = metadata.salary;
-        if (metadata.job_type) payload.job_type = metadata.job_type;
-        if (metadata.application_type) payload.application_type = metadata.application_type;
-        if (metadata.application_value) payload.application_value = metadata.application_value;
-        if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
-
-        if (metadata.price) payload.price = metadata.price;
-        if (metadata.currency) payload.currency = metadata.currency;
-        if (metadata.condition) payload.condition = metadata.condition;
-        if (metadata.status) payload.status = metadata.status;
-
-        if (metadata.artist) payload.artist = metadata.artist;
-        if (metadata.series) payload.series = metadata.series;
-        if (metadata.episode) payload.episode = metadata.episode;
-        if (metadata.duration) payload.duration = metadata.duration;
-      }
-
-      console.log('Creating group post with payload:', payload);
-
-      const result = await apiFetch("/api/group-posts", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to create group post:', error);
-      throw error;
+    if (media_urls.length > 0) {
+      payload.media_urls = media_urls;
+      payload.media_types = media_types;
+      payload.media_meta = media_meta;
     }
-  }, [currentUser, requireAuth]);
 
-  const createGroup = useCallback(async (groupData: Partial<Group>) => {
+    if (metadata) {
+      if (metadata.job_title) payload.job_title = metadata.job_title;
+      if (metadata.company) payload.company = metadata.company;
+      if (metadata.street) payload.street = metadata.street;
+      if (metadata.district) payload.district = metadata.district;
+      if (metadata.region) payload.region = metadata.region;
+      if (metadata.country) payload.country = metadata.country;
+      if (metadata.location) payload.location = metadata.location;
+      if (metadata.salary) payload.salary = metadata.salary;
+      if (metadata.job_type) payload.job_type = metadata.job_type;
+      if (metadata.application_type) payload.application_type = metadata.application_type;
+      if (metadata.application_value) payload.application_value = metadata.application_value;
+      if (metadata.expiry_date) payload.expiry_date = metadata.expiry_date;
+
+      if (metadata.price) payload.price = metadata.price;
+      if (metadata.currency) payload.currency = metadata.currency;
+      if (metadata.condition) payload.condition = metadata.condition;
+      if (metadata.status) payload.status = metadata.status;
+      if (metadata.location !== undefined) payload.location = metadata.location;
+
+      if (metadata.artist) payload.artist = metadata.artist;
+      if (metadata.series) payload.series = metadata.series;
+      if (metadata.episode) payload.episode = metadata.episode;
+      if (metadata.duration) payload.duration = metadata.duration;
+    }
+
+    console.log('Creating group post with payload:', payload);
+
+    const result = await apiFetch("/api/group-posts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('Failed to create group post:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+
+ //=======CREATE  GROUP=======
+
+  
+    const createGroup = useCallback(async (groupData: Partial<Group>) => {
     if (!requireAuth("Creating groups")) return;
     const meId = Number(currentUser!.id);
 
@@ -4536,20 +6559,39 @@ export default function App() {
       console.error('Failed to update group settings:', error);
       throw error;
     }
-  }, [requireAuth, fetchOtherData]);
+   }, [requireAuth, fetchOtherData]);
 
-  const fetchGroupDetails = useCallback(async (groupId: number) => {
-    try {
-      const res = await apiFetch(`/api/groups?id=${Number(groupId)}`);
-      return {
-        group: normalizeGroup((res as any)?.group ?? res),
-        members: safeArray((res as any)?.members),
-      };
-    } catch (error) {
-      console.error('Failed to fetch group details:', error);
-      return { group: null, members: [] };
-    }
-  }, []);
+const fetchGroupDetails = useCallback(async (groupId: number) => {
+  try {
+    const viewerId = currentUser?.id ? Number(currentUser.id) : 0;
+    const res = await apiFetch(`/api/groups?id=${Number(groupId)}&viewerId=${viewerId}`);
+
+    const groupData = (res as any)?.group ?? res;
+    const rawMembers = safeArray((res as any)?.members);
+
+    const normalizedMembers = rawMembers
+      .map((m: any) => Number(m?.user_id ?? m?.id ?? m))
+      .filter(Number.isFinite);
+
+    const normalizedGroup = normalizeGroup({
+      ...groupData,
+      members: normalizedMembers,
+      members_count:
+        typeof groupData?.members_count === "number"
+          ? groupData.members_count
+          : normalizedMembers.length,
+    });
+
+    return {
+      group: normalizedGroup,
+      members: normalizedMembers,
+    };
+  } catch (error) {
+    console.error("Failed to fetch group details:", error);
+    return { group: null, members: [] };
+  }
+}, [currentUser]);
+                   
 
   const fetchGroupEvents = useCallback(async (groupId: number): Promise<Event[]> => {
     try {
@@ -4665,35 +6707,208 @@ export default function App() {
     }
   }, [currentUser, requireAuth]);
 
-  const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
-    if (!requireAdmin('Removing group members')) return;
+    //===REMOVE GROUP MEMBER =====
+    
+const removeGroupMember = useCallback(async (groupId: number, memberId: number) => {
+  if (!requireAuth('Removing group members')) return;
+  if (!currentUser) return;
+
+  try {
+    return await apiFetch(
+      `/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}&actor_id=${Number(currentUser.id)}`,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    console.error('Failed to remove group member:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
+    
+//====MAKE MODERATOR ===  
+
+   const makeModerator = useCallback(async (groupId: number, memberId: number) => {
+  if (!currentUser) throw new Error("You must be logged in");
+
+  try {
+    const res = await apiFetch(`/api/group-members?action=make-moderator`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        user_id: Number(memberId),
+        actor_id: Number(currentUser.id),
+      }),
+    });
+
+    console.log("makeModerator success:", res);
+    return res;
+  } catch (error: any) {
+    console.error("makeModerator failed:", error);
+    throw error;
+  }
+}, [currentUser]); 
+  
+    
+const toggleMemberPosting = useCallback(async (groupId: number, userId: number, disabled: boolean) => {
+  if (!requireAuth("Managing group members")) return;
+  
+  try {
+    const result = await apiFetch(`/api/group-members/${groupId}/toggle-posting`, {
+      method: 'PATCH',
+      body: JSON.stringify({ user_id: userId, disabled }),
+    });
+    return result;
+  } catch (error) {
+    console.error('Failed to toggle posting:', error);
+    throw error;
+  }
+}, [requireAuth]);
+
+  //====UPDATE GROUP IMAGE ======
+const updateGroupImage = useCallback(
+  async (groupId: number, type: 'cover' | 'profile', file?: File | null, imageUrl?: string) => {
+    if (!requireAuth("Updating group image")) {
+      throw new Error("Authentication required");
+    }
 
     try {
-      await apiFetch(`/api/group-members?group_id=${Number(groupId)}&user_id=${Number(memberId)}`, {
-        method: "DELETE",
+      let finalImageUrl = imageUrl || '';
+
+      // Only upload if we have a file and no native URL provided
+      if (file && !imageUrl) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        const uploadData = await uploadRes.json().catch(() => null);
+
+        if (!uploadRes.ok || !uploadData?.success) {
+          throw new Error(uploadData?.error || "Upload failed");
+        }
+
+        if (uploadData?.media_urls) {
+          try {
+            const media =
+              typeof uploadData.media_urls === "string"
+                ? JSON.parse(uploadData.media_urls)
+                : uploadData.media_urls;
+
+            finalImageUrl = String(media?.feed || "").trim();
+          } catch {
+            finalImageUrl = "";
+          }
+        }
+
+        if (!finalImageUrl) {
+          throw new Error("Compressed feed image URL was not returned");
+        }
+      }
+
+      if (!finalImageUrl) {
+        throw new Error("No image URL provided");
+      }
+
+      const field = type === "cover" ? "cover_image" : "profile_image";
+
+      const updateRes = await fetch(`/api/groups?id=${Number(groupId)}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          [field]: finalImageUrl,
+        }),
       });
-      return true;
+
+      const updateData = await updateRes.json().catch(() => null);
+
+      if (!updateRes.ok || !updateData?.success) {
+        throw new Error(updateData?.error || "Group update failed");
+      }
+
+      // keep groups list in sync immediately
+      setGroups(prev =>
+        prev.map(g =>
+          Number(g.id) !== Number(groupId)
+            ? g
+            : {
+                ...g,
+                ...(type === "cover"
+                  ? { cover_image: finalImageUrl }
+                  : { profile_image: finalImageUrl }),
+              }
+        )
+      );
+
+      // ✅ REMOVE this line - setActiveGroupDetails is not needed
+      
+
+      return finalImageUrl;
     } catch (error) {
-      console.error('Failed to remove group member:', error);
+      console.error("Failed to update group image:", error);
       throw error;
     }
-  }, [requireAdmin]);
+  },
+  [requireAuth]
+);
 
-  const updateGroupImage = useCallback(async (groupId: number, type: 'cover' | 'profile', file: File) => {
-    if (!requireAuth("Updating group image")) return;
+ //====GROUP INVITES ===÷
+ 
+  const fetchGroupInvites = useCallback(async () => {
+  if (!currentUser) return [];
 
-    try {
-      const uploadResult = await uploadToCloudflareR2(file, `group-${type}s`);
-      const imageUrl = uploadResult.url;
+  try {
+    const res = await apiFetch(`/api/group-invites?user_id=${Number(currentUser.id)}`);
+    return safeArray((res as any)?.invites ?? res);
+  } catch (error) {
+    console.error('Failed to fetch group invites:', error);
+    return [];
+  }
+}, [currentUser]);
 
-      const field = type === 'cover' ? 'cover_image' : 'profile_image';
-      await updateGroupSettings(groupId, { [field]: imageUrl } as any);
-      return imageUrl;
-    } catch (error) {
-      console.error('Failed to update group image:', error);
-      throw error;
-    }
-  }, [requireAuth, updateGroupSettings]);
+ const acceptGroupInvite = useCallback(async (inviteId: number, groupId: number) => {
+  if (!requireAuth("Accepting group invites")) return;
+  if (!currentUser) return;
+
+  try {
+    const res = await apiFetch(`/api/group-invites?id=${Number(inviteId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        status: 'accepted',
+        user_id: Number(currentUser.id),
+      }),
+    });
+
+    // Refresh group members to update UI
+    await refreshGroupMembers(groupId);
+    
+    // Refresh other data to update groups list
+    fetchOtherData().catch(() => {});
+    
+    return res;
+  } catch (error) {
+    console.error('Failed to accept group invite:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth, refreshGroupMembers, fetchOtherData]);   
+
+const declineGroupInvite = useCallback(async (inviteId: number) => {
+  if (!requireAuth("Declining group invites")) return;
+  if (!currentUser) return;
+
+  try {
+    return await apiFetch(
+      `/api/group-invites?id=${Number(inviteId)}&user_id=${Number(currentUser.id)}`,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    console.error('Failed to decline group invite:', error);
+    throw error;
+  }
+}, [currentUser, requireAuth]);
 
   const handleLikeComment = useCallback(async (commentId: number): Promise<any> => {
     if (!requireAuth('Liking comments')) return;
@@ -4711,22 +6926,28 @@ export default function App() {
   }, [currentUser, requireAuth]);
 
   const inviteToGroup = useCallback(async (groupId: number, userIds: number[]) => {
-    if (!requireAuth("Inviting to groups")) return;
-    
-    try {
-      return await apiFetch("/api/group-invites", {
-        method: "POST",
-        body: JSON.stringify({
-          group_id: Number(groupId),
-          inviter_id: Number(currentUser!.id),
-          invitee_ids: userIds,
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to invite to group:', error);
-      return { success: true, message: "Invites sent" };
-    }
-  }, [currentUser, requireAuth]);
+  if (!requireAuth("Inviting to groups")) return;
+  if (!currentUser) return;
+
+  try {
+    const result = await apiFetch("/api/group-invites", {
+      method: "POST",
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        inviter_id: Number(currentUser.id),
+        invitee_ids: userIds,
+      }),
+    });
+    console.log('Invite API response:', result); 
+    return result;
+  } catch (error) {
+    console.error('Failed to invite to group:', error);
+    throw error;  
+  }
+}, [currentUser, requireAuth]);
+
+
+
 
   const fetchData = useCallback(
     async (viewer: User | null) => {
@@ -4876,8 +7097,159 @@ export default function App() {
       clearInterval(t);
     };
   }, [currentUser, fetchPostsForHome, fetchReels, activeCommentsIdentity]);
+    
+    useEffect(() => {
+  fetchGroupsForViewer();
+}, [fetchGroupsForViewer]);
 
-  // Admin functions
+//==NATIVE UPLOAD ===
+useEffect(() => {
+  const handleNativeUpload = (event: any) => {
+    const media = event.detail;
+    if (!media || media.type !== 'video') return;
+
+    console.log('📱 App: Native reel video uploaded:', media);
+
+    const videoUrl = media.full || media.feed || media.url;
+    if (!videoUrl) return;
+
+    const music = media.music || media.sound || {};
+
+    const audioUrl =
+      media.audioUrl ||
+      media.audio_url ||
+      music.audioUrl ||
+      music.audio_url ||
+      music.url ||
+      music.originalUrl ||
+      music.original_url ||
+      '';
+
+    const songName =
+      media.songName ||
+      media.song_name ||
+      music.songName ||
+      music.song_name ||
+      music.title ||
+      music.name ||
+      'Original Sound';
+
+    const soundPayload = audioUrl
+      ? {
+          songName,
+          audioUrl,
+          originalUrl: audioUrl,
+          audioStart:
+            media.audioStart ??
+            media.audio_start ??
+            music.audioStart ??
+            music.audio_start ??
+            music.start ??
+            0,
+          audioEnd:
+            media.audioEnd ??
+            media.audio_end ??
+            music.audioEnd ??
+            music.audio_end ??
+            music.end ??
+            0,
+          songId:
+            media.songId ??
+            media.song_id ??
+            music.songId ??
+            music.song_id ??
+            music.id,
+          soundKey:
+            media.soundKey ||
+            media.sound_key ||
+            music.soundKey ||
+            music.sound_key ||
+            undefined,
+          isTrimmedAudio: false,
+        }
+      : null;
+
+    setPendingReelFile(null);
+
+    setNativeReelVideoUrl(videoUrl);
+
+    const mediaMeta = {
+      thumb:
+        media.thumb ||
+        media.thumbnail_url ||
+        media.thumbnailUrl ||
+        media.nativeVideoMeta?.thumb ||
+        videoUrl,
+      thumbnail_url:
+        media.thumbnail_url ||
+        media.thumbnailUrl ||
+        media.thumb ||
+        media.nativeVideoMeta?.thumbnail_url ||
+        '',
+      feed: media.feed || videoUrl,
+      full: media.full || videoUrl,
+      url: videoUrl,
+      type: 'video',
+    };
+
+    setNativeReelMediaMeta(mediaMeta);
+
+    // ✅ IMPORTANT: preserve selected sound before Recorder opens
+    if (soundPayload) {
+      setSelectedReelSound(soundPayload);
+    }
+
+    setView('recorder');
+    setRecorderActiveTab('preview');
+
+    // ✅ IMPORTANT: dispatch FULL payload, not stripped payload
+    window.dispatchEvent(
+      new CustomEvent('uneraNativeReelVideo', {
+        detail: {
+          ...media,
+          videoUrl,
+          mediaMeta,
+          nativeVideoUrl: videoUrl,
+          nativeVideoMeta: mediaMeta,
+          music: soundPayload || media.music || media.sound || null,
+          sound: soundPayload || media.music || media.sound || null,
+          audioUrl: soundPayload?.audioUrl || '',
+          songName: soundPayload?.songName || 'Original Sound',
+          songId: soundPayload?.songId,
+          soundKey: soundPayload?.soundKey,
+          audioStart: soundPayload?.audioStart ?? 0,
+          audioEnd: soundPayload?.audioEnd ?? 0,
+        },
+      })
+    );
+  };
+
+  window.addEventListener('uneraNativeUpload', handleNativeUpload);
+  return () => {
+    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+  };
+}, [
+  setPendingReelFile,
+  setNativeReelVideoUrl,
+  setNativeReelMediaMeta,
+  setSelectedReelSound,
+  setView,
+  setRecorderActiveTab,
+]);
+                                                                                                                                                                                     
+
+   useEffect(() => {
+  console.log('[Platform] Detection results:', {
+    isNative: isUneraNativeApp(),
+    hasUNERA_IS_NATIVE_APP: (window as any).UNERA_IS_NATIVE_APP === true,
+    hasUneraNative: !!(window as any).UneraNative?.postMessage,
+    hasFlutterWebView: !!(window as any).flutter_inappwebview?.callHandler,
+    userAgentIncludesUneraApp: navigator.userAgent.toLowerCase().includes('uneraapp'),
+    url: window.location.hostname
+  });
+}, []);
+    
+  // ===== ADMIN FUNCTIONS ====
   const verifyUser = useCallback(
     async (userId: number) => {
       if (!requireAdmin('Verify user')) return;
@@ -5077,17 +7449,7 @@ export default function App() {
     return merged;
   }, [rankedPosts, reels, ads, currentUser]);
 
-  const activePost = useMemo(() => {
-    if (activeCommentsIdentity == null) return null;
-
-    if (commentPostSnapshot && getFeedKey(commentPostSnapshot) === activeCommentsIdentity) {
-      return commentPostSnapshot;
-    }
-
-    const source = view === 'profile' ? profilePosts : posts;
-    return source.find((p: any) => getFeedKey(p) === activeCommentsIdentity) || null;
-  }, [posts, profilePosts, view, activeCommentsIdentity, commentPostSnapshot]);
-
+  
   const profileUser = useMemo(() => {
     if (selectedUserId) {
       return users.find((u) => Number(u.id) === Number(selectedUserId)) || null;
@@ -5373,157 +7735,181 @@ export default function App() {
   // ============================================================================
   // ✅ UPDATED CREATE POST - With image compression for thumb/feed/full URLs
   // ============================================================================
-  const createPost = useCallback(
-    async (
-      text: string,
-      files: File[] | File | null,
-      meta?: {
-        type?: 'text' | 'image' | 'video';
-        visibility?: string;
-        location?: string;
-        feeling?: string;
-        taggedUsers?: number[];
-        background?: string;
-        linkPreview?: any;
+const createPost = useCallback(
+  async (
+    text: string,
+    files: File[] | File | null,
+    meta?: {
+      type?: 'text' | 'image' | 'video';
+      visibility?: string;
+      location?: string;
+      feeling?: string;
+      taggedUsers?: number[];
+      background?: string;
+      linkPreview?: any;
+      // ✅ Native Flutter upload fields
+      nativeMediaMeta?: any[];
+      nativeMediaUrls?: string[];
+      nativeMediaTypes?: string[];
+    }
+  ) => {
+    if (!requireAuth('Creating posts')) return;
+
+    const trimmed = (text || '').trim();
+    if (!trimmed && !files && !meta?.background && !meta?.nativeMediaMeta?.length) return;
+
+    const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+
+    let media_urls: string[] = [];
+    let media_types: string[] = [];
+    let media_meta: any[] = [];
+    let media_url: string | null = null;
+    let media_type: string | null = null;
+
+    try {
+      // ✅ CHECK FOR NATIVE UPLOAD FIRST
+      if (meta?.nativeMediaMeta && meta.nativeMediaMeta.length > 0) {
+        console.log("📱 Using native uploaded media:", meta.nativeMediaMeta);
+        
+        media_urls = meta.nativeMediaUrls || [];
+        media_types = meta.nativeMediaTypes || [];
+        media_meta = meta.nativeMediaMeta;
+        media_url = media_urls[0] || null;
+        media_type = media_types[0] || null;
       }
-    ) => {
-      if (!requireAuth('Creating posts')) return;
+      // IMAGE POSTS - compress in browser
+      else if (meta?.type === 'image' && list.length) {
+        const uploadedItems = await Promise.all(
+          list.map(async (file) => {
+            const bundle = await buildImageUploadBundle(file);
+            const form = new FormData();
+            form.append('thumbnail', bundle.thumb);
+            form.append('feed', bundle.feed);
+            form.append('original', bundle.full);
 
-      const trimmed = (text || '').trim();
-      if (!trimmed && !files && !meta?.background) return;
+            const data = await apiFetch('/api/upload', {
+              method: 'POST',
+              body: form,
+            });
 
-      const list: File[] = Array.isArray(files) ? files : (files ? [files] : []);
+            const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
+            const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
 
-      let media_urls: string[] = [];
-      let media_types: string[] = [];
-      let media_meta: any[] = [];
-      let media_url: string | null = null;
-      let media_type: string | null = null;
+            if (!feed) {
+              throw new Error('Image upload failed: missing feed URL');
+            }
 
-      try {
-        // IMAGE POSTS -> compress in browser, upload bundled thumb/feed/full
-        if (meta?.type === 'image' && list.length) {
-          const uploadedItems = await Promise.all(
-            list.map(async (file) => {
-              const bundle = await buildImageUploadBundle(file);
-              const form = new FormData();
-              form.append('thumbnail', bundle.thumb);
-              form.append('feed', bundle.feed);
-              form.append('original', bundle.full);
+            return {
+              thumb,
+              feed,
+              full: feed,
+              type: 'image',
+            };
+          })
+        );
 
-              const data = await apiFetch('/api/upload', {
-                method: 'POST',
-                body: form,
-              });
-
-              const thumb = data?.uploaded?.thumbnail?.url || data?.media_urls?.thumb || '';
-              const feed = data?.uploaded?.feed?.url || data?.media_urls?.feed || '';
-              const full = data?.uploaded?.original?.url || data?.media_urls?.full || data?.url || '';
-
-              if (!feed) {
-                throw new Error('Image upload failed: missing feed URL');
-              }
-
-              return {
-                thumb,
-                feed,
-                full: full || feed,
-                type: 'image',
-              };
-            })
-          );
-
-          // Store plain feed URLs in media_urls for compatibility
-          media_urls = uploadedItems.map((item) => item.feed).filter(Boolean);
-          // Store rich objects separately in media_meta
-          media_meta = uploadedItems.map((item) => ({
-            thumb: item.thumb,
-            feed: item.feed,
-            full: item.full,
-            type: 'image',
-          }));
-          media_types = uploadedItems.map(() => 'image');
-          media_url = uploadedItems[0]?.feed || null;
-          media_type = 'image';
-        }
-        // NON-IMAGE POSTS -> keep old upload flow
-        else if (list.length) {
-          const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
-          media_urls = ups.map((u) => u.url).filter(Boolean);
-          media_types = ups.map((u) => u.type).filter(Boolean);
-          media_url = media_urls[0] ?? null;
-          media_type = media_types[0] ?? null;
-        }
-      } catch (error: any) {
-        setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
-        return;
+        media_urls = uploadedItems.map((item) => item.feed).filter(Boolean);
+        media_meta = uploadedItems.map((item) => ({
+          thumb: item.thumb,
+          feed: item.feed,
+          full: item.feed,
+          type: 'image',
+        }));
+        media_types = uploadedItems.map(() => 'image');
+        media_url = uploadedItems[0]?.feed || null;
+        media_type = 'image';
       }
+      // NON-IMAGE POSTS (videos, audio, etc.)
+      else if (list.length) {
+        const ups = await Promise.all(list.map((f) => uploadToCloudflareR2(f)));
+        media_urls = ups.map((u) => u.url).filter(Boolean);
+        media_types = ups.map((u) => u.type).filter(Boolean);
+        media_url = media_urls[0] ?? null;
+        media_type = media_types[0] ?? null;
+      }
+    } catch (error: any) {
+      setLoginError(`Failed to upload files: ${error?.message || 'Upload error'}`);
+      return;
+    }
 
-      const payload: any = {
-        user_id: currentUser!.id,
-        content: trimmed,
-        media_url,
-        media_type,
-        media_urls: media_urls.length ? media_urls : undefined,
-        media_types: media_types.length ? media_types : undefined,
-        media_meta: media_meta.length ? media_meta : undefined,
-        visibility: meta?.visibility ?? 'public',
-        location: meta?.location,
-        feeling: meta?.feeling,
-        tagged_users: meta?.taggedUsers,
-        background: meta?.background,
-        link_preview: meta?.linkPreview,
-        feed_key: `post:${Date.now()}`,
-        type: (() => {
-          const t = media_type || media_types[0] || null;
-          if (!t) return meta?.type || 'text';
-          if (typeof t === 'string' && t.startsWith('image')) return 'image';
-          if (typeof t === 'string' && t.startsWith('video')) return 'video';
-          if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
-          return meta?.type || 'text';
-        })(),
-      };
+    const payload: any = {
+      user_id: currentUser!.id,
+      content: trimmed,
+      media_url,
+      media_type,
+      media_urls: media_urls.length ? media_urls : undefined,
+      media_types: media_types.length ? media_types : undefined,
+      media_meta: media_meta.length ? media_meta : undefined,
+      visibility: meta?.visibility ?? 'public',
+      location: meta?.location,
+      feeling: meta?.feeling,
+      tagged_users: meta?.taggedUsers,
+      background: meta?.background,
+      link_preview: meta?.linkPreview,
+      feed_key: `post:${Date.now()}`,
+      type: (() => {
+        const t = media_type || media_types[0] || null;
+        if (!t) return meta?.type || 'text';
+        if (typeof t === 'string' && t.startsWith('image')) return 'image';
+        if (typeof t === 'string' && t.startsWith('video')) return 'video';
+        if (typeof t === 'string' && t.startsWith('audio')) return 'audio';
+        return meta?.type || 'text';
+      })(),
+    };
 
-      const data = await apiFetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    const data = await apiFetch('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      const newPostRaw = data?.post ?? {
-        ...payload,
-        post_id: data?.post_id ?? data?.id ?? Date.now(),
-        created_at: new Date().toISOString(),
-      };
+    const newPostRaw = data?.post ?? {
+      ...payload,
+      post_id: data?.post_id ?? data?.id ?? Date.now(),
+      created_at: new Date().toISOString(),
+    };
 
-      (newPostRaw as any).media_urls = (newPostRaw as any).media_urls || (media_urls.length ? media_urls : media_url ? [media_url] : []);
-      (newPostRaw as any).media_types = (newPostRaw as any).media_types || (media_types.length ? media_types : media_type ? [media_type] : []);
-      (newPostRaw as any).media_meta = (newPostRaw as any).media_meta || (media_meta.length ? media_meta : undefined);
+    // Safety normalize: force every image full -> feed
+    if (Array.isArray((newPostRaw as any).media_meta)) {
+      (newPostRaw as any).media_meta = (newPostRaw as any).media_meta.map((m: any) => ({
+        ...m,
+        thumb: m?.thumb || '',
+        feed: m?.feed || m?.full || m?.thumb || '',
+        full: m?.feed || m?.full || m?.thumb || '',
+        type: m?.type || 'image',
+      }));
+    }
 
-      const normalized = normalizePost(newPostRaw);
+    const normalized = normalizePost(newPostRaw);
 
-      setPosts((prev) => {
-        const next = [normalized, ...safeArray(prev)];
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
+    setPosts((prev) => {
+      const next = [normalized, ...safeArray(prev)];
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
 
-      setProfilePosts((prev) => {
-        if (!currentUser) return prev;
-        const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
-        if (!isMyProfile) return prev;
+    setProfilePosts((prev) => {
+      if (!currentUser) return prev;
+      const isMyProfile = Number(selectedUserId) === Number(currentUser.id);
+      if (!isMyProfile) return prev;
+      const next = [normalized, ...safeArray(prev)];
+      return next;
+    });
 
-        const next = [normalized, ...safeArray(prev)];
-        return next;
-      });
+    pushSeenIds([Number((normalized as any).id)]);
 
-      pushSeenIds([Number((normalized as any).id)]);
+    setShowCreatePostModal(false);
+    scheduleSilentRefresh();
 
-      setShowCreatePostModal(false);
-      scheduleSilentRefresh();
-    },
-    [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
-  );
+    // Show success toast
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-6 py-2 rounded-full font-bold shadow-lg animate-fade-in z-[300]';
+    toast.innerText = 'Post created successfully!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  },
+  [currentUser, requireAuth, scheduleSilentRefresh, selectedUserId]
+);
 
   // Update user details
   const updateUserDetails = useCallback(
@@ -5660,13 +8046,26 @@ export default function App() {
     setShowCreatePostModal(true);
   }, [requireAuth]);
 
- const handleVideoClickFromCreate = useCallback(() => {
+  const handleVideoClickFromCreate = useCallback(() => {
   if (!requireAuth('Creating videos')) return;
+  if (isUneraNativeApp()) {
+    const opened = openNativeVideoPicker();
+    if (opened) return;
+  }
   reelVideoInputRef.current?.click();
 }, [requireAuth]);
 
 const handleReelVideoSelected = useCallback(
   (e: React.ChangeEvent<HTMLInputElement>) => {
+    // If in native app, use native picker instead
+    if (isUneraNativeApp()) {
+      const opened = openNativeVideoPicker();
+      if (opened) {
+        e.target.value = '';
+        return;
+      }
+    }
+    
     const file = e.target.files?.[0];
     e.target.value = '';
 
@@ -5682,6 +8081,51 @@ const handleReelVideoSelected = useCallback(
   },
   []
 );
+    
+//====OPEN RECORDER FROM REEL=====
+
+  
+// For Native App: Opens Flutter gallery (kept exactly as is)
+const openReelRecorderFromReels = useCallback((sound?: UseSoundPayload) => {
+  // ✅ Open gallery first, NOT camera and NOT direct file picker
+  setSelectedReelSoundForGallery(sound || undefined);
+  setShowReelGallery(true);
+}, []);
+
+// For Web Browser: Direct file picker (kept exactly as is for web fallback)
+const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
+  if (sound) {
+    setSelectedReelSound({
+      songName: sound.songName || 'Original Sound',
+      audioUrl: sound.audioUrl || '',
+      originalUrl: sound.originalUrl || sound.audioUrl || '',
+      audioStart: sound.audioStart || 0,
+      audioEnd: sound.audioEnd || 0,
+      songId: sound.songId,
+      soundKey:
+        sound.soundKey ||
+        (sound.songId ? `song:${sound.songId}` : `original:${Date.now()}`),
+      isTrimmedAudio: !!sound.isTrimmedAudio,
+    });
+  } else {
+    setSelectedReelSound(null);
+  }
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+
+  input.onchange = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPendingReelFile(file);
+    setView('recorder');
+  };
+
+  input.click();
+}, []);
+                                            
 
   // Event Detail Modal
   const EventDetailModal = useCallback(({ eventId, onClose }: { eventId: number; onClose: () => void }) => {
@@ -5756,572 +8200,451 @@ const handleReelVideoSelected = useCallback(
     );
   }, [events, onRSVPEvent]);
 
-  // ============================================================================
-  // ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
-  // ============================================================================
-  const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
-    if (!requireAuth('Reacting')) return;
-    if (!currentUser || !item) return;
-
-    // Get identity and ID safely
-    let identity = '';
-    let itemId = 0;
-    let itemType = 'post';
     
-    try {
-      identity = getFeedKey(item);
-      itemId = getFeedItemId(item);
-      itemType = getFeedItemType(item);
-    } catch (error) {
-      console.error('Failed to get feed identity:', error);
-      // Fallback to treating as post with ID
-      if (typeof item === 'number') {
-        itemId = item;
-        identity = `post:${item}`;
-      } else if (item?.id) {
-        itemId = Number(item.id);
-        identity = `post:${itemId}`;
-      } else {
-        return;
-      }
-      itemType = 'post';
-    }
-    
-    const meId = currentUser.id;
+// ============================================================================
+// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
+// ============================================================================
+const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
+  if (!requireAuth('Reacting')) return;
+  if (!currentUser || !item) return;
 
-    // Prevent multiple taps
-    if (reactingMap[identity]) return;
-
-    // Get current item from appropriate source
-    const sourceList = view === 'profile' ? profilePosts : posts;
-    const previousItem = safeArray(sourceList).find((p: any) => {
-      try {
-        return getFeedKey(p) === identity;
-      } catch {
-        return Number(p?.id) === itemId;
-      }
-    }) || item;
-    
-    if (!previousItem) return;
-
-    // Helper to replace item by identity or ID
-    const replaceItem = (list: any[], replacement: any) => 
-      safeArray(list).map(p => {
-        try {
-          if (getFeedKey(p) === identity) return replacement;
-        } catch {
-          if (Number(p?.id) === itemId) return replacement;
-        }
-        return p;
-      });
-
-    // Set reacting lock
-    setReacting(identity, true);
-
-    // Apply optimistic update
-    const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
-    setPosts(prev => replaceItem(prev, optimisticItem));
-    setProfilePosts(prev => replaceItem(prev, optimisticItem));
-    
-    if (activeCommentsIdentity === identity) {
-      setCommentPostSnapshot(optimisticItem);
-    }
-
-    try {
-      let endpoint = '';
-      switch (itemType) {
-        case 'event':
-          endpoint = `/api/events/${itemId}/react`;
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
-          break;
-        case 'product':
-          endpoint = `/api/products/${itemId}/react`;
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${itemId}/react`;
-          break;
-        case 'music':
-          endpoint = `/api/songs/${itemId}/react`;
-          break;
-        case 'podcast':
-          endpoint = `/api/podcasts/${itemId}/react`;
-          break;
-        default:
-          endpoint = `/api/posts/${itemId}/react`;
-      }
-
-      const data = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ type, user_id: meId }),
-      });
-
-      if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
-        const serverMy = data.my_reaction ?? null;
-        const serverCount = safeNumber(data.reactions_count, 0);
-
-        const applyServerTruth = (p: any) => {
-          try {
-            if (getFeedKey(p) !== identity) return p;
-          } catch {
-            if (Number(p?.id) !== itemId) return p;
-          }
-
-          const prevArr = safeArray<any>(p?.reactions);
-          const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
-          const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
-
-          return {
-            ...p,
-            reactions: nextArr,
-            my_reaction: serverMy,
-            myReaction: serverMy,
-            reactions_count: serverCount,
-            reactionsCount: serverCount,
-            likesCount: serverCount,
-          };
-        };
-
-        setPosts(prev => safeArray(prev).map(applyServerTruth));
-        setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
-        setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
-      }
-    } catch (error) {
-      console.error('Failed to react:', error);
-      // Restore previous state on failure
-      setPosts(prev => replaceItem(prev, previousItem));
-      setProfilePosts(prev => replaceItem(prev, previousItem));
-      setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
-    } finally {
-      setReacting(identity, false);
-    }
-  }, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
-
-  // ============================================================================
-  // ✅ HYBRID COMMENT HANDLERS
-  // ============================================================================
+  // Get identity and ID safely
+  let identity = '';
+  let itemId = 0;
+  let itemType = 'post';
   
-  const fetchComments = useCallback(async (item: any) => {
-    if (!requireAuth('Viewing comments')) return [];
-    if (!item) return [];
-    
-    let type = 'post';
-    let id = 0;
-    
-    try {
-      type = getFeedItemType(item);
-      id = getFeedItemId(item);
-    } catch {
-      type = 'post';
-      id = Number(item?.id ?? 0);
+  try {
+    identity = getFeedKey(item);
+    itemId = getFeedItemId(item);
+    itemType = getFeedItemType(item);
+  } catch (error) {
+    console.error('Failed to get feed identity:', error);
+    // Fallback to treating as post with ID
+    if (typeof item === 'number') {
+      itemId = item;
+      identity = `post:${item}`;
+    } else if (item?.id) {
+      itemId = Number(item.id);
+      identity = `post:${itemId}`;
+    } else {
+      return;
     }
-    
+    itemType = 'post';
+  }
+  
+  const meId = currentUser.id;
+
+  // Prevent multiple taps
+  if (reactingMap[identity]) return;
+
+  // Get current item from appropriate source
+  const sourceList = view === 'profile' ? profilePosts : posts;
+  const previousItem = safeArray(sourceList).find((p: any) => {
     try {
-      let endpoint = '';
-      switch (type) {
-        case 'event':
-          endpoint = `/api/events/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'product':
-          endpoint = `/api/products/${id}/reviews?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'music':
-          endpoint = `/api/songs/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        case 'podcast':
-          endpoint = `/api/podcasts/${id}/comments?viewerId=${currentUser?.id || 0}`;
-          break;
-        default:
-          endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+      return getFeedKey(p) === identity;
+    } catch {
+      return Number(p?.id) === itemId;
+    }
+  }) || item;
+  
+  if (!previousItem) return;
+
+  // Helper to replace item by identity or ID
+  const replaceItem = (list: any[], replacement: any) => 
+    safeArray(list).map(p => {
+      try {
+        if (getFeedKey(p) === identity) return replacement;
+      } catch {
+        if (Number(p?.id) === itemId) return replacement;
       }
-      
-      const data = await apiFetch(endpoint);
-      return safeArray(data?.comments ?? data);
-    } catch (error) {
-      console.error('Failed to fetch comments:', error);
-      return [];
-    }
-  }, [currentUser, requireAuth]);
+      return p;
+    });
 
-  const handleOpenComments = useCallback((item: any) => {
-    if (!requireAuth('Viewing comments')) return;
-    if (!item) return;
-    
-    let identity = '';
-    try {
-      identity = getFeedKey(item);
-    } catch {
-      identity = `post:${item?.id}`;
-    }
-    
-    setActiveCommentsIdentity(identity);
-    
-    const source = view === 'profile' ? profilePosts : posts;
-    let found = null;
-    
-    try {
-      found = source.find((p: any) => getFeedKey(p) === identity) || null;
-    } catch {
-      found = source.find((p: any) => Number(p?.id) === Number(item?.id)) || null;
-    }
-    
-    setCommentPostSnapshot(found || item);
-  }, [requireAuth, view, posts, profilePosts]);
+  // Set reacting lock
+  setReacting(identity, true);
 
-  const handleCloseComments = useCallback(() => {
-    setActiveCommentsIdentity(null);
-    setCommentPostSnapshot(null);
-  }, []);
+  // Apply optimistic update
+  const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
+  setPosts(prev => replaceItem(prev, optimisticItem));
+  setProfilePosts(prev => replaceItem(prev, optimisticItem));
+  
+  if (activeCommentsIdentity === identity) {
+    setCommentPostSnapshot(optimisticItem);
+  }
 
-  const createComment = useCallback(async (
-    item: any,
-    text: string,
-    parentCommentId: number | null = null,
-    imageFile?: File | null
-  ) => {
-    if (!requireAuth('Commenting')) return null;
-    if (!currentUser) return null;
-    if (!text?.trim() && !imageFile) {
-      setLoginError('Comment cannot be empty');
-      return null;
+  try {
+    let endpoint = '';
+    switch (itemType) {
+      case 'event':
+        endpoint = `/api/events/${itemId}/react`;
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
+        break;
+      case 'product':
+        endpoint = `/api/products/${itemId}/react`;
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${itemId}/react`;
+        break;
+      case 'music':
+        endpoint = `/api/songs/${itemId}/react`;
+        break;
+      case 'podcast':
+        endpoint = `/api/podcasts/${itemId}/react`;
+        break;
+      default:
+        endpoint = `/api/posts/${itemId}/react`;
     }
 
-    let identity = '';
-    let type = 'post';
-    let id = 0;
-    
-    try {
-      identity = getFeedKey(item);
-      type = getFeedItemType(item);
-      id = getFeedItemId(item);
-    } catch {
-      identity = `post:${item?.id}`;
-      type = 'post';
-      id = Number(item?.id ?? 0);
-    }
+    const data = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ type, user_id: meId }),
+    });
 
-    try {
-      let image_url = '';
+    if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
+      const serverMy = data.my_reaction ?? null;
+      const serverCount = safeNumber(data.reactions_count, 0);
 
-      if (imageFile) {
-        image_url = await ensureR2Url(
-          imageFile,
-          'comments',
-          `comment-${Date.now()}.jpg`
-        );
-      }
+      const applyServerTruth = (p: any) => {
+        try {
+          if (getFeedKey(p) !== identity) return p;
+        } catch {
+          if (Number(p?.id) !== itemId) return p;
+        }
 
-      let endpoint = '';
-      let payload: any = {};
+        const prevArr = safeArray<any>(p?.reactions);
+        const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
+        const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
 
-      switch (type) {
-        case 'event':
-          endpoint = `/api/events/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'group_post':
-          endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'product':
-          endpoint = `/api/products/${id}/review`;
-          payload = {
-            user_id: currentUser.id,
-            rating: null,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        case 'reel':
-          endpoint = `/api/reels/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-          break;
-        default:
-          endpoint = `/api/posts/${id}/comment`;
-          payload = {
-            user_id: currentUser.id,
-            text: text || '',
-            parent_comment_id: parentCommentId ?? null,
-            image_url: image_url || '',
-          };
-      }
-
-      const data = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      const newComment: any = {
-        id: safeNumber(data?.comment?.id ?? 0),
-        user_id: currentUser.id,
-        parent_comment_id: parentCommentId ?? null,
-        text: text || '',
-        image_url: image_url || '',
-        created_at: data?.comment?.created_at ?? new Date().toISOString(),
-        user: {
-          id: currentUser.id,
-          name: currentUser.name,
-          username: currentUser.username,
-          profile_image_url: currentUser.profile_image_url,
-          is_verified: currentUser.is_verified,
-        },
-        likes_count: 0,
-        liked_by_me: false,
-        replies: [],
-        replies_count: 0,
+        return {
+          ...p,
+          reactions: nextArr,
+          my_reaction: serverMy,
+          myReaction: serverMy,
+          reactions_count: serverCount,
+          reactionsCount: serverCount,
+          likesCount: serverCount,
+        };
       };
 
-      // Add type-specific ID field
-      switch (type) {
-        case 'event':
-          newComment.event_id = id;
-          break;
-        case 'product':
-          newComment.product_id = id;
-          break;
-        case 'reel':
-          newComment.reel_id = id;
-          break;
-        default:
-          newComment.post_id = id;
-      }
+      setPosts(prev => safeArray(prev).map(applyServerTruth));
+      setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+      setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
+    }
+  } catch (error) {
+    console.error('Failed to react:', error);
+    // Restore previous state on failure
+    setPosts(prev => replaceItem(prev, previousItem));
+    setProfilePosts(prev => replaceItem(prev, previousItem));
+    setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
+  } finally {
+    setReacting(identity, false);
+  }
+}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
 
-      // Update posts state with new comment using identity
-      const updatePostsWithComment = (postsList: any[]) => {
-        return postsList.map(post => {
-          try {
-            if (getFeedKey(post) !== identity) return post;
-          } catch {
-            if (Number(post?.id) !== id) return post;
-          }
+// ============================================================================
+// ✅ HYBRID COMMENT HANDLERS
+// ============================================================================
+const fetchComments = useCallback(async (item: any) => {
+  if (!requireAuth('Viewing comments')) return [];
+  if (!item) return [];
+  
+  let type = 'post';
+  let id = 0;
+  
+  try {
+    type = getFeedItemType(item);
+    id = getFeedItemId(item);
+  } catch {
+    type = 'post';
+    id = Number(item?.id ?? 0);
+  }
+  
+  try {
+    let endpoint = '';
+    switch (type) {
+      case 'event':
+        endpoint = `/api/events/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'product':
+        endpoint = `/api/products/${id}/reviews?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'music':
+        endpoint = `/api/songs/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      case 'podcast':
+        endpoint = `/api/podcasts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+        break;
+      default:
+        endpoint = `/api/posts/${id}/comments?viewerId=${currentUser?.id || 0}`;
+    }
+    
+    const data = await apiFetch(endpoint);
+    return safeArray(data?.comments ?? data);
+  } catch (error) {
+    console.error('Failed to fetch comments:', error);
+    return [];
+  }
+}, [currentUser, requireAuth]);
+
+const handleOpenComments = useCallback((post: PostType) => {
+  if (!requireAuth('Viewing comments')) return;
+  if (!post) return;
+  
+  let postType: 'feed_post' | 'group_post' | 'marketplace_post' | 'event_post' | 'reel_post' | 'music_post' = 'feed_post';
+  
+  if ((post as any).group_id || (post as any).group) {
+    postType = 'group_post';
+  } else if ((post as any).product_id || (post as any).marketplace || (post as any).type === 'product') {
+    postType = 'marketplace_post';
+  } else if ((post as any).event_id || (post as any).type === 'event' || (post as any).item_type === 'event') {
+    postType = 'event_post';
+  } else if ((post as any).reel_id || (post as any).type === 'reel') {
+    postType = 'reel_post';
+  } else if ((post as any).song_id || (post as any).type === 'music') {
+    postType = 'music_post';
+  }
+  
+  setCommentPostSnapshot(post);
+  setActiveCommentsIdentity({ type: postType, id: post.id });
+}, [requireAuth]);
           
-          const existingComments = safeArray((post as any).comments);
-          return {
-            ...post,
-            comments: [newComment, ...existingComments],
-            comments_count: safeNumber((post as any).comments_count) + 1,
-          };
-        });
-      };
 
-      setPosts(prev => updatePostsWithComment(safeArray(prev)));
-      
-      if (view === 'profile' && selectedUserId) {
-        setProfilePosts(prev => updatePostsWithComment(safeArray(prev)));
-      }
 
-      if (activeCommentsIdentity === identity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          const existingComments = safeArray((prev as any).comments);
-          return {
-            ...prev,
-            comments: [newComment, ...existingComments],
-            comments_count: safeNumber((prev as any).comments_count) + 1,
-          } as any;
-        });
-      }
+const handleCloseComments = useCallback(() => {
+  setActiveCommentsIdentity(null);
+  setCommentPostSnapshot(null);
+}, []);
 
-      return newComment;
-    } catch (error) {
-      console.error('Failed to create comment:', error);
-      setLoginError('Failed to post comment');
-      return null;
+const createComment = useCallback(async (
+  item: any,
+  text: string,
+  parentCommentId: number | null = null,
+  imageFile?: File | null
+) => {
+  if (!requireAuth('Commenting')) return null;
+  if (!currentUser) return null;
+  if (!text?.trim() && !imageFile) {
+    setLoginError('Comment cannot be empty');
+    return null;
+  }
+
+  let identity = '';
+  let type = 'post';
+  let id = 0;
+  
+  try {
+    identity = getFeedKey(item);
+    type = getFeedItemType(item);
+    id = getFeedItemId(item);
+  } catch {
+    identity = `post:${item?.id}`;
+    type = 'post';
+    id = Number(item?.id ?? 0);
+  }
+
+  try {
+    let image_url = '';
+
+    if (imageFile) {
+      image_url = await ensureR2Url(
+        imageFile,
+        'comments',
+        `comment-${Date.now()}.jpg`
+      );
     }
-  }, [currentUser, requireAuth, view, selectedUserId, activeCommentsIdentity, commentPostSnapshot]);
 
-  const editComment = useCallback(async (
-    commentId: number,
-    text: string,
-    imageFile?: File | null,
-    existingImageUrl?: string
-  ) => {
-    if (!requireAuth('Editing comments')) return null;
-    if (!currentUser) return null;
+    let endpoint = '';
+    let payload: any = {};
 
-    try {
-      let image_url = existingImageUrl || '';
-
-      if (imageFile) {
-        image_url = await ensureR2Url(
-          imageFile,
-          'comments',
-          `comment-edit-${Date.now()}.jpg`
-        );
-      }
-
-      const data = await apiFetch(`/api/comments/${commentId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
+    switch (type) {
+      case 'event':
+        endpoint = `/api/events/${id}/comment`;
+        payload = {
           user_id: currentUser.id,
           text: text || '',
-          image_url,
-        }),
-      });
-
-      const updatedComment = data?.comment || {};
-
-      const updateCommentInPosts = (postsList: any[]) => {
-        return postsList.map(post => ({
-          ...post,
-          comments: safeArray(post.comments).map((comment: any) => {
-            if (Number(comment.id) !== Number(commentId)) return comment;
-            return {
-              ...comment,
-              text: updatedComment.text ?? text ?? comment.text,
-              image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
-            };
-          }),
-        }));
-      };
-
-      setPosts(prev => updateCommentInPosts(safeArray(prev)));
-      
-      if (view === 'profile') {
-        setProfilePosts(prev => updateCommentInPosts(safeArray(prev)));
-      }
-
-      if (activeCommentsIdentity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            comments: safeArray((prev as any).comments).map((comment: any) => {
-              if (Number(comment.id) !== Number(commentId)) return comment;
-              return {
-                ...comment,
-                text: updatedComment.text ?? text ?? comment.text,
-                image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
-              };
-            }),
-          } as any;
-        });
-      }
-
-      return updatedComment;
-    } catch (error) {
-      console.error('Failed to edit comment:', error);
-      setLoginError('Failed to edit comment');
-      return null;
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'product':
+        endpoint = `/api/products/${id}/review`;
+        payload = {
+          user_id: currentUser.id,
+          rating: null,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      case 'reel':
+        endpoint = `/api/reels/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
+        break;
+      default:
+        endpoint = `/api/posts/${id}/comment`;
+        payload = {
+          user_id: currentUser.id,
+          text: text || '',
+          parent_comment_id: parentCommentId ?? null,
+          image_url: image_url || '',
+        };
     }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const deleteComment = useCallback(async (commentId: number) => {
-    if (!requireAuth('Deleting comments')) return false;
-    if (!currentUser) return false;
+    const data = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-    try {
-      await apiFetch(`/api/comments/${commentId}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-
-      const removeCommentFromPosts = (postsList: any[]) => {
-        return postsList.map(post => {
-          const before = safeArray(post.comments);
-          
-          const filtered = before.filter((comment: any) => {
-            const commentIdNum = Number(comment.id);
-            const parentId = Number(comment.parent_comment_id);
-            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
-          });
-          
-          const removedCount = before.length - filtered.length;
-          
-          if (removedCount === 0) return post;
-          
-          return {
-            ...post,
-            comments: filtered,
-            comments_count: Math.max(0, safeNumber(post.comments_count) - removedCount),
-          };
-        });
-      };
-
-      setPosts(prev => removeCommentFromPosts(safeArray(prev)));
-      
-      if (view === 'profile') {
-        setProfilePosts(prev => removeCommentFromPosts(safeArray(prev)));
-      }
-
-      if (activeCommentsIdentity && commentPostSnapshot) {
-        setCommentPostSnapshot(prev => {
-          if (!prev) return prev;
-          const before = safeArray((prev as any).comments);
-          const filtered = before.filter((comment: any) => {
-            const commentIdNum = Number(comment.id);
-            const parentId = Number(comment.parent_comment_id);
-            return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
-          });
-          
-          return {
-            ...prev,
-            comments: filtered,
-            comments_count: filtered.length,
-          } as any;
-        });
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Failed to delete comment:', error);
-      setLoginError('Failed to delete comment');
-      return false;
-    }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
-
-  const likeComment = useCallback(async (commentId: number) => {
-    if (!requireAuth('Liking comments')) return null;
-    if (!currentUser) return null;
-
-    const updateCommentLike = (comment: any) => {
-      const currentlyLiked = comment.liked_by_me;
-      return {
-        ...comment,
-        liked_by_me: !currentlyLiked,
-        likes_count: currentlyLiked 
-          ? Math.max(0, (comment.likes_count || 0) - 1)
-          : (comment.likes_count || 0) + 1,
-      };
+    const newComment: any = {
+      id: safeNumber(data?.comment?.id ?? 0),
+      user_id: currentUser.id,
+      parent_comment_id: parentCommentId ?? null,
+      text: text || '',
+      image_url: image_url || '',
+      created_at: data?.comment?.created_at ?? new Date().toISOString(),
+      user: {
+        id: currentUser.id,
+        name: currentUser.name,
+        username: currentUser.username,
+        profile_image_url: currentUser.profile_image_url,
+        is_verified: currentUser.is_verified,
+      },
+      likes_count: 0,
+      liked_by_me: false,
+      replies: [],
+      replies_count: 0,
     };
 
-    const updateLikesInPosts = (postsList: any[]) => {
+    // Add type-specific ID field
+    switch (type) {
+      case 'event':
+        newComment.event_id = id;
+        break;
+      case 'product':
+        newComment.product_id = id;
+        break;
+      case 'reel':
+        newComment.reel_id = id;
+        break;
+      default:
+        newComment.post_id = id;
+    }
+
+    // Update posts state with new comment using identity
+    const updatePostsWithComment = (postsList: any[]) => {
+      return postsList.map(post => {
+        try {
+          if (getFeedKey(post) !== identity) return post;
+        } catch {
+          if (Number(post?.id) !== id) return post;
+        }
+        
+        const existingComments = safeArray((post as any).comments);
+        return {
+          ...post,
+          comments: [newComment, ...existingComments],
+          comments_count: safeNumber((post as any).comments_count) + 1,
+        };
+      });
+    };
+
+    setPosts(prev => updatePostsWithComment(safeArray(prev)));
+    
+    if (view === 'profile' && selectedUserId) {
+      setProfilePosts(prev => updatePostsWithComment(safeArray(prev)));
+    }
+
+    if (activeCommentsIdentity === identity && commentPostSnapshot) {
+      setCommentPostSnapshot(prev => {
+        if (!prev) return prev;
+        const existingComments = safeArray((prev as any).comments);
+        return {
+          ...prev,
+          comments: [newComment, ...existingComments],
+          comments_count: safeNumber((prev as any).comments_count) + 1,
+        } as any;
+      });
+    }
+
+    return newComment;
+  } catch (error) {
+    console.error('Failed to create comment:', error);
+    setLoginError('Failed to post comment');
+    return null;
+  }
+}, [currentUser, requireAuth, view, selectedUserId, activeCommentsIdentity, commentPostSnapshot]);
+
+const editComment = useCallback(async (
+  commentId: number,
+  text: string,
+  imageFile?: File | null,
+  existingImageUrl?: string
+) => {
+  if (!requireAuth('Editing comments')) return null;
+  if (!currentUser) return null;
+
+  try {
+    let image_url = existingImageUrl || '';
+
+    if (imageFile) {
+      image_url = await ensureR2Url(
+        imageFile,
+        'comments',
+        `comment-edit-${Date.now()}.jpg`
+      );
+    }
+
+    const data = await apiFetch(`/api/comments/${commentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        text: text || '',
+        image_url,
+      }),
+    });
+
+    const updatedComment = data?.comment || {};
+
+    const updateCommentInPosts = (postsList: any[]) => {
       return postsList.map(post => ({
         ...post,
         comments: safeArray(post.comments).map((comment: any) => {
           if (Number(comment.id) !== Number(commentId)) return comment;
-          return updateCommentLike(comment);
+          return {
+            ...comment,
+            text: updatedComment.text ?? text ?? comment.text,
+            image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+          };
         }),
       }));
     };
 
-    setPosts(prev => updateLikesInPosts(safeArray(prev)));
+    setPosts(prev => updateCommentInPosts(safeArray(prev)));
     
     if (view === 'profile') {
-      setProfilePosts(prev => updateLikesInPosts(safeArray(prev)));
+      setProfilePosts(prev => updateCommentInPosts(safeArray(prev)));
     }
 
     if (activeCommentsIdentity && commentPostSnapshot) {
@@ -6331,547 +8654,823 @@ const handleReelVideoSelected = useCallback(
           ...prev,
           comments: safeArray((prev as any).comments).map((comment: any) => {
             if (Number(comment.id) !== Number(commentId)) return comment;
-            return updateCommentLike(comment);
+            return {
+              ...comment,
+              text: updatedComment.text ?? text ?? comment.text,
+              image_url: updatedComment.image_url ?? image_url ?? comment.image_url,
+            };
           }),
         } as any;
       });
     }
 
-    try {
-      const data = await apiFetch(`/api/comments/${commentId}/like`, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: currentUser.id }),
-      });
-      
-      return data;
-    } catch (error) {
-      console.error('Failed to like comment:', error);
-      if (commentPostSnapshot) {
-        refreshComments(commentPostSnapshot).catch(() => {});
-      }
-      return null;
-    }
-  }, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+    return updatedComment;
+  } catch (error) {
+    console.error('Failed to edit comment:', error);
+    setLoginError('Failed to edit comment');
+    return null;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const fetchCommentReplies = useCallback(async (commentId: number) => {
-    if (!requireAuth('Viewing replies')) return [];
-    
-    try {
-      const data = await apiFetch(`/api/comments/${commentId}/replies`);
-      return safeArray(data?.replies ?? data);
-    } catch (error) {
-      console.error('Failed to fetch replies:', error);
-      return [];
-    }
-  }, [requireAuth]);
+const deleteComment = useCallback(async (commentId: number) => {
+  if (!requireAuth('Deleting comments')) return false;
+  if (!currentUser) return false;
 
-  const getCommentAuthor = useCallback((userId: number) => {
-    return users.find(u => Number(u.id) === Number(userId)) || null;
-  }, [users]);
+  try {
+    await apiFetch(`/api/comments/${commentId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
 
-  const refreshComments = useCallback(async (item: any) => {
-    if (!item) return [];
-    
-    let identity = '';
-    let id = 0;
-    
-    try {
-      identity = getFeedKey(item);
-      id = getFeedItemId(item);
-    } catch {
-      identity = `post:${item?.id}`;
-      id = Number(item?.id ?? 0);
-    }
-    
-    const freshComments = await fetchComments(item);
-    
-    const updateCommentsInPosts = (postsList: any[]) => {
+    const removeCommentFromPosts = (postsList: any[]) => {
       return postsList.map(post => {
-        try {
-          if (getFeedKey(post) !== identity) return post;
-        } catch {
-          if (Number(post?.id) !== id) return post;
-        }
+        const before = safeArray(post.comments);
+        
+        const filtered = before.filter((comment: any) => {
+          const commentIdNum = Number(comment.id);
+          const parentId = Number(comment.parent_comment_id);
+          return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+        });
+        
+        const removedCount = before.length - filtered.length;
+        
+        if (removedCount === 0) return post;
+        
         return {
           ...post,
-          comments: freshComments,
-          comments_count: freshComments.length,
+          comments: filtered,
+          comments_count: Math.max(0, safeNumber(post.comments_count) - removedCount),
         };
       });
     };
-    
-    setPosts(prev => updateCommentsInPosts(safeArray(prev)));
+
+    setPosts(prev => removeCommentFromPosts(safeArray(prev)));
     
     if (view === 'profile') {
-      setProfilePosts(prev => updateCommentsInPosts(safeArray(prev)));
+      setProfilePosts(prev => removeCommentFromPosts(safeArray(prev)));
     }
-    
-    if (activeCommentsIdentity === identity && commentPostSnapshot) {
+
+    if (activeCommentsIdentity && commentPostSnapshot) {
       setCommentPostSnapshot(prev => {
         if (!prev) return prev;
+        const before = safeArray((prev as any).comments);
+        const filtered = before.filter((comment: any) => {
+          const commentIdNum = Number(comment.id);
+          const parentId = Number(comment.parent_comment_id);
+          return commentIdNum !== Number(commentId) && parentId !== Number(commentId);
+        });
+        
         return {
           ...prev,
-          comments: freshComments,
-          comments_count: freshComments.length,
+          comments: filtered,
+          comments_count: filtered.length,
         } as any;
       });
     }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to delete comment:', error);
+    setLoginError('Failed to delete comment');
+    return false;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
+
+const likeComment = useCallback(async (commentId: number) => {
+  if (!requireAuth('Liking comments')) return null;
+  if (!currentUser) return null;
+
+  const updateCommentLike = (comment: any) => {
+    const currentlyLiked = comment.liked_by_me;
+    return {
+      ...comment,
+      liked_by_me: !currentlyLiked,
+      likes_count: currentlyLiked 
+        ? Math.max(0, (comment.likes_count || 0) - 1)
+        : (comment.likes_count || 0) + 1,
+    };
+  };
+
+  const updateLikesInPosts = (postsList: any[]) => {
+    return postsList.map(post => ({
+      ...post,
+      comments: safeArray(post.comments).map((comment: any) => {
+        if (Number(comment.id) !== Number(commentId)) return comment;
+        return updateCommentLike(comment);
+      }),
+    }));
+  };
+
+  setPosts(prev => updateLikesInPosts(safeArray(prev)));
+  
+  if (view === 'profile') {
+    setProfilePosts(prev => updateLikesInPosts(safeArray(prev)));
+  }
+
+  if (activeCommentsIdentity && commentPostSnapshot) {
+    setCommentPostSnapshot(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        comments: safeArray((prev as any).comments).map((comment: any) => {
+          if (Number(comment.id) !== Number(commentId)) return comment;
+          return updateCommentLike(comment);
+        }),
+      } as any;
+    });
+  }
+
+  try {
+    const data = await apiFetch(`/api/comments/${commentId}/like`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: currentUser.id }),
+    });
     
-    return freshComments;
-  }, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
-
-  // ============================================================================
-  // ✅ ORIGINAL FUNCTIONS (Preserved)
-  // ============================================================================
-
-  const onReactPost = useCallback((postId: number, type: ReactionType) => {
-    const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
-    if (post) {
-      reactToFeedItem(post, type);
+    return data;
+  } catch (error) {
+    console.error('Failed to like comment:', error);
+    if (commentPostSnapshot) {
+      refreshComments(commentPostSnapshot).catch(() => {});
     }
-  }, [posts, profilePosts, reactToFeedItem]);
+    return null;
+  }
+}, [currentUser, requireAuth, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const handleOpenShareSheet = useCallback(
-    (post: any) => {
-      if (!currentUser) {
-        setLoginError('Please login to share posts.');
-        setView('login');
-        return;
-      }
-      setActiveSharePost(post);
-      setShowShareSheet(true);
-    },
-    [currentUser]
-  );
+const fetchCommentReplies = useCallback(async (commentId: number) => {
+  if (!requireAuth('Viewing replies')) return [];
+  
+  try {
+    const data = await apiFetch(`/api/comments/${commentId}/replies`);
+    return safeArray(data?.replies ?? data);
+  } catch (error) {
+    console.error('Failed to fetch replies:', error);
+    return [];
+  }
+}, [requireAuth]);
 
-  const handleShareComplete = useCallback(
-    async (destination: string, data?: any) => {
-      if (data?.success && activeSharePost) {
-        setPosts((prev) => {
-          const next = safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-          lastGoodPostsRef.current = next;
-          stableFeedRef.current = next;
-          return next;
-        });
+const getCommentAuthor = useCallback((userId: number) => {
+  return users.find(u => Number(u.id) === Number(userId)) || null;
+}, [users]);
 
-        setProfilePosts((prev) => {
-          return safeArray(prev).map((p: any) =>
-            Number(p.id) === Number(activeSharePost.id)
-              ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
-              : p
-          );
-        });
-
-        try {
-          await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
-            method: 'POST',
-            body: JSON.stringify({ destination }),
-          });
-        } catch (error) {
-          console.error('Failed to record share:', error);
-        }
-      }
-
-      setShareInProgress(false);
-      setActiveSharePost(null);
-      setShowShareSheet(false);
-      scheduleSilentRefresh();
-    },
-    [activeSharePost, scheduleSilentRefresh]
-  );
-
-  const deletePost = useCallback(
-    async (postId: number) => {
-      if (!requireAuth('Deleting posts')) return;
-
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
-        lastGoodPostsRef.current = next;
-        stableFeedRef.current = next;
-        return next;
-      });
-
-      setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
-
+const refreshComments = useCallback(async (item: any) => {
+  if (!item) return [];
+  
+  let identity = '';
+  let id = 0;
+  
+  try {
+    identity = getFeedKey(item);
+    id = getFeedItemId(item);
+  } catch {
+    identity = `post:${item?.id}`;
+    id = Number(item?.id ?? 0);
+  }
+  
+  const freshComments = await fetchComments(item);
+  
+  const updateCommentsInPosts = (postsList: any[]) => {
+    return postsList.map(post => {
       try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+        if (getFeedKey(post) !== identity) return post;
       } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+        if (Number(post?.id) !== id) return post;
       }
-    },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
+      return {
+        ...post,
+        comments: freshComments,
+        comments_count: freshComments.length,
+      };
+    });
+  };
+  
+  setPosts(prev => updateCommentsInPosts(safeArray(prev)));
+  
+  if (view === 'profile') {
+    setProfilePosts(prev => updateCommentsInPosts(safeArray(prev)));
+  }
+  
+  if (activeCommentsIdentity === identity && commentPostSnapshot) {
+    setCommentPostSnapshot(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        comments: freshComments,
+        comments_count: freshComments.length,
+      } as any;
+    });
+  }
+  
+  return freshComments;
+}, [fetchComments, view, activeCommentsIdentity, commentPostSnapshot]);
 
-  const editPost = useCallback(
-    async (postId: number, content: string) => {
-      if (!requireAuth('Editing posts')) return;
-      const trimmed = (content || '').trim();
-      if (!trimmed) return;
 
-      const prev = posts;
-      const prevProfilePosts = profilePosts;
-      
-      setPosts((p) => {
-        const next = safeArray(p).map((x: any) =>
-          Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+// ============================================================================
+// ✅ ORIGINAL FUNCTIONS (Preserved)
+// ============================================================================
+const onReactPost = useCallback((postId: number, type: ReactionType) => {
+  const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+  if (post) {
+    reactToFeedItem(post, type);
+  }
+}, [posts, profilePosts, reactToFeedItem]);
+
+const handleOpenShareSheet = useCallback(
+  (post: any) => {
+    if (!currentUser) {
+      setLoginError('Please login to share posts.');
+      setView('login');
+      return;
+    }
+    setActiveSharePost(post);
+    setShowShareSheet(true);
+  },
+  [currentUser]
+);
+
+const handleShareComplete = useCallback(
+  async (destination: string, data?: any) => {
+    if (data?.success && activeSharePost) {
+      setPosts((prev) => {
+        const next = safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
         );
         lastGoodPostsRef.current = next;
         stableFeedRef.current = next;
         return next;
       });
 
-      setProfilePosts((prev) =>
-        safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
-      );
+      setProfilePosts((prev) => {
+        return safeArray(prev).map((p: any) =>
+          Number(p.id) === Number(activeSharePost.id)
+            ? normalizePost({ ...p, shares: safeNumber(p.shares) + 1 })
+            : p
+        );
+      });
 
       try {
-        await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
-      } catch {
-        setPosts(prev);
-        lastGoodPostsRef.current = prev;
-        stableFeedRef.current = prev;
-        
-        setProfilePosts(prevProfilePosts);
-        if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+        await apiFetch(`/api/posts/${activeSharePost.id}/share`, {
+          method: 'POST',
+          body: JSON.stringify({ destination }),
+        });
+      } catch (error) {
+        console.error('Failed to record share:', error);
       }
-    },
-    [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
-  );
+    }
 
-  // ============================================================================
-  // ✅ RENDER
-  // ============================================================================
+    setShareInProgress(false);
+    setActiveSharePost(null);
+    setShowShareSheet(false);
+    scheduleSilentRefresh();
+  },
+  [activeSharePost, scheduleSilentRefresh]
+);
+
+const deletePost = useCallback(
+  async (postId: number) => {
+    if (!requireAuth('Deleting posts')) return;
+
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).filter((x: any) => Number(x.id) !== Number(postId));
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) => safeArray(prev).filter((x: any) => Number(x.id) !== Number(postId)));
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+const editPost = useCallback(
+  async (postId: number, content: string) => {
+    if (!requireAuth('Editing posts')) return;
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+
+    const prev = posts;
+    const prevProfilePosts = profilePosts;
+    
+    setPosts((p) => {
+      const next = safeArray(p).map((x: any) =>
+        Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x
+      );
+      lastGoodPostsRef.current = next;
+      stableFeedRef.current = next;
+      return next;
+    });
+
+    setProfilePosts((prev) =>
+      safeArray(prev).map((x: any) => (Number(x.id) === Number(postId) ? normalizePost({ ...x, content: trimmed }) : x))
+    );
+
+    try {
+      await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: JSON.stringify({ content: trimmed }) });
+    } catch {
+      setPosts(prev);
+      lastGoodPostsRef.current = prev;
+      stableFeedRef.current = prev;
+      
+      setProfilePosts(prevProfilePosts);
+      if (view === 'profile' && selectedUserId) fetchProfilePosts(Number(selectedUserId)).catch(() => {});
+    }
+  },
+  [requireAuth, posts, profilePosts, view, selectedUserId, fetchProfilePosts]
+);
+
+// Add this with your other navigation functions
+const openPost = useCallback((postId: number) => {
+  // Find the post in your posts state
+  const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+  if (post) {
+    // Open comments sheet for this post
+    handleOpenComments(post);
+  } else {
+    // If post not found, try to fetch it or just navigate home
+    navigateTo('home');
+  }
+}, [posts, profilePosts, handleOpenComments, navigateTo]);
+
+const openReel = useCallback((reelId: number) => {
+  setSelectedReelId(reelId);
+  navigateTo('reels');
+}, [navigateTo]);
+
+const openProduct = useCallback((productId: string | number) => {
+  const product = products.find(p => Number(p.id) === Number(productId));
+  if (product) {
+    setActiveProduct(product);
+    navigateTo('marketplace');
+  }
+}, [products, navigateTo]);
+
+const openGroupPost = useCallback((postId: string | number) => {
+  // Navigate to groups and highlight the specific post
+  navigateTo('groups');
+  // You can add a selectedPostId state if needed
+}, [navigateTo]);
+
+const openEvent = useCallback((eventId: string | number) => {
+  setActiveEventId(Number(eventId));
+  navigateTo('events');
+}, [navigateTo]);          
+
+  const activePost = useMemo(() => {
+  if (!activeCommentsIdentity) return null;
   return (
-    <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
-      <Header
-        onHomeClick={() => handleNavigate('home')}
-        onProfileClick={(id: number) => openProfile(id)}
-        onReelsClick={() => navigateTo('reels')}
-        onMarketplaceClick={() => navigateTo('marketplace')}
-        onGroupsClick={() => navigateTo('groups')}
-        onAdsClick={() => {
-          if (!currentUser) {
-            setLoginError('Please login to access ads dashboard.');
-            setView('login');
-            return;
-          }
-          navigateTo('ads');
-          setActiveAdTab('dashboard');
-        }}
+    commentPostSnapshot || 
+    posts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    profilePosts.find((p) => String(p.id) === String(activeCommentsIdentity.id)) ||
+    null
+  );
+}, [activeCommentsIdentity, commentPostSnapshot, posts, profilePosts]);        
+
+
+  
+   //====NOTIFICATION DELETE ===     
+const deleteNotification = useCallback(async (notificationId: number) => {
+  const token = localStorage.getItem("unera_token");
+  try {
+    const res = await fetch(`/api/notifications?id=${notificationId}`, {
+      method: "DELETE",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+      },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || "Failed to delete notification");
+    }
+    setNotifications((prev) =>
+      Array.isArray(prev) ? prev.filter((n: any) => Number(n.id) !== Number(notificationId)) : prev
+    );
+  } catch (error) {
+    console.error('Failed to delete notification:', error);
+    setLoginError('Failed to delete notification');
+  }
+}, [currentUser]);
+          
+//=======MARK AS READ NOTIFICATION ===
+          
+const markAllNotificationsAsRead = useCallback(async () => {
+  const token = localStorage.getItem("unera_token");
+  try {
+    const res = await fetch(`/api/notifications`, {
+      method: "PATCH",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+        'Content-Type': 'application/json',
+      },
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error || "Failed to mark notifications as read");
+    }
+    setNotifications((prev) =>
+      Array.isArray(prev)
+        ? prev.map((n: any) => ({
+            ...n,
+            is_read: 1,
+          }))
+        : prev
+    );
+  } catch (error) {
+    console.error('Failed to mark notifications as read:', error);
+    setLoginError('Failed to mark notifications as read');
+  }
+}, [currentUser]);
+          
+
+
+  
+    //=======NOTIFICATION TARGET ===          
+ 
+ const openNotificationTarget = useCallback((notification: any) => {
+  // Use target_type and target_id from enriched notification (priority)
+  const targetType = String(notification?.target_type || notification?.entity_type || "").toLowerCase();
+  const targetId = Number(notification?.target_id ?? notification?.entity_id ?? 0);
+  const actorId = Number(notification?.actor_id || 0);
+  const type = String(notification?.type || "").toLowerCase();
+
+  // Mark this notification as read
+  const markAsRead = async () => {
+    try {
+      await fetch(`/api/notifications/${notification.id}/read`, {
+        method: 'POST',
+        headers: {
+          ...(currentUser?.id ? { "x-user-id": String(currentUser.id) } : {}),
+        },
+      });
+      setNotifications(prev =>
+        prev.map(n =>
+          Number(n.id) === Number(notification.id) ? { ...n, is_read: 1 } : n
+        )
+      );
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  };
+
+  // ============================================================================
+  // ✅ ROUTE BY target_type + target_id (NOT entity_id only!)
+  // ============================================================================
+  
+  // Handle POST
+  if ((targetType === "post" || targetType === "discuss") && targetId) {
+    markAsRead();
+    openPost(targetId);
+    return;
+  }
+
+  // Handle REEL
+  if (targetType === "reel" && targetId) {
+    markAsRead();
+    openReel(targetId);
+    return;
+  }
+
+  // Handle STORY
+  if (targetType === "story" && targetId) {
+    markAsRead();
+    const story = stories.find(s => Number(s.id) === targetId);
+    if (story) {
+      openStoryViewer(story);
+    } else {
+      // Fallback to profile if story not found
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle SONG
+  if (targetType === "song" && targetId) {
+    markAsRead();
+    navigateTo('music');
+    const song = songs.find(s => Number(s.id) === targetId);
+    if (song) {
+      onPlayTrack(song as any);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle PODCAST
+  if (targetType === "podcast" && targetId) {
+    markAsRead();
+    navigateTo('music');
+    // Find podcast episode and play
+    const podcast = songs.find(s => Number(s.id) === targetId && s.type === 'podcast');
+    if (podcast) {
+      onPlayTrack(podcast as any);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle PRODUCT
+  if (targetType === "product" && targetId) {
+    markAsRead();
+    openProduct(targetId);
+    return;
+  }
+
+  // Handle EVENT
+  if (targetType === "event" && targetId) {
+    markAsRead();
+    openEvent(targetId);
+    return;
+  }
+
+  // Handle GROUP POST
+  if (targetType === "group_post" && targetId) {
+    markAsRead();
+    openGroupPost(targetId);
+    return;
+  }
+
+  // Handle GROUP (join/invite)
+  if (targetType === "group" && targetId) {
+    markAsRead();
+    navigateTo('groups');
+    // Optionally highlight the specific group
+    return;
+  }
+
+  // Handle FOLLOW
+  if (type === "follow" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Handle MENTION
+  if (type === "mention" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Handle TAG
+  if (type === "tag" && actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+
+  // Handle REACTION
+  if ((type === "react" || type === "reaction" || type === "like") && targetId) {
+    markAsRead();
+    // For reactions, open the target content
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "story") {
+      const story = stories.find(s => Number(s.id) === targetId);
+      if (story) openStoryViewer(story);
+    } else if (targetType === "song") {
+      navigateTo('music');
+      const song = songs.find(s => Number(s.id) === targetId);
+      if (song) onPlayTrack(song as any);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else if (targetType === "product") {
+      openProduct(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle SHARE
+  if (type === "share" && targetId) {
+    markAsRead();
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Handle DISCUSS/COMMENT/REPLY
+  if ((type === "discuss" || type === "comment" || type === "reply") && targetId) {
+    markAsRead();
+    if (targetType === "post") {
+      openPost(targetId);
+    } else if (targetType === "reel") {
+      openReel(targetId);
+    } else if (targetType === "event") {
+      openEvent(targetId);
+    } else if (targetType === "group_post") {
+      openGroupPost(targetId);
+    } else {
+      openProfile(actorId);
+    }
+    return;
+  }
+
+  // Fallback to actor's profile if nothing else matches
+  if (actorId) {
+    markAsRead();
+    openProfile(actorId);
+    return;
+  }
+  
+  // Last resort: just mark as read and close
+  markAsRead();
+}, [currentUser, openPost, openReel, openProduct, openGroupPost, openEvent, openProfile, openStoryViewer, navigateTo, onPlayTrack, songs, stories]);         
+
+  
+// ============================================================================
+// ✅ RENDER
+// ============================================================================
+return (
+  <div className="bg-[#18191A] min-h-screen flex flex-col font-sans">
+    <Header
+      onHomeClick={() => handleNavigate('home')}
+      onProfileClick={(id: number) => openProfile(id)}
+      onReelsClick={() => navigateTo('reels')}
+      onMarketplaceClick={() => navigateTo('marketplace')}
+      onGroupsClick={() => navigateTo('groups')}
+      onAdsClick={() => {
+        if (!currentUser) {
+          setLoginError('Please login to access ads dashboard.');
+          setView('login');
+          return;
+        }
+        navigateTo('ads');
+        setActiveAdTab('dashboard');
+      }}
+      currentUser={currentUser}
+      notifications={notifications}
+      users={users}
+      onLogout={handleLogout}
+      onLoginClick={() => setView('login')}
+      onMarkNotificationsRead={() => {}}
+      activeTab={activeTab}
+      onNavigate={(v: any) => handleNavigate(v)}
+      unreadNotifications={unreadNotifications}
+      onNotificationClick={() => {
+        navigateTo('notifications');
+        markNotificationsRead();
+      }}
+      showBackButton={view !== 'home'}
+      onBack={goBack}
+      currentView={view}
+      onOpenChatsList={() => setIsChatsListOpen(prev => !prev)}
+      isChatsListOpen={isChatsListOpen}
+      badgeCounts={badgeCounts}
+    />
+
+    <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
+          <Sidebar
+            currentUser={currentUser}
+            onProfileClick={(id) => openProfile(id)}
+            onReelsClick={() => navigateTo('reels')}
+            onMarketplaceClick={() => navigateTo('marketplace')}
+            onGroupsClick={() => navigateTo('groups')}
+          />
+        </div>
+      )}
+
+      <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
+        <input
+          ref={reelVideoInputRef}
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={handleReelVideoSelected}
+        />
+{view === 'home' && (
+  <div className="w-full pt-4 md:px-8 pb-10">
+    {activeHashtag && (
+      <div className="mb-3 px-4">
+        {/* ... hashtag UI ... */}
+      </div>
+    )}
+
+    <StoryReel
+  stories={orderedStories}
+  onProfileClick={(id) => openProfile(id)}
+  onCreateStory={() => {
+    if (!requireAuth('Creating stories')) return;
+    setShowCreateStoryModal(true);
+  }}
+  onViewStory={openStoryViewer}
+  currentUser={currentUser}
+  onRequestLogin={() => setView('login')}
+  onFollow={followUser}
+  checkIsFollowing={checkIsFollowing}
+  followLoading={followLoading}
+  onFetchViewers={fetchStoryViewers}
+  onReaction={reactToStory}
+  onReply={replyToStory}
+  onToggleMute={() => setStoryMuted(!storyMuted)}
+  muted={storyMuted}
+  storyCreateLoading={storyCreateLoading}
+/>
+    
+    {currentUser && (
+      <CreatePost
         currentUser={currentUser}
-        notifications={notifications}
-        users={users}
-        onLogout={handleLogout}
-        onLoginClick={() => setView('login')}
-        onMarkNotificationsRead={() => {}}
-        activeTab={activeTab}
-        onNavigate={(v: any) => handleNavigate(v)}
-        unreadNotifications={unreadNotifications}
-        onNotificationClick={() => {
-          navigateTo('notifications');
-          markNotificationsRead();
+        onProfileClick={(id) => openProfile(id)}
+        onClick={() => {
+          if (!requireAuth('Creating posts')) return;
+          setShowCreatePostModal(true);
         }}
-        showBackButton={view !== 'home'}
-        onBack={goBack}
-        currentView={view}
+        onPhotoClick={handlePhotoClick}
+        onVideoClick={handleVideoClickFromCreate}
+        onCreateEventClick={() => {
+          if (!requireAuth('Creating events')) return;
+          setShowCreateEventModal(true);
+        }}
       />
+    )}
 
-      <div className="flex justify-center w-full max-w-[1920px] mx-auto relative flex-1">
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden lg:block">
-            <Sidebar
-              currentUser={currentUser}
-              onProfileClick={(id) => openProfile(id)}
-              onReelsClick={() => navigateTo('reels')}
-              onMarketplaceClick={() => navigateTo('marketplace')}
-              onGroupsClick={() => navigateTo('groups')}
-            />
-          </div>
-        )}
-
-        <div className="w-full lg:w-[740px] xl:w-[700px] min-h-screen">
-          <input
-    ref={reelVideoInputRef}
-    type="file"
-    accept="video/*"
-    className="hidden"
-    onChange={handleReelVideoSelected}
-  />
-          {view === 'home' && (
-            <div className="w-full pt-4 md:px-8 pb-10">
-              {activeHashtag && (
-                <div className="mb-3 px-4">
-                  <div className="inline-flex items-center gap-2 bg-[#242526] border border-[#3E4042] rounded-full px-3 py-1">
-                    <span className="text-[#1877F2] font-semibold">{activeHashtag}</span>
-                    <button 
-                      onClick={clearHashtag} 
-                      className="text-[#B0B3B8] hover:text-white ml-1"
-                    >
-                      <i className="fas fa-times" />
-                    </button>
-                  </div>
-                  <p className="text-[#B0B3B8] text-xs mt-1">
-                    Showing posts with {activeHashtag}
-                  </p>
-                </div>
-              )}
-
-              <StoryReel
-                stories={orderedStories}
-                onProfileClick={(id) => openProfile(id)}
-                onCreateStory={() => {
-                  if (!requireAuth('Creating stories')) return;
-                  setShowCreateStoryModal(true);
-                }}
-                onViewStory={openStoryViewer}
-                currentUser={currentUser}
-                onRequestLogin={() => setView('login')}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                followLoading={followLoading}
-                onFetchViewers={fetchStoryViewers}
-                onReaction={reactToStory}
-                onReply={replyToStory}
-                onToggleMute={() => setStoryMuted(!storyMuted)}
-                muted={storyMuted}
-              />
-
-              {currentUser && (
-                <CreatePost
-                  currentUser={currentUser}
-                  onProfileClick={(id) => openProfile(id)}
-                  onClick={() => {
-                    if (!requireAuth('Creating posts')) return;
-                    setShowCreatePostModal(true);
-                  }}
-                  onPhotoClick={handlePhotoClick}
-                  onVideoClick={handleVideoClickFromCreate}
-                  onCreateEventClick={() => {
-                    if (!requireAuth('Creating events')) return;
-                    setShowCreateEventModal(true);
-                  }}
-                />
-              )}
-
-              <div className="space-y-2">
-                <MarketplaceContext.Provider value={{
-                  onViewProduct: (productId) => {
-                    const product = products.find(p => Number(p.id) === Number(productId));
-                    if (product) {
-                      navigateTo('marketplace');
-                      setActiveProduct(product);
-                    }
-                  },
-                  getProductData
-                }}>
-                  {feedItems.length > 0 ? (
-                    feedItems.map((item, idx) => {
-                      if (item.type === 'sponsored' || item.ad_type || item.is_sponsored) {
-                        const isActive = item.campaign_status === 'active' || 
-                                         (item.end_date && new Date(item.end_date) > new Date());
-                        
-                        return (
-                          <SponsoredPostCard
-                            key={item.id}
-                            ad={item}
-                            currentUser={currentUser}
-                            onProfileClick={openProfile}
-                            onReact={(ad, type) => reactToFeedItem(ad, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onOpenComments={(ad) => handleOpenComments(ad)}
-                            isActive={isActive}
-                          />
-                        );
-                      }
-
-                      if (item.type === 'reel') {
-                        return (
-                          <ReelFeedCard
-                            key={item.id}
-                            reel={item.reel}
-                            onOpen={(reelId) => {
-                              setSelectedReelId(reelId);
-                              navigateTo('reels');
-                            }}
-                            onOpenMenu={(reel) => {
-                              // Handle menu options
-                            }}
-                            onProfileClick={(userId) => {
-                              openProfile(Number(userId));
-                            }}
-                          />
-                        );
-                      }
-
-                      const postAuthorId = Number((item as any).user_id);
-                      const isFollowing = checkIsFollowing(postAuthorId);
-                      const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-                      const isAdminUser = currentUser && currentUser.role === 'admin';
-                      const showPushButton = isPostOwner || isAdminUser;
-
-                      const showFirstPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex1 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex1;
-
-                      const showSecondPymk = currentUser &&
-                        peopleYouMayKnow.length > 0 &&
-                        peopleYouMayKnowInsertIndex2 >= 0 &&
-                        idx === peopleYouMayKnowInsertIndex2;
-
-                      const showGroupsYouMayJoin = currentUser &&
-                        groupsYouMayJoin.length > 0 &&
-                        groupsYouMayJoinInsertIndex >= 0 &&
-                        idx === groupsYouMayJoinInsertIndex;
-
-                      return (
-                        <React.Fragment key={getStableItemKey(item, 'post')}>
-                          <Post
-                            post={item as PostType}
-                            author={getPostAuthor(item as PostType)}
-                            currentUser={currentUser}
-                            users={users}
-                            onProfileClick={openProfile}
-                            onReact={(post, type) => reactToFeedItem(post, type)}
-                            onShare={(postId, newShareCount) => {
-                              console.log('Share:', postId, newShareCount);
-                            }}
-                            onViewImage={setFullScreenImage}
-                            onOpenComments={(post) => handleOpenComments(post)}
-                            onVideoClick={handleVideoClick}
-                            onPlayAudioTrack={onPlayTrack}
-                            groups={groups}
-                            brands={brands}
-                            chats={chats}
-                            onHashtagClick={handleHashtagClick}
-                            isFollowing={isFollowing}
-                            onFollow={() => followUser(postAuthorId)}
-                            followLoading={followLoading[postAuthorId] || false}
-                            onViewProductFromPost={openProductFromPost}
-                            onRSVPEvent={onRSVPEvent}
-                            pushButton={showPushButton ? (
-                              <button
-                                onClick={() => pushMore(item.id)}
-                                disabled={pushedPosts[item.id]}
-                                className={`px-3 py-1 rounded-md text-sm font-semibold ml-2 ${
-                                  pushedPosts[item.id]
-                                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                                }`}
-                              >
-                                {pushedPosts[item.id] ? 'Pushed' : 'Push More'}
-                              </button>
-                            ) : undefined}
-                          />
-
-                          {showFirstPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showSecondPymk && (
-                            <div className="relative">
-                              <PeopleYouMayKnowGrid
-                                users={peopleYouMayKnow}
-                                onFollow={(id: number) => followFromPymk(id)}
-                                currentUser={currentUser}
-                                isLoading={pymkLoading && peopleYouMayKnow.length === 0}
-                                onLoginClick={() => setView('login')}
-                                onProfileClick={openProfile}
-                                title="More People You May Know"
-                                maxDisplay={8}
-                              />
-                              
-                              {peopleYouMayKnow[0] && (
-                                <button
-                                  onClick={() => hidePymkUser(peopleYouMayKnow[0].id)}
-                                  className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] flex items-center justify-center"
-                                  aria-label="Hide suggestions"
-                                >
-                                  <i className="fas fa-times text-sm" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {showGroupsYouMayJoin && (
-                            <GroupsYouMayJoinCard
-                              groups={groupsYouMayJoin}
-                              currentUser={currentUser}
-                              isLoading={gymjLoading && groupsYouMayJoin.length === 0}
-                              onJoin={(groupId: number) => joinFromSuggestion(groupId)}
-                              onLoginClick={() => setView('login')}
-                              onOpenGroup={(groupId: number) => {
-                                navigateTo('groups');
-                              }}
-                              onProfileClick={openProfile}
-                              title="Groups You May Join"
-                              maxDisplay={8}
-                            />
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  ) : !feedHydrated ? (
-                    <div className="text-center py-20 text-[#B0B3B8]"></div>
-                  ) : activeHashtag ? (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts found with {activeHashtag}.</p>
-                      <button 
-                        onClick={clearHashtag}
-                        className="mt-4 px-4 py-2 bg-[#1877F2] text-white rounded-lg hover:bg-[#166FE5] transition-colors"
-                      >
-                        Clear filter
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-center py-20 text-[#B0B3B8]">
-                      <p>No posts available.</p>
-                      {!currentUser && <p className="mt-2 text-sm">Sign in to see posts from your network.</p>}
-                    </div>
-                  )}
-                </MarketplaceContext.Provider>
-              </div>
-            </div>
-          )}
-
-          {/* ReelsFeed render */}
-
-          {view === 'reels' && (
+    <div className="space-y-2">
+      <MarketplaceContext.Provider value={{
+        onViewProduct: (productId) => {
+          const product = products.find(p => Number(p.id) === Number(productId));
+          if (product) {
+            navigateTo('marketplace');
+            setActiveProduct(product);
+          }
+        },
+        getProductData
+      }}>
+        <Feed
+          items={mixedFeedItems}
+          onOpenStory={openStoryViewer}
+          feedItems={[]}
+          currentUser={currentUser}
+          users={users}
+          onProfileClick={openProfile}
+          onReact={(post, type) => reactToFeedItem(post, type)}
+          onShare={(id, newShareCount) => console.log('Share:', id, newShareCount)}
+          onOpenComments={handleOpenComments}
+          onViewImage={setFullScreenImage}
+          onVideoClick={handleVideoClick}
+          onPlayAudioTrack={onPlayTrack}
+          onHashtagClick={handleHashtagClick}
+          onFollow={followUser}
+          followLoading={followLoading}
+          checkIsFollowing={checkIsFollowing}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onViewProductFromPost={openProductFromPost}
+          onRSVPEvent={onRSVPEvent}
+          getPostAuthor={getPostAuthor}
+          onPushMore={pushMore}
+          pushedPosts={pushedPosts}
+          onOpenReel={(reelId) => {
+            setSelectedReelId(reelId);
+            navigateTo('reels');
+          }}
+          peopleYouMayKnow={peopleYouMayKnow}
+          peopleYouMayKnowInsertIndex1={peopleYouMayKnowInsertIndex1}
+          peopleYouMayKnowInsertIndex2={peopleYouMayKnowInsertIndex2}
+          onFollowFromPymk={followFromPymk}
+          pymkLoading={pymkLoading}
+          groupsYouMayJoin={groupsYouMayJoin}
+          groupsYouMayJoinInsertIndex={groupsYouMayJoinInsertIndex}
+          onJoinGroupSuggestion={joinFromSuggestion}
+          gymjLoading={gymjLoading}
+          onOpenGroup={(groupId) => navigateTo('groups')}
+          onLoginClick={() => setView('login')}
+        />
+      </MarketplaceContext.Provider>
+    </div>
+  </div>
+)}   
+     
+{view === 'reels' && (
   <ReelsFeed
     reels={safeArray(reels)}
     users={safeArray(users)}
@@ -6889,264 +9488,290 @@ const handleReelVideoSelected = useCallback(
     followLoading={followLoading}
     initialReelId={typeof selectedReelId === 'number' ? selectedReelId : null}
     onBack={goBack}
-    onVideoClick={handleVideoClickFromCreate}
+    onVideoClick={(sound) => {
+      // ✅ NATIVE APP - Use Flutter gallery + camera
+      if (isUneraNativeApp()) {
+        if (openNativeReelGallery(sound)) return;
+      }
+      // ✅ WEB BROWSER - Use direct file picker
+      openDirectFilePicker(sound);
+    }}
+    // ✅ ADD THESE THREE PROPS
+    reelPublishing={reelPublishing}
+    reelPublishingProgress={reelPublishingProgress}
+    reelPublishingText={reelPublishingText}
   />
 )}
-          {view === 'marketplace' && (
-            <MarketplacePage
+  
+        
+        {view === 'marketplace' && (
+          <MarketplacePage
+            currentUser={currentUser}
+            products={products}
+            onNavigateHome={() => handleNavigate('home')}
+            onCreateProduct={createProduct}
+            onViewProduct={setActiveProduct}
+          />
+        )}
+
+        {view === 'groups' && (
+          <ErrorBoundary>
+            <GroupsPage
               currentUser={currentUser}
-              products={products}
-              onNavigateHome={() => handleNavigate('home')}
-              onCreateProduct={createProduct}
-              onViewProduct={setActiveProduct}
-            />
-          )}
-
-          {view === 'groups' && (
-            <ErrorBoundary>
-              <GroupsPage
-                currentUser={currentUser}
-                groups={groups}
-                users={users}
-                onCreateGroup={createGroup}
-                onJoinGroup={joinGroup}
-                onLeaveGroup={leaveGroup}
-                onDeleteGroup={deleteGroup}
-                onUpdateGroupImage={updateGroupImage}
-                onPostToGroup={createGroupPost}
-                onCreateGroupEvent={createGroupEvent}
-                onInviteToGroup={inviteToGroup}
-                onProfileClick={openProfile}
-                onLikePost={toggleGroupPostLike}
-                onSharePost={(postId: number, newShareCount: number) => {
-                  setPosts(prev => prev.map(p => 
-                    p.id === postId ? { ...p, shares: newShareCount } as any : p
-                  ));
-                }}
-                onDeleteGroupPost={deleteGroupPost}
-                onEditGroupPost={editGroupPost}
-                onRemoveMember={removeGroupMember}
-                onUpdateGroupSettings={updateGroupSettings}
-                onEventRSVP={handleEventRSVP}
-                fetchGroupPosts={fetchGroupPosts}
-                fetchGroupDetails={fetchGroupDetails}
-                fetchGroupEvents={fetchGroupEvents}
-                fetchComments={fetchGroupPostComments}
-                onComment={createGroupPostComment}
-                onLikeComment={handleLikeComment}
-                onPlayAudioTrack={onPlayTrack}
-                onFollow={followUser}
-                checkIsFollowing={checkIsFollowing}
-                onHashtagClick={handleHashtagClick}
-                onViewImage={setFullScreenImage}
-                onVideoClick={handleVideoClick}
-                initialGroupId={null}
-                onApplyToJob={async (postId: number, applicationData?: any) => {
-                  console.log('Apply to job:', postId, applicationData);
-                }}
-                onMessageSeller={(userId: number) => {
-                  const recipient = users.find(u => u.id === userId);
-                  if (recipient) {
-                    handleOpenChat(recipient);
-                  }
-                }}
-                onMakeOffer={async (postId: number, amount: number) => {
-                  console.log('Make offer:', postId, amount);
-                }}
-                onPlayVideo={(postId: number, url: string) => {
-                  console.log('Play video:', postId, url);
-                }}
-              />
-            </ErrorBoundary>
-          )}
-
-          {view === 'brands' && (
-            <BrandsPage
-              currentUser={currentUser}
-              brands={brands}
-              posts={posts}
-              users={users}
-              onCreateBrand={() => requireAuth('Creating brands')}
-              onFollowBrand={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
-              onPostAsBrand={() => requireAuth('Posting')}
-              onReact={() => requireAuth('Reacting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onOpenComments={(id: any) => {
-                if (!requireAuth('Commenting')) return;
-                const post = posts.find(p => p.id === id);
-                if (post) handleOpenComments(post);
-              }}
-              onDeleteBrand={() => requireAuth('Deleting brands')}
-              onPlayAudioTrack={onPlayTrack}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-            />
-          )}
-
-          {view === 'music' && (
-            <MusicSystem
-              currentUser={currentUser}
-              onPlayTrack={onPlayTrack}
-              onProfileClick={(id) => openProfile(id)}
-              likedTracks={likedTracks}
-              onToggleLike={handleMusicSystemLikeSync}
-              playHistory={playHistory}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              users={users}
-              currentTrack={currentAudioTrack}
-              isPlaying={isAudioPlaying}
-              myTotalPlays={currentUser?.id ? myTotalPlays : 0}
-              playsLoading={playsLoading}
-            />
-          )}
-
-          {view === 'tools' && <ToolsPage />}
-
-          {view === 'profiles' && (
-            <SuggestedProfilesPage
-              currentUser={currentUser as any}
-              users={users}
-              onFollow={(id: number) => followUser(id)}
-              onProfileClick={(id) => openProfile(id)}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-            />
-          )}
-
-          {view === 'events' && (
-            <ErrorBoundary>
-              <AllEvents
-                currentUser={currentUser ?? null}
-                users={users}
-                onProfileClick={(id) => openProfile(id)}
-                onEventClick={(eventId) => {
-                  setActiveEventId(eventId);
-                }}
-                onCreateEventClick={() => {
-                  if (!requireAuth('Creating events')) return;
-                  setShowCreateEventModal(true);
-                }}
-              />
-            </ErrorBoundary>
-          )}
-
-          {view === 'birthdays' && (
-            <BirthdaysPage
-              currentUser={currentUser as any}
-              users={users}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                setActiveChatUser(users.find((u) => u.id === id) || null);
-                setIsChatOpen(true);
-              }}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-            />
-          )}
-
-          {view === 'memories' && currentUser && (
-            <MemoriesPage
-              currentUser={currentUser}
-              posts={allKnownPosts}
-              users={users}
-              onProfileClick={(id: number) => openProfile(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(postId: number) => {
-                const post = posts.find(p => p.id === postId);
-                if (post) handleOpenComments(post);
-              }}
-              onVideoClick={handleVideoClick}
-              onPlayAudioTrack={onPlayTrack}
-              onHashtagClick={handleHashtagClick}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
               groups={groups}
-              brands={brands}
-              chats={chats}
-            />
-          )}
-
-          {view === 'settings' && currentUser && (
-            <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
-          )}
-
-          {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
-          {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
-          {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
-
-          {view === 'profile' && profileUser && (
-            <UserProfile
-              user={profileUser}
-              currentUser={currentUser}
               users={users}
-              posts={profilePosts}
-              reels={reels}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={(id: number) => followUser(id)}
-              onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
-              onComment={() => requireAuth('Commenting')}
-              onShare={(post: any) => handleOpenShareSheet(post)}
-              onMessage={(id) => {
-                if (!requireAuth('Messaging')) return;
-                const recipient = users.find((u) => u.id === id);
+              onCreateGroup={createGroup}
+              onJoinGroup={joinGroup}
+              onLeaveGroup={leaveGroup}
+              onDeleteGroup={deleteGroup}
+              onUpdateGroupImage={updateGroupImage}
+              onPostToGroup={createGroupPost}
+              onCreateGroupEvent={createGroupEvent}
+              onInviteToGroup={inviteToGroup}
+              onProfileClick={openProfile}
+              onLikePost={toggleGroupPostLike}
+              onSharePost={(postId: number, newShareCount: number) => {
+                setPosts(prev => prev.map(p => 
+                  p.id === postId ? { ...p, shares: newShareCount } as any : p
+                ));
+              }}
+              onDeleteGroupPost={deleteGroupPost}
+              onEditGroupPost={editGroupPost}
+              onRemoveMember={removeGroupMember}
+              onUpdateGroupSettings={updateGroupSettings}
+              onEventRSVP={handleEventRSVP}
+              fetchGroupPosts={fetchGroupPosts}
+              fetchGroupDetails={fetchGroupDetails}
+              fetchGroupEvents={fetchGroupEvents}
+              fetchComments={fetchGroupPostComments}
+              fetchGroupInvites={fetchGroupInvites}
+              onComment={createGroupPostComment}
+              onLikeComment={handleLikeComment}
+              onPlayAudioTrack={onPlayTrack}
+              onFollow={followUser}
+              checkIsFollowing={checkIsFollowing}
+              onHashtagClick={handleHashtagClick}
+              onViewImage={setFullScreenImage}
+              onVideoClick={handleVideoClick}
+              onAcceptGroupInvite={acceptGroupInvite}
+              onMakeModerator={makeModerator}
+  
+              onDeclineGroupInvite={declineGroupInvite}
+              initialGroupId={null}
+              onApplyToJob={async (postId: number, applicationData?: any) => {
+                console.log('Apply to job:', postId, applicationData);
+              }}
+              onMessageSeller={(userId: number) => {
+                const recipient = users.find(u => u.id === userId);
                 if (recipient) {
                   handleOpenChat(recipient);
                 }
               }}
-              onCreatePost={createPost as any}
-              onUpdateProfileImage={updateProfileImage as any}
-              onUpdateCoverImage={updateCoverImage as any}
-              onUpdateUserDetails={updateUserDetails as any}
-              onDeletePost={(postId: number) => deletePost(postId)}
-              onEditPost={(postId: number, content: string) => editPost(postId, content)}
-              getCommentAuthor={(id) => users.find((u) => u.id === id)}
-              onViewImage={setFullScreenImage}
-              onOpenComments={(postId) => {
-                const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
-                if (post) handleOpenComments(post);
+              onMakeOffer={async (postId: number, amount: number) => {
+                console.log('Make offer:', postId, amount);
               }}
-              onVideoClick={handleVideoClick}
-              onPlayAudioTrack={onPlayTrack}
-              onCreateStoryClick={handleCreateStoryFromProfile}
-              onVerifyUser={(id) => verifyUser(id)}
-              onRestrictUser={(id, duration) => suspendUser(id, duration)}
-              onDeleteUser={(id) => deleteUserAccount(id)}
-              onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
-              isFollowing={checkIsFollowing(Number(profileUser.id))}
-              followLoading={followLoading[Number(profileUser.id)] || false}
-              onOpenChat={handleOpenChat}
-              isChatOpen={isChatOpen}
-              activeChatRecipient={activeChatUser}
-              onOpenChatsList={handleOpenChatsList}
-              isChatsListOpen={isChatsListOpen}
+              onPlayVideo={(postId: number, url: string) => {
+                console.log('Play video:', postId, url);
+              }}
             />
-          )}
+          </ErrorBoundary>
+        )}
 
-          {view === 'login' && (
-            <Login
-              onLogin={handleLogin}
-              onNavigateToRegister={() => setView('register')}
-              onNavigateToForgotPassword={() => setView('login')}
-              onClose={() => setView('home')}
-              error={loginError}
+        {view === 'brands' && (
+          <BrandsPage
+            currentUser={currentUser}
+            brands={brands}
+            posts={posts}
+            users={users}
+            onCreateBrand={() => requireAuth('Creating brands')}
+            onFollowBrand={(id: number) => followUser(id)}
+            onProfileClick={(id) => openProfile(id)}
+            onPostAsBrand={() => requireAuth('Posting')}
+            onReact={() => requireAuth('Reacting')}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onOpenComments={(id: any) => {
+              if (!requireAuth('Commenting')) return;
+              const post = posts.find(p => p.id === id);
+              if (post) handleOpenComments(post);
+            }}
+            onDeleteBrand={() => requireAuth('Deleting brands')}
+            onPlayAudioTrack={onPlayTrack}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
+        )}
+
+        {view === 'music' && (
+  <MusicSystem
+    currentUser={currentUser}
+    onPlayTrack={onPlayTrack}
+    onProfileClick={(id) => openProfile(id)}
+    likedTracks={likedTracks}
+    onToggleLike={handleMusicSystemLikeSync}
+    playHistory={playHistory}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    users={users}
+    currentTrack={currentAudioTrack}
+    isPlaying={isAudioPlaying}
+    myTotalPlays={currentUser?.id ? myTotalPlays : 0}
+    playsLoading={playsLoading}
+    trackPlays={trackPlays}
+    reactionCounts={trackReactions}
+    commentCounts={trackComments}
+    shareCounts={trackShares}
+    onReact={handleMusicReact}
+    onOpenComments={handleOpenMusicComments}
+    onShare={handleMusicShare}
+  />
+)}
+
+        {view === 'tools' && <ToolsPage />}
+
+        {view === 'profiles' && (
+          <SuggestedProfilesPage
+            currentUser={currentUser as any}
+            users={users}
+            onFollow={(id: number) => followUser(id)}
+            onProfileClick={(id) => openProfile(id)}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
+        )}
+
+        {view === 'events' && (
+          <ErrorBoundary>
+            <AllEvents
+              currentUser={currentUser ?? null}
+              users={users}
+              onProfileClick={(id) => openProfile(id)}
+              onEventClick={(eventId) => {
+                setActiveEventId(eventId);
+              }}
+              onCreateEventClick={() => {
+                if (!requireAuth('Creating events')) return;
+                setShowCreateEventModal(true);
+              }}
             />
-          )}
+          </ErrorBoundary>
+        )}
 
-          {view === 'register' && (
-            <Register 
-              onRegister={handleRegister} 
-              onBackToLogin={() => setView('login')} 
-              error={loginError}
-            />
-          )}
+        {view === 'birthdays' && (
+          <BirthdaysPage
+            currentUser={currentUser as any}
+            users={users}
+            onMessage={(id) => {
+              if (!requireAuth('Messaging')) return;
+              setActiveChatUser(users.find((u) => u.id === id) || null);
+              setIsChatOpen(true);
+            }}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+          />
+        )}
 
-         {view === 'recorder' && (
+        {view === 'memories' && currentUser && (
+          <MemoriesPage
+            currentUser={currentUser}
+            posts={allKnownPosts}
+            users={users}
+            onProfileClick={(id: number) => openProfile(id)}
+            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onViewImage={setFullScreenImage}
+            onOpenComments={(postId: number) => {
+              const post = posts.find(p => p.id === postId);
+              if (post) handleOpenComments(post);
+            }}
+            onVideoClick={handleVideoClick}
+            onPlayAudioTrack={onPlayTrack}
+            onHashtagClick={handleHashtagClick}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+            groups={groups}
+            brands={brands}
+            chats={chats}
+          />
+        )}
+
+        {view === 'settings' && currentUser && (
+          <SettingsPage currentUser={currentUser} onUpdateUser={() => requireAuth('Updating settings')} />
+        )}
+
+        {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
+        {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
+        {view === 'help' && <HelpSupportPage onNavigateHome={() => setView('home')} />}
+
+        {view === 'profile' && profileUser && (
+          <UserProfile
+            user={profileUser}
+            currentUser={currentUser}
+            users={users}
+            posts={profilePosts}
+            reels={reels}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={(id: number) => followUser(id)}
+            onReact={(postId: number, type: ReactionType) => onReactPost(postId, type)}
+            onComment={() => requireAuth('Commenting')}
+            onShare={(post: any) => handleOpenShareSheet(post)}
+            onMessage={(id) => {
+              if (!requireAuth('Messaging')) return;
+              const recipient = users.find((u) => u.id === id);
+              if (recipient) {
+                handleOpenChat(recipient);
+              }
+            }}
+            onCreatePost={createPost as any}
+            onUpdateProfileImage={updateProfileImage as any}
+            onUpdateCoverImage={updateCoverImage as any}
+            onUpdateUserDetails={updateUserDetails as any}
+            onDeletePost={(postId: number) => deletePost(postId)}
+            onEditPost={(postId: number, content: string) => editPost(postId, content)}
+            getCommentAuthor={(id) => users.find((u) => u.id === id)}
+            onViewImage={setFullScreenImage}
+            onOpenComments={(postId) => {
+              const post = posts.find(p => p.id === postId) || profilePosts.find(p => p.id === postId);
+              if (post) handleOpenComments(post);
+            }}
+            onVideoClick={handleVideoClick}
+            onPlayAudioTrack={onPlayTrack}
+            onCreateStoryClick={handleCreateStoryFromProfile}
+            onVerifyUser={(id) => verifyUser(id)}
+            onRestrictUser={(id, duration) => suspendUser(id, duration)}
+            onDeleteUser={(id) => deleteUserAccount(id)}
+            onMakeModerator={(id, make) => setModeratorRole(id, make ? 'moderator' : 'user')}
+            isFollowing={checkIsFollowing(Number(profileUser.id))}
+            followLoading={followLoading[Number(profileUser.id)] || false}
+            onOpenChat={handleOpenChat}
+            isChatOpen={isChatOpen}
+            activeChatRecipient={activeChatUser}
+            onOpenChatsList={handleOpenChatsList}
+            isChatsListOpen={isChatsListOpen}
+          />
+        )}
+
+        {view === 'login' && (
+          <Login
+            onLogin={handleLogin}
+            onNavigateToRegister={() => setView('register')}
+            onNavigateToForgotPassword={() => setView('login')}
+            onClose={() => setView('home')}
+            error={loginError}
+          />
+        )}
+
+        {view === 'register' && (
+          <Register 
+            onRegister={handleRegister} 
+            onBackToLogin={() => setView('login')} 
+            error={loginError}
+          />
+        )}
+
+        
+  {view === 'recorder' && (
   <Recorder
     currentUser={currentUser}
     selectedSound={selectedReelSound}
@@ -7167,420 +9792,578 @@ const handleReelVideoSelected = useCallback(
     }))}
     onSelectSound={setSelectedReelSound}
     initialVideoFile={pendingReelFile}
-    startInPreview={!!pendingReelFile}
+    initialThumbnailFile={pendingReelThumbnailFile}
+    initialVideoUrl={nativeReelVideoUrl}
+    initialNativeMediaMeta={nativeReelMediaMeta}
+    initialEffectId={pendingReelEffectId}
+    startInPreview={!!pendingReelFile || !!nativeReelVideoUrl}
     onBack={() => {
       setPendingReelFile(null);
-      setView('home');
+      setPendingReelThumbnailFile(null);
+      setNativeReelVideoUrl('');
+      setNativeReelMediaMeta(null);
+      setPendingReelEffectId('none');
+      setSelectedReelSound(null);
+      setShowRecorder(false);
+      // Reset any recording state if needed
+      if (mediaRecorderRef?.current) {
+        mediaRecorderRef.current = null;
+      }
+      if (streamRef?.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      if (recordingTimerRef?.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
     }}
     onSubmit={async (reelData) => {
-      await createReel({
-        ...reelData,
-        audioUrl:
-          reelData.audioUrl ||
-          (selectedReelSound?.songId &&
-            songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-          selectedReelSound?.audioUrl ||
-          '',
-        originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-        songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-        audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-        audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-      });
-
-      setPendingReelFile(null);
-      setView('home');
+      // ✅ Start publishing state
+      setReelPublishing(true);
+      setReelPublishingProgress(5);
+      setReelPublishingText('Preparing your reel...');
+      
+      // ✅ Close Recorder and navigate to Reels immediately
+      setShowRecorder(false);
+      setView('reels');
+      
+      try {
+        await createReel({
+          ...reelData,
+          videoFile: reelData.videoFile || pendingReelFile || undefined,
+          thumbnailFile: reelData.thumbnailFile || pendingReelThumbnailFile || undefined,
+          audioUrl:
+            reelData.audioUrl ||
+            (selectedReelSound?.songId &&
+              songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+            selectedReelSound?.audioUrl ||
+            '',
+          originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+          songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+          audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+          audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+          effectId: reelData.effectId || pendingReelEffectId,
+          nativeVideoUrl: reelData.nativeVideoUrl,
+          nativeVideoMeta: reelData.nativeVideoMeta,
+        });
+        
+        // Success - progress already at 100% from createReel
+        setTimeout(() => {
+          setReelPublishing(false);
+          setReelPublishingProgress(0);
+          setReelPublishingText('');
+        }, 1200);
+        
+      } catch (e: any) {
+        // ✅ Error handling
+        setReelPublishingText(e?.message || 'Publishing failed');
+        setTimeout(() => {
+          setReelPublishing(false);
+          setReelPublishingProgress(0);
+          setReelPublishingText('');
+        }, 2500);
+      } finally {
+        // Clear all pending states after submission attempt
+        setPendingReelFile(null);
+        setPendingReelThumbnailFile(null);
+        setNativeReelVideoUrl('');
+        setNativeReelMediaMeta(null);
+        setPendingReelEffectId('none');
+        setSelectedReelSound(null);
+      }
     }}
   />
 )}
+        
+ {view === 'notifications' && (
+  <NotificationsPage
+    notifications={enrichedNotifications}
+    users={users}
+    onBack={() => navigateTo('home')}
+    onProfileClick={(id) => openProfile(id)}
+    onOpenNotification={openNotificationTarget}
+    onDeleteNotification={deleteNotification}
+    onMarkAllAsRead={markAllNotificationsAsRead}
+    stickyHeader
+  />
+)}
 
-          {view === 'notifications' && (
-            <NotificationsPage
-              notifications={notifications}
-              users={users}
-              onBack={() => navigateTo('home')}
-              onProfileClick={(id)=>openProfile(id)}
-            />
-          )}
-
-          {view === 'ads' && currentUser && (
-            <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
-              <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
-                <button
-                  onClick={() => setActiveAdTab('dashboard')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'dashboard'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('create')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'create'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                  Create Campaign
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('ads')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'ads'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
-                  My Campaigns
-                </button>
-                <button
-                  onClick={() => setActiveAdTab('analytics')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
-                    activeAdTab === 'analytics'
-                      ? 'bg-[#1877F2] text-white'
-                      : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
-                  Analytics
-                </button>
-              </div>
-
-              {activeAdTab === 'dashboard' && (
-                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
-              )}
-              
-              {activeAdTab === 'create' && (
-                <AdCreator 
-                  onSuccess={() => {
-                    setActiveAdTab('ads');
-                    fetchMyAds();
-                    if (selectedPostForAd) {
-                      setPushedPosts(prev => ({
-                        ...prev,
-                        [selectedPostForAd.id]: true
-                      }));
-                    }
-                    setSelectedPostForAd(null);
-                  }}
-                  onBack={() => {
-                    setActiveAdTab('dashboard');
-                    setSelectedPostForAd(null);
-                  }}
-                  userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
-                  onCreateCampaign={createAdCampaign}
-                  currentUser={currentUser}
-                  initialPost={selectedPostForAd}
-                />
-              )}
-              
-              {activeAdTab === 'ads' && (
-                <AdsManager 
-                  campaigns={adCampaigns} 
-                  onUpdate={fetchMyAds}
-                  onPause={pauseCampaign}
-                  onResume={resumeCampaign}
-                  onDelete={deleteCampaign}
-                  loading={adsLoading}
-                />
-              )}
-              
-              {activeAdTab === 'analytics' && (
-                <Dashboard campaigns={adCampaigns} loading={adsLoading} />
-              )}
+        {view === 'ads' && currentUser && (
+          <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
+            <div className="flex gap-2 mb-6 border-b border-[#3E4042] pb-2 overflow-x-auto">
+              <button
+                onClick={() => setActiveAdTab('dashboard')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'dashboard'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faChartLine} className="w-4 h-4" />
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveAdTab('create')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'create'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
+                Create Campaign
+              </button>
+              <button
+                onClick={() => setActiveAdTab('ads')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'ads'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faBullhorn} className="w-4 h-4" />
+                My Campaigns
+              </button>
+              <button
+                onClick={() => setActiveAdTab('analytics')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap flex items-center gap-2 ${
+                  activeAdTab === 'analytics'
+                    ? 'bg-[#1877F2] text-white'
+                    : 'text-[#B0B3B8] hover:bg-[#3A3B3C]'
+                }`}
+              >
+                <FontAwesomeIcon icon={faChartBar} className="w-4 h-4" />
+                Analytics
+              </button>
             </div>
-          )}
-        </div>
 
-        {currentUser && (
-          <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
-            <RightSidebar
-              contacts={users.filter((u) => u.id !== currentUser.id)}
-              onProfileClick={(id) => openProfile(id)}
-              onFollow={followUser}
-              checkIsFollowing={checkIsFollowing}
-              followLoading={followLoading}
-            />
+            {activeAdTab === 'dashboard' && (
+              <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+            )}
+            
+            {activeAdTab === 'create' && (
+              <AdCreator 
+                onSuccess={() => {
+                  setActiveAdTab('ads');
+                  fetchMyAds();
+                  if (selectedPostForAd) {
+                    setPushedPosts(prev => ({
+                      ...prev,
+                      [selectedPostForAd.id]: true
+                    }));
+                  }
+                  setSelectedPostForAd(null);
+                }}
+                onBack={() => {
+                  setActiveAdTab('dashboard');
+                  setSelectedPostForAd(null);
+                }}
+                userPosts={posts.filter(p => Number(p.user_id) === Number(currentUser?.id))}
+                onCreateCampaign={createAdCampaign}
+                currentUser={currentUser}
+                initialPost={selectedPostForAd}
+              />
+            )}
+            
+            {activeAdTab === 'ads' && (
+              <AdsManager 
+                campaigns={adCampaigns} 
+                onUpdate={fetchMyAds}
+                onPause={pauseCampaign}
+                onResume={resumeCampaign}
+                onDelete={deleteCampaign}
+                loading={adsLoading}
+              />
+            )}
+            
+            {activeAdTab === 'analytics' && (
+              <Dashboard campaigns={adCampaigns} loading={adsLoading} />
+            )}
           </div>
         )}
       </div>
 
-      {view !== 'home' && (
-        <button
-          onClick={goBack}
-          className="fixed bottom-6 left-6 z-50 w-14 h-14 bg-[#1877F2] rounded-full shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors md:hidden"
-          aria-label="Go back"
-        >
-          <i className="fas fa-arrow-left text-white text-2xl"></i>
-        </button>
+      {currentUser && (
+        <div className="sticky top-14 h-[calc(100vh-56px)] z-20 hidden xl:block pl-4">
+          <RightSidebar
+            contacts={users.filter((u) => u.id !== currentUser.id)}
+            onProfileClick={(id) => openProfile(id)}
+            onFollow={followUser}
+            checkIsFollowing={checkIsFollowing}
+            followLoading={followLoading}
+          />
+        </div>
       )}
+    </div>
 
-      {activeProduct && (
-        <ProductDetailModal
-          product={activeProduct}
-          currentUser={currentUser}
-          onClose={() => setActiveProduct(null)}
-          onMessage={(id) => {
-            if (!requireAuth('Messaging')) return;
-            const recipient = users.find((u) => u.id === id);
-            if (recipient) {
-              handleOpenChat(recipient);
-            }
-          }}
-        />
-      )}
+    {view !== 'home' && (
+      <button
+        onClick={goBack}
+        className="fixed bottom-6 left-6 z-50 w-14 h-14 bg-[#1877F2] rounded-full shadow-lg flex items-center justify-center hover:bg-[#166FE5] transition-colors md:hidden"
+        aria-label="Go back"
+      >
+        <i className="fas fa-arrow-left text-white text-2xl"></i>
+      </button>
+    )}
 
-      {activeEventId && (
-        <EventDetailModal
-          eventId={activeEventId}
-          onClose={() => setActiveEventId(null)}
-        />
-      )}
+    {activeProduct && (
+      <ProductDetailModal
+        product={activeProduct}
+        currentUser={currentUser}
+        onClose={() => setActiveProduct(null)}
+        onMessage={(id) => {
+          if (!requireAuth('Messaging')) return;
+          const recipient = users.find((u) => u.id === id);
+          if (recipient) {
+            handleOpenChat(recipient);
+          }
+        }}
+      />
+    )}
 
-      {showCreateEventModal && currentUser && (
-        <CreateEventModal
-          currentUser={currentUser}
-          onClose={() => setShowCreateEventModal(false)}
-          onCreate={async (eventData) => {
-            try {
-              const newEvent = await createEvent(eventData);
-              setShowCreateEventModal(false);
-            } catch (error) {
-              console.error('Failed to create event:', error);
-            }
-          }}
-        />
-      )}
+    {activeEventId && (
+      <EventDetailModal
+        eventId={activeEventId}
+        onClose={() => setActiveEventId(null)}
+      />
+    )}
 
-      {showCreatePostModal && currentUser && (
-  <CreatePostModal
+    {showCreateEventModal && currentUser && (
+      <CreateEventModal
+        currentUser={currentUser}
+        onClose={() => setShowCreateEventModal(false)}
+        onCreate={async (eventData) => {
+          try {
+            const newEvent = await createEvent(eventData);
+            setShowCreateEventModal(false);
+          } catch (error) {
+            console.error('Failed to create event:', error);
+          }
+        }}
+      />
+    )}
+
+    {showCreatePostModal && currentUser && (
+      <CreatePostModal
+        currentUser={currentUser}
+        users={users}
+        onClose={() => setShowCreatePostModal(false)}
+        onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
+        onCreateEventClick={() => {
+          setShowCreatePostModal(false);
+          setShowCreateEventModal(true);
+        }}
+        onVideoClick={handleVideoClickFromCreate}
+      />
+    )}
+
+    {showRecorder && currentUser && (
+      <Recorder
+        currentUser={currentUser}
+        selectedSound={selectedReelSound}
+        sounds={songs.map((song: any) => ({
+          id: song.id,
+          name: song.title || song.name || 'Song',
+          url: song.audio_fetch_url || song.audio_url || song.url || '',
+          originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
+          duration: song.duration || 30,
+          start: 0,
+          end: song.duration || 30,
+          coverImage: song.cover_url || song.cover || '',
+          creatorName: song.artist || '',
+          creatorImage: song.artist_image || song.cover_url || '',
+          playCount: song.playCount || song.plays || 0,
+          creationCount: song.creationCount || song.uses || 0,
+          soundKey: `song:${song.id}`,
+        }))}
+        onSelectSound={setSelectedReelSound}
+        onBack={() => setShowRecorder(false)}
+        onSubmit={async (reelData) => {
+          await createReel({
+            ...reelData,
+            audioUrl:
+              reelData.audioUrl ||
+              (selectedReelSound?.songId &&
+                songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
+              selectedReelSound?.audioUrl ||
+              '',
+            originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
+            songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
+            audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
+            audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
+          });
+
+          setShowRecorder(false);
+        }}
+      />
+    )}
+                                                 
+ {activePost && currentUser && (
+  <CommentsSheet
+    post={activePost}
     currentUser={currentUser}
     users={users}
-    onClose={() => setShowCreatePostModal(false)}
-    onCreatePost={(text: string, files: File[] | File | null, meta?: any) => createPost(text, files as any, meta)}
-    onCreateEventClick={() => {
-      setShowCreatePostModal(false);
-      setShowCreateEventModal(true);
+    onClose={() => {
+      setActiveCommentsIdentity(null);
+      setCommentPostSnapshot(null);
     }}
-    onVideoClick={handleVideoClickFromCreate}
+    onComment={createComment}  // Use createComment, not createGroupPostComment
+    onLikeComment={likeComment}  // Use likeComment, not handleLikeComment
+    getCommentAuthor={(id) => users.find((u) => u.id === id)}
+    onProfileClick={(id) => openProfile(id)}
+    onHashtagClick={handleHashtagClick}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    onReact={(post, type) => reactToFeedItem(post, type)}
+    onShare={(id, newShareCount) => {
+      setPosts(prev => prev.map(p => 
+        Number(p.id) === id ? { ...p, shares: newShareCount } as any : p
+      ));
+    }}
+    onVideoClick={handleVideoClick}
+    onOpenAudio={onPlayTrack}
+    groups={groups}
+    brands={brands}
+    chats={chats}
+    onOpenGroup={(groupId) => navigateTo('groups')}
+    onRSVP={onRSVPEvent}
+    onEventClick={(eventId) => {
+      setActiveEventId(eventId);
+      navigateTo('events');
+    }}
+  />
+)} 
+
+    {/* MUSIC COMMENTS SHEET */}
+    {showMusicComments && selectedMusicTrack && (
+  <MusicCommentsSheet
+    isOpen={showMusicComments}
+    onClose={() => {
+      setShowMusicComments(false);
+    }}
+    track={selectedMusicTrack}
+    currentUser={currentUser}
+    users={users}
+    onProfileClick={openProfile}
+    onCommentAdded={(trackKey) => {
+      setTrackComments((prev) => ({
+        ...prev,
+        [trackKey]: (prev[trackKey] || 0) + 1,
+      }));
+    }}
   />
 )}
 
-      {showRecorder && currentUser && (
-        <Recorder
-          currentUser={currentUser}
-          selectedSound={selectedReelSound}
-          sounds={songs.map((song: any) => ({
-            id: song.id,
-            name: song.title || song.name || 'Song',
-            url: song.audio_fetch_url || song.audio_url || song.url || '',
-            originalUrl: song.audio_fetch_url || song.audio_url || song.url || '',
-            duration: song.duration || 30,
-            start: 0,
-            end: song.duration || 30,
-            coverImage: song.cover_url || song.cover || '',
-            creatorName: song.artist || '',
-            creatorImage: song.artist_image || song.cover_url || '',
-            playCount: song.playCount || song.plays || 0,
-            creationCount: song.creationCount || song.uses || 0,
-            soundKey: `song:${song.id}`,
-          }))}
-          onSelectSound={setSelectedReelSound}
-          onBack={() => setShowRecorder(false)}
-          onSubmit={async (reelData) => {
-            await createReel({
-              ...reelData,
-              audioUrl:
-                reelData.audioUrl ||
-                (selectedReelSound?.songId &&
-                  songs.find((s: any) => s.id === selectedReelSound.songId)?.audio_fetch_url) ||
-                selectedReelSound?.audioUrl ||
-                '',
-              originalSoundId: reelData.originalSoundId ?? selectedReelSound?.songId,
-              songName: reelData.songName || selectedReelSound?.songName || 'Original Sound',
-              audioStart: reelData.audioStart ?? selectedReelSound?.audioStart ?? 0,
-              audioEnd: reelData.audioEnd ?? selectedReelSound?.audioEnd ?? 0,
-            });
+    {activeSharePost && (
+      <ShareBottomSheet
+        isOpen={showShareSheet}
+        onClose={() => {
+          setShowShareSheet(false);
+          setActiveSharePost(null);
+        }}
+        post={activeSharePost}
+        currentUser={currentUser}
+        users={users}
+        groups={groups}
+        brands={brands}
+        chats={chats}
+        onShareComplete={(destination, data) => {
+          handleShareComplete(destination, data);
+          if (activeSharePost?.type === 'music' || activeSharePost?.type === 'podcast') {
+            handleMusicShareComplete(destination, data, activeSharePost as AudioTrack);
+          }
+        }}
+        onFollow={followUser}
+        checkIsFollowing={checkIsFollowing}
+      />
+    )}
+ {/* Story Viewer Modal */}
+{activeStoryId && activeStory && (
+  <StoryViewerModal
+    story={activeStory}
+    onClose={closeStoryViewer}
+    onProfileClick={(id) => {
+      closeStoryViewer();
+      openProfile(id);
+    }}
+    currentUser={currentUser}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+    allStories={orderedStories}
+    onFetchViewers={fetchStoryViewers}
+    onFetchReactions={fetchStoryReactions}
+    onReply={replyToStory}
+    onLike={likeStory}
+    onReaction={reactToStory}
+    onShare={handleStoryShare}
+    onComment={handleStoryComment}
+    onNext={handleStoryNext}
+    onPrev={handleStoryPrev}
+    muted={storyMuted}
+    onToggleMute={() => setStoryMuted(!storyMuted)}
+    onDeleteStory={deleteStory}
+    deleteLoading={deleteStoryLoading}
+  />
+)}
+    
+{/* Story Comments Sheet */}
+{showStoryComments && activeStoryCommentId && (
+  <StoryCommentsSheet
+    isOpen={showStoryComments}
+    onClose={() => {
+      setShowStoryComments(false);
+      setActiveStoryCommentId(null);
+    }}
+    storyId={activeStoryCommentId}
+    currentUser={currentUser}
+    users={users}
+    onProfileClick={openProfile}
+    onHashtagClick={handleHashtagClick}
+    onFollow={followUser}
+    checkIsFollowing={checkIsFollowing}
+    followLoading={followLoading}
+  />
+)}
+  
+    {showCreateStoryModal && currentUser && (
+      <CreateStoryModal
+        currentUser={currentUser}
+        songs={songs}
+        onClose={() => setShowCreateStoryModal(false)}
+        onCreate={createStory}
+      />
+    )}
 
-            setShowRecorder(false);
-          }}
-        />
-      )}
+     {currentAudioTrack && (
+  <GlobalAudioPlayer
+    currentTrack={currentAudioTrack}
+    isPlaying={isAudioPlaying}
+    onTogglePlay={onTogglePlay}
+    onNext={onNext}
+    onPrevious={onPrevious}
+    onClose={onClosePlayer}
+    onDownload={(id) => {
+      console.log('Download track:', id);
+    }}
+    onLike={(id, type) => {
+      const k = `${type}:${String(id)}`;
+      const nextLiked = !likedTracks.includes(k);
+      handleMusicSystemLikeSync(k, nextLiked);
+    }}
+    onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+    isLiked={isPlayerLiked}
+    ownerUser={resolveTrackOwner(currentAudioTrack)}
+    currentUser={currentUser}
+    users={users}
+    totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+    totalPlaysLoading={playsLoading}
+    onStarted={onStarted}
+    reactionCount={trackReactions[currentAudioTrack.id]?.count || 0}
+    commentCount={trackComments[currentAudioTrack.id] || 0}
+    shareCount={trackShares[currentAudioTrack.id] || 0}
+    myReaction={trackReactions[currentAudioTrack.id]?.myReaction}
+    onReact={(track, type) => handleMusicReact(track, type)}
+    onOpenComments={(track) => handleOpenMusicComments(track)}
+    onShare={(track) => handleMusicShare(track)}
+  />
+)}
 
-      {activePost && currentUser && (
-        <CommentsSheet
-          post={activePost}
-          currentUser={currentUser}
-          users={users}
-          onClose={() => {
-            setActiveCommentsIdentity(null);
-            setCommentPostSnapshot(null);
-          }}
-          onComment={createGroupPostComment}
-          onLikeComment={handleLikeComment}
-          getCommentAuthor={(id) => users.find((u) => u.id === id)}
-          onProfileClick={(id) => openProfile(id)}
-          onHashtagClick={handleHashtagClick}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
+    {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
-      {activeSharePost && (
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => {
-            setShowShareSheet(false);
-            setActiveSharePost(null);
-          }}
-          post={activeSharePost}
-          currentUser={currentUser}
-          users={users}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onShareComplete={handleShareComplete}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-        />
-      )}
+    {incomingCall && currentUser && (
+      <CallScreen
+        open={true}
+        mode={incomingCall.call_type === "video" ? "video" : "voice"}
+        phase="incoming"
+        peerName={incomingCall.caller_name || "User"}
+        peerAvatar={incomingCall.caller_avatar || null}
+        micOn={true}
+        camOn={true}
+        speakerOn={true}
+        onAccept={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          openChatWith(incomingCall.caller_id);
+          setIncomingCall(null);
+        }}
+        onDecline={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          apiFetch(
+            "/api/calls/signal",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                call_id: incomingCall.id,
+                to_user_id: incomingCall.caller_id,
+                type: "decline",
+              }),
+            },
+          ).catch(err => console.error('Failed to decline call:', err));
+          setIncomingCall(null);
+        }}
+        onHangup={() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+          setIncomingCall(null);
+        }}
+        onToggleMic={() => {}}
+        onToggleCam={() => {}}
+        onToggleSpeaker={() => {}}
+      />
+    )}
 
-      {activeStoryId && activeStory && (
-        <StoryViewerModal
-          story={activeStory}
-          onClose={closeStoryViewer}
-          onProfileClick={(id) => {
-            closeStoryViewer();
-            openProfile(id);
-          }}
-          currentUser={currentUser}
-          onFollow={followUser}
-          checkIsFollowing={checkIsFollowing}
-          followLoading={followLoading}
-          allStories={orderedStories}
-          onFetchViewers={fetchStoryViewers}
-          onFetchAnalytics={fetchStoryAnalytics}
-          onReply={replyToStory}
-          onLike={likeStory}
-          onReaction={reactToStory}
-          onNext={handleStoryNext}
-          onPrev={handleStoryPrev}
-          muted={storyMuted}
-          onToggleMute={() => setStoryMuted(!storyMuted)}
-        />
-      )}
+    {isChatOpen && activeChatUser && currentUser && (
+      <ChatWindow
+        currentUser={currentUser}
+        recipient={activeChatUser}
+        onClose={handleCloseChat}
+        onSendMessage={handleSendMessage}
+      />
+    )}
 
-      {showCreateStoryModal && currentUser && (
-        <CreateStoryModal
-          currentUser={currentUser}
-          songs={songs}
-          onClose={() => setShowCreateStoryModal(false)}
-          onCreate={createStory}
-        />
-      )}
-
-      {currentAudioTrack && (
-        <GlobalAudioPlayer
-          currentTrack={currentAudioTrack}
-          isPlaying={isAudioPlaying}
-          onTogglePlay={onTogglePlay}
-          onNext={onNext}
-          onPrevious={onPrevious}
-          onClose={onClosePlayer}
-          onDownload={(id) => {
-            console.log('Download track:', id);
-          }}
-          onLike={(id, type) => {
-            const k = `${type}:${String(id)}`;
-            const nextLiked = !likedTracks.includes(k);
-            handleMusicSystemLikeSync(k, nextLiked);
-          }}
-          onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
-          isLiked={isPlayerLiked}
-          ownerUser={resolveTrackOwner(currentAudioTrack)}
-          totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
-          totalPlaysLoading={playsLoading}
-          onStarted={onStarted}
-        />
-      )}
-
-      {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
-
-      {incomingCall && currentUser && (
-        <CallScreen
-          open={true}
-          mode={incomingCall.call_type === "video" ? "video" : "voice"}
-          phase="incoming"
-          peerName={incomingCall.caller_name || "User"}
-          peerAvatar={incomingCall.caller_avatar || null}
-          micOn={true}
-          camOn={true}
-          speakerOn={true}
-          onAccept={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            openChatWith(incomingCall.caller_id);
-            setIncomingCall(null);
-          }}
-          onDecline={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            apiFetch(
-              "/api/calls/signal",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  call_id: incomingCall.id,
-                  to_user_id: incomingCall.caller_id,
-                  type: "decline",
-                }),
-              },
-            ).catch(err => console.error('Failed to decline call:', err));
-            setIncomingCall(null);
-          }}
-          onHangup={() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
-            setIncomingCall(null);
-          }}
-          onToggleMic={() => {}}
-          onToggleCam={() => {}}
-          onToggleSpeaker={() => {}}
-        />
-      )}
-
-      {isChatOpen && activeChatUser && currentUser && (
-        <ChatWindow
-          currentUser={currentUser}
-          recipient={activeChatUser}
-          onClose={handleCloseChat}
-          onSendMessage={handleSendMessage}
-        />
-      )}
-
-      {isChatsListOpen && currentUser && (
-        <ChatsList
-          currentUser={currentUser}
-          onOpenChat={handleOpenChat}
-          onOpenRequests={() => {
-            console.log('Open message requests');
-          }}
-          onNewChat={() => {
-            console.log('Create new chat');
-          }}
-        />
-      )}
+    {isChatsListOpen && currentUser && (
+  <ChatsList
+    currentUser={currentUser}
+    onOpenChat={handleOpenChat}
+    onClose={handleCloseChatsList}
+    onOpenRequests={() => {
+      console.log('Open message requests');
+    }}
+    onNewChat={() => {
+      console.log('Create new chat');
+    }}
+  />
+)}
+    {/* Reel Gallery Creator */}
+{showReelGallery && (
+  <ReelGalleryCreator
+    sound={selectedReelSoundForGallery}
+    onClose={() => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+    }}
+    onDone={(payload) => {
+      setShowReelGallery(false);
+      setSelectedReelSoundForGallery(undefined);
+      setSelectedReelSound(payload.sound || null);
+      setPendingReelFile(payload.file);
+      setPendingReelThumbnailFile(payload.thumbnailFile);
+      setNativeReelVideoUrl(payload.nativeVideoUrl || '');
+      setNativeReelMediaMeta(payload.nativeVideoMeta || null);
+      setPendingReelEffectId(payload.effectId || 'none');
+      setShowRecorder(true);
+    }}
+  />
+)}
 
       {showAdAnalytics && adAnalyticsId && (
         <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
@@ -7600,5 +10383,4 @@ const handleReelVideoSelected = useCallback(
       )}
     </div>
   );
-}
- 
+}    
