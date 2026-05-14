@@ -5289,7 +5289,6 @@ export const ReactionButton = memo(
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
-
 export const Post = memo(
   ({
     post,
@@ -5353,8 +5352,7 @@ export const Post = memo(
     onHide?: (postId: number) => void;
     pushButton?: React.ReactNode;
     onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
-  }) => {   
-                                                                                                     
+  }) => {                                                                                                     
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
     const a: any = author as any;
