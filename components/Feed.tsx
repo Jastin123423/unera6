@@ -8374,9 +8374,10 @@ interface FeedProps {
  * =========================
  */
 
+   
 
- export const Feed = memo(({
-  items,
+export const Feed = memo(({
+  items: itemsProp,
   feedItems: feedItemsProp,
   onOpenStory,
   currentUser,
@@ -8401,6 +8402,7 @@ interface FeedProps {
   onPushMore,
   pushedPosts = {},
   onOpenReel,
+  onOpenReelMenu,
   peopleYouMayKnow = [],
   peopleYouMayKnowInsertIndex1 = -1,
   peopleYouMayKnowInsertIndex2 = -1,
@@ -8413,70 +8415,52 @@ interface FeedProps {
   onOpenGroup,
   onLoginClick,
 }: FeedProps) => {
-  const [loadedItems, setLoadedItems] = useState<any[]>([]);
+  
+  // ==================== INFINITE SCROLL STATE ====================
+  const [feedItems, setFeedItems] = useState<any[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMoreFeed, setHasMoreFeed] = useState(true);
-  const [initialLoading, setInitialLoading] = useState(false);
-
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
   const feedSeedRef = useRef<number>(Math.floor(Date.now() / 1000));
-  const loadingRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const normalizeFeedItem = useCallback((item: any) => {
-    if (!item) return null;
-    if (item.kind && item.data) return item;
-
-    if (item.item_type === "story" || item.source === "story") {
-      return { kind: "story" as const, data: item, created_at: item.created_at };
-    }
-
-    if (item.item_type === "reel" || item.source === "reel") {
-      return { kind: "reel" as const, data: item, created_at: item.created_at };
-    }
-
-    return {
-      kind: "post" as const,
-      data: item,
-      created_at: item.created_at,
-    };
-  }, []);
-
-  const baseItems = React.useMemo(() => {
-    const source =
-      loadedItems.length > 0
-        ? loadedItems
-        : items && items.length > 0
-          ? items
-          : feedItemsProp && feedItemsProp.length > 0
-            ? feedItemsProp
-            : [];
-
-    return source.map(normalizeFeedItem).filter(Boolean);
-  }, [loadedItems, items, feedItemsProp, normalizeFeedItem]);
-
+  // ==================== GET STABLE ITEM KEY (MUST BE BEFORE ANY EARLY RETURN) ====================
   const getStableItemKey = useCallback((item: any) => {
     return getFeedKey(item);
   }, []);
 
+  // ==================== LOAD MORE FEED FUNCTION ====================
   const loadMoreFeed = useCallback(async (isInitial = false) => {
-    if (loadingRef.current) return;
+    // Prevent duplicate requests
+    if (feedLoadingMore) return;
+    
+    // Don't load if no more items and not initial load
     if (!hasMoreFeed && !isInitial) return;
-    if (!currentUser?.id) return;
+    
+    // Don't load if no user
+    if (!currentUser?.id) {
+      if (isInitial) setInitialLoading(false);
+      return;
+    }
 
-    loadingRef.current = true;
-
-    if (isInitial) setInitialLoading(true);
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+    setFeedLoadingMore(true);
+    
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
 
     try {
-      const seenIds = isInitial
-        ? []
-        : loadedItems
-            .map((x: any) => Number(x?.id || x?.data?.id || x?.post_id || x?.data?.post_id))
+      // IMPORTANT: For initial load, use empty seenIds array
+      // For subsequent loads, use last 250 seen IDs
+      const seenIds = isInitial 
+        ? [] 
+        : feedItems
+            .map((x: any) => Number(x?.id || x?.post_id || x?.event_id || x?.product_id2 || x?.product_id))
             .filter(Boolean)
             .slice(-250);
 
@@ -8486,116 +8470,165 @@ interface FeedProps {
         seed: String(feedSeedRef.current),
         seen: seenIds.join(","),
       });
-
+      
       if (nextCursor && !isInitial) {
         params.set("cursor", nextCursor);
       }
 
-      const res = await fetch(`/api/feeds?${params.toString()}`, {
-        signal: controller.signal,
+      const response = await fetch(`/api/feeds?${params.toString()}`, {
+        signal: abortControllerRef.current.signal,
         headers: {
           ...authHeaders(),
         },
       });
-
-      const data = await res.json();
-
-      if (!data?.success) return;
-
-      const incoming = Array.isArray(data.feed) ? data.feed : [];
-
-      setLoadedItems(prev => {
-        const map = new Map<string, any>();
-
-        if (!isInitial) {
-          prev.forEach(item => {
-            const key = item.feed_key || item.data?.feed_key || `${item.source || item.item_type || item.kind || "post"}:${item.id || item.data?.id}`;
-            if (!map.has(key)) map.set(key, item);
+      
+      const data = await response.json();
+      
+      if (data?.success) {
+        const newItems = data.feed || [];
+        
+        setFeedItems(prev => {
+          // Use Map to deduplicate by feed_key
+          const map = new Map<string, any>();
+          
+          // Add existing items first (for non-initial loads)
+          if (!isInitial) {
+            [...prev].forEach(item => {
+              const key = item.feed_key || `${item.source || item.item_type || 'post'}:${item.id}`;
+              if (!map.has(key)) {
+                map.set(key, item);
+              }
+            });
+          }
+          
+          // Add new items
+          newItems.forEach(item => {
+            const key = item.feed_key || `${item.source || item.item_type || 'post'}:${item.id}`;
+            if (!map.has(key)) {
+              map.set(key, item);
+            }
           });
-        }
-
-        incoming.forEach(item => {
-          const key = item.feed_key || `${item.source || item.item_type || "post"}:${item.id}`;
-          if (!map.has(key)) map.set(key, item);
+          
+          return Array.from(map.values());
         });
-
-        return Array.from(map.values());
-      });
-
-      setNextCursor(data.nextCursor || null);
-      setHasMoreFeed(Boolean(data.hasMore && data.nextCursor));
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        console.error("LOAD_MORE_FEED_ERROR", err);
+        
+        setNextCursor(data.nextCursor || null);
+        setHasMoreFeed(Boolean(data.hasMore && data.nextCursor));
       }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // Request was cancelled, ignore
+        return;
+      }
+      console.error("LOAD_MORE_FEED_ERROR", err);
     } finally {
-      loadingRef.current = false;
-      if (isInitial) setInitialLoading(false);
+      setFeedLoadingMore(false);
+      if (isInitial) {
+        setInitialLoading(false);
+      }
     }
-  }, [currentUser?.id, hasMoreFeed, loadedItems, nextCursor]);
+  }, [feedItems, nextCursor, hasMoreFeed, feedLoadingMore, currentUser?.id]);
 
+  // ==================== RESET FEED ON USER CHANGE ====================
   useEffect(() => {
-    setLoadedItems([]);
+    // Reset all state when user changes
+    setFeedItems([]);
     setNextCursor(null);
     setHasMoreFeed(true);
+    setInitialLoading(true);
     feedSeedRef.current = Math.floor(Date.now() / 1000);
-
-    const t = window.setTimeout(() => {
-      loadMoreFeed(true);
-    }, 0);
-
+    
+    // Load initial feed
+    loadMoreFeed(true);
+    
+    // Cleanup
     return () => {
-      window.clearTimeout(t);
-      abortRef.current?.abort();
-      loadingRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, [currentUser?.id]);
 
+  // ==================== INTERSECTION OBSERVER FOR INFINITE SCROLL ====================
   useEffect(() => {
     const el = feedMoreRef.current;
     if (!el) return;
-
+    
     const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0]?.isIntersecting) {
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && !feedLoadingMore && hasMoreFeed && !initialLoading) {
           loadMoreFeed(false);
         }
       },
       {
         root: null,
-        rootMargin: "900px 0px",
+        rootMargin: "900px 0px", // Start loading 900px before reaching bottom
         threshold: 0.01,
       }
     );
-
+    
     observer.observe(el);
+    
+    return () => {
+      observer.disconnect();
+    };
+  }, [loadMoreFeed, feedLoadingMore, hasMoreFeed, initialLoading]);
 
-    return () => observer.disconnect();
-  }, [loadMoreFeed]);
+  // ==================== USE PROP ITEMS IF PROVIDED (FALLBACK) ====================
+  const effectiveFeedItems = React.useMemo(() => {
+    // If we're using infinite scroll (has currentUser), use feedItems state
+    if (currentUser?.id && feedItems.length > 0) {
+      return feedItems;
+    }
+    
+    // Fallback to props for backward compatibility
+    if (itemsProp && itemsProp.length > 0) {
+      return itemsProp;
+    }
+    
+    if (feedItemsProp && feedItemsProp.length > 0) {
+      return feedItemsProp.map((item: any) => ({
+        kind: 'post' as const,
+        data: item,
+        created_at: item.created_at
+      }));
+    }
+    
+    return [];
+  }, [itemsProp, feedItemsProp, feedItems, currentUser?.id]);
 
-  if (initialLoading && baseItems.length === 0) {
+  // ==================== SHOW SKELETON ON INITIAL LOAD ONLY ====================
+  if (initialLoading && effectiveFeedItems.length === 0) {
     return (
       <div className="space-y-2">
-        {[1, 2, 3].map(i => (
+        {[1, 2, 3].map((i) => (
           <div key={i} className="bg-[#242526] rounded-xl p-4 animate-pulse">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-[#3A3B3C]" />
+              <div className="w-10 h-10 rounded-full bg-[#3A3B3C]"></div>
               <div className="flex-1">
-                <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2" />
-                <div className="h-3 bg-[#3A3B3C] rounded w-24" />
+                <div className="h-4 bg-[#3A3B3C] rounded w-32 mb-2"></div>
+                <div className="h-3 bg-[#3A3B3C] rounded w-24"></div>
               </div>
             </div>
-            <div className="h-40 bg-[#3A3B3C] rounded-lg mb-3" />
+            <div className="h-40 bg-[#3A3B3C] rounded-lg mb-3"></div>
+            <div className="flex gap-2">
+              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
+              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
+              <div className="flex-1 h-10 bg-[#3A3B3C] rounded-lg"></div>
+            </div>
           </div>
         ))}
       </div>
     );
   }
 
+  // ==================== RENDER FEED ====================
   return (
     <div className="space-y-2">
-      {baseItems.map((item: any, index: number) => {
-        if (item.kind === "story") {
+      {effectiveFeedItems.map((item, index) => {
+        // Handle story items
+        if (item.kind === 'story') {
           return (
             <FeedStoryCard
               key={`story-${item.data.id}`}
@@ -8605,7 +8638,8 @@ interface FeedProps {
           );
         }
 
-        if (item.kind === "reel") {
+        // Handle reel items
+        if (item.kind === 'reel') {
           return (
             <ReelFeedCard
               key={`reel-${item.data.id}`}
@@ -8615,32 +8649,28 @@ interface FeedProps {
             />
           );
         }
-
+        
+        // Handle post items
         const post = item.data || item;
         const postAuthorId = Number(post.user_id);
         const isFollowing = checkIsFollowing?.(postAuthorId) || false;
         const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-        const isAdminUser = currentUser && currentUser.role === "admin";
+        const isAdminUser = currentUser && currentUser.role === 'admin';
         const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
         const isPushed = pushedPosts?.[post.id] || false;
 
-        const showFirstPymk =
-          peopleYouMayKnow.length > 0 &&
-          peopleYouMayKnowInsertIndex1 >= 0 &&
-          index === peopleYouMayKnowInsertIndex1;
+        // Insert People You May Know cards at specific positions
+        const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && 
+          peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
 
-        const showSecondPymk =
-          peopleYouMayKnow.length > 0 &&
-          peopleYouMayKnowInsertIndex2 >= 0 &&
-          index === peopleYouMayKnowInsertIndex2;
+        const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && 
+          peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
 
-        const showGroupsYouMayJoin =
-          groupsYouMayJoin.length > 0 &&
-          groupsYouMayJoinInsertIndex >= 0 &&
-          index === groupsYouMayJoinInsertIndex;
+        const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && 
+          groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
 
         return (
-          <React.Fragment key={`post-${getStableItemKey(post)}`}>
+          <React.Fragment key={`item-${getStableItemKey(post)}`}>
             <Post
               post={post as PostType}
               author={getPostAuthor?.(post as PostType) || post.author || post}
@@ -8668,7 +8698,7 @@ interface FeedProps {
                   disabled={isPushed}
                   className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
                 >
-                  {isPushed ? "Pushed" : "Push More"}
+                  {isPushed ? 'Pushed' : 'Push More'}
                 </button>
               ) : undefined}
             />
@@ -8715,20 +8745,36 @@ interface FeedProps {
           </React.Fragment>
         );
       })}
-
-      {hasMoreFeed && (
-        <div
-          ref={feedMoreRef}
-          style={{
-            height: 1,
-            opacity: 0,
+      
+      {/* Invisible trigger for infinite scroll - Facebook style (no visible loader) */}
+      {hasMoreFeed && !initialLoading && (
+        <div 
+          ref={feedMoreRef} 
+          style={{ 
+            height: 1, 
+            opacity: 0, 
             pointerEvents: "none",
-          }}
+            marginTop: -1
+          }} 
         />
       )}
+      
+      {/* No end message - Facebook doesn't show "You've seen everything" */}
     </div>
   );
-});     
+}, (prev, next) => {
+  // Custom comparison for memo - using correct prop names
+  if (prev.items !== next.items) return false;
+  if (prev.feedItems !== next.feedItems) return false;
+  if (prev.feedItems?.length !== next.feedItems?.length) return false;
+  for (let i = 0; i < (prev.feedItems?.length || 0); i++) {
+    if (!isSameFeedItem(prev.feedItems?.[i], next.feedItems?.[i])) return false;
+  }
+  if (prev.currentUser?.id !== next.currentUser?.id) return false;
+  if (prev.peopleYouMayKnow !== next.peopleYouMayKnow) return false;
+  if (prev.groupsYouMayJoin !== next.groupsYouMayJoin) return false;
+  return true;
+});  
         
         
         
