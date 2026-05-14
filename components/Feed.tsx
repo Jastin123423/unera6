@@ -4451,15 +4451,22 @@ export const EventPost = memo(
       event.id ? `/api/events/${event.id}/react` : null;
 
     const handleReact = async (type: ReactionType) => {
-      if (!currentUser || !event.id || !onReact) return;
-      // Create a post-like object for the event to pass to onReact
-      const eventAsPost = {
-        id: event.id,
-        type: 'event',
-        ...event,
-      };
-      onReact(eventAsPost as PostType, type);
-    };
+  if (!currentUser || !event.id || !onReact) return;
+
+  const eventAsPost = {
+    ...event,
+    id: event.id,
+    event_id: event.id,
+    source: "event",
+    item_type: "event",
+    type: "event",
+    post_type: "event",
+    kind: "event",
+  };
+
+  onReact(eventAsPost as any, type);
+};
+
 
     const handleShare = () => {
       if (!currentUser) alert('Please login to share');
