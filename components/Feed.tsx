@@ -8456,55 +8456,69 @@ interface FeedProps {
       />
     );
   }
-  
-        const post = item.data;
-        const postAuthorId = Number(post.user_id);
-        const isFollowing = checkIsFollowing?.(postAuthorId) || false;
-        const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
-        const isAdminUser = currentUser && currentUser.role === 'admin';
-        const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
-        const isPushed = pushedPosts?.[post.id] || false;
 
-        const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
+const post = item.data;
+const postAuthorId = Number(post.user_id);
 
-        const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
+// ✅ CHANGE THIS - Compute isFollowing FRESH each render
+const isFollowing = currentUser 
+  ? toIdArray((currentUser as any).following || []).includes(postAuthorId)
+  : false;
 
-        const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
+// ✅ ADD THIS - Force re-render when following changes
+const followingVersion = currentUser 
+  ? JSON.stringify(toIdArray((currentUser as any)?.following || []))
+  : 'none';
 
-        return (
-          <React.Fragment key={`post-${post.id}-${index}`}>
-         <Post
-  post={post as PostType}
-  author={getPostAuthor?.(post as PostType) || post.author || post}
-  currentUser={currentUser}
-  users={users}
-  onProfileClick={onProfileClick}
-  onReact={onReact}
-  onShare={onShare}
-  onViewImage={onViewImage}
-  onOpenComments={onOpenComments}
-  onVideoClick={onVideoClick}
-  onPlayAudioTrack={onPlayAudioTrack}
-  groups={groups}
-  brands={brands}
-  chats={chats}
-  onHashtagClick={onHashtagClick}
-  isFollowing={isFollowing}
-  onFollow={onFollow}  // ← CHANGED THIS LINE
-  followLoading={followLoading?.[postAuthorId] || false}
-  onViewProductFromPost={onViewProductFromPost}
-  onRSVP={onRSVPEvent}
-  pushButton={showPushButton ? (
-    <button
-      onClick={() => onPushMore?.(post.id)}
-      disabled={isPushed}
-      className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-    >
-      {isPushed ? 'Pushed' : 'Push More'}
-    </button>
-  ) : undefined}
-/>
-            
+const isPostOwner = currentUser && Number(currentUser.id) === postAuthorId;
+const isAdminUser = currentUser && currentUser.role === 'admin';
+const showPushButton = (isPostOwner || isAdminUser) && onPushMore;
+const isPushed = pushedPosts?.[post.id] || false;
+
+const showFirstPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex1 >= 0 && index === peopleYouMayKnowInsertIndex1;
+
+const showSecondPymk = peopleYouMayKnow && peopleYouMayKnow.length > 0 && peopleYouMayKnowInsertIndex2 >= 0 && index === peopleYouMayKnowInsertIndex2;
+
+const showGroupsYouMayJoin = groupsYouMayJoin && groupsYouMayJoin.length > 0 && groupsYouMayJoinInsertIndex >= 0 && index === groupsYouMayJoinInsertIndex;
+
+return (
+  // ✅ CHANGE THIS - Add followingVersion to the key
+  <React.Fragment key={`post-${post.id}-${followingVersion}`}>
+    <Post
+      // ✅ ADD THIS - Key on Post component too
+      key={`post-${post.id}-${followingVersion}`}
+      post={post as PostType}
+      author={getPostAuthor?.(post as PostType) || post.author || post}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={onProfileClick}
+      onReact={onReact}
+      onShare={onShare}
+      onViewImage={onViewImage}
+      onOpenComments={onOpenComments}
+      onVideoClick={onVideoClick}
+      onPlayAudioTrack={onPlayAudioTrack}
+      groups={groups}
+      brands={brands}
+      chats={chats}
+      onHashtagClick={onHashtagClick}
+      isFollowing={isFollowing}  // ← Now using fresh value
+      onFollow={onFollow}
+      followLoading={followLoading?.[postAuthorId] || false}
+      onViewProductFromPost={onViewProductFromPost}
+      onRSVP={onRSVPEvent}
+      pushButton={showPushButton ? (
+        <button
+          onClick={() => onPushMore?.(post.id)}
+          disabled={isPushed}
+          className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+        >
+          {isPushed ? 'Pushed' : 'Push More'}
+        </button>
+      ) : undefined}
+    />
+
+
 
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
