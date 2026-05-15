@@ -3296,7 +3296,7 @@ const getEventCover = (item: any, meta?: any) => {
 
 //===NORMALIZE EVENT FROM FEEDS ==
 
-     const normalizeEventFromFeed = (item: any) => {
+const normalizeEventFromFeed = (item: any) => {
   const metaRaw = item?.meta || {};
   let meta: any = metaRaw;
 
@@ -3313,6 +3313,15 @@ const getEventCover = (item: any, meta?: any) => {
 
   return {
     id,
+
+    // ✅ EVENT TYPE IDENTIFIERS
+    source: 'event',
+    item_type: 'event',
+    type: 'event',
+    post_type: 'event',
+    kind: 'event',
+    event_id: id,
+    feed_key: `event:${id}`,
 
     title: String(
       item?.content ??
@@ -3419,7 +3428,10 @@ const getEventCover = (item: any, meta?: any) => {
       ),
     },
   };
-}; 
+};
+
+
+
 
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
