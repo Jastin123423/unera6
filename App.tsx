@@ -8294,17 +8294,10 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
   }, [events, onRSVPEvent]);
 
     
+
 // ============================================================================
-// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
-// ============================================================================
-
-
-
-
-
-    // ============================================================================
-// ✅ HYBRID REACT HANDLER - Supports posts, products, events, songs, podcasts,
-// reels, and group posts from mixed feed
+// ✅ HYBRID REACT HANDLER - posts, group posts, products, events, reels, songs,
+// podcasts. Uses same working group endpoint as Groups page.
 // ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth("Reacting")) return;
@@ -8341,17 +8334,34 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
   const source = String(
     item?.source ||
-    item?.item_type ||
-    item?.kind ||
-    itemType ||
-    ""
+      item?.item_type ||
+      item?.kind ||
+      itemType ||
+      ""
   ).toLowerCase();
+
+  const meta = item?.meta || {};
 
   const isGroupPost =
     source === "group_post" ||
     Boolean(item?.group_post_id) ||
     Boolean(item?.groupPostId) ||
     Boolean(item?.group_id && item?.group_name);
+
+  const isProductPost =
+    source === "product" ||
+    source === "marketplace" ||
+    itemType === "product" ||
+    itemType === "marketplace" ||
+    item?.type === "product" ||
+    item?.post_type === "product" ||
+    item?.kind === "product" ||
+    meta?.type === "product" ||
+    meta?.kind === "product" ||
+    Boolean(item?.product_id2) ||
+    Boolean(item?.product_id) ||
+    Boolean(meta?.product_id) ||
+    Boolean(meta?.marketplace?.id);
 
   const sourceList = view === "profile" ? profilePosts : posts;
 
@@ -8430,7 +8440,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   }
 
   try {
-    // ✅ GROUP POSTS: use the same endpoint that already works in Groups page
+    // ✅ GROUP POSTS - same endpoint that already works in Groups page
     if (isGroupPost) {
       const groupPostId = Number(
         item?.group_post_id ||
@@ -8465,59 +8475,67 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
     let endpoint = "";
 
-    switch (itemType) {
-      case "event": {
-        const eventId = Number(item?.event_id || itemId || item?.id || 0);
-        if (!eventId) throw new Error("Missing event reaction id");
-        endpoint = `/api/events/${eventId}/react`;
-        break;
+    // ✅ PRODUCT POSTS - force product route even if itemType says "post"
+    if (isProductPost) {
+      const productId = Number(
+        item?.product_id2 ||
+          item?.product_id ||
+          item?.productId ||
+          meta?.product_id ||
+          meta?.productId ||
+          meta?.marketplace?.id ||
+          item?.marketplace?.id ||
+          itemId ||
+          item?.id ||
+          0
+      );
+
+      if (!productId) {
+        throw new Error("Missing product reaction id");
       }
 
-      case "product": {
-        const productId = Number(
-          item?.product_id2 ||
-            item?.product_id ||
-            item?.meta?.product_id ||
-            itemId ||
-            item?.id ||
-            0
-        );
-        if (!productId) throw new Error("Missing product reaction id");
-        endpoint = `/api/products/${productId}/react`;
-        break;
-      }
+      endpoint = `/api/products/${productId}/react`;
+    } else {
+      switch (itemType) {
+        case "event": {
+          const eventId = Number(item?.event_id || itemId || item?.id || 0);
+          if (!eventId) throw new Error("Missing event reaction id");
+          endpoint = `/api/events/${eventId}/react`;
+          break;
+        }
 
-      case "reel": {
-        const reelId = Number(item?.reel_id || itemId || item?.id || 0);
-        if (!reelId) throw new Error("Missing reel reaction id");
-        endpoint = `/api/reels/${reelId}/react`;
-        break;
-      }
+        case "reel": {
+          const reelId = Number(item?.reel_id || itemId || item?.id || 0);
+          if (!reelId) throw new Error("Missing reel reaction id");
+          endpoint = `/api/reels/${reelId}/react`;
+          break;
+        }
 
-      case "song":
-      case "music": {
-        const songId = Number(
-          item?.song_id2 || item?.song_id || itemId || item?.id || 0
-        );
-        if (!songId) throw new Error("Missing song reaction id");
-        endpoint = `/api/songs/${songId}/react`;
-        break;
-      }
+        case "song":
+        case "music": {
+          const songId = Number(
+            item?.song_id2 || item?.song_id || itemId || item?.id || 0
+          );
+          if (!songId) throw new Error("Missing song reaction id");
+          endpoint = `/api/songs/${songId}/react`;
+          break;
+        }
 
-      case "podcast": {
-        const podcastId = Number(
-          item?.podcast_id || itemId || item?.id || 0
-        );
-        if (!podcastId) throw new Error("Missing podcast reaction id");
-        endpoint = `/api/podcasts/${podcastId}/react`;
-        break;
-      }
+        case "podcast": {
+          const podcastId = Number(
+            item?.podcast_id || itemId || item?.id || 0
+          );
+          if (!podcastId) throw new Error("Missing podcast reaction id");
+          endpoint = `/api/podcasts/${podcastId}/react`;
+          break;
+        }
 
-      default: {
-        const postId = Number(item?.post_id || itemId || item?.id || 0);
-        if (!postId) throw new Error("Missing post reaction id");
-        endpoint = `/api/posts/${postId}/react`;
-        break;
+        default: {
+          const postId = Number(item?.post_id || itemId || item?.id || 0);
+          if (!postId) throw new Error("Missing post reaction id");
+          endpoint = `/api/posts/${postId}/react`;
+          break;
+        }
       }
     }
 
@@ -8529,10 +8547,13 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       }),
     });
 
-    if (data?.success || "reactions_count" in (data || {}) || "my_reaction" in (data || {})) {
+    if (
+      data?.success ||
+      "reactions_count" in (data || {}) ||
+      "my_reaction" in (data || {})
+    ) {
       const serverMy = data?.my_reaction ?? null;
       const serverCount = safeNumber(data?.reactions_count, 0);
-
       applyServerTruth(serverMy, serverCount);
     }
   } catch (error) {
@@ -8563,6 +8584,8 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   activeCommentsIdentity,
   setReacting,
 ]);
+
+
 
 
   
