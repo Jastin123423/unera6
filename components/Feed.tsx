@@ -4413,8 +4413,12 @@ export const EventPost = memo(
     onEventClick?: (eventId: number) => void;
   }) => {
     const [rsvpStatus, setRsvpStatus] = useState(event.user_rsvp_status || '');
-    const [attendeesCount, setAttendeesCount] = useState(event.attendees_count || 0);
-    const [interestedCount, setInterestedCount] = useState(event.interested_count || 0);
+    const [attendeesCount, setAttendeesCount] = useState(
+      event.attendees_count || 0
+    );
+    const [interestedCount, setInterestedCount] = useState(
+      event.interested_count || 0
+    );
     const [loading, setLoading] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
@@ -4463,7 +4467,8 @@ export const EventPost = memo(
       setLoading(true);
 
       const prevStatus = rsvpStatus;
-      const nextStatus: '' | 'going' | 'interested' = prevStatus === target ? '' : target;
+      const nextStatus: '' | 'going' | 'interested' =
+        prevStatus === target ? '' : target;
 
       const prevAtt = attendeesCount;
       const prevInt = interestedCount;
@@ -4504,9 +4509,15 @@ export const EventPost = memo(
         }
 
         if (res?.success) {
-          if (res.attending_count !== undefined) setAttendeesCount(Number(res.attending_count));
-          if (res.interested_count !== undefined) setInterestedCount(Number(res.interested_count));
-          if (res.my_status !== undefined) setRsvpStatus(res.my_status);
+          if (res.attending_count !== undefined) {
+            setAttendeesCount(Number(res.attending_count));
+          }
+          if (res.interested_count !== undefined) {
+            setInterestedCount(Number(res.interested_count));
+          }
+          if (res.my_status !== undefined) {
+            setRsvpStatus(res.my_status);
+          }
         }
       } catch (error) {
         setRsvpStatus(prevStatus);
@@ -4525,23 +4536,28 @@ export const EventPost = memo(
       if (onFollow && creator?.id) onFollow(safeUserId(creator));
     };
 
-    // ✅ EVENT REACTION HANDLER
-    const handleReact = async (type: ReactionType) => {
-      if (!currentUser || !event.id || !onReact) return;
+    const getReactionEndpoint = () =>
+      event.id ? `/api/events/${event.id}/react` : null;
 
-      const eventAsPost = {
-        ...event,
-        id: event.id,
-        event_id: event.id,
-        source: "event",
-        item_type: "event",
-        type: "event",
-        post_type: "event",
-        kind: "event",
-      };
+    const handleReact = async (type: ReactionType) => {
+  if (!currentUser || !event.id || !onReact) return;
       
-      onReact(eventAsPost as any, type);
-    };
+
+  const eventAsPost = {
+  ...event,
+  id: event.id,
+  event_id: event.id,
+  source: "event",
+  item_type: "event",
+  type: "event",
+  post_type: "event",
+  kind: "event",
+};
+  
+ onReact(eventAsPost as any, type);
+};
+
+
 
     const handleShare = () => {
       if (!currentUser) alert('Please login to share');
@@ -4574,9 +4590,14 @@ export const EventPost = memo(
     return (
       <>
         <div className="w-full">
-          <div className="bg-[#242526] w-full overflow-hidden cursor-pointer" onClick={handleCardClick}>
-            {/* Header */}
-            <div className="p-3 md:p-4 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="bg-[#242526] w-full overflow-hidden cursor-pointer"
+            onClick={handleCardClick}
+          >
+            <div
+              className="p-3 md:p-4 flex items-center justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div
                 className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
                 onClick={(e) => {
@@ -4584,7 +4605,11 @@ export const EventPost = memo(
                   creator?.id && onProfileClick(Number(creator.id));
                 }}
               >
-                <img src={avatarFrom(creator)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#3E4042]" />
+                <img
+                  src={avatarFrom(creator)}
+                  alt=""
+                  className="w-10 h-10 rounded-full object-cover border border-[#3E4042]"
+                />
                 <div className="min-w-0">
                   <div className="flex items-center gap-1 flex-wrap">
                     <h4 className="font-bold text-[#E4E6EB] text-[20px] truncate">
@@ -4605,18 +4630,24 @@ export const EventPost = memo(
                   onClick={handleFollowClick}
                   disabled={followLoading}
                   className={`px-3 py-1.5 text-[15px] font-bold rounded-lg transition-all duration-200 ml-2 ${
-                    isFollowing ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]' : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                    isFollowing
+                      ? 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                      : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                   } ${followLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  {followLoading ? <i className="fas fa-spinner fa-spin"></i> : isFollowing ? 'Following' : 'Follow'}
+                  {followLoading ? (
+                    <i className="fas fa-spinner fa-spin"></i>
+                  ) : isFollowing ? (
+                    'Following'
+                  ) : (
+                    'Follow'
+                  )}
                 </button>
               )}
             </div>
 
-            {/* ✅ UPDATED: Event Card Content with proper spacing */}
-            <div className="px-3 pb-3" onClick={(e) => e.stopPropagation()}>
-              <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A] shadow-sm">
-                {/* Cover Image */}
+            <div className="pb-4" onClick={(e) => e.stopPropagation()}>
+              <div className="border border-[#3E4042] rounded-2xl overflow-hidden bg-[#18191A]">
                 {event.cover_url ? (
                   <div className="h-48 bg-[#18191A] overflow-hidden relative">
                     <img
@@ -4629,8 +4660,10 @@ export const EventPost = memo(
                         const parent = e.currentTarget.parentElement;
                         if (parent) {
                           const fallback = document.createElement('div');
-                          fallback.className = 'h-48 bg-[#1f2a37] flex items-center justify-center';
-                          fallback.innerHTML = '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
+                          fallback.className =
+                            'h-48 bg-[#1f2a37] flex items-center justify-center';
+                          fallback.innerHTML =
+                            '<i class="fas fa-calendar text-white/30 text-5xl"></i>';
                           parent.appendChild(fallback);
                         }
                       }}
@@ -4638,9 +4671,13 @@ export const EventPost = memo(
                     {dateObj && (
                       <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                         <div className="text-[#B0B3B8] text-[13px] font-black">
-                          {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                          {dateObj
+                            .toLocaleDateString('en-US', { month: 'short' })
+                            .toUpperCase()}
                         </div>
-                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">{dateObj.getDate()}</div>
+                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                          {dateObj.getDate()}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -4650,27 +4687,40 @@ export const EventPost = memo(
                     {dateObj && (
                       <div className="absolute top-3 left-3 bg-[#242526]/90 backdrop-blur-sm rounded-xl px-3 py-2 border border-[#4E4F50]">
                         <div className="text-[#B0B3B8] text-[13px] font-black">
-                          {dateObj.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                          {dateObj
+                            .toLocaleDateString('en-US', { month: 'short' })
+                            .toUpperCase()}
                         </div>
-                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">{dateObj.getDate()}</div>
+                        <div className="text-[#E4E6EB] text-[22px] font-black leading-tight">
+                          {dateObj.getDate()}
+                        </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Event Details */}
                 <div className="p-4">
-                  <div className="text-[#E4E6EB] font-black text-[22px] line-clamp-2">{event.title}</div>
+                  <div className="text-[#E4E6EB] font-black text-[22px] line-clamp-2">
+                    {event.title}
+                  </div>
 
                   {event.description && (
-                    <div className="text-[#B0B3B8] text-[16px] mt-1 line-clamp-2">{event.description}</div>
+                    <div className="text-[#B0B3B8] text-[16px] mt-1 line-clamp-2">
+                      {event.description}
+                    </div>
                   )}
 
                   <div className="mt-3 space-y-2">
                     {event.event_date && (
                       <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
-                        <i className={`fas fa-calendar-alt ${isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'} w-4`}></i>
-                        <span>{formatEventDate()} at {formatEventTime()}</span>
+                        <i
+                          className={`fas fa-calendar-alt ${
+                            isPast ? 'text-[#B0B3B8]' : 'text-[#1877F2]'
+                          } w-4`}
+                        ></i>
+                        <span>
+                          {formatEventDate()} at {formatEventTime()}
+                        </span>
                       </div>
                     )}
                     {event.location && (
@@ -4681,57 +4731,83 @@ export const EventPost = memo(
                     )}
                     <div className="flex items-center gap-2 text-[#B0B3B8] text-[15px]">
                       <i className="fas fa-users text-[#45BD62] w-4"></i>
-                      <span>{attendeesCount} attending • {interestedCount} interested</span>
+                      <span>
+                        {attendeesCount} attending • {interestedCount} interested
+                      </span>
                     </div>
                   </div>
 
-                  {/* RSVP Buttons */}
                   <div className="mt-4 flex gap-2">
                     <button
                       disabled={loading || isPast}
-                      onClick={(e) => { e.stopPropagation(); handleRSVPClick('going'); }}
-                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${isPast ? 'opacity-50 cursor-not-allowed' : ''} ${
-                        rsvpStatus === 'going' ? 'bg-[#45BD62] text-white' : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRSVPClick('going');
+                      }}
+                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
+                        isPast ? 'opacity-50 cursor-not-allowed' : ''
+                      } ${
+                        rsvpStatus === 'going'
+                          ? 'bg-[#45BD62] text-white'
+                          : 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
                       } disabled:opacity-60`}
                     >
-                      {loading && rsvpStatus === 'going' ? <i className="fas fa-spinner fa-spin"></i> : rsvpStatus === 'going' ? '✓ Going' : 'Going'}
+                      {loading && rsvpStatus === 'going' ? (
+                        <i className="fas fa-spinner fa-spin"></i>
+                      ) : rsvpStatus === 'going' ? (
+                        '✓ Going'
+                      ) : (
+                        'Going'
+                      )}
                     </button>
 
                     <button
                       disabled={loading || isPast}
-                      onClick={(e) => { e.stopPropagation(); handleRSVPClick('interested'); }}
-                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${isPast ? 'opacity-50 cursor-not-allowed' : ''} ${
-                        rsvpStatus === 'interested' ? 'bg-[#F7B928] text-black' : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRSVPClick('interested');
+                      }}
+                      className={`flex-1 h-11 rounded-lg font-bold transition-colors text-[15px] ${
+                        isPast ? 'opacity-50 cursor-not-allowed' : ''
+                      } ${
+                        rsvpStatus === 'interested'
+                          ? 'bg-[#F7B928] text-black'
+                          : 'bg-[#3A3B3C] text-[#E4E6EB] hover:bg-[#4E4F50]'
                       } disabled:opacity-60`}
                     >
-                      {loading && rsvpStatus === 'interested' ? <i className="fas fa-spinner fa-spin"></i> : rsvpStatus === 'interested' ? '✓ Interested' : 'Interested'}
+                      {loading && rsvpStatus === 'interested' ? (
+                        <i className="fas fa-spinner fa-spin"></i>
+                      ) : rsvpStatus === 'interested' ? (
+                        '✓ Interested'
+                      ) : (
+                        'Interested'
+                      )}
                     </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* ✅ ADDED: Separator line */}
-            <div className="px-3">
-              <div className="border-t border-white/5"></div>
-            </div>
-
-            {/* ✅ UPDATED: Action Buttons with background */}
-            <div className="px-2 py-1 border-t border-white/10 bg-[#242526] flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-              <div className="flex-1">
-                <ReactionButton
-                  currentUserReactions={(event as any).my_reaction || undefined}
-                  reactionCount={Number((event as any).reactions_count || 0)}
-                  onReact={handleReact}
-                  isGuest={!currentUser}
-                />
-              </div>
+            <div
+              className="px-2 py-1 border-t border-white/10 flex items-center justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+          <div className="flex-1">
+  <ReactionButton
+    currentUserReactions={(event as any).my_reaction || undefined}
+    reactionCount={Number((event as any).reactions_count || 0)}
+    onReact={handleReact}
+    isGuest={!currentUser}
+  />
+</div>
               <button
                 className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
                 onClick={handleOpenComments}
               >
                 <DiscussSignalIcon size={28} color="#1877F2" />
-                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">Discuss</span>
+                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                  Discuss
+                </span>
               </button>
               <button
                 className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -4746,7 +4822,6 @@ export const EventPost = memo(
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
         </div>
 
-        {/* Share Bottom Sheet */}
         {event && (
           <ShareBottomSheet
             isOpen={showShareSheet}
@@ -4775,8 +4850,6 @@ export const EventPost = memo(
   },
   eventPostPropsEqual
 );
-
-
 
 /**
  * =========================
