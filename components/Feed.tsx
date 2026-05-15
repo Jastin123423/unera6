@@ -3294,9 +3294,12 @@ const getEventCover = (item: any, meta?: any) => {
   return '';
 };
 
-const normalizeEventFromFeed = (item: any) => {
+//===NORMALIZE EVENT FROM FEEDS ==
+
+     const normalizeEventFromFeed = (item: any) => {
   const metaRaw = item?.meta || {};
   let meta: any = metaRaw;
+
   if (typeof metaRaw === 'string') {
     try {
       meta = JSON.parse(metaRaw);
@@ -3304,28 +3307,120 @@ const normalizeEventFromFeed = (item: any) => {
       meta = {};
     }
   }
+
   const cover = getEventCover(item, meta);
   const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
+
   return {
     id,
-    title: String(item?.content ?? meta?.title ?? 'Event'),
-    description: String(item?.event_description ?? meta?.description ?? ''),
+
+    title: String(
+      item?.content ??
+      meta?.title ??
+      'Event'
+    ),
+
+    description: String(
+      item?.event_description ??
+      meta?.description ??
+      ''
+    ),
+
     cover_url: String(cover || ''),
-    location: String(item?.location ?? meta?.location ?? ''),
-    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ''),
-    created_at: String(item?.created_at ?? meta?.created_at ?? ''),
-    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
-    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
-    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ''),
-    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+
+    location: String(
+      item?.location ??
+      meta?.location ??
+      ''
+    ),
+
+    event_date: String(
+      item?.event_date ??
+      meta?.event_date ??
+      meta?.start_time ??
+      ''
+    ),
+
+    created_at: String(
+      item?.created_at ??
+      meta?.created_at ??
+      ''
+    ),
+
+    attendees_count: Number(
+      item?.attending_count ??
+      meta?.attending_count ??
+      0
+    ),
+
+    interested_count: Number(
+      item?.interested_count ??
+      meta?.interested_count ??
+      0
+    ),
+
+    user_rsvp_status: String(
+      item?.my_rsvp_status ??
+      meta?.my_rsvp_status ??
+      ''
+    ),
+
+    // ✅ EVENT REACTIONS
+    my_reaction:
+      item?.my_reaction ??
+      item?.myReaction ??
+      meta?.my_reaction ??
+      null,
+
+    reactions_count: Number(
+      item?.reactions_count ??
+      item?.reactionsCount ??
+      item?.likes_count ??
+      item?.likesCount ??
+      meta?.reactions_count ??
+      0
+    ),
+
+    reactions: Array.isArray(item?.reactions)
+      ? item.reactions
+      : Array.isArray(item?.reactions_preview)
+      ? item.reactions_preview
+      : [],
+
+    creator_id: Number(
+      item?.user_id ??
+      meta?.creator_id ??
+      0
+    ),
+
     creator: {
-      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
-      name: String(item?.name ?? meta?.creator_name ?? 'Event Organizer'),
-      username: String(item?.username ?? meta?.creator_username ?? ''),
-      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? ''),
+      id: Number(
+        item?.user_id ??
+        meta?.creator_id ??
+        0
+      ),
+
+      name: String(
+        item?.name ??
+        meta?.creator_name ??
+        'Event Organizer'
+      ),
+
+      username: String(
+        item?.username ??
+        meta?.creator_username ??
+        ''
+      ),
+
+      profile_image_url: String(
+        item?.profile_image_url ??
+        meta?.creator_image ??
+        ''
+      ),
     },
   };
-};
+}; 
+
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
