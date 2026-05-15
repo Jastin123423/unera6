@@ -1236,9 +1236,22 @@ const isSameFeedItem = (a: any, b: any): boolean => {
 const postPropsEqual = (prev: any, next: any) => {
   return (
     isSameFeedItem(prev.post, next.post) &&
+
+    // ==================== REACTIONS ====================
     prev.post?.reactions_count === next.post?.reactions_count &&
+    prev.post?.reactionsCount === next.post?.reactionsCount &&
+    prev.post?.likes_count === next.post?.likes_count &&
+    prev.post?.likesCount === next.post?.likesCount &&
+    prev.post?.my_reaction === next.post?.my_reaction &&
+    prev.post?.myReaction === next.post?.myReaction &&
+    prev.post?.reactions === next.post?.reactions &&
+
+    // ==================== COMMENTS / SHARES ====================
     prev.post?.comments_count === next.post?.comments_count &&
     prev.post?.shares === next.post?.shares &&
+    prev.post?.shares_count === next.post?.shares_count &&
+
+    // ==================== USER / FOLLOW ====================
     prev.myReaction === next.myReaction &&
     prev.isFollowing === next.isFollowing &&
     prev.followLoading === next.followLoading
@@ -1250,7 +1263,11 @@ const eventPostPropsEqual = (prev: any, next: any) => {
     prev.event?.id === next.event?.id &&
     prev.event?.attendees_count === next.event?.attendees_count &&
     prev.event?.interested_count === next.event?.interested_count &&
-    prev.event?.user_rsvp_status === next.event?.user_rsvp_status
+    prev.event?.user_rsvp_status === next.event?.user_rsvp_status &&
+
+    // reactions
+    prev.event?.reactions_count === next.event?.reactions_count &&
+    prev.event?.my_reaction === next.event?.my_reaction
   );
 };
 
@@ -1259,9 +1276,15 @@ const reelCardPropsEqual = (prev: any, next: any) => {
     prev.reel?.id === next.reel?.id &&
     prev.reel?.views === next.reel?.views &&
     prev.reel?.likes === next.reel?.likes &&
-    prev.reel?.comments === next.reel?.comments
+    prev.reel?.comments === next.reel?.comments &&
+
+    // reactions
+    prev.reel?.reactions_count === next.reel?.reactions_count &&
+    prev.reel?.my_reaction === next.reel?.my_reaction
   );
 };
+    
+    
 
 // ==================== EXPORTED COMPONENTS (Memoized) ====================
 
