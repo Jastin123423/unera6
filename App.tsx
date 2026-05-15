@@ -8295,11 +8295,9 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 
     
 
-
-// ============================================================================
+  // ============================================================================
 // ✅ HYBRID REACT HANDLER
-// ✅ Supports posts, group posts, products, events, reels, songs, podcasts
-// ✅ Fixes product reactions showing only after refresh
+// ✅ Product reaction no longer disappears after server response
 // ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth("Reacting")) return;
@@ -8333,10 +8331,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!meId) return;
   if (reactingMap[identity]) return;
 
-  const source = String(
-    item?.source || item?.item_type || item?.kind || itemType || ""
-  ).toLowerCase();
-
+  const source = String(item?.source || item?.item_type || item?.kind || itemType || "").toLowerCase();
   const meta = item?.meta || {};
 
   const getProductId = (x: any) =>
@@ -8370,7 +8365,6 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     Boolean(getProductId(item));
 
   const targetProductId = getProductId(item) || itemId;
-
   const sourceList = view === "profile" ? profilePosts : posts;
 
   const isSameTarget = (p: any) => {
@@ -8388,18 +8382,19 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     return false;
   };
 
-  const previousItem =
-    safeArray(sourceList).find((p: any) => isSameTarget(p)) || item;
-
+  const previousItem = safeArray(sourceList).find((p: any) => isSameTarget(p)) || item;
   if (!previousItem) return;
 
   const replaceItem = (list: any[], replacement: any) =>
     safeArray(list).map((p: any) => (isSameTarget(p) ? replacement : p));
 
-  const applyServerTruth = (
-    serverMy: ReactionType | null,
-    serverCount: number
-  ) => {
+  const getCurrentCount = (x: any) =>
+    safeNumber(
+      x?.reactions_count,
+      safeNumber(x?.reactionsCount, safeNumber(x?.likes_count, safeNumber(x?.likesCount, safeArray(x?.reactions).length)))
+    );
+
+  const applyServerTruth = (serverMy: ReactionType | null, serverCount: number) => {
     const applyOne = (p: any) => {
       if (!isSameTarget(p)) return p;
 
@@ -8431,12 +8426,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
   setReacting(identity, true);
 
-  const optimisticItem = applyOptimisticReaction(
-    previousItem,
-    identity,
-    type,
-    meId
-  );
+  const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
 
   setPosts((prev) => replaceItem(prev, optimisticItem));
   setProfilePosts((prev) => replaceItem(prev, optimisticItem));
@@ -8451,9 +8441,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
         item?.group_post_id || item?.groupPostId || item?.id || itemId || 0
       );
 
-      if (!groupPostId) {
-        throw new Error("Missing group post reaction id");
-      }
+      if (!groupPostId) throw new Error("Missing group post reaction id");
 
       const data = await apiFetch("/api/group-post-likes", {
         method: "POST",
@@ -8467,11 +8455,12 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       const serverMy =
         data?.my_reaction ??
         data?.reaction ??
-        (data?.liked ? type : null);
+        data?.type ??
+        (data?.liked === false ? null : type);
 
       const serverCount = safeNumber(
         data?.reactions_count,
-        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
+        safeNumber(data?.likes_count, safeNumber(data?.count, getCurrentCount(optimisticItem)))
       );
 
       applyServerTruth(serverMy, serverCount);
@@ -8480,10 +8469,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
     if (isProductPost) {
       const productId = Number(targetProductId || item?.id || itemId || 0);
-
-      if (!productId) {
-        throw new Error("Missing product reaction id");
-      }
+      if (!productId) throw new Error("Missing product reaction id");
 
       const data = await apiFetch(`/api/products/${productId}/react`, {
         method: "POST",
@@ -8496,11 +8482,12 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       const serverMy =
         data?.my_reaction ??
         data?.reaction ??
-        (data?.liked ? type : null);
+        data?.type ??
+        type;
 
       const serverCount = safeNumber(
         data?.reactions_count,
-        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
+        safeNumber(data?.likes_count, safeNumber(data?.count, getCurrentCount(optimisticItem)))
       );
 
       applyServerTruth(serverMy, serverCount);
@@ -8526,9 +8513,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
       case "song":
       case "music": {
-        const songId = Number(
-          item?.song_id2 || item?.song_id || itemId || item?.id || 0
-        );
+        const songId = Number(item?.song_id2 || item?.song_id || itemId || item?.id || 0);
         if (!songId) throw new Error("Missing song reaction id");
         endpoint = `/api/songs/${songId}/react`;
         break;
@@ -8560,11 +8545,12 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     const serverMy =
       data?.my_reaction ??
       data?.reaction ??
-      (data?.liked ? type : null);
+      data?.type ??
+      (data?.liked === false ? null : type);
 
     const serverCount = safeNumber(
       data?.reactions_count,
-      safeNumber(data?.likes_count, safeNumber(data?.count, 0))
+      safeNumber(data?.likes_count, safeNumber(data?.count, getCurrentCount(optimisticItem)))
     );
 
     applyServerTruth(serverMy, serverCount);
@@ -8573,11 +8559,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
     setPosts((prev) => replaceItem(prev, previousItem));
     setProfilePosts((prev) => replaceItem(prev, previousItem));
-
-    setCommentPostSnapshot((prev) => {
-      if (!prev) return prev;
-      return isSameTarget(prev) ? previousItem : prev;
-    });
+    setCommentPostSnapshot((prev) => (!prev ? prev : isSameTarget(prev) ? previousItem : prev));
   } finally {
     setReacting(identity, false);
   }
@@ -8591,7 +8573,6 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   activeCommentsIdentity,
   setReacting,
 ]);
-  
 
   
       
