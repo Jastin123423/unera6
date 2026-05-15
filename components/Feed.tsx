@@ -3296,6 +3296,8 @@ const getEventCover = (item: any, meta?: any) => {
 
 //===NORMALIZE EVENT FROM FEEDS ==
 
+
+    
 const normalizeEventFromFeed = (item: any) => {
   const metaRaw = item?.meta || {};
   let meta: any = metaRaw;
@@ -3313,15 +3315,6 @@ const normalizeEventFromFeed = (item: any) => {
 
   return {
     id,
-
-    // ✅ EVENT TYPE IDENTIFIERS
-    source: 'event',
-    item_type: 'event',
-    type: 'event',
-    post_type: 'event',
-    kind: 'event',
-    event_id: id,
-    feed_key: `event:${id}`,
 
     title: String(
       item?.content ??
@@ -3429,7 +3422,6 @@ const normalizeEventFromFeed = (item: any) => {
     },
   };
 };
-
 
 
 
