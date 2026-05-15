@@ -1234,60 +1234,14 @@ const isSameFeedItem = (a: any, b: any): boolean => {
 
     
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
-const postPropsEqual = (prev: any, next: any) => {
-  return (
-    isSameFeedItem(prev.post, next.post) &&
 
-    // reactions
-    prev.post?.my_reaction === next.post?.my_reaction &&
-    prev.post?.myReaction === next.post?.myReaction &&
-    prev.post?.reactions_count === next.post?.reactions_count &&
-    prev.post?.reactionsCount === next.post?.reactionsCount &&
-    prev.post?.likes_count === next.post?.likes_count &&
-    prev.post?.likesCount === next.post?.likesCount &&
 
-    // comments / shares
-    prev.post?.comments_count === next.post?.comments_count &&
-    prev.post?.shares === next.post?.shares &&
-    prev.post?.shares_count === next.post?.shares_count &&
+const postPropsEqual = () => false;
 
-    // follow
-    prev.isFollowing === next.isFollowing &&
-    prev.followLoading === next.followLoading
-  );
-};
+const eventPostPropsEqual = () => false;
 
-const eventPostPropsEqual = (prev: any, next: any) => {
-  return (
-    prev.event?.id === next.event?.id &&
+const reelCardPropsEqual = () => false;
 
-    // RSVP
-    prev.event?.attendees_count === next.event?.attendees_count &&
-    prev.event?.interested_count === next.event?.interested_count &&
-    prev.event?.user_rsvp_status === next.event?.user_rsvp_status &&
-
-    // reactions
-    prev.event?.my_reaction === next.event?.my_reaction &&
-    prev.event?.reactions_count === next.event?.reactions_count &&
-    prev.event?.reactionsCount === next.event?.reactionsCount
-  );
-};
-
-const reelCardPropsEqual = (prev: any, next: any) => {
-  return (
-    prev.reel?.id === next.reel?.id &&
-
-    // engagement
-    prev.reel?.views === next.reel?.views &&
-    prev.reel?.likes === next.reel?.likes &&
-    prev.reel?.comments === next.reel?.comments &&
-
-    // reactions
-    prev.reel?.my_reaction === next.reel?.my_reaction &&
-    prev.reel?.reactions_count === next.reel?.reactions_count &&
-    prev.reel?.reactionsCount === next.reel?.reactionsCount
-  );
-};
 
 
 
@@ -5598,16 +5552,7 @@ export const Post = memo(
     const group = p?.group || groups?.find((g) => g.id === groupId);
 
     const myReaction = p.myReaction ?? p.my_reaction ?? null;
- const likesCount = safeNumber(
-  p?.reactions_count,
-  safeNumber(
-    p?.reactionsCount,
-    safeNumber(
-      p?.likes_count,
-      safeNumber(p?.likesCount, 0)
-    )
-  )
-);
+ const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
       
 
     const reactionsArr: any[] = Array.isArray(p.reactions)
