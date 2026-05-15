@@ -8295,9 +8295,11 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 
     
 
+
 // ============================================================================
-// ✅ HYBRID REACT HANDLER - posts, group posts, products, events, reels, songs,
-// podcasts. Product + group update immediately without waiting for refresh.
+// ✅ HYBRID REACT HANDLER
+// ✅ Supports posts, group posts, products, events, reels, songs, podcasts
+// ✅ Fixes product reactions showing only after refresh
 // ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth("Reacting")) return;
@@ -8337,6 +8339,18 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
   const meta = item?.meta || {};
 
+  const getProductId = (x: any) =>
+    Number(
+      x?.product_id2 ||
+        x?.product_id ||
+        x?.productId ||
+        x?.meta?.product_id ||
+        x?.meta?.productId ||
+        x?.meta?.marketplace?.id ||
+        x?.marketplace?.id ||
+        0
+    );
+
   const isGroupPost =
     source === "group_post" ||
     Boolean(item?.group_post_id) ||
@@ -8353,44 +8367,41 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     item?.kind === "product" ||
     meta?.type === "product" ||
     meta?.kind === "product" ||
-    Boolean(item?.product_id2) ||
-    Boolean(item?.product_id) ||
-    Boolean(meta?.product_id) ||
-    Boolean(meta?.marketplace?.id);
+    Boolean(getProductId(item));
+
+  const targetProductId = getProductId(item) || itemId;
 
   const sourceList = view === "profile" ? profilePosts : posts;
 
+  const isSameTarget = (p: any) => {
+    try {
+      if (getFeedKey(p) === identity) return true;
+    } catch {}
+
+    if (Number(p?.id) === itemId) return true;
+
+    if (isProductPost) {
+      const pid = getProductId(p);
+      if (pid && targetProductId && pid === targetProductId) return true;
+    }
+
+    return false;
+  };
+
   const previousItem =
-    safeArray(sourceList).find((p: any) => {
-      try {
-        return getFeedKey(p) === identity;
-      } catch {
-        return Number(p?.id) === itemId;
-      }
-    }) || item;
+    safeArray(sourceList).find((p: any) => isSameTarget(p)) || item;
 
   if (!previousItem) return;
 
   const replaceItem = (list: any[], replacement: any) =>
-    safeArray(list).map((p: any) => {
-      try {
-        if (getFeedKey(p) === identity) return replacement;
-      } catch {
-        if (Number(p?.id) === itemId) return replacement;
-      }
-      return p;
-    });
+    safeArray(list).map((p: any) => (isSameTarget(p) ? replacement : p));
 
   const applyServerTruth = (
     serverMy: ReactionType | null,
     serverCount: number
   ) => {
     const applyOne = (p: any) => {
-      try {
-        if (getFeedKey(p) !== identity) return p;
-      } catch {
-        if (Number(p?.id) !== itemId) return p;
-      }
+      if (!isSameTarget(p)) return p;
 
       const prevArr = safeArray<any>(p?.reactions);
       const withoutMe = prevArr.filter(
@@ -8468,18 +8479,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     }
 
     if (isProductPost) {
-      const productId = Number(
-        item?.product_id2 ||
-          item?.product_id ||
-          item?.productId ||
-          meta?.product_id ||
-          meta?.productId ||
-          meta?.marketplace?.id ||
-          item?.marketplace?.id ||
-          itemId ||
-          item?.id ||
-          0
-      );
+      const productId = Number(targetProductId || item?.id || itemId || 0);
 
       if (!productId) {
         throw new Error("Missing product reaction id");
@@ -8576,12 +8576,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
     setCommentPostSnapshot((prev) => {
       if (!prev) return prev;
-
-      try {
-        return getFeedKey(prev) === identity ? previousItem : prev;
-      } catch {
-        return Number(prev?.id) === itemId ? previousItem : prev;
-      }
+      return isSameTarget(prev) ? previousItem : prev;
     });
   } finally {
     setReacting(identity, false);
@@ -8596,8 +8591,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   activeCommentsIdentity,
   setReacting,
 ]);
-
-       
+  
 
   
       
