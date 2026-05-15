@@ -5570,9 +5570,13 @@ export const Post = memo(
     const group = p?.group || groups?.find((g) => g.id === groupId);
 
     const myReaction = p.myReaction ?? p.my_reaction ?? null;
-    const likesCount = Number(
-      p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0
-    );
+  const likesCount = Number(
+  p.likesCount ??
+  p.likes_count ??
+  p.reactionsCount ??
+  p.reactions_count ??
+  0
+);
     const reactionsArr: any[] = Array.isArray(p.reactions)
       ? p.reactions
       : Array.isArray(p.reactions_preview)
