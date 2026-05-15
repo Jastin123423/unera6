@@ -5593,28 +5593,29 @@ export const Post = memo(
 
     // If it's an event post, render EventPost component
     if (isEventPost) {
-      const event = normalizeEventFromFeed(p);
-      return (
-        <EventPost
-          event={event}
-          author={a}
-          currentUser={currentUser}
-          users={users}
-          onProfileClick={onProfileClick}
-          onRSVP={onRSVP}
-          onFollow={onFollow}
-          isFollowing={isFollowing}
-          followLoading={followLoading}
-          onReact={(id, type) => onReact(post, type)}
-          onShare={onShare}
-          onOpenComments={(id) => onOpenComments(post)}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onEventClick={onEventClick}
-        />
-      );
-    }
+      const event = normalizeEventFromFeed(p);  
+  return (
+    <EventPost
+      event={event}
+      author={a}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={onProfileClick}
+      onRSVP={onRSVP}
+      onFollow={onFollow}
+      isFollowing={isFollowing}
+      followLoading={followLoading}
+      onReact={(eventAsPost, type) => onReact(eventAsPost as PostType, type)}
+      onShare={onShare}
+      onOpenComments={() => onOpenComments(post)}
+      groups={groups}
+      brands={brands}
+      chats={chats}
+      onEventClick={onEventClick}
+    />
+  );
+}
+      
 
     const productId = isMarketplace ? getMarketplaceProductId(p) : null;
     const productData = productId ? getProductData?.(productId) : null;
