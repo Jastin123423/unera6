@@ -8297,7 +8297,7 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
 
 // ============================================================================
 // ✅ HYBRID REACT HANDLER - posts, group posts, products, events, reels, songs,
-// podcasts. Uses same working group endpoint as Groups page.
+// podcasts. Product + group update immediately without waiting for refresh.
 // ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   if (!requireAuth("Reacting")) return;
@@ -8329,15 +8329,10 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 
   const meId = Number(currentUser.id);
   if (!meId) return;
-
   if (reactingMap[identity]) return;
 
   const source = String(
-    item?.source ||
-      item?.item_type ||
-      item?.kind ||
-      itemType ||
-      ""
+    item?.source || item?.item_type || item?.kind || itemType || ""
   ).toLowerCase();
 
   const meta = item?.meta || {};
@@ -8440,14 +8435,9 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   }
 
   try {
-    // ✅ GROUP POSTS - same endpoint that already works in Groups page
     if (isGroupPost) {
       const groupPostId = Number(
-        item?.group_post_id ||
-          item?.groupPostId ||
-          item?.id ||
-          itemId ||
-          0
+        item?.group_post_id || item?.groupPostId || item?.id || itemId || 0
       );
 
       if (!groupPostId) {
@@ -8463,19 +8453,20 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
         }),
       });
 
-      const serverMy = data?.liked ? type : null;
+      const serverMy =
+        data?.my_reaction ??
+        data?.reaction ??
+        (data?.liked ? type : null);
+
       const serverCount = safeNumber(
-        data?.likes_count,
-        safeNumber(data?.reactions_count, 0)
+        data?.reactions_count,
+        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
       );
 
       applyServerTruth(serverMy, serverCount);
       return;
     }
 
-    let endpoint = "";
-
-    // ✅ PRODUCT POSTS - force product route even if itemType says "post"
     if (isProductPost) {
       const productId = Number(
         item?.product_id2 ||
@@ -8494,48 +8485,67 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
         throw new Error("Missing product reaction id");
       }
 
-      endpoint = `/api/products/${productId}/react`;
-    } else {
-      switch (itemType) {
-        case "event": {
-          const eventId = Number(item?.event_id || itemId || item?.id || 0);
-          if (!eventId) throw new Error("Missing event reaction id");
-          endpoint = `/api/events/${eventId}/react`;
-          break;
-        }
+      const data = await apiFetch(`/api/products/${productId}/react`, {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: meId,
+          type,
+        }),
+      });
 
-        case "reel": {
-          const reelId = Number(item?.reel_id || itemId || item?.id || 0);
-          if (!reelId) throw new Error("Missing reel reaction id");
-          endpoint = `/api/reels/${reelId}/react`;
-          break;
-        }
+      const serverMy =
+        data?.my_reaction ??
+        data?.reaction ??
+        (data?.liked ? type : null);
 
-        case "song":
-        case "music": {
-          const songId = Number(
-            item?.song_id2 || item?.song_id || itemId || item?.id || 0
-          );
-          if (!songId) throw new Error("Missing song reaction id");
-          endpoint = `/api/songs/${songId}/react`;
-          break;
-        }
+      const serverCount = safeNumber(
+        data?.reactions_count,
+        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
+      );
 
-        case "podcast": {
-          const podcastId = Number(
-            item?.podcast_id || itemId || item?.id || 0
-          );
-          if (!podcastId) throw new Error("Missing podcast reaction id");
-          endpoint = `/api/podcasts/${podcastId}/react`;
-          break;
-        }
+      applyServerTruth(serverMy, serverCount);
+      return;
+    }
 
-        default: {
-          const postId = Number(item?.post_id || itemId || item?.id || 0);
-          if (!postId) throw new Error("Missing post reaction id");
-          endpoint = `/api/posts/${postId}/react`;
-          break;
-        }
+    let endpoint = "";
+
+    switch (itemType) {
+      case "event": {
+        const eventId = Number(item?.event_id || itemId || item?.id || 0);
+        if (!eventId) throw new Error("Missing event reaction id");
+        endpoint = `/api/events/${eventId}/react`;
+        break;
+      }
+
+      case "reel": {
+        const reelId = Number(item?.reel_id || itemId || item?.id || 0);
+        if (!reelId) throw new Error("Missing reel reaction id");
+        endpoint = `/api/reels/${reelId}/react`;
+        break;
+      }
+
+      case "song":
+      case "music": {
+        const songId = Number(
+          item?.song_id2 || item?.song_id || itemId || item?.id || 0
+        );
+        if (!songId) throw new Error("Missing song reaction id");
+        endpoint = `/api/songs/${songId}/react`;
+        break;
+      }
+
+      case "podcast": {
+        const podcastId = Number(item?.podcast_id || itemId || item?.id || 0);
+        if (!podcastId) throw new Error("Missing podcast reaction id");
+        endpoint = `/api/podcasts/${podcastId}/react`;
+        break;
+      }
+
+      default: {
+        const postId = Number(item?.post_id || itemId || item?.id || 0);
+        if (!postId) throw new Error("Missing post reaction id");
+        endpoint = `/api/posts/${postId}/react`;
+        break;
       }
     }
 
@@ -8547,15 +8557,17 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
       }),
     });
 
-    if (
-      data?.success ||
-      "reactions_count" in (data || {}) ||
-      "my_reaction" in (data || {})
-    ) {
-      const serverMy = data?.my_reaction ?? null;
-      const serverCount = safeNumber(data?.reactions_count, 0);
-      applyServerTruth(serverMy, serverCount);
-    }
+    const serverMy =
+      data?.my_reaction ??
+      data?.reaction ??
+      (data?.liked ? type : null);
+
+    const serverCount = safeNumber(
+      data?.reactions_count,
+      safeNumber(data?.likes_count, safeNumber(data?.count, 0))
+    );
+
+    applyServerTruth(serverMy, serverCount);
   } catch (error) {
     console.error("Failed to react:", error);
 
@@ -8585,8 +8597,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
   setReacting,
 ]);
 
-
-
+       
 
   
       
