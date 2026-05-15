@@ -6310,12 +6310,14 @@ export const Post = memo(
                 </div>
 
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-                  <ReactionButton
-                    currentUserReactions={finalMyReaction}
-                    reactionCount={finalReactionCount}
-                    onReact={handleReactClick}
-                    isGuest={!currentUser}
-                  />
+
+              <ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
+  reactionCount={finalReactionCount}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+  postId={productId}
+/>
                   <button
                     type="button"
                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
