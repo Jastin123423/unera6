@@ -6194,8 +6194,6 @@ const handleReactClick = async (type: ReactionType) => {
               </div>
             )}
 
-
-   
 {(isMusic || isPodcast) && (
   <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
     <div className="flex items-center gap-3 p-3">
@@ -6206,6 +6204,9 @@ const handleReactClick = async (type: ReactionType) => {
         }
         className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
         alt=""
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).src = avatarFrom(a);
+        }}
       />
       <div className="flex-1 overflow-hidden">
         <div className="text-white font-bold text-[17px] truncate">
@@ -6228,14 +6229,14 @@ const handleReactClick = async (type: ReactionType) => {
       </button>
     </div>
     
-    {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
+    {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-     <ReactionButton
-  currentUserReactions={myReaction || undefined}
-  reactionCount={reactionsCount}
-  onReact={handleReactClick}
-  isGuest={!currentUser}
-/>
+      <ReactionButton
+        currentUserReactions={myReaction || undefined}
+        reactionCount={reactionsCount}
+        onReact={handleReactClick}
+        isGuest={!currentUser}
+      />
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6268,9 +6269,7 @@ const handleReactClick = async (type: ReactionType) => {
   </div>
 )}
 
-
-    
-      
+ 
             
             {isMarketplace ? (
               <>
