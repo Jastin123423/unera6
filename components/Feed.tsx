@@ -5964,7 +5964,66 @@ const songId = isMusic
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
 
-      
+const handleReactClick = async (type: ReactionType) => {
+  // Show loading toast
+  const loadingToast = document.createElement('div');
+  loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-yellow-500 text-white px-4 py-2 rounded-full z-[9999]';
+  loadingToast.innerText = 'Reacting...';
+  document.body.appendChild(loadingToast);
+  
+  if (!currentUser) {
+    loadingToast.remove();
+    alert("Please login to react.");
+    return;
+  }
+  
+  const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
+  const songId = isMusicPost ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? 0) : null;
+  
+  try {
+    let endpoint = '';
+    let body = {};
+    
+    if (isMusicPost && songId) {
+      endpoint = `/api/songs/${songId}/react`;
+      body = { user_id: safeUserId(currentUser), type: type };
+    } else {
+      endpoint = `/api/posts/${p.id}/react`;
+      body = { user_id: safeUserId(currentUser), type: type };
+    }
+    
+    const result = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    
+    // Success toast
+    loadingToast.innerText = '✓ Reacted!';
+    loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-full z-[9999]';
+    setTimeout(() => loadingToast.remove(), 1500);
+    
+    // Update UI optimistically
+    if (result?.my_reaction !== undefined) {
+      setMyReaction?.(result.my_reaction);
+    }
+    if (result?.reactions_count !== undefined) {
+      setReactionsCount?.(result.reactions_count);
+    }
+    
+  } catch (error: any) {
+    loadingToast.innerText = '❌ Failed';
+    loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-full z-[9999]';
+    setTimeout(() => loadingToast.remove(), 2000);
+    console.error('Reaction failed:', error);
+  }
+};
+
+
+
+
+
+
+  
 const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
