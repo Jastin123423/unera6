@@ -5817,8 +5817,10 @@ const songId = isMusic
     alert("Please login to react.");
     return;
   }
-
   
+  // Calls the parent's onReact function (passed from App.tsx)
+  onReact?.(p, type);
+};
 
       
 
