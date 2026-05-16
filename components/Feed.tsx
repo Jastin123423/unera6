@@ -5964,64 +5964,95 @@ const songId = isMusic
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-
 const handleReactClick = async (type: ReactionType) => {
-  // Show loading toast
-  const loadingToast = document.createElement('div');
-  loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-yellow-500 text-white px-4 py-2 rounded-full z-[9999]';
-  loadingToast.innerText = 'Reacting...';
-  document.body.appendChild(loadingToast);
+  // Debug log
+  console.log('🔵 handleReactClick called', { 
+    type, 
+    hasCurrentUser: !!currentUser,
+    isMusic: meta?.kind === 'music' || meta?.type === 'music'
+  });
   
   if (!currentUser) {
-    loadingToast.remove();
     alert("Please login to react.");
     return;
   }
   
+  // Check if this is a music post
   const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
-  const songId = isMusicPost ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? 0) : null;
+  const songId = isMusicPost 
+    ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
+    : null;
   
-  try {
-    let endpoint = '';
-    let body = {};
+  // For music posts - handle directly
+  if (isMusicPost && songId) {
+    // Get current reaction state
+    const currentReaction = myReaction;
+    const currentCount = reactionsCount;
     
-    if (isMusicPost && songId) {
-      endpoint = `/api/songs/${songId}/react`;
-      body = { user_id: safeUserId(currentUser), type: type };
-    } else {
-      endpoint = `/api/posts/${p.id}/react`;
-      body = { user_id: safeUserId(currentUser), type: type };
+    // Calculate optimistic values
+    const isRemoving = currentReaction === type;
+    const optimisticReaction = isRemoving ? null : type;
+    const optimisticCount = isRemoving 
+      ? Math.max(0, currentCount - 1)
+      : currentReaction 
+        ? currentCount
+        : currentCount + 1;
+    
+    // Show toast for user feedback
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-4 py-2 rounded-full z-[9999] text-sm';
+    toast.innerText = isRemoving ? 'Removing reaction...' : `Adding ${type}...`;
+    document.body.appendChild(toast);
+    
+    // Optimistic update
+    setMyReaction(optimisticReaction);
+    setReactionsCount(optimisticCount);
+    
+    try {
+      // Make API call
+      const endpoint = `/api/songs/${songId}/react`;
+      const result = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: safeUserId(currentUser), 
+          type: type,
+          song_id: songId 
+        }),
+      });
+      
+      // Update with server response
+      if (result) {
+        setMyReaction(result.my_reaction || null);
+        setReactionsCount(result.reactions_count || 0);
+        
+        // Success toast
+        toast.innerText = result.my_reaction ? `✓ ${type} added!` : '✓ Reaction removed';
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-full z-[9999] text-sm';
+        setTimeout(() => toast.remove(), 1500);
+      }
+    } catch (error) {
+      console.error('Failed to react to music:', error);
+      
+      // Revert optimistic update on error
+      setMyReaction(currentReaction);
+      setReactionsCount(currentCount);
+      
+      // Error toast
+      toast.innerText = '❌ Failed to react. Try again.';
+      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-full z-[9999] text-sm';
+      setTimeout(() => toast.remove(), 2000);
     }
-    
-    const result = await apiFetch(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-    
-    // Success toast
-    loadingToast.innerText = '✓ Reacted!';
-    loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-full z-[9999]';
-    setTimeout(() => loadingToast.remove(), 1500);
-    
-    // Update UI optimistically
-    if (result?.my_reaction !== undefined) {
-      setMyReaction?.(result.my_reaction);
-    }
-    if (result?.reactions_count !== undefined) {
-      setReactionsCount?.(result.reactions_count);
-    }
-    
-  } catch (error: any) {
-    loadingToast.innerText = '❌ Failed';
-    loadingToast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-full z-[9999]';
-    setTimeout(() => loadingToast.remove(), 2000);
-    console.error('Reaction failed:', error);
+    return;
+  }
+  
+  // For regular posts - pass to parent (App.tsx)
+  if (onReact) {
+    onReact(p, type);
+  } else {
+    console.error('onReact prop is not available');
+    alert('Unable to react. Please try again.');
   }
 };
-
-
-
-
 
 
   
