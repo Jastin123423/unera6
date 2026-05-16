@@ -74,7 +74,7 @@ const buildReactionMessage = (type: string) => {
   return "reacted to your song";
 };
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequestPost: PagesFunction = async ({ request, env, params }) => {
   try {
     if (!env.DB) {
       return json({ success: false, error: "DB binding missing (DB)" }, 500);
@@ -82,11 +82,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
     const songId = toNum((params as any)?.id, 0);
     const body = await request.json().catch(() => ({} as any));
-
     const headerUserId = toNum(request.headers.get("x-user-id"), 0);
     const bodyUserId = toNum(body.user_id, 0);
     const userId = headerUserId || bodyUserId || 0;
-
     const type = normalizeType(body.type || "like");
 
     if (!songId) {
@@ -102,7 +100,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     }
 
     const song = await env.DB.prepare(
-      `SELECT id, user_id
+      `SELECT id, uploader_id
        FROM songs
        WHERE id = ?
        LIMIT 1`
@@ -112,7 +110,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       return json({ success: false, error: "Song not found" }, 404);
     }
 
-    const songOwnerId = toNum((song as any)?.user_id, 0);
+    const songOwnerId = toNum((song as any)?.uploader_id, 0);
 
     const existing = await env.DB.prepare(
       `SELECT id, type
@@ -191,6 +189,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       reactions_count: toNum((countRow as any)?.reactions_count, 0),
       reactions_breakdown: Array.isArray(breakdown) ? breakdown : [],
     });
+
   } catch (err: any) {
     return json(
       { success: false, error: err?.message || "Failed to react to song" },
