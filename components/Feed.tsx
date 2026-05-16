@@ -6192,7 +6192,7 @@ const songId = isMusic
   reactionCount={finalReactionCount}
   onReact={handleReactClick}
   isGuest={!currentUser}
-  postId={songId}
+  postId={productId}
 />
                   
                   <button
