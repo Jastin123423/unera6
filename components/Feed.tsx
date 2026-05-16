@@ -5625,6 +5625,7 @@ export const Post = memo(
     ) => Promise<{ liked: boolean; likes_count: number } | void>;
   }) => {
 
+    console.log('Post component received onReact:', typeof onReact);
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
