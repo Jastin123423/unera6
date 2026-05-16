@@ -6011,81 +6011,84 @@ const songId = isMusic
               </div>
             )}
 
-            {(isMusic || isPodcast) && (
-              <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-                <div className="flex items-center gap-3 p-3">
-                  <img
-                    src={
-                      (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
-                      ''
-                    }
-                    className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-                    alt=""
-                  />
-                  <div className="flex-1 overflow-hidden">
-                    <div className="text-white font-bold text-[17px] truncate">
-                      {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-                    </div>
-                    <div className="text-[#B0B3B8] text-[14px] truncate">
-                      {isMusic ? song?.artist_name : podcast?.description}
-                    </div>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenAudio?.(isMusic ? song : podcast);
-                    }}
-                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
-                  >
-                    Play
-                  </button>
-                </div>
-              </div>
-            )}
+   
+{(isMusic || isPodcast) && (
+  <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+    <div className="flex items-center gap-3 p-3">
+      <img
+        src={
+          (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
+          ''
+        }
+        className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+        alt=""
+      />
+      <div className="flex-1 overflow-hidden">
+        <div className="text-white font-bold text-[17px] truncate">
+          {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+        </div>
+        <div className="text-[#B0B3B8] text-[14px] truncate">
+          {isMusic ? song?.artist_name : podcast?.description}
+        </div>
+      </div>
 
-            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
-              <div
-                className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
-                onClick={() =>
-                  window.open(p.link_preview.url, '_blank', 'noopener noreferrer')
-                }
-              >
-                {p.link_preview.image && (
-                  <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
-                    <img
-                      src={p.link_preview.image}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
-                )}
-                <div className="p-4 bg-[#3A3B3C]">
-                  <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
-                    {p.link_preview.domain}
-                  </div>
-                  <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
-                    {p.link_preview.title}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
-                    {p.link_preview.description}
-                  </div>
-                </div>
-              </div>
-            )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenAudio?.(isMusic ? song : podcast);
+        }}
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+      >
+        Play
+      </button>
+    </div>
+    
+    {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
+    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+      <ReactionButton
+        currentUserReactions={finalMyReaction || undefined}
+        reactionCount={finalReactionCount}
+        onReact={handleReactClick}
+        isGuest={!currentUser}
+        postId={songId}
+      />
+      <button
+        type="button"
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleOpenComments(e);
+        }}
+      >
+        <DiscussSignalIcon size={28} color="#1877F2" />
+        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+          Discuss
+        </span>
+      </button>
+      <button
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={() => {
+          if (!currentUser) {
+            alert('Please login to share posts.');
+            return;
+          }
+          setShowShareSheet(true);
+        }}
+      >
+        <i className="fas fa-share text-[22px]"></i>
+        <span className="text-[19px] font-bold">Share</span>
+      </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>}
+    </div>
+  </div>
+)}
 
-            {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
-              <div
-                className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
-                style={{ background: p.background, backgroundSize: 'cover' }}
-              >
-                {p.content}
-              </div>
-            )}
+
+    
+      
             
             {isMarketplace ? (
               <>
