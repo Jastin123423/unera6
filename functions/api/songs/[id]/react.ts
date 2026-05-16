@@ -205,7 +205,7 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     // Fetch comments count
     const commentsCountRow = await env.DB.prepare(
       `SELECT COUNT(*) AS count
-       FROM comments
+       FROM songs_comments
        WHERE song_id = ?`
     ).bind(songId).first();
 
