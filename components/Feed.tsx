@@ -5289,7 +5289,6 @@ export const ReactionButton = memo(
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
-
 export const Post = memo(
   ({
     post,
@@ -5327,33 +5326,66 @@ export const Post = memo(
     author: User | any;
     currentUser: User | null;
     users?: User[];
+
     onProfileClick: (id: number) => void;
+
     onReact: (post: PostType, type: ReactionType) => void;
+
     onShare: (id: number, newShareCount: number) => void;
+
     onDelete?: (id: number) => void;
+
     onEdit?: (id: number, content: string) => void;
+
     onViewImage: (url: string) => void;
+
     onOpenComments: (post: PostType) => void;
+
     onVideoClick: (p: PostType) => void;
+
     onPlayAudioTrack?: (t: AudioTrack) => void;
+
     onHashtagClick?: (tag: string) => void;
+
     onViewProductFromPost?: (productId: number) => void;
+
     onOpenGroup?: (groupId: number) => void;
+
     onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+    onRSVP?: (
+      eventId: number,
+      status: 'going' | 'interested' | 'not_going'
+    ) => Promise<void>;
+
     groups?: Group[];
+
     brands?: Brand[];
+
     chats?: any[];
+
     isFollowing?: boolean;
+
     onFollow?: (id: number) => void;
+
     followLoading?: boolean;
+
     onEventClick?: (eventId: number) => void;
+
     onOpenReactions?: (post: PostType) => void;
+
     onReport?: (postId: number, reason?: string) => void;
+
     onHide?: (postId: number) => void;
+
     pushButton?: React.ReactNode;
-    onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
-  }) => {   
+
+    onToggleGroupPostLike?: (
+      postId: number,
+      type?: ReactionType
+    ) => Promise<{ liked: boolean; likes_count: number } | void>;
+  }) => {
+
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
@@ -5671,56 +5703,45 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-  const handleReactClick = async (type: ReactionType) => {
+    
+      
+      const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
-  
+
   const source = String(
-    (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
+    (p as any)?.source ||
+    (p as any)?.item_type ||
+    (p as any)?.kind ||
+    ""
   ).toLowerCase();
+
   const meta = (p as any)?.meta || {};
-  const groupId = Number(
-    (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
-  );
+
   const groupPostId = Number(
-    (p as any)?.group_post_id || 
-    (p as any)?.groupPostId || 
-    (source === "group_post" ? (p as any)?.id : 0) || 
+    (p as any)?.group_post_id ||
+    (p as any)?.groupPostId ||
+    (source === "group_post" ? (p as any)?.id : 0) ||
     0
   );
-  const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
 
-  if (isGroupPost) {
-    // Call group post reaction endpoint directly
-    const endpoint = `/api/groups/${groupId}/posts/${groupPostId || (p as any)?.id}/react`;
-    try {
-      await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ user_id: safeUserId(currentUser), type }),
-      });
-      // Optionally update local state
-      // You may need to refresh the post or update reactions count
-    } catch (error) {
-      console.error('Group post reaction failed:', error);
-    }
+  const isGroupPost =
+    source === "group_post" ||
+    Boolean(groupPostId) ||
+    Boolean((p as any)?.group_id);
+
+  if (isGroupPost && onToggleGroupPostLike) {
+    await onToggleGroupPostLike(
+      groupPostId || Number((p as any)?.id),
+      type
+    );
     return;
   }
 
   onReact?.(p, type);
 };
-      
-    
-    
-    
-    
-    const handleReactClick = async (type: ReactionType) => {
-      if (!currentUser) {
-        alert("Please login to react.");
-        return;
-      }
-      
       
 
     const openGallery = (urls: string[], index: number) => {
@@ -8351,6 +8372,8 @@ export {
  * ✅ FEED PROPS INTERFACE
  * =========================
  */
+
+
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
@@ -8461,9 +8484,7 @@ interface FeedProps {
     type?: ReactionType
   ) => Promise<{ liked: boolean; likes_count: number } | void>;
 }
-
-
-
+  
     
 /**
  * =========================
@@ -8641,7 +8662,7 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-           <Post
+          <Post
   post={post as PostType}
   author={getPostAuthor?.(post as PostType) || post.author || post}
   currentUser={currentUser}
@@ -8662,6 +8683,7 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
+  onToggleGroupPostLike={onToggleGroupPostLike}
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -8672,6 +8694,9 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
+            
+    
+
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
