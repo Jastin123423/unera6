@@ -5598,6 +5598,8 @@ export const Post = memo(
       meta?.kind === 'product' ||
       !!p?.product_id ||
       !!p?.meta?.marketplace?.id;
+      
+
 
     const isEventPost =
       p?.item_type === 'event' ||
@@ -5659,7 +5661,14 @@ export const Post = memo(
     const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
     const song = meta?.song;
     const podcast = meta?.podcast;
+    
 
+// ✅ ADDed THIS - Get the correct song ID for reactions
+const songId = isMusic 
+  ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
+  : null;
+
+      
     const isGroupPost = !!(p?.group_id || p?.group);
     const groupId = Number(
       p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
