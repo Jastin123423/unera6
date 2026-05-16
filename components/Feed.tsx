@@ -5800,7 +5800,11 @@ export const Post = memo(
     const [showReactionsSheet, setShowReactionsSheet] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
-    const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+      
+const [myReaction, setMyReaction] = useState<ReactionType | null>(finalMyReaction);
+const [reactionsCount, setReactionsCount] = useState(finalReactionCount);
+
+      const isMusic = meta?.kind === 'music' || meta?.type === 'music';
     const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
     const song = meta?.song;
     const podcast = meta?.podcast;
