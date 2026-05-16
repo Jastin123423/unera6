@@ -5289,6 +5289,7 @@ export const ReactionButton = memo(
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
+
 export const Post = memo(
   ({
     post,
@@ -5326,66 +5327,33 @@ export const Post = memo(
     author: User | any;
     currentUser: User | null;
     users?: User[];
-
     onProfileClick: (id: number) => void;
-
     onReact: (post: PostType, type: ReactionType) => void;
-
     onShare: (id: number, newShareCount: number) => void;
-
     onDelete?: (id: number) => void;
-
     onEdit?: (id: number, content: string) => void;
-
     onViewImage: (url: string) => void;
-
     onOpenComments: (post: PostType) => void;
-
     onVideoClick: (p: PostType) => void;
-
     onPlayAudioTrack?: (t: AudioTrack) => void;
-
     onHashtagClick?: (tag: string) => void;
-
     onViewProductFromPost?: (productId: number) => void;
-
     onOpenGroup?: (groupId: number) => void;
-
     onOpenAudio?: (item: any) => void;
-
-    onRSVP?: (
-      eventId: number,
-      status: 'going' | 'interested' | 'not_going'
-    ) => Promise<void>;
-
+    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
     groups?: Group[];
-
     brands?: Brand[];
-
     chats?: any[];
-
     isFollowing?: boolean;
-
     onFollow?: (id: number) => void;
-
     followLoading?: boolean;
-
     onEventClick?: (eventId: number) => void;
-
     onOpenReactions?: (post: PostType) => void;
-
     onReport?: (postId: number, reason?: string) => void;
-
     onHide?: (postId: number) => void;
-
     pushButton?: React.ReactNode;
-
-    onToggleGroupPostLike?: (
-      postId: number,
-      type?: ReactionType
-    ) => Promise<{ liked: boolean; likes_count: number } | void>;
-  }) => {
-
+    onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
+  }) => {   
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
@@ -5703,46 +5671,34 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-    
+    const handleReactClick = async (type: ReactionType) => {
+      if (!currentUser) {
+        alert("Please login to react.");
+        return;
+      }
       
-      const handleReactClick = async (type: ReactionType) => {
-  if (!currentUser) {
-    alert("Please login to react.");
-    return;
-  }
+      const source = String(
+        (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
+      ).toLowerCase();
+      const meta = (p as any)?.meta || {};
+      const groupId = Number(
+        (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
+      );
+      const groupPostId = Number(
+        (p as any)?.group_post_id || 
+        (p as any)?.groupPostId || 
+        (source === "group_post" ? (p as any)?.id : 0) || 
+        0
+      );
+      const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
 
-  const source = String(
-    (p as any)?.source ||
-    (p as any)?.item_type ||
-    (p as any)?.kind ||
-    ""
-  ).toLowerCase();
+      if (isGroupPost && onToggleGroupPostLike) {
+        await onToggleGroupPostLike(groupPostId || Number((p as any)?.id), type);
+        return;
+      }
 
-  const meta = (p as any)?.meta || {};
-
-  const groupPostId = Number(
-    (p as any)?.group_post_id ||
-    (p as any)?.groupPostId ||
-    (source === "group_post" ? (p as any)?.id : 0) ||
-    0
-  );
-
-  const isGroupPost =
-    source === "group_post" ||
-    Boolean(groupPostId) ||
-    Boolean((p as any)?.group_id);
-
-  if (isGroupPost && onToggleGroupPostLike) {
-    await onToggleGroupPostLike(
-      groupPostId || Number((p as any)?.id),
-      type
-    );
-    return;
-  }
-
-  onReact?.(p, type);
-};
-      
+      onReact?.(p, type);
+    };
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
@@ -8373,7 +8329,6 @@ export {
  * =========================
  */
 
-
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
@@ -8475,16 +8430,8 @@ interface FeedProps {
   hasMoreFeed?: boolean;
 
   feedLoadingMore?: boolean;
-
-  // =========================
-  // ✅ GROUP POST REACTIONS
-  // =========================
-  onToggleGroupPostLike?: (
-    postId: number,
-    type?: ReactionType
-  ) => Promise<{ liked: boolean; likes_count: number } | void>;
 }
-  
+
     
 /**
  * =========================
@@ -8662,40 +8609,37 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-          <Post
-  post={post as PostType}
-  author={getPostAuthor?.(post as PostType) || post.author || post}
-  currentUser={currentUser}
-  users={users}
-  onProfileClick={onProfileClick}
-  onReact={onReact}
-  onShare={onShare}
-  onViewImage={onViewImage}
-  onOpenComments={onOpenComments}
-  onVideoClick={onVideoClick}
-  onPlayAudioTrack={onPlayAudioTrack}
-  groups={groups}
-  brands={brands}
-  chats={chats}
-  onHashtagClick={onHashtagClick}
-  isFollowing={isFollowing}
-  onFollow={() => onFollow?.(postAuthorId)}
-  followLoading={followLoading?.[postAuthorId] || false}
-  onViewProductFromPost={onViewProductFromPost}
-  onRSVP={onRSVPEvent}
-  onToggleGroupPostLike={onToggleGroupPostLike}
-  pushButton={showPushButton ? (
-    <button
-      onClick={() => onPushMore?.(post.id)}
-      disabled={isPushed}
-      className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-    >
-      {isPushed ? "Pushed" : "Push More"}
-    </button>
-  ) : undefined}
-/>
-            
-    
+            <Post
+              post={post as PostType}
+              author={getPostAuthor?.(post as PostType) || post.author || post}
+              currentUser={currentUser}
+              users={users}
+              onProfileClick={onProfileClick}
+              onReact={onReact}
+              onShare={onShare}
+              onViewImage={onViewImage}
+              onOpenComments={onOpenComments}
+              onVideoClick={onVideoClick}
+              onPlayAudioTrack={onPlayAudioTrack}
+              groups={groups}
+              brands={brands}
+              chats={chats}
+              onHashtagClick={onHashtagClick}
+              isFollowing={isFollowing}
+              onFollow={() => onFollow?.(postAuthorId)}
+              followLoading={followLoading?.[postAuthorId] || false}
+              onViewProductFromPost={onViewProductFromPost}
+              onRSVP={onRSVPEvent}
+              pushButton={showPushButton ? (
+                <button
+                  onClick={() => onPushMore?.(post.id)}
+                  disabled={isPushed}
+                  className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+                >
+                  {isPushed ? "Pushed" : "Push More"}
+                </button>
+              ) : undefined}
+            />
 
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
