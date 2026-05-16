@@ -5802,16 +5802,33 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-      
-   const handleReactClick = async (type: ReactionType) => {
+
+      const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
+    return;
+  }
+
+  // If it's a music post, create a copy with proper song ID
+  if (isMusic && songId) {
+    const musicPost = {
+      ...p,
+      id: songId,
+      song_id: songId,
+      song_id2: songId,
+      source: "song",
+      item_type: "song",
+      type: "song",
+      kind: "music",
+    };
+    onReact?.(musicPost, type);
     return;
   }
 
   onReact?.(p, type);
 };
       
+
       
 
     const openGallery = (urls: string[], index: number) => {
