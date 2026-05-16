@@ -4785,12 +4785,13 @@ export const EventPost = memo(
               onClick={(e) => e.stopPropagation()}
             >
           <div className="flex-1">
-  <ReactionButton
-    currentUserReactions={(event as any).my_reaction || undefined}
-    reactionCount={Number((event as any).reactions_count || 0)}
-    onReact={handleReact}
-    isGuest={!currentUser}
-  />
+<ReactionButton
+  currentUserReactions={event.my_reaction || undefined}
+  reactionCount={event.reactions_count || 0}
+  onReact={handleReact}
+  isGuest={!currentUser}
+/>
+
 </div>
               <button
                 className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
