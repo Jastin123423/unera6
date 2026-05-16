@@ -6047,13 +6047,12 @@ const songId = isMusic
     
     {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+  
       <ReactionButton
-        currentUserReactions={finalMyReaction || undefined}
-        reactionCount={finalReactionCount}
-        onReact={handleReactClick}
-        isGuest={!currentUser}
-        postId={songId}
-      />
+  currentUserReactions={myReaction}
+  reactionCount={reactionsCount}
+  onReact={(type) => toggleReaction(type, currentUser.id)}
+/>
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
