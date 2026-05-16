@@ -1236,12 +1236,35 @@ const isSameFeedItem = (a: any, b: any): boolean => {
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
 
 
-const postPropsEqual = () => false;
+const postPropsEqual = (prev: any, next: any) => {
+return (
+isSameFeedItem(prev.post, next.post) &&
+prev.post?.reactions_count === next.post?.reactions_count &&
+prev.post?.comments_count === next.post?.comments_count &&
+prev.post?.shares === next.post?.shares &&
+prev.myReaction === next.myReaction &&
+prev.isFollowing === next.isFollowing &&
+prev.followLoading === next.followLoading
+);
+};
 
-const eventPostPropsEqual = () => false;
+const eventPostPropsEqual = (prev: any, next: any) => {
+return (
+prev.event?.id === next.event?.id &&
+prev.event?.attendees_count === next.event?.attendees_count &&
+prev.event?.interested_count === next.event?.interested_count &&
+prev.event?.user_rsvp_status === next.event?.user_rsvp_status
+);
+};
 
-const reelCardPropsEqual = () => false;
-
+const reelCardPropsEqual = (prev: any, next: any) => {
+return (
+prev.reel?.id === next.reel?.id &&
+prev.reel?.views === next.reel?.views &&
+prev.reel?.likes === next.reel?.likes &&
+prev.reel?.comments === next.reel?.comments
+);
+};
 
 
 
@@ -4781,34 +4804,26 @@ export const EventPost = memo(
             </div>
 
             <div
-              className="px-2 py-1 border-t border-white/10 flex items-center justify-between"
-              onClick={(e) => e.stopPropagation()}
-            >
-          <div className="flex-1">
-  <ReactionButton
-    currentUserReactions={(event as any).my_reaction || undefined}
-    reactionCount={Number((event as any).reactions_count || 0)}
-    onReact={handleReact}
-    isGuest={!currentUser}
-  />
+  className="px-2 py-1 border-t border-white/10 flex items-center justify-between gap-2"
+  onClick={(e) => e.stopPropagation()}
+>
+  <button
+    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
+    onClick={handleOpenComments}
+  >
+    <DiscussSignalIcon size={28} color="#1877F2" />
+    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+      Discuss
+    </span>
+  </button>
+  <button
+    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+    onClick={handleShare}
+  >
+    <i className="fas fa-share text-[22px]"></i>
+    <span className="text-[19px] font-bold">Share</span>
+  </button>
 </div>
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
-                onClick={handleOpenComments}
-              >
-                <DiscussSignalIcon size={28} color="#1877F2" />
-                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                  Discuss
-                </span>
-              </button>
-              <button
-                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                onClick={handleShare}
-              >
-                <i className="fas fa-share text-[22px]"></i>
-                <span className="text-[19px] font-bold">Share</span>
-              </button>
-            </div>
           </div>
 
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
