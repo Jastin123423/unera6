@@ -100,7 +100,7 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     }
 
     const song = await env.DB.prepare(
-      `SELECT id, uploader_id
+      `SELECT id, uploader_id, title, artist_name, cover_image_url, audio_url
        FROM songs
        WHERE id = ?
        LIMIT 1`
@@ -110,7 +110,8 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
       return json({ success: false, error: "Song not found" }, 404);
     }
 
-    const songOwnerId = toNum((song as any)?.uploader_id, 0);
+    const songData = song as any;
+    const songOwnerId = toNum(songData?.uploader_id, 0);
 
     const existing = await env.DB.prepare(
       `SELECT id, type
@@ -153,6 +154,7 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
       finalType = type;
     }
 
+    // Send notification if reacted
     if (reacted && finalType) {
       await createNotification(
         env,
@@ -166,28 +168,99 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
       );
     }
 
+    // Fetch updated reaction count
     const countRow = await env.DB.prepare(
       `SELECT COUNT(*) AS reactions_count
        FROM song_reactions
        WHERE song_id = ?`
     ).bind(songId).first();
 
-    const { results: breakdown } = await env.DB.prepare(
-      `SELECT type, COUNT(*) AS count
+    const reactionsCount = toNum((countRow as any)?.reactions_count, 0);
+
+    // Fetch current user's reaction
+    const myReactionRow = await env.DB.prepare(
+      `SELECT type
        FROM song_reactions
-       WHERE song_id = ?
-       GROUP BY type
-       ORDER BY count DESC, type ASC`
+       WHERE song_id = ? AND user_id = ?
+       LIMIT 1`
+    ).bind(songId, userId).first();
+
+    const myReaction = myReactionRow ? normalizeType((myReactionRow as any).type) : null;
+
+    // Fetch reactions preview with user data
+    const { results: reactionsPreview } = await env.DB.prepare(
+      `SELECT 
+         sr.user_id,
+         sr.type,
+         u.username,
+         u.name,
+         u.profile_image_url
+       FROM song_reactions sr
+       LEFT JOIN users u ON sr.user_id = u.id
+       WHERE sr.song_id = ?
+       ORDER BY sr.created_at DESC
+       LIMIT 5`
     ).bind(songId).all();
 
+    // Fetch comments count
+    const commentsCountRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM comments
+       WHERE song_id = ?`
+    ).bind(songId).first();
+
+    const commentsCount = toNum((commentsCountRow as any)?.count, 0);
+
+    // Return feed-ready response
     return json({
       success: true,
-      reacted,
+      id: songId,
       song_id: songId,
-      user_id: userId,
-      type: finalType,
-      reactions_count: toNum((countRow as any)?.reactions_count, 0),
-      reactions_breakdown: Array.isArray(breakdown) ? breakdown : [],
+      source: "song",
+      item_type: "song",
+      type: "song",
+      kind: "music",
+      
+      // Song data
+      title: songData?.title || null,
+      artist_name: songData?.artist_name || null,
+      cover_image_url: songData?.cover_image_url || null,
+      audio_url: songData?.audio_url || null,
+      
+      // Reaction data (multiple formats for frontend compatibility)
+      my_reaction: myReaction,
+      myReaction: myReaction,
+      reactions_count: reactionsCount,
+      reactionsCount: reactionsCount,
+      likes_count: reactionsCount,
+      likesCount: reactionsCount,
+      
+      // Reactions preview
+      reactions: (reactionsPreview || []).map((r: any) => ({
+        user_id: r.user_id,
+        type: r.type,
+        user: {
+          id: r.user_id,
+          username: r.username,
+          name: r.name,
+          profile_image_url: r.profile_image_url
+        }
+      })),
+      reactions_preview: (reactionsPreview || []).map((r: any) => ({
+        user_id: r.user_id,
+        type: r.type,
+        user: {
+          id: r.user_id,
+          username: r.username,
+          name: r.name,
+          profile_image_url: r.profile_image_url
+        }
+      })),
+      
+      // Comments and shares
+      comments_count: commentsCount,
+      shares: 0,
+      shares_count: 0,
     });
 
   } catch (err: any) {
