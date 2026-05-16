@@ -1232,36 +1232,18 @@ const isSameFeedItem = (a: any, b: any): boolean => {
   return aType === bType && aId > 0 && bId > 0 && aId === bId;
 };
 
+    
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
-const postPropsEqual = (prev: any, next: any) => {
-  return (
-    isSameFeedItem(prev.post, next.post) &&
-    prev.post?.reactions_count === next.post?.reactions_count &&
-    prev.post?.comments_count === next.post?.comments_count &&
-    prev.post?.shares === next.post?.shares &&
-    prev.myReaction === next.myReaction &&
-    prev.isFollowing === next.isFollowing &&
-    prev.followLoading === next.followLoading
-  );
-};
 
-const eventPostPropsEqual = (prev: any, next: any) => {
-  return (
-    prev.event?.id === next.event?.id &&
-    prev.event?.attendees_count === next.event?.attendees_count &&
-    prev.event?.interested_count === next.event?.interested_count &&
-    prev.event?.user_rsvp_status === next.event?.user_rsvp_status
-  );
-};
 
-const reelCardPropsEqual = (prev: any, next: any) => {
-  return (
-    prev.reel?.id === next.reel?.id &&
-    prev.reel?.views === next.reel?.views &&
-    prev.reel?.likes === next.reel?.likes &&
-    prev.reel?.comments === next.reel?.comments
-  );
-};
+const postPropsEqual = () => false;
+
+const eventPostPropsEqual = () => false;
+
+const reelCardPropsEqual = () => false;
+
+
+
 
 // ==================== EXPORTED COMPONENTS (Memoized) ====================
 
@@ -3312,9 +3294,14 @@ const getEventCover = (item: any, meta?: any) => {
   return '';
 };
 
+//===NORMALIZE EVENT FROM FEEDS ==
+
+
+    
 const normalizeEventFromFeed = (item: any) => {
   const metaRaw = item?.meta || {};
   let meta: any = metaRaw;
+
   if (typeof metaRaw === 'string') {
     try {
       meta = JSON.parse(metaRaw);
@@ -3322,28 +3309,122 @@ const normalizeEventFromFeed = (item: any) => {
       meta = {};
     }
   }
+
   const cover = getEventCover(item, meta);
   const id = Number(item?.event_id ?? item?.id ?? meta?.event_id ?? 0);
+
   return {
     id,
-    title: String(item?.content ?? meta?.title ?? 'Event'),
-    description: String(item?.event_description ?? meta?.description ?? ''),
+
+    title: String(
+      item?.content ??
+      meta?.title ??
+      'Event'
+    ),
+
+    description: String(
+      item?.event_description ??
+      meta?.description ??
+      ''
+    ),
+
     cover_url: String(cover || ''),
-    location: String(item?.location ?? meta?.location ?? ''),
-    event_date: String(item?.event_date ?? meta?.event_date ?? meta?.start_time ?? ''),
-    created_at: String(item?.created_at ?? meta?.created_at ?? ''),
-    attendees_count: Number(item?.attending_count ?? meta?.attending_count ?? 0),
-    interested_count: Number(item?.interested_count ?? meta?.interested_count ?? 0),
-    user_rsvp_status: String(item?.my_rsvp_status ?? meta?.my_rsvp_status ?? ''),
-    creator_id: Number(item?.user_id ?? meta?.creator_id ?? 0),
+
+    location: String(
+      item?.location ??
+      meta?.location ??
+      ''
+    ),
+
+    event_date: String(
+      item?.event_date ??
+      meta?.event_date ??
+      meta?.start_time ??
+      ''
+    ),
+
+    created_at: String(
+      item?.created_at ??
+      meta?.created_at ??
+      ''
+    ),
+
+    attendees_count: Number(
+      item?.attending_count ??
+      meta?.attending_count ??
+      0
+    ),
+
+    interested_count: Number(
+      item?.interested_count ??
+      meta?.interested_count ??
+      0
+    ),
+
+    user_rsvp_status: String(
+      item?.my_rsvp_status ??
+      meta?.my_rsvp_status ??
+      ''
+    ),
+
+    // ✅ EVENT REACTIONS
+    my_reaction:
+      item?.my_reaction ??
+      item?.myReaction ??
+      meta?.my_reaction ??
+      null,
+
+    reactions_count: Number(
+      item?.reactions_count ??
+      item?.reactionsCount ??
+      item?.likes_count ??
+      item?.likesCount ??
+      meta?.reactions_count ??
+      0
+    ),
+
+    reactions: Array.isArray(item?.reactions)
+      ? item.reactions
+      : Array.isArray(item?.reactions_preview)
+      ? item.reactions_preview
+      : [],
+
+    creator_id: Number(
+      item?.user_id ??
+      meta?.creator_id ??
+      0
+    ),
+
     creator: {
-      id: Number(item?.user_id ?? meta?.creator_id ?? 0),
-      name: String(item?.name ?? meta?.creator_name ?? 'Event Organizer'),
-      username: String(item?.username ?? meta?.creator_username ?? ''),
-      profile_image_url: String(item?.profile_image_url ?? meta?.creator_image ?? ''),
+      id: Number(
+        item?.user_id ??
+        meta?.creator_id ??
+        0
+      ),
+
+      name: String(
+        item?.name ??
+        meta?.creator_name ??
+        'Event Organizer'
+      ),
+
+      username: String(
+        item?.username ??
+        meta?.creator_username ??
+        ''
+      ),
+
+      profile_image_url: String(
+        item?.profile_image_url ??
+        meta?.creator_image ??
+        ''
+      ),
     },
   };
 };
+
+
+
 // ==================== MEDIA HELPERS ====================
 const getMediaTypeInfo = (post: any) => {
   const mediaUrl = String(post?.media_url || '');
@@ -5289,7 +5370,6 @@ export const ReactionButton = memo(
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
-
 export const Post = memo(
   ({
     post,
@@ -5327,33 +5407,66 @@ export const Post = memo(
     author: User | any;
     currentUser: User | null;
     users?: User[];
+
     onProfileClick: (id: number) => void;
+
     onReact: (post: PostType, type: ReactionType) => void;
+
     onShare: (id: number, newShareCount: number) => void;
+
     onDelete?: (id: number) => void;
+
     onEdit?: (id: number, content: string) => void;
+
     onViewImage: (url: string) => void;
+
     onOpenComments: (post: PostType) => void;
+
     onVideoClick: (p: PostType) => void;
+
     onPlayAudioTrack?: (t: AudioTrack) => void;
+
     onHashtagClick?: (tag: string) => void;
+
     onViewProductFromPost?: (productId: number) => void;
+
     onOpenGroup?: (groupId: number) => void;
+
     onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+    onRSVP?: (
+      eventId: number,
+      status: 'going' | 'interested' | 'not_going'
+    ) => Promise<void>;
+
     groups?: Group[];
+
     brands?: Brand[];
+
     chats?: any[];
+
     isFollowing?: boolean;
+
     onFollow?: (id: number) => void;
+
     followLoading?: boolean;
+
     onEventClick?: (eventId: number) => void;
+
     onOpenReactions?: (post: PostType) => void;
+
     onReport?: (postId: number, reason?: string) => void;
+
     onHide?: (postId: number) => void;
+
     pushButton?: React.ReactNode;
-    onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number }>;
-  }) => {   
+
+    onToggleGroupPostLike?: (
+      postId: number,
+      type?: ReactionType
+    ) => Promise<{ liked: boolean; likes_count: number } | void>;
+  }) => {
+
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
@@ -5484,28 +5597,31 @@ export const Post = memo(
 
     // If it's an event post, render EventPost component
     if (isEventPost) {
-      const event = normalizeEventFromFeed(p);
-      return (
-        <EventPost
-          event={event}
-          author={a}
-          currentUser={currentUser}
-          users={users}
-          onProfileClick={onProfileClick}
-          onRSVP={onRSVP}
-          onFollow={onFollow}
-          isFollowing={isFollowing}
-          followLoading={followLoading}
-          onReact={(id, type) => onReact(post, type)}
-          onShare={onShare}
-          onOpenComments={(id) => onOpenComments(post)}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onEventClick={onEventClick}
-        />
-      );
-    }
+      const event = normalizeEventFromFeed(p);  
+  return (
+    <EventPost
+      event={event}
+      author={a}
+      currentUser={currentUser}
+      users={users}
+      onProfileClick={onProfileClick}
+      onRSVP={onRSVP}
+      onFollow={onFollow}
+      isFollowing={isFollowing}
+      followLoading={followLoading}
+      onReact={(eventAsPost, type) => onReact(eventAsPost as PostType, type)}
+      onShare={onShare}
+      onOpenComments={() => onOpenComments(post)}
+      groups={groups}
+      brands={brands}
+      chats={chats}
+      onEventClick={onEventClick}
+    />
+  );
+}
+
+
+      
 
     const productId = isMarketplace ? getMarketplaceProductId(p) : null;
     const productData = productId ? getProductData?.(productId) : null;
@@ -5538,9 +5654,9 @@ export const Post = memo(
     const group = p?.group || groups?.find((g) => g.id === groupId);
 
     const myReaction = p.myReaction ?? p.my_reaction ?? null;
-    const likesCount = Number(
-      p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0
-    );
+ const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+      
+
     const reactionsArr: any[] = Array.isArray(p.reactions)
       ? p.reactions
       : Array.isArray(p.reactions_preview)
@@ -5671,34 +5787,17 @@ export const Post = memo(
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-    const handleReactClick = async (type: ReactionType) => {
-      if (!currentUser) {
-        alert("Please login to react.");
-        return;
-      }
       
-      const source = String(
-        (p as any)?.source || (p as any)?.item_type || (p as any)?.kind || ""
-      ).toLowerCase();
-      const meta = (p as any)?.meta || {};
-      const groupId = Number(
-        (p as any)?.group_id || (p as any)?.groupId || meta?.group_id || meta?.groupId || 0
-      );
-      const groupPostId = Number(
-        (p as any)?.group_post_id || 
-        (p as any)?.groupPostId || 
-        (source === "group_post" ? (p as any)?.id : 0) || 
-        0
-      );
-      const isGroupPost = source === "group_post" || Boolean(groupPostId) || Boolean(groupId && (p as any)?.group_name);
+   const handleReactClick = async (type: ReactionType) => {
+  if (!currentUser) {
+    alert("Please login to react.");
+    return;
+  }
 
-      if (isGroupPost && onToggleGroupPostLike) {
-        await onToggleGroupPostLike(groupPostId || Number((p as any)?.id), type);
-        return;
-      }
-
-      onReact?.(p, type);
-    };
+  onReact?.(p, type);
+};
+      
+      
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
@@ -6046,12 +6145,15 @@ export const Post = memo(
                 </div>
 
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-                  <ReactionButton
-                    currentUserReactions={finalMyReaction}
-                    reactionCount={finalReactionCount}
-                    onReact={handleReactClick}
-                    isGuest={!currentUser}
-                  />
+                 
+<ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
+  reactionCount={finalReactionCount}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+  postId={productId}
+/>
+                  
                   <button
                     type="button"
                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6295,12 +6397,14 @@ export const Post = memo(
                 </div>
 
                 <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-                  <ReactionButton
-                    currentUserReactions={finalMyReaction}
-                    reactionCount={finalReactionCount}
-                    onReact={handleReactClick}
-                    isGuest={!currentUser}
-                  />
+
+              <ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
+  reactionCount={finalReactionCount}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+  
+/>
                   <button
                     type="button"
                     className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -8329,6 +8433,7 @@ export {
  * =========================
  */
 
+
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
@@ -8430,8 +8535,16 @@ interface FeedProps {
   hasMoreFeed?: boolean;
 
   feedLoadingMore?: boolean;
-}
 
+  // =========================
+  // ✅ GROUP POST REACTIONS
+  // =========================
+  onToggleGroupPostLike?: (
+    postId: number,
+    type?: ReactionType
+  ) => Promise<{ liked: boolean; likes_count: number } | void>;
+}
+  
     
 /**
  * =========================
@@ -8609,37 +8722,40 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-            <Post
-              post={post as PostType}
-              author={getPostAuthor?.(post as PostType) || post.author || post}
-              currentUser={currentUser}
-              users={users}
-              onProfileClick={onProfileClick}
-              onReact={onReact}
-              onShare={onShare}
-              onViewImage={onViewImage}
-              onOpenComments={onOpenComments}
-              onVideoClick={onVideoClick}
-              onPlayAudioTrack={onPlayAudioTrack}
-              groups={groups}
-              brands={brands}
-              chats={chats}
-              onHashtagClick={onHashtagClick}
-              isFollowing={isFollowing}
-              onFollow={() => onFollow?.(postAuthorId)}
-              followLoading={followLoading?.[postAuthorId] || false}
-              onViewProductFromPost={onViewProductFromPost}
-              onRSVP={onRSVPEvent}
-              pushButton={showPushButton ? (
-                <button
-                  onClick={() => onPushMore?.(post.id)}
-                  disabled={isPushed}
-                  className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-                >
-                  {isPushed ? "Pushed" : "Push More"}
-                </button>
-              ) : undefined}
-            />
+          <Post
+  post={post as PostType}
+  author={getPostAuthor?.(post as PostType) || post.author || post}
+  currentUser={currentUser}
+  users={users}
+  onProfileClick={onProfileClick}
+  onReact={onReact}
+  onShare={onShare}
+  onViewImage={onViewImage}
+  onOpenComments={onOpenComments}
+  onVideoClick={onVideoClick}
+  onPlayAudioTrack={onPlayAudioTrack}
+  groups={groups}
+  brands={brands}
+  chats={chats}
+  onHashtagClick={onHashtagClick}
+  isFollowing={isFollowing}
+  onFollow={() => onFollow?.(postAuthorId)}
+  followLoading={followLoading?.[postAuthorId] || false}
+  onViewProductFromPost={onViewProductFromPost}
+  onRSVP={onRSVPEvent}
+  
+  pushButton={showPushButton ? (
+    <button
+      onClick={() => onPushMore?.(post.id)}
+      disabled={isPushed}
+      className="px-3 py-1 rounded-md text-sm font-semibold ml-2 bg-blue-100 text-blue-600 hover:bg-blue-200 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
+    >
+      {isPushed ? "Pushed" : "Push More"}
+    </button>
+  ) : undefined}
+/>
+            
+    
 
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
