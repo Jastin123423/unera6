@@ -6185,14 +6185,14 @@ const songId = isMusic
                   </div>
                 </div>
 
-                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                  
 <ReactionButton
   currentUserReactions={finalMyReaction || undefined}
   reactionCount={finalReactionCount}
   onReact={handleReactClick}
   isGuest={!currentUser}
-  postId={productId}
+  postId={songId}
 />
                   
                   <button
