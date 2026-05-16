@@ -5818,25 +5818,7 @@ const songId = isMusic
     return;
   }
 
-  // If it's a music post, create a copy with proper song ID
-  if (isMusic && songId) {
-    const musicPost = {
-      ...p,
-      id: songId,
-      song_id: songId,
-      song_id2: songId,
-      source: "song",
-      item_type: "song",
-      type: "song",
-      kind: "music",
-    };
-    onReact?.(musicPost, type);
-    return;
-  }
-
-  onReact?.(p, type);
-};
-      
+  
 
       
 
