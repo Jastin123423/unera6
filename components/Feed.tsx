@@ -5804,6 +5804,13 @@ export const Post = memo(
 const [myReaction, setMyReaction] = useState<ReactionType | null>(finalMyReaction);
 const [reactionsCount, setReactionsCount] = useState(finalReactionCount);
 
+      //==USE EFFECT ===
+   // Sync local state when props change
+useEffect(() => {
+  setMyReaction(finalMyReaction);
+  setReactionsCount(finalReactionCount);
+}, [finalMyReaction, finalReactionCount]);
+      
       const isMusic = meta?.kind === 'music' || meta?.type === 'music';
     const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
     const song = meta?.song;
@@ -6226,8 +6233,8 @@ const handleReactClick = async (type: ReactionType) => {
     {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
      <ReactionButton
-  currentUserReactions={finalMyReaction || undefined}
-  reactionCount={finalReactionCount}
+  currentUserReactions={myReaction || undefined}
+  reactionCount={reactionsCount}
   onReact={handleReactClick}
   isGuest={!currentUser}
 />
