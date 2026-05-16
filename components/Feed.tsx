@@ -5801,8 +5801,6 @@ export const Post = memo(
     const [showShareSheet, setShowShareSheet] = useState(false);
 
       
-const [myReaction, setMyReaction] = useState<ReactionType | null>(finalMyReaction);
-const [reactionsCount, setReactionsCount] = useState(finalReactionCount);
 
       //==USE EFFECT ===
    // Sync local state when props change
