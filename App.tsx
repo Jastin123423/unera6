@@ -8294,29 +8294,26 @@ const openDirectFilePicker = useCallback((sound?: UseSoundPayload) => {
   }, [events, onRSVPEvent]);
 
     
-
-
 // ============================================================================
-// ✅ HYBRID REACT HANDLER
-// ✅ Supports posts, group posts, products, events, reels, songs, podcasts
-// ✅ Fixes product reactions showing only after refresh
+// ✅ HYBRID REACT HANDLER - Supports both numeric ID and full object
 // ============================================================================
 const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
-  if (!requireAuth("Reacting")) return;
+  if (!requireAuth('Reacting')) return;
   if (!currentUser || !item) return;
 
-  let identity = "";
+  // Get identity and ID safely
+  let identity = '';
   let itemId = 0;
-  let itemType = "post";
-
+  let itemType = 'post';
+  
   try {
     identity = getFeedKey(item);
     itemId = getFeedItemId(item);
     itemType = getFeedItemType(item);
   } catch (error) {
-    console.error("Failed to get feed identity:", error);
-
-    if (typeof item === "number") {
+    console.error('Failed to get feed identity:', error);
+    // Fallback to treating as post with ID
+    if (typeof item === 'number') {
       itemId = item;
       identity = `post:${item}`;
     } else if (item?.id) {
@@ -8325,277 +8322,119 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
     } else {
       return;
     }
-
-    itemType = "post";
+    itemType = 'post';
   }
+  
+  const meId = currentUser.id;
 
-  const meId = Number(currentUser.id);
-  if (!meId) return;
+  // Prevent multiple taps
   if (reactingMap[identity]) return;
 
-  const source = String(
-    item?.source || item?.item_type || item?.kind || itemType || ""
-  ).toLowerCase();
-
-  const meta = item?.meta || {};
-
-  const getProductId = (x: any) =>
-    Number(
-      x?.product_id2 ||
-        x?.product_id ||
-        x?.productId ||
-        x?.meta?.product_id ||
-        x?.meta?.productId ||
-        x?.meta?.marketplace?.id ||
-        x?.marketplace?.id ||
-        0
-    );
-
-  const isGroupPost =
-    source === "group_post" ||
-    Boolean(item?.group_post_id) ||
-    Boolean(item?.groupPostId) ||
-    Boolean(item?.group_id && item?.group_name);
-
-  const isProductPost =
-    source === "product" ||
-    source === "marketplace" ||
-    itemType === "product" ||
-    itemType === "marketplace" ||
-    item?.type === "product" ||
-    item?.post_type === "product" ||
-    item?.kind === "product" ||
-    meta?.type === "product" ||
-    meta?.kind === "product" ||
-    Boolean(getProductId(item));
-
-  const targetProductId = getProductId(item) || itemId;
-
-  const sourceList = view === "profile" ? profilePosts : posts;
-
-  const isSameTarget = (p: any) => {
+  // Get current item from appropriate source
+  const sourceList = view === 'profile' ? profilePosts : posts;
+  const previousItem = safeArray(sourceList).find((p: any) => {
     try {
-      if (getFeedKey(p) === identity) return true;
-    } catch {}
-
-    if (Number(p?.id) === itemId) return true;
-
-    if (isProductPost) {
-      const pid = getProductId(p);
-      if (pid && targetProductId && pid === targetProductId) return true;
+      return getFeedKey(p) === identity;
+    } catch {
+      return Number(p?.id) === itemId;
     }
-
-    return false;
-  };
-
-  const previousItem =
-    safeArray(sourceList).find((p: any) => isSameTarget(p)) || item;
-
+  }) || item;
+  
   if (!previousItem) return;
 
-  const replaceItem = (list: any[], replacement: any) =>
-    safeArray(list).map((p: any) => (isSameTarget(p) ? replacement : p));
+  // Helper to replace item by identity or ID
+  const replaceItem = (list: any[], replacement: any) => 
+    safeArray(list).map(p => {
+      try {
+        if (getFeedKey(p) === identity) return replacement;
+      } catch {
+        if (Number(p?.id) === itemId) return replacement;
+      }
+      return p;
+    });
 
-  const applyServerTruth = (
-    serverMy: ReactionType | null,
-    serverCount: number
-  ) => {
-    const applyOne = (p: any) => {
-      if (!isSameTarget(p)) return p;
-
-      const prevArr = safeArray<any>(p?.reactions);
-      const withoutMe = prevArr.filter(
-        (r: any) => Number(r?.user_id ?? r?.userId) !== meId
-      );
-
-      const nextArr = serverMy
-        ? [...withoutMe, { user_id: meId, userId: meId, type: serverMy }]
-        : withoutMe;
-
-      return {
-        ...p,
-        reactions: nextArr,
-        my_reaction: serverMy,
-        myReaction: serverMy,
-        reactions_count: serverCount,
-        reactionsCount: serverCount,
-        likes_count: serverCount,
-        likesCount: serverCount,
-      };
-    };
-
-    setPosts((prev) => safeArray(prev).map(applyOne));
-    setProfilePosts((prev) => safeArray(prev).map(applyOne));
-    setCommentPostSnapshot((prev) => (prev ? applyOne(prev) : prev));
-  };
-
+  // Set reacting lock
   setReacting(identity, true);
 
-  const optimisticItem = applyOptimisticReaction(
-    previousItem,
-    identity,
-    type,
-    meId
-  );
-
-  setPosts((prev) => replaceItem(prev, optimisticItem));
-  setProfilePosts((prev) => replaceItem(prev, optimisticItem));
-
+  // Apply optimistic update
+  const optimisticItem = applyOptimisticReaction(previousItem, identity, type, meId);
+  setPosts(prev => replaceItem(prev, optimisticItem));
+  setProfilePosts(prev => replaceItem(prev, optimisticItem));
+  
   if (activeCommentsIdentity === identity) {
     setCommentPostSnapshot(optimisticItem);
   }
 
   try {
-    if (isGroupPost) {
-      const groupPostId = Number(
-        item?.group_post_id || item?.groupPostId || item?.id || itemId || 0
-      );
-
-      if (!groupPostId) {
-        throw new Error("Missing group post reaction id");
-      }
-
-      const data = await apiFetch("/api/group-post-likes", {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: meId,
-          post_id: groupPostId,
-          type,
-        }),
-      });
-
-      const serverMy =
-        data?.my_reaction ??
-        data?.reaction ??
-        (data?.liked ? type : null);
-
-      const serverCount = safeNumber(
-        data?.reactions_count,
-        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
-      );
-
-      applyServerTruth(serverMy, serverCount);
-      return;
-    }
-
-    if (isProductPost) {
-      const productId = Number(targetProductId || item?.id || itemId || 0);
-
-      if (!productId) {
-        throw new Error("Missing product reaction id");
-      }
-
-      const data = await apiFetch(`/api/products/${productId}/react`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: meId,
-          type,
-        }),
-      });
-
-      const serverMy =
-        data?.my_reaction ??
-        data?.reaction ??
-        (data?.liked ? type : null);
-
-      const serverCount = safeNumber(
-        data?.reactions_count,
-        safeNumber(data?.likes_count, safeNumber(data?.count, 0))
-      );
-
-      applyServerTruth(serverMy, serverCount);
-      return;
-    }
-
-    let endpoint = "";
-
+    let endpoint = '';
     switch (itemType) {
-      case "event": {
-        const eventId = Number(item?.event_id || itemId || item?.id || 0);
-        if (!eventId) throw new Error("Missing event reaction id");
-        endpoint = `/api/events/${eventId}/react`;
+      case 'event':
+        endpoint = `/api/events/${itemId}/react`;
         break;
-      }
-
-      case "reel": {
-        const reelId = Number(item?.reel_id || itemId || item?.id || 0);
-        if (!reelId) throw new Error("Missing reel reaction id");
-        endpoint = `/api/reels/${reelId}/react`;
+      case 'group_post':
+        endpoint = `/api/groups/${item.group_id}/posts/${itemId}/react`;
         break;
-      }
-
-      case "song":
-      case "music": {
-        const songId = Number(
-          item?.song_id2 || item?.song_id || itemId || item?.id || 0
-        );
-        if (!songId) throw new Error("Missing song reaction id");
-        endpoint = `/api/songs/${songId}/react`;
+      case 'product':
+        endpoint = `/api/products/${itemId}/react`;
         break;
-      }
-
-      case "podcast": {
-        const podcastId = Number(item?.podcast_id || itemId || item?.id || 0);
-        if (!podcastId) throw new Error("Missing podcast reaction id");
-        endpoint = `/api/podcasts/${podcastId}/react`;
+      case 'reel':
+        endpoint = `/api/reels/${itemId}/react`;
         break;
-      }
-
-      default: {
-        const postId = Number(item?.post_id || itemId || item?.id || 0);
-        if (!postId) throw new Error("Missing post reaction id");
-        endpoint = `/api/posts/${postId}/react`;
+      case 'music':
+        endpoint = `/api/songs/${itemId}/react`;
         break;
-      }
+      case 'podcast':
+        endpoint = `/api/podcasts/${itemId}/react`;
+        break;
+      default:
+        endpoint = `/api/posts/${itemId}/react`;
     }
 
     const data = await apiFetch(endpoint, {
-      method: "POST",
-      body: JSON.stringify({
-        type,
-        user_id: meId,
-      }),
+      method: 'POST',
+      body: JSON.stringify({ type, user_id: meId }),
     });
 
-    const serverMy =
-      data?.my_reaction ??
-      data?.reaction ??
-      (data?.liked ? type : null);
+    if (data?.success && ('reactions_count' in data || 'my_reaction' in data)) {
+      const serverMy = data.my_reaction ?? null;
+      const serverCount = safeNumber(data.reactions_count, 0);
 
-    const serverCount = safeNumber(
-      data?.reactions_count,
-      safeNumber(data?.likes_count, safeNumber(data?.count, 0))
-    );
+      const applyServerTruth = (p: any) => {
+        try {
+          if (getFeedKey(p) !== identity) return p;
+        } catch {
+          if (Number(p?.id) !== itemId) return p;
+        }
 
-    applyServerTruth(serverMy, serverCount);
+        const prevArr = safeArray<any>(p?.reactions);
+        const withoutMe = prevArr.filter((r: any) => Number(r?.user_id) !== meId);
+        const nextArr = serverMy ? [...withoutMe, { user_id: meId, type: serverMy }] : withoutMe;
+
+        return {
+          ...p,
+          reactions: nextArr,
+          my_reaction: serverMy,
+          myReaction: serverMy,
+          reactions_count: serverCount,
+          reactionsCount: serverCount,
+          likesCount: serverCount,
+        };
+      };
+
+      setPosts(prev => safeArray(prev).map(applyServerTruth));
+      setProfilePosts(prev => safeArray(prev).map(applyServerTruth));
+      setCommentPostSnapshot(prev => prev ? applyServerTruth(prev) : prev);
+    }
   } catch (error) {
-    console.error("Failed to react:", error);
-
-    setPosts((prev) => replaceItem(prev, previousItem));
-    setProfilePosts((prev) => replaceItem(prev, previousItem));
-
-    setCommentPostSnapshot((prev) => {
-      if (!prev) return prev;
-      return isSameTarget(prev) ? previousItem : prev;
-    });
+    console.error('Failed to react:', error);
+    // Restore previous state on failure
+    setPosts(prev => replaceItem(prev, previousItem));
+    setProfilePosts(prev => replaceItem(prev, previousItem));
+    setCommentPostSnapshot(prev => prev && getFeedKey(prev) === identity ? previousItem : prev);
   } finally {
     setReacting(identity, false);
   }
-}, [
-  currentUser,
-  requireAuth,
-  reactingMap,
-  view,
-  posts,
-  profilePosts,
-  activeCommentsIdentity,
-  setReacting,
-]);
-  
-
-  
-      
-                                   
+}, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
 
 // ============================================================================
 // ✅ HYBRID COMMENT HANDLERS
@@ -10664,4 +10503,4 @@ feedLoadingMore={feedLoadingMore}
       )}
     </div>
   );
-}   
+}    
