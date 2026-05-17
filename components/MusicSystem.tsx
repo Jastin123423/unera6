@@ -400,7 +400,6 @@ const MusicFeedCard: React.FC<{
 };
 
 
-
 const HorizontalMusicRow: React.FC<{
   title: string;
   subtitle?: string;
@@ -412,6 +411,10 @@ const HorizontalMusicRow: React.FC<{
   onArtistClick: (id: number) => void;
   badgeBuilder?: (song: Song, index: number) => { text?: string; className?: string };
   trackPlays?: Record<string, number>;
+  // ✅ ADD REACTION PROPS
+  reactionCounts?: Record<string, { count: number; myReaction?: ReactionType }>;
+  onReact?: (track: AudioTrack, type: ReactionType) => void;
+  currentUser?: User | null;
 }> = ({
   title,
   subtitle,
@@ -423,8 +426,13 @@ const HorizontalMusicRow: React.FC<{
   onArtistClick,
   badgeBuilder,
   trackPlays,
+  // ✅ DESTRUCTURE REACTION PROPS
+  reactionCounts,
+  onReact,
+  currentUser,
 }) => {
   if (!songs.length) return null;
+  
   return (
     <div className="mb-8">
       <SectionTitle title={title} subtitle={subtitle} />
@@ -434,6 +442,9 @@ const HorizontalMusicRow: React.FC<{
           const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
           const artistAvatar = (uploaderProfile as any)?.profileImage || (uploaderProfile as any)?.profile_image_url || null;
           const badge = badgeBuilder?.(song, index);
+          const trackKey = `music:${song.id}`;
+          const reactionData = reactionCounts?.[trackKey] || { count: 0, myReaction: undefined };
+          
           return (
             <MusicFeedCard
               key={song.id}
@@ -448,6 +459,28 @@ const HorizontalMusicRow: React.FC<{
               onLike={() => onLikeSong(String(song.id))}
               onArtistClick={() => song.uploaderId && onArtistClick(song.uploaderId)}
               trackPlays={trackPlays}
+              // ✅ PASS REACTION PROPS
+              reactionCount={reactionData.count}
+              myReaction={reactionData.myReaction}
+              onReact={(type) => {
+                // Convert Song to AudioTrack for reaction
+                const uploaderProfileLocal = users.find((u) => u.id === song.uploaderId);
+                const artistNameLocal = uploaderProfileLocal?.name || uploaderProfileLocal?.username || song.artist;
+                const audioTrack: AudioTrack = {
+                  id: String(song.id),
+                  title: song.title,
+                  artist: artistNameLocal,
+                  duration: typeof song.duration === 'string' ? 180 : (song.duration as any) || 180,
+                  url: song.audioUrl || '',
+                  uploaderId: song.uploaderId || 1,
+                  cover: song.cover || DEFAULT_MUSIC_COVER,
+                  type: 'music',
+                  isVerified: Boolean((uploaderProfileLocal as any)?.isVerified),
+                  likesCount: Number((song.stats as any)?.likes || 0),
+                } as any;
+                onReact?.(audioTrack, type);
+              }}
+              currentUser={currentUser}
             />
           );
         })}
@@ -455,6 +488,10 @@ const HorizontalMusicRow: React.FC<{
     </div>
   );
 };
+
+
+
+
 
 /* =========================================================
    REACTION BUTTON COMPONENT (with Spark icon - same as Feed.tsx)
