@@ -297,6 +297,11 @@ const MusicFeedCard: React.FC<{
   onLike: () => void;
   onArtistClick?: () => void;
   trackPlays?: Record<string, number>;
+  // ✅ ADD REACTION PROPS
+  reactionCount?: number;
+  myReaction?: ReactionType;
+  onReact?: (type: ReactionType) => void;
+  currentUser?: User | null;
 }> = ({
   song,
   isLiked,
@@ -309,28 +314,56 @@ const MusicFeedCard: React.FC<{
   onLike,
   onArtistClick,
   trackPlays,
+  // ✅ DESTRUCTURE REACTION PROPS
+  reactionCount = 0,
+  myReaction,
+  onReact,
+  currentUser,
 }) => {
   const playCount = getSongPlayCount(song, trackPlays);
+  
   return (
     <div className="w-[160px] sm:w-[175px] flex-shrink-0 snap-start">
       <div onClick={onPlay} className="group cursor-pointer">
         <div className="relative rounded-xl overflow-hidden aspect-[1/1] bg-[#1A1A1A]">
-          <img src={song.cover || DEFAULT_MUSIC_COVER} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          <img 
+            src={song.cover || DEFAULT_MUSIC_COVER} 
+            alt={song.title} 
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+          />
+          
           {badge ? (
             <div className={`absolute top-2 left-2 text-[11px] px-2 py-1 rounded-full font-bold ${badgeColor}`}>
               {badge}
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLike();
-            }}
-            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center"
-          >
-            <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
-          </button>
+          
+          {/* ✅ REPLACE like button with full ReactionButton */}
+          {onReact && currentUser ? (
+            <div className="absolute top-2 right-2">
+              <div className="scale-75 origin-top-right">
+                <ReactionButton
+                  currentUserReactions={myReaction}
+                  reactionCount={reactionCount}
+                  onReact={(type) => onReact(type)}
+                  isGuest={!currentUser}
+                />
+              </div>
+            </div>
+          ) : (
+            // Fallback to simple like button if reaction props not provided
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onLike();
+              }}
+              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition-colors"
+            >
+              <i className={`${isLiked ? 'fas text-[#FF4D8D]' : 'far text-white'} fa-heart text-sm`}></i>
+            </button>
+          )}
+          
           <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
             <div className="flex items-center justify-between text-white text-xs">
               <span className="inline-flex items-center gap-1">
@@ -341,6 +374,7 @@ const MusicFeedCard: React.FC<{
             </div>
           </div>
         </div>
+        
         <div className="mt-2">
           <h3 className="text-white text-[15px] font-semibold leading-tight line-clamp-1">{song.title}</h3>
           <button
@@ -364,6 +398,8 @@ const MusicFeedCard: React.FC<{
     </div>
   );
 };
+
+
 
 const HorizontalMusicRow: React.FC<{
   title: string;
