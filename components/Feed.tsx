@@ -5965,7 +5965,11 @@ const songId = isMusic
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
 
-      const handleReactClick = async (type: ReactionType) => {
+
+const handleReactClick = async (type: ReactionType) => {
+  // Safety check - if myReaction state doesn't exist, use props directly
+  const hasLocalState = typeof setMyReaction === 'function';
+  
   if (!currentUser) {
     alert("Please login to react.");
     return;
@@ -5979,18 +5983,6 @@ const songId = isMusic
   
   // For music posts - handle directly
   if (isMusicPost && songId) {
-    const currentReaction = myReaction;
-    const currentCount = reactionsCount;
-    const isRemoving = currentReaction === type;
-    const optimisticReaction = isRemoving ? null : type;
-    const optimisticCount = isRemoving 
-      ? Math.max(0, currentCount - 1)
-      : currentReaction ? currentCount : currentCount + 1;
-    
-    // Optimistic update
-    setMyReaction(optimisticReaction);
-    setReactionsCount(optimisticCount);
-    
     try {
       const endpoint = `/api/songs/${songId}/react`;
       const result = await apiFetch(endpoint, {
@@ -6002,14 +5994,18 @@ const songId = isMusic
         }),
       });
       
-      if (result) {
+      // Only update local state if it exists
+      if (hasLocalState && result) {
         setMyReaction(result.my_reaction || null);
         setReactionsCount(result.reactions_count || 0);
       }
+      
+      // Show success message
+      alert(result?.my_reaction ? `✓ ${type} added!` : '✓ Reaction removed');
+      
     } catch (error) {
       console.error('Failed to react to music:', error);
-      setMyReaction(currentReaction);
-      setReactionsCount(currentCount);
+      alert('Failed to react. Please try again.');
     }
     return;
   }
@@ -6019,6 +6015,12 @@ const songId = isMusic
     onReact(p, type);
   }
 };
+
+
+
+
+
+
   
 
     const openGallery = (urls: string[], index: number) => {
