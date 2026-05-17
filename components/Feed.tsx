@@ -5802,20 +5802,7 @@ export const Post = memo(
     const [showShareSheet, setShowShareSheet] = useState(false);
 
       
-// ==================== LOCAL REACTION STATE FOR MUSIC ====================
 
-// Change the state variable names to avoid conflict
-const [localMyReaction, setLocalMyReaction] = useState<ReactionType | null>(finalMyReaction);
-const [localReactionsCount, setLocalReactionsCount] = useState(finalReactionCount);
-
-// Sync local state when props change
-useEffect(() => {
-  setLocalMyReaction(finalMyReaction);
-}, [finalMyReaction]);
-
-useEffect(() => {
-  setLocalReactionsCount(finalReactionCount);
-}, [finalReactionCount]);
       
       
       const isMusic = meta?.kind === 'music' || meta?.type === 'music';
@@ -5973,55 +5960,19 @@ const songId = isMusic
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-
-
-
 const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
   
-  const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
-  const songId = isMusicPost 
-    ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
-    : null;
-  
-  if (isMusicPost && songId) {
-    try {
-      const endpoint = `/api/songs/${songId}/react`;
-      const result = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          user_id: safeUserId(currentUser), 
-          type: type,
-          song_id: songId 
-        }),
-      });
-      
-      // ✅ Use local state setters
-      if (result) {
-        setLocalMyReaction(result.my_reaction || null);
-        setLocalReactionsCount(result.reactions_count || 0);
-      }
-      
-    } catch (error) {
-      console.error('Failed to react to music:', error);
-      alert('Failed to react. Please try again.');
-    }
-    return;
-  }
-  
-  // Regular posts
+  // Just pass to parent (App.tsx) - let it handle everything
   if (onReact) {
     onReact(p, type);
   }
 };
 
-
-
-
-
+      
 
 
   
