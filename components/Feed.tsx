@@ -5802,6 +5802,19 @@ export const Post = memo(
     const [showShareSheet, setShowShareSheet] = useState(false);
 
       
+// ==================== LOCAL REACTION STATE FOR MUSIC ====================
+const [myReaction, setMyReaction] = useState<ReactionType | null>(finalMyReaction);
+const [reactionsCount, setReactionsCount] = useState(finalReactionCount);
+
+// Sync local state when props change
+useEffect(() => {
+  setMyReaction(finalMyReaction);
+}, [finalMyReaction]);
+
+useEffect(() => {
+  setReactionsCount(finalReactionCount);
+}, [finalReactionCount]);
+      
       
       const isMusic = meta?.kind === 'music' || meta?.type === 'music';
     const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
@@ -5935,15 +5948,6 @@ const songId = isMusic
         setCommentCount(newCommentCount);
       }
 
-
-// Add these useEffect hooks to sync with props
-useEffect(() => {
-  setMyReaction(finalMyReaction);
-}, [finalMyReaction]);
-
-useEffect(() => {
-  setReactionsCount(finalReactionCount);
-}, [finalReactionCount]);
 
       const newShareCount = safeNumber(p.shares ?? p.shares_count, 0);
       if (newShareCount !== shareCount) {
