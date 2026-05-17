@@ -6166,44 +6166,43 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount}
-        onReact={(type) => onMusicReact?.(musicTrack, type)}
-        isGuest={!currentUser}
-      />
-      <button
-        type="button"
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComments(e);
-        }}
-      >
-        <DiscussSignalIcon size={28} color="#1877F2" />
-        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-          Discuss
-        </span>
-      </button>
-      <button
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={() => {
-          if (!currentUser) {
-            alert('Please login to share posts.');
-            return;
-          }
-          setShowShareSheet(true);
-        }}
-      >
-        <i className="fas fa-share text-[22px]"></i>
-        <span className="text-[19px] font-bold">Share</span>
-      </button>
-      {pushButton && <div className="ml-2">{pushButton}</div>}
-    </div>
+    <ReactionButton
+      currentUserReactions={finalMyReaction || undefined}
+      reactionCount={finalReactionCount}
+      onReact={handleReactClick}
+      isGuest={!currentUser}
+    />
+    <button
+      type="button"
+      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleOpenComments(e);
+      }}
+    >
+      <DiscussSignalIcon size={28} color="#1877F2" />
+      <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+        Discuss
+      </span>
+    </button>
+    <button
+      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+      onClick={() => {
+        if (!currentUser) {
+          alert('Please login to share posts.');
+          return;
+        }
+        setShowShareSheet(true);
+      }}
+    >
+      <i className="fas fa-share text-[22px]"></i>
+      <span className="text-[19px] font-bold">Share</span>
+    </button>
+    {pushButton && <div className="ml-2">{pushButton}</div>}
   </div>
 )}
-
+    
  
             
             {isMarketplace ? (
