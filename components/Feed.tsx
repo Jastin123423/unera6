@@ -5803,16 +5803,18 @@ export const Post = memo(
 
       
 // ==================== LOCAL REACTION STATE FOR MUSIC ====================
-const [myReaction, setMyReaction] = useState<ReactionType | null>(finalMyReaction);
-const [reactionsCount, setReactionsCount] = useState(finalReactionCount);
+
+// Change the state variable names to avoid conflict
+const [localMyReaction, setLocalMyReaction] = useState<ReactionType | null>(finalMyReaction);
+const [localReactionsCount, setLocalReactionsCount] = useState(finalReactionCount);
 
 // Sync local state when props change
 useEffect(() => {
-  setMyReaction(finalMyReaction);
+  setLocalMyReaction(finalMyReaction);
 }, [finalMyReaction]);
 
 useEffect(() => {
-  setReactionsCount(finalReactionCount);
+  setLocalReactionsCount(finalReactionCount);
 }, [finalReactionCount]);
       
       
@@ -5973,22 +5975,18 @@ const songId = isMusic
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
 
 
+
 const handleReactClick = async (type: ReactionType) => {
-  // Safety check - if myReaction state doesn't exist, use props directly
-  const hasLocalState = typeof setMyReaction === 'function';
-  
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
   
-  // Check if this is a music post
   const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
   const songId = isMusicPost 
     ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
     : null;
   
-  // For music posts - handle directly
   if (isMusicPost && songId) {
     try {
       const endpoint = `/api/songs/${songId}/react`;
@@ -6001,14 +5999,11 @@ const handleReactClick = async (type: ReactionType) => {
         }),
       });
       
-      // Only update local state if it exists
-      if (hasLocalState && result) {
-        setMyReaction(result.my_reaction || null);
-        setReactionsCount(result.reactions_count || 0);
+      // ✅ Use local state setters
+      if (result) {
+        setLocalMyReaction(result.my_reaction || null);
+        setLocalReactionsCount(result.reactions_count || 0);
       }
-      
-      // Show success message
-      alert(result?.my_reaction ? `✓ ${type} added!` : '✓ Reaction removed');
       
     } catch (error) {
       console.error('Failed to react to music:', error);
@@ -6017,11 +6012,12 @@ const handleReactClick = async (type: ReactionType) => {
     return;
   }
   
-  // For regular posts - pass to parent
+  // Regular posts
   if (onReact) {
     onReact(p, type);
   }
 };
+
 
 
 
@@ -6238,9 +6234,9 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={myReaction || undefined}
-        reactionCount={reactionsCount}
+<ReactionButton
+        currentUserReactions={localMyReaction || undefined}  // ✅ Use localMyReaction
+        reactionCount={localReactionsCount}  // ✅ Use localReactionsCount
         onReact={handleReactClick}
         isGuest={!currentUser}
       />
