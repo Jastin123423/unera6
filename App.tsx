@@ -9725,7 +9725,9 @@ feedLoadingMore={feedLoadingMore}
           />
         )}
 
-        {view === 'music' && (
+
+  
+    {view === 'music' && (
   <MusicSystem
     currentUser={currentUser}
     onPlayTrack={onPlayTrack}
@@ -9741,6 +9743,7 @@ feedLoadingMore={feedLoadingMore}
     myTotalPlays={currentUser?.id ? myTotalPlays : 0}
     playsLoading={playsLoading}
     trackPlays={trackPlays}
+    // ✅ Music reaction props - Single source of truth
     reactionCounts={trackReactions}
     commentCounts={trackComments}
     shareCounts={trackShares}
@@ -9748,7 +9751,10 @@ feedLoadingMore={feedLoadingMore}
     onOpenComments={handleOpenMusicComments}
     onShare={handleMusicShare}
   />
-)}
+)}                   
+  
+  
+      
 
         {view === 'tools' && <ToolsPage />}
 
