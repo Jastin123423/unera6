@@ -6166,10 +6166,10 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-<ReactionButton
-        currentUserReactions={localMyReaction || undefined}  // ✅ Use localMyReaction
-        reactionCount={localReactionsCount}  // ✅ Use localReactionsCount
-        onReact={handleReactClick}
+      <ReactionButton
+        currentUserReactions={musicMyReaction || undefined}
+        reactionCount={musicReactionsCount}
+        onReact={(type) => onMusicReact?.(musicTrack, type)}
         isGuest={!currentUser}
       />
       <button
