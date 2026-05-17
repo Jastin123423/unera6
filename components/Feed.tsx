@@ -6166,484 +6166,484 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-    <ReactionButton
-      currentUserReactions={finalMyReaction || undefined}
-      reactionCount={finalReactionCount}
-      onReact={handleReactClick}
-      isGuest={!currentUser}
-    />
-    <button
-      type="button"
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleOpenComments(e);
-      }}
-    >
-      <DiscussSignalIcon size={28} color="#1877F2" />
-      <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-        Discuss
-      </span>
-    </button>
-    <button
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={() => {
-        if (!currentUser) {
-          alert('Please login to share posts.');
-          return;
-        }
-        setShowShareSheet(true);
-      }}
-    >
-      <i className="fas fa-share text-[22px]"></i>
-      <span className="text-[19px] font-bold">Share</span>
-    </button>
-    {pushButton && <div className="ml-2">{pushButton}</div>}
+      <ReactionButton
+        currentUserReactions={musicMyReaction || undefined}
+        reactionCount={musicReactionsCount}
+        onReact={(type) => onMusicReact?.(musicTrack, type)}
+        isGuest={!currentUser}
+      />
+      <button
+        type="button"
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleOpenComments(e);
+        }}
+      >
+        <DiscussSignalIcon size={28} color="#1877F2" />
+        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+          Discuss
+        </span>
+      </button>
+      <button
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={() => {
+          if (!currentUser) {
+            alert('Please login to share posts.');
+            return;
+          }
+          setShowShareSheet(true);
+        }}
+      >
+        <i className="fas fa-share text-[22px]"></i>
+        <span className="text-[19px] font-bold">Share</span>
+      </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>}
+    </div>
   </div>
 )}
-    
- 
-            
-            {isMarketplace ? (
-              <>
-                {marketplaceGridData.mediaForGrid.length > 0 && (
-                  <div className="w-full">
-                    <div className="w-full bg-black">
-                      <MediaGrid
-                        media={marketplaceGridData.mediaForGrid}
-                        onOpen={(url, index) => {
-                          openGallery(marketplaceGridData.galleryUrls, index);
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
 
-                {price && (
-                  <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[#E4E6EB] text-[19px] font-bold">
-                        {currency}
-                      </span>
-                      <span className="text-[#E4E6EB] text-[22px] font-bold">
-                        {price}
-                      </span>
-                    </div>
+{isMarketplace ? (
+  <>
+    {marketplaceGridData.mediaForGrid.length > 0 && (
+      <div className="w-full">
+        <div className="w-full bg-black">
+          <MediaGrid
+            media={marketplaceGridData.mediaForGrid}
+            onOpen={(url, index) => {
+              openGallery(marketplaceGridData.galleryUrls, index);
+            }}
+          />
+        </div>
+      </div>
+    )}
 
-                    <button
-                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (productId) onViewProduct?.(productId);
-                      }}
-                    >
-                      View product
-                    </button>
-                  </div>
-                )}
-
-                {shouldShowSponsoredButton && (
-                  <div className="px-3 pt-2 pb-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSponsoredClick();
-                      }}
-                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
-                    >
-                      {sponsoredCtaText}
-                    </button>
-                  </div>
-                )}
-
-                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-                  <div className="flex items-center gap-2">
-                    {finalReactionCount > 0 && (
-                      <div
-                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenReactionsSheet();
-                        }}
-                      >
-                        <div className="flex -space-x-2">
-                          {emojiList.slice(0, 2).map((e, i) => (
-                            <span
-                              key={i}
-                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                              style={{ zIndex: 10 - i }}
-                            >
-                              {e}
-                            </span>
-                          ))}
-                        </div>
-
-                        {reactionText && (
-                          <span className="text-[17px] text-[#E4E6EB] font-bold">
-                            {reactionText}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-4">
-                    <span
-                      className="hover:underline cursor-pointer text-[16px]"
-                      onClick={() => handleOpenComments()}
-                    >
-                      {formatCount(commentCount)} Discussions
-                    </span>
-                    {shareCount > 0 && (
-                      <span className="hover:underline text-[16px]">
-                        {formatCount(shareCount)} Shares
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-                 
-<ReactionButton
-  currentUserReactions={finalMyReaction || undefined}
-  reactionCount={finalReactionCount}
-  onReact={handleReactClick}
-  isGuest={!currentUser}
-  postId={productId}
-/>
-                  
-                  <button
-                    type="button"
-                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleOpenComments(e);
-                    }}
-                  >
-                    <DiscussSignalIcon size={28} color="#1877F2" />
-                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                      Discuss
-                    </span>
-                  </button>
-                  <button
-                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={() => {
-                      if (!currentUser) {
-                        alert('Please login to share posts.');
-                        return;
-                      }
-                      setShowShareSheet(true);
-                    }}
-                  >
-                    <i className="fas fa-share text-[22px]"></i>
-                    <span className="text-[19px] font-bold">Share</span>
-                  </button>
-                  {pushButton && <div className="ml-2">{pushButton}</div>}
-                </div>
-              </>
-            ) : (
-              <>   
-                {!p.background && imageMedia.length > 0 && (
-                  <MediaGrid
-                    media={imageMedia.map((m) => ({
-                      url: m.feed || m.url,
-                      thumb: m.thumb || m.url,
-                      feed: m.feed || m.url,
-                      full: m.full || m.feed || m.url,
-                    }))}
-                    onOpen={(url, index) => {
-                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
-                      openGallery(urls, index);
-                    }}
-                  />
-                )}
-
-                {!p.background && videoMedia.length > 0 && (
-                  <div
-                    className="cursor-pointer relative h-[500px] bg-black"
-                    onClick={() => onVideoClick(post)}
-                  >
-                    <video
-                      src={videoMedia[0].url}
-                      className="w-full h-full object-cover"
-                      preload="metadata"
-                      playsInline
-                      muted
-                      onError={(e) => {
-                        console.error('Failed to load video:', videoMedia[0].url);
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <i className="fas fa-play text-white text-4xl opacity-50"></i>
-                    </div>
-                  </div>
-                )}
-
-                {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-                  <div className="my-3">
-                    {(() => {
-                      const cover =
-                        (p as any).song_cover_image_url ||
-                        imageMedia?.[0]?.url ||
-                        a.profile_image_url;
-
-                      const titleText = p.content || 'Audio';
-                      const artistText =
-                        (p as any).song_artist_name || a.name || 'Unknown';
-
-                      return (
-                        <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
-                          {cover ? (
-                            <div className="relative">
-                              <img
-                                src={cover}
-                                alt="Cover"
-                                className="w-full h-[260px] md:h-[320px] object-cover"
-                                loading="lazy"
-                                onError={(e) => {
-                                  const img = e.currentTarget as HTMLImageElement;
-                                  if (
-                                    a.profile_image_url &&
-                                    img.src !== a.profile_image_url
-                                  ) {
-                                    img.src = a.profile_image_url;
-                                  }
-                                }}
-                              />
-
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-
-                              <div className="absolute left-3 right-3 bottom-3">
-                                <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
-                                      <img
-                                        src={cover}
-                                        alt="Mini cover"
-                                        className="w-full h-full object-cover"
-                                        loading="lazy"
-                                      />
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-[#E4E6EB] font-bold text-[17px]">
-                                        Audio Track
-                                      </div>
-                                      <div className="text-[#B0B3B8] text-[15px] truncate">
-                                        {titleText}
-                                      </div>
-                                      <div className="text-[#B0B3B8] text-[14px] truncate">
-                                        {artistText}
-                                      </div>
-                                    </div>
-
-                                    <button
-                                      onClick={() =>
-                                        onPlayAudioTrack!({
-                                          id: postId,
-                                          title: titleText,
-                                          artist: artistText,
-                                          url: mediaInfo.mediaUrl,
-                                          duration: 0,
-                                          coverImage: cover || a.profile_image_url,
-                                        })
-                                      }
-                                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
-                                    >
-                                      <i className="fas fa-play mr-1"></i> Play
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="p-4 bg-[#3A3B3C]">
-                              <div className="flex items-center gap-3">
-                                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                                <div className="flex-1">
-                                  <div className="text-[#E4E6EB] font-bold text-[17px]">
-                                    Audio Track
-                                  </div>
-                                  <div className="text-[#B0B3B8] text-[15px]">
-                                    {p.content || 'Listen to audio'}
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() =>
-                                    onPlayAudioTrack!({
-                                      id: postId,
-                                      title: titleText,
-                                      artist: artistText,
-                                      url: mediaInfo.mediaUrl,
-                                      duration: 0,
-                                      coverImage: a.profile_image_url,
-                                    })
-                                  }
-                                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
-                                >
-                                  <i className="fas fa-play mr-1"></i> Play
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {shouldShowSponsoredButton && (
-                  <div className="px-3 pt-2 pb-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSponsoredClick();
-                      }}
-                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
-                    >
-                      {sponsoredCtaText}
-                    </button>
-                  </div>
-                )}
-
-                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-                  <div className="flex items-center gap-2">
-                    {finalReactionCount > 0 && (
-                      <div
-                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenReactionsSheet();
-                        }}
-                      >
-                        <div className="flex -space-x-2">
-                          {emojiList.slice(0, 2).map((e, i) => (
-                            <span
-                              key={i}
-                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                              style={{ zIndex: 10 - i }}
-                            >
-                              {e}
-                            </span>
-                          ))}
-                        </div>
-
-                        {reactionText && (
-                          <span className="text-[17px] text-[#E4E6EB] font-bold">
-                            {reactionText}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-4">
-                    <span
-                      className="hover:underline cursor-pointer text-[16px]"
-                      onClick={() => handleOpenComments()}
-                    >
-                      {formatCount(commentCount)} Discussions
-                    </span>
-                    {shareCount > 0 && (
-                      <span className="hover:underline text-[16px]">
-                        {formatCount(shareCount)} Shares
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-
-              <ReactionButton
-  currentUserReactions={finalMyReaction || undefined}
-  reactionCount={finalReactionCount}
-  onReact={handleReactClick}
-  isGuest={!currentUser}
-  
-/>
-                  <button
-                    type="button"
-                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleOpenComments(e);
-                    }}
-                  >
-                    <DiscussSignalIcon size={28} color="#1877F2" />
-                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-                      Discuss
-                    </span>
-                  </button>
-                  <button
-                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-                    onClick={() => {
-                      if (!currentUser) {
-                        alert('Please login to share posts.');
-                        return;
-                      }
-                      setShowShareSheet(true);
-                    }}
-                  >
-                    <i className="fas fa-share text-[22px]"></i>
-                    <span className="text-[19px] font-bold">Share</span>
-                  </button>
-                  {pushButton && <div className="ml-2">{pushButton}</div>}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+    {price && (
+      <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+        <div className="flex items-center gap-1">
+          <span className="text-[#E4E6EB] text-[19px] font-bold">
+            {currency}
+          </span>
+          <span className="text-[#E4E6EB] text-[22px] font-bold">
+            {price}
+          </span>
         </div>
 
-        <ShareBottomSheet
-          isOpen={showShareSheet}
-          onClose={() => setShowShareSheet(false)}
-          post={{
-            ...p,
-            source: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-            item_type: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-            product_id: productId,
-            group_id: groupId,
+        <button
+          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (productId) onViewProduct?.(productId);
           }}
-          currentUser={currentUser}
-          users={users}
-          groups={groups}
-          brands={brands}
-          chats={chats}
-          onShareComplete={handleShareComplete}
-        />
+        >
+          View product
+        </button>
+      </div>
+    )}
 
-        <ReactionsSheet
-          isOpen={showReactionsSheet}
-          onClose={() => setShowReactionsSheet(false)}
-          post={post}
-          onProfileClick={onProfileClick}
-          onOpenComments={onOpenComments}
-        />
+    {shouldShowSponsoredButton && (
+      <div className="px-3 pt-2 pb-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSponsoredClick();
+          }}
+          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+        >
+          {sponsoredCtaText}
+        </button>
+      </div>
+    )}
 
-        <GalleryViewer
-          isOpen={galleryOpen}
-          urls={galleryUrls}
-          startIndex={galleryIndex}
-          onClose={() => setGalleryOpen(false)}
-          post={post}
-          currentUser={currentUser}
+    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+      <div className="flex items-center gap-2">
+        {finalReactionCount > 0 && (
+          <div
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenReactionsSheet();
+            }}
+          >
+            <div className="flex -space-x-2">
+              {emojiList.slice(0, 2).map((e, i) => (
+                <span
+                  key={i}
+                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                  style={{ zIndex: 10 - i }}
+                >
+                  {e}
+                </span>
+              ))}
+            </div>
+
+            {reactionText && (
+              <span className="text-[17px] text-[#E4E6EB] font-bold">
+                {reactionText}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4">
+        <span
+          className="hover:underline cursor-pointer text-[16px]"
+          onClick={() => handleOpenComments()}
+        >
+          {formatCount(commentCount)} Discussions
+        </span>
+        {shareCount > 0 && (
+          <span className="hover:underline text-[16px]">
+            {formatCount(shareCount)} Shares
+          </span>
+        )}
+      </div>
+    </div>
+
+    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+      <ReactionButton
+        currentUserReactions={finalMyReaction || undefined}
+        reactionCount={finalReactionCount}
+        onReact={handleReactClick}
+        isGuest={!currentUser}
+      />
+      <button
+        type="button"
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleOpenComments(e);
+        }}
+      >
+        <DiscussSignalIcon size={28} color="#1877F2" />
+        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+          Discuss
+        </span>
+      </button>
+      <button
+        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+        onClick={() => {
+          if (!currentUser) {
+            alert('Please login to share posts.');
+            return;
+          }
+          setShowShareSheet(true);
+        }}
+      >
+        <i className="fas fa-share text-[22px]"></i>
+        <span className="text-[19px] font-bold">Share</span>
+      </button>
+      {pushButton && <div className="ml-2">{pushButton}</div>}
+    </div>
+  </>
+) : (
+  <>
+    {!p.background && imageMedia.length > 0 && (
+      <MediaGrid
+        media={imageMedia.map((m) => ({
+          url: m.feed || m.url,
+          thumb: m.thumb || m.url,
+          feed: m.feed || m.url,
+          full: m.full || m.feed || m.url,
+        }))}
+        onOpen={(url, index) => {
+          const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+          openGallery(urls, index);
+        }}
+      />
+    )}
+
+    {!p.background && videoMedia.length > 0 && (
+      <div
+        className="cursor-pointer relative h-[500px] bg-black"
+        onClick={() => onVideoClick(post)}
+      >
+        <video
+          src={videoMedia[0].url}
+          className="w-full h-full object-cover"
+          preload="metadata"
+          playsInline
+          muted
+          onError={(e) => {
+            console.error('Failed to load video:', videoMedia[0].url);
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <i className="fas fa-play text-white text-4xl opacity-50"></i>
+        </div>
+      </div>
+    )}
+
+    {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+      <div className="my-3">
+        {(() => {
+          const cover =
+            (p as any).song_cover_image_url ||
+            imageMedia?.[0]?.url ||
+            a.profile_image_url;
+
+          const titleText = p.content || 'Audio';
+          const artistText =
+            (p as any).song_artist_name || a.name || 'Unknown';
+
+          return (
+            <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+              {cover ? (
+                <div className="relative">
+                  <img
+                    src={cover}
+                    alt="Cover"
+                    className="w-full h-[260px] md:h-[320px] object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const img = e.currentTarget as HTMLImageElement;
+                      if (
+                        a.profile_image_url &&
+                        img.src !== a.profile_image_url
+                      ) {
+                        img.src = a.profile_image_url;
+                      }
+                    }}
+                  />
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+                  <div className="absolute left-3 right-3 bottom-3">
+                    <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+                          <img
+                            src={cover}
+                            alt="Mini cover"
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[#E4E6EB] font-bold text-[17px]">
+                            Audio Track
+                          </div>
+                          <div className="text-[#B0B3B8] text-[15px] truncate">
+                            {titleText}
+                          </div>
+                          <div className="text-[#B0B3B8] text-[14px] truncate">
+                            {artistText}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            onPlayAudioTrack!({
+                              id: postId,
+                              title: titleText,
+                              artist: artistText,
+                              url: mediaInfo.mediaUrl,
+                              duration: 0,
+                              coverImage: cover || a.profile_image_url,
+                            })
+                          }
+                          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
+                        >
+                          <i className="fas fa-play mr-1"></i> Play
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="flex items-center gap-3">
+                    <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                    <div className="flex-1">
+                      <div className="text-[#E4E6EB] font-bold text-[17px]">
+                        Audio Track
+                      </div>
+                      <div className="text-[#B0B3B8] text-[15px]">
+                        {p.content || 'Listen to audio'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() =>
+                        onPlayAudioTrack!({
+                          id: postId,
+                          title: titleText,
+                          artist: artistText,
+                          url: mediaInfo.mediaUrl,
+                          duration: 0,
+                          coverImage: a.profile_image_url,
+                        })
+                      }
+                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
+                    >
+                      <i className="fas fa-play mr-1"></i> Play
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    )}
+
+    {shouldShowSponsoredButton && (
+      <div className="px-3 pt-2 pb-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSponsoredClick();
+          }}
+          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+        >
+          {sponsoredCtaText}
+        </button>
+      </div>
+    )}
+
+    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+      <div className="flex items-center gap-2">
+        {finalReactionCount > 0 && (
+          <div
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenReactionsSheet();
+            }}
+          >
+            <div className="flex -space-x-2">
+              {emojiList.slice(0, 2).map((e, i) => (
+                <span
+                  key={i}
+                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                  style={{ zIndex: 10 - i }}
+                >
+                  {e}
+                </span>
+              ))}
+            </div>
+
+            {reactionText && (
+              <span className="text-[17px] text-[#E4E6EB] font-bold">
+                {reactionText}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4">
+        <span
+          className="hover:underline cursor-pointer text-[16px]"
+          onClick={() => handleOpenComments()}
+        >
+          {formatCount(commentCount)} Discussions
+        </span>
+        {shareCount > 0 && (
+          <span className="hover:underline text-[16px]">
+            {formatCount(shareCount)} Shares
+          </span>
+        )}
+      </div>
+    </div>
+
+    {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
+    {!isMusic && !isPodcast && (
+      <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+        <ReactionButton
+          currentUserReactions={finalMyReaction || undefined}
           reactionCount={finalReactionCount}
-          commentCount={commentCount}
-          shareCount={shareCount}
-          myReaction={finalMyReaction}
-          onReact={(post, type) => onReact(post, type)}
-          onOpenComments={() => handleOpenComments()}
-          onShare={() => setShowShareSheet(true)}
-          onOpenReactions={handleOpenReactionsSheet}
+          onReact={handleReactClick}
+          isGuest={!currentUser}
         />
-      </>
-    );
+        <button
+          type="button"
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleOpenComments(e);
+          }}
+        >
+          <DiscussSignalIcon size={28} color="#1877F2" />
+          <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+            Discuss
+          </span>
+        </button>
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => {
+            if (!currentUser) {
+              alert('Please login to share posts.');
+              return;
+            }
+            setShowShareSheet(true);
+          }}
+        >
+          <i className="fas fa-share text-[22px]"></i>
+          <span className="text-[19px] font-bold">Share</span>
+        </button>
+        {pushButton && <div className="ml-2">{pushButton}</div>}
+      </div>
+    )}
+  </>
+)}
+
+{/* End of main content */}
+</div>
+
+<div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+</div>
+
+{/* Modals */}
+<ShareBottomSheet
+  isOpen={showShareSheet}
+  onClose={() => setShowShareSheet(false)}
+  post={{
+    ...p,
+    source: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
+    item_type: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
+    product_id: productId,
+    group_id: groupId,
+  }}
+  currentUser={currentUser}
+  users={users}
+  groups={groups}
+  brands={brands}
+  chats={chats}
+  onShareComplete={handleShareComplete}
+/>
+
+<ReactionsSheet
+  isOpen={showReactionsSheet}
+  onClose={() => setShowReactionsSheet(false)}
+  post={post}
+  onProfileClick={onProfileClick}
+  onOpenComments={onOpenComments}
+/>
+
+<GalleryViewer
+  isOpen={galleryOpen}
+  urls={galleryUrls}
+  startIndex={galleryIndex}
+  onClose={() => setGalleryOpen(false)}
+  post={post}
+  currentUser={currentUser}
+  reactionCount={finalReactionCount}
+  commentCount={commentCount}
+  shareCount={shareCount}
+  myReaction={finalMyReaction}
+  onReact={(post, type) => onReact(post, type)}
+  onOpenComments={() => handleOpenComments()}
+  onShare={() => setShowShareSheet(true)}
+  onOpenReactions={handleOpenReactionsSheet}
+/>
+</>
+);
   },
   postPropsEqual
 );
