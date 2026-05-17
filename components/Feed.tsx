@@ -5964,14 +5964,8 @@ const songId = isMusic
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-const handleReactClick = async (type: ReactionType) => {
-  // Debug log
-  console.log('🔵 handleReactClick called', { 
-    type, 
-    hasCurrentUser: !!currentUser,
-    isMusic: meta?.kind === 'music' || meta?.type === 'music'
-  });
-  
+
+      const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
@@ -5985,31 +5979,19 @@ const handleReactClick = async (type: ReactionType) => {
   
   // For music posts - handle directly
   if (isMusicPost && songId) {
-    // Get current reaction state
     const currentReaction = myReaction;
     const currentCount = reactionsCount;
-    
-    // Calculate optimistic values
     const isRemoving = currentReaction === type;
     const optimisticReaction = isRemoving ? null : type;
     const optimisticCount = isRemoving 
       ? Math.max(0, currentCount - 1)
-      : currentReaction 
-        ? currentCount
-        : currentCount + 1;
-    
-    // Show toast for user feedback
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#1877F2] text-white px-4 py-2 rounded-full z-[9999] text-sm';
-    toast.innerText = isRemoving ? 'Removing reaction...' : `Adding ${type}...`;
-    document.body.appendChild(toast);
+      : currentReaction ? currentCount : currentCount + 1;
     
     // Optimistic update
     setMyReaction(optimisticReaction);
     setReactionsCount(optimisticCount);
     
     try {
-      // Make API call
       const endpoint = `/api/songs/${songId}/react`;
       const result = await apiFetch(endpoint, {
         method: 'POST',
@@ -6020,41 +6002,23 @@ const handleReactClick = async (type: ReactionType) => {
         }),
       });
       
-      // Update with server response
       if (result) {
         setMyReaction(result.my_reaction || null);
         setReactionsCount(result.reactions_count || 0);
-        
-        // Success toast
-        toast.innerText = result.my_reaction ? `✓ ${type} added!` : '✓ Reaction removed';
-        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-full z-[9999] text-sm';
-        setTimeout(() => toast.remove(), 1500);
       }
     } catch (error) {
       console.error('Failed to react to music:', error);
-      
-      // Revert optimistic update on error
       setMyReaction(currentReaction);
       setReactionsCount(currentCount);
-      
-      // Error toast
-      toast.innerText = '❌ Failed to react. Try again.';
-      toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-full z-[9999] text-sm';
-      setTimeout(() => toast.remove(), 2000);
     }
     return;
   }
   
-  // For regular posts - pass to parent (App.tsx)
+  // For regular posts - pass to parent
   if (onReact) {
     onReact(p, type);
-  } else {
-    console.error('onReact prop is not available');
-    alert('Unable to react. Please try again.');
   }
 };
-
-
   
 
     const openGallery = (urls: string[], index: number) => {
