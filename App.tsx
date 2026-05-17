@@ -9517,7 +9517,8 @@ return (
         },
         getProductData
       }}>
-     <Feed
+
+<Feed
   items={mixedFeedItems}
   onOpenStory={openStoryViewer}
   feedItems={[]}
@@ -9544,7 +9545,10 @@ return (
   getPostAuthor={getPostAuthor}
   onPushMore={pushMore}
   pushedPosts={pushedPosts}
-
+  
+  // ✅ ADDED THESE MUSIC REACTION PROPS:
+  musicReactions={trackReactions}
+  onMusicReact={handleMusicReact}
   // =========================
   // Reels
   // =========================
