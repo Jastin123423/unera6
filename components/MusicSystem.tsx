@@ -3464,6 +3464,36 @@ useEffect(() => {
           </div>
         )}
 
+
+{currentTrack && (
+  <GlobalAudioPlayer
+    currentTrack={currentTrack}
+    isPlaying={isPlaying}
+    onTogglePlay={onTogglePlay}
+    onNext={onNext}
+    onPrevious={onPrevious}
+    onClose={onClosePlayer}
+    onDownload={handleDownload}
+    onLike={handleLike}
+    onArtistClick={handleArtistClick}
+    isLiked={isLiked}
+    uploaderProfile={uploaderProfile}
+    ownerUser={ownerUser}
+    totalPlays={totalPlays}
+    totalPlaysLoading={totalPlaysLoading}
+    onStarted={onStarted}
+    reactionCount={reactionCounts?.[currentTrack.id]?.count || 0}
+    commentCount={commentCounts?.[currentTrack.id] || 0}
+    shareCount={shareCounts?.[currentTrack.id] || 0}
+    myReaction={reactionCounts?.[currentTrack.id]?.myReaction}
+    // ✅ ADD THIS MISSING LINE:
+    onReact={onReact}
+    onOpenComments={onOpenComments}
+    onShare={onShare}
+    currentUser={currentUser}
+    users={users}
+  />
+)}
         {/* ARTIST VIEW */}
         {view === 'artist' && !showLoading && (
           <div className="space-y-8">
