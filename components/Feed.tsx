@@ -6056,63 +6056,6 @@ const handleReactClick = async (type: ReactionType) => {
 
 
   
-const handleReactClick = async (type: ReactionType) => {
-  if (!currentUser) {
-    alert("Please login to react.");
-    return;
-  }
-  
-  // Check if this is a music post
-  const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
-  const songId = isMusicPost 
-    ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
-    : null;
-  
-  // If it's a music post, handle directly here
-  if (isMusicPost && songId) {
-    try {
-      // Optimistic update - update local state immediately
-      const newMyReaction = finalMyReaction === type ? null : type;
-      const newCount = finalMyReaction === type 
-        ? Math.max(0, finalReactionCount - 1)
-        : finalMyReaction 
-          ? finalReactionCount
-          : finalReactionCount + 1;
-      
-      // Update local state optimistically
-      setMyReaction(newMyReaction);
-      setReactionsCount(newCount);
-      
-      // Make API call
-      const endpoint = `/api/songs/${songId}/react`;
-      const result = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          user_id: safeUserId(currentUser), 
-          type: type,
-          song_id: songId 
-        }),
-      });
-      
-      // Update with server response
-      if (result) {
-        setMyReaction(result.my_reaction || null);
-        setReactionsCount(result.reactions_count || 0);
-      }
-    } catch (error) {
-      console.error('Failed to react to music:', error);
-      // Revert optimistic update on error
-      setMyReaction(finalMyReaction);
-      setReactionsCount(finalReactionCount);
-      alert('Failed to react. Please try again.');
-    }
-    return;
-  }
-  
-  // Regular post reaction - pass to parent
-  onReact?.(p, type);
-};
-      
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
