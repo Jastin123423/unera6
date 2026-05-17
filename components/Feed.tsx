@@ -8718,8 +8718,6 @@ interface FeedProps {
  * =========================
  */
 
-
-
 export const Feed = memo(({
   items,
   feedItems: feedItemsProp,
@@ -8763,7 +8761,12 @@ export const Feed = memo(({
   onLoadMoreFeed,
   hasMoreFeed = true,
   feedLoadingMore = false,
+  
+  // ✅ ADD MUSIC REACTION PROPS
+  musicReactions = {},
+  onMusicReact,
 }: FeedProps) => {
+
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
 
   const safeFeedItems = React.useMemo(() => {
