@@ -6135,12 +6135,12 @@ const handleReactClick = async (type: ReactionType) => {
       <img
         src={
           (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
-          ''
+          DEFAULT_MUSIC_COVER // ✅ ADD FALLBACK
         }
         className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
         alt=""
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = avatarFrom(a);
+          (e.currentTarget as HTMLImageElement).src = DEFAULT_MUSIC_COVER; // ✅ USE CONSTANT
         }}
       />
       <div className="flex-1 overflow-hidden">
@@ -6156,7 +6156,12 @@ const handleReactClick = async (type: ReactionType) => {
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onOpenAudio?.(isMusic ? song : podcast);
+          // ✅ Handle null safety
+          if (isMusic && song) {
+            onPlayAudioTrack?.(song);
+          } else if (podcast) {
+            onPlayAudioTrack?.(podcast);
+          }
         }}
         className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
       >
@@ -6168,8 +6173,23 @@ const handleReactClick = async (type: ReactionType) => {
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
       <ReactionButton
         currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount}
-        onReact={(type) => onMusicReact?.(musicTrack, type)}
+        reactionCount={musicReactionsCount || 0} {/* ✅ ADD FALLBACK */}
+        onReact={(type) => {
+          // ✅ BUILD TRACK IF musicTrack IS NOT PROVIDED
+          const track: AudioTrack = musicTrack || {
+            id: String(song?.id || post.id),
+            title: song?.title || 'Untitled',
+            artist: song?.artist_name || 'Unknown',
+            duration: song?.duration_seconds || 180,
+            url: song?.audio_url || '',
+            uploaderId: Number(song?.uploader_id || post.user_id || 0),
+            cover: song?.cover_image_url || DEFAULT_MUSIC_COVER,
+            type: isMusic ? 'music' : 'podcast',
+            isVerified: false,
+            likesCount: 0,
+          };
+          onMusicReact?.(track, type);
+        }}
         isGuest={!currentUser}
       />
       <button
@@ -6203,6 +6223,11 @@ const handleReactClick = async (type: ReactionType) => {
     </div>
   </div>
 )}
+
+
+
+            
+
 
 {isMarketplace ? (
   <>
