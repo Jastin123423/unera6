@@ -8711,6 +8711,14 @@ interface FeedProps {
   onOpenReelMenu?: (reel: any) => void;
 
   // =========================
+  // ✅ MUSIC REACTION PROPS
+  // =========================
+  musicReactions?: Record<string, { myReaction?: ReactionType; count: number }>;
+  
+  onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
+
+
+  // =========================
   // People You May Know props
   // =========================
   peopleYouMayKnow?: any[];
