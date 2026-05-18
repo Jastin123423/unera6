@@ -2672,7 +2672,6 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   shareCounts = {},
   onReact,
   onOpenComments,
-   onReact={onReact},
   onShare,
 }) => {
   const [view, setView] = useState<'music' | 'upload' | 'dashboard' | 'artist' | 'albums' | 'album'>('music');
