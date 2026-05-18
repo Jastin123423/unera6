@@ -10433,8 +10433,7 @@ feedLoadingMore={feedLoadingMore}
   onShare={(track) => handleMusicShare(track)}
 />
 
-
-
+)}
 
     {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
