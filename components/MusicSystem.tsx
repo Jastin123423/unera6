@@ -1886,7 +1886,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                 <ReactionButton
                   currentUserReactions={myReaction}
                   reactionCount={reactionCount}
-                  onReact={handleReact}
+                   onReact={onReact}
                   isGuest={!currentUser}
                 />
 
@@ -2672,6 +2672,7 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   shareCounts = {},
   onReact,
   onOpenComments,
+   onReact={onReact},
   onShare,
 }) => {
   const [view, setView] = useState<'music' | 'upload' | 'dashboard' | 'artist' | 'albums' | 'album'>('music');
@@ -3465,35 +3466,7 @@ useEffect(() => {
         )}
 
 
-{currentTrack && (
-  <GlobalAudioPlayer
-    currentTrack={currentTrack}
-    isPlaying={isPlaying}
-    onTogglePlay={onTogglePlay}
-    onNext={onNext}
-    onPrevious={onPrevious}
-    onClose={onClosePlayer}
-    onDownload={handleDownload}
-    onLike={handleLike}
-    onArtistClick={handleArtistClick}
-    isLiked={isLiked}
-    uploaderProfile={uploaderProfile}
-    ownerUser={ownerUser}
-    totalPlays={totalPlays}
-    totalPlaysLoading={totalPlaysLoading}
-    onStarted={onStarted}
-    reactionCount={reactionCounts?.[currentTrack.id]?.count || 0}
-    commentCount={commentCounts?.[currentTrack.id] || 0}
-    shareCount={shareCounts?.[currentTrack.id] || 0}
-    myReaction={reactionCounts?.[currentTrack.id]?.myReaction}
-    // ✅ ADD THIS MISSING LINE:
-    onReact={onReact}
-    onOpenComments={onOpenComments}
-    onShare={onShare}
-    currentUser={currentUser}
-    users={users}
-  />
-)}
+
         {/* ARTIST VIEW */}
         {view === 'artist' && !showLoading && (
           <div className="space-y-8">
