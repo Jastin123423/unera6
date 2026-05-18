@@ -6129,18 +6129,19 @@ const handleReactClick = async (type: ReactionType) => {
               </div>
             )}
 
-{(isMusic || isPodcast) && (
+
+	{(isMusic || isPodcast) && (
   <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
     <div className="flex items-center gap-3 p-3">
       <img
         src={
           (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
-          DEFAULT_MUSIC_COVER // ✅ ADD FALLBACK
+          ''
         }
         className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
         alt=""
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = DEFAULT_MUSIC_COVER; // ✅ USE CONSTANT
+          (e.currentTarget as HTMLImageElement).src = avatarFrom(a);
         }}
       />
       <div className="flex-1 overflow-hidden">
@@ -6156,12 +6157,7 @@ const handleReactClick = async (type: ReactionType) => {
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          // ✅ Handle null safety
-          if (isMusic && song) {
-            onPlayAudioTrack?.(song);
-          } else if (podcast) {
-            onPlayAudioTrack?.(podcast);
-          }
+          onOpenAudio?.(isMusic ? song : podcast);
         }}
         className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
       >
@@ -6173,22 +6169,26 @@ const handleReactClick = async (type: ReactionType) => {
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
       <ReactionButton
         currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount || 0} {/* ✅ ADD FALLBACK */}
+        reactionCount={musicReactionsCount || 0}
         onReact={(type) => {
-          // ✅ BUILD TRACK IF musicTrack IS NOT PROVIDED
-          const track: AudioTrack = musicTrack || {
-            id: String(song?.id || post.id),
-            title: song?.title || 'Untitled',
-            artist: song?.artist_name || 'Unknown',
-            duration: song?.duration_seconds || 180,
-            url: song?.audio_url || '',
-            uploaderId: Number(song?.uploader_id || post.user_id || 0),
-            cover: song?.cover_image_url || DEFAULT_MUSIC_COVER,
-            type: isMusic ? 'music' : 'podcast',
-            isVerified: false,
-            likesCount: 0,
-          };
-          onMusicReact?.(track, type);
+          // ✅ Build AudioTrack from song data if musicTrack prop is not provided
+          if (musicTrack) {
+            onMusicReact?.(musicTrack, type);
+          } else if (song) {
+            const track: AudioTrack = {
+              id: String(song.id),
+              title: song.title || 'Untitled',
+              artist: song.artist_name || 'Unknown',
+              duration: song.duration_seconds || 180,
+              url: song.audio_url || '',
+              uploaderId: Number(song.uploader_id || 0),
+              cover: song.cover_image_url || '',
+              type: 'music',
+              isVerified: false,
+              likesCount: 0,
+            };
+            onMusicReact?.(track, type);
+          }
         }}
         isGuest={!currentUser}
       />
@@ -6222,11 +6222,7 @@ const handleReactClick = async (type: ReactionType) => {
       {pushButton && <div className="ml-2">{pushButton}</div>}
     </div>
   </div>
-)}
-
-
-
-            
+)}            
 
 
 {isMarketplace ? (
