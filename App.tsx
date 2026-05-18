@@ -10527,38 +10527,69 @@ feedLoadingMore={feedLoadingMore}
     )}
 
      {currentAudioTrack && (
-  <GlobalAudioPlayer
-    currentTrack={currentAudioTrack}
-    isPlaying={isAudioPlaying}
-    onTogglePlay={onTogglePlay}
-    onNext={onNext}
-    onPrevious={onPrevious}
-    onClose={onClosePlayer}
-    onDownload={(id) => {
-      console.log('Download track:', id);
-    }}
-    onLike={(id, type) => {
-      const k = `${type}:${String(id)}`;
-      const nextLiked = !likedTracks.includes(k);
-      handleMusicSystemLikeSync(k, nextLiked);
-    }}
-    onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
-    isLiked={isPlayerLiked}
-    ownerUser={resolveTrackOwner(currentAudioTrack)}
-    currentUser={currentUser}
-    users={users}
-    totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
-    totalPlaysLoading={playsLoading}
-    onStarted={onStarted}
-    reactionCount={trackReactions[currentAudioTrack.id]?.count || 0}
-    commentCount={trackComments[currentAudioTrack.id] || 0}
-    shareCount={trackShares[currentAudioTrack.id] || 0}
-    myReaction={trackReactions[currentAudioTrack.id]?.myReaction}
-    onReact={(track, type) => handleMusicReact(track, type)}
-    onOpenComments={(track) => handleOpenMusicComments(track)}
-    onShare={(track) => handleMusicShare(track)}
-  />
-)}
+<GlobalAudioPlayer
+  currentTrack={currentAudioTrack}
+  isPlaying={isAudioPlaying}
+  onTogglePlay={onTogglePlay}
+  onNext={onNext}
+  onPrevious={onPrevious}
+  onClose={onClosePlayer}
+  onDownload={(id) => {
+    console.log('Download track:', id);
+  }}
+  onLike={(id, type) => {
+    const k = `${type}:${String(id)}`;
+    const nextLiked = !likedTracks.includes(k);
+    handleMusicSystemLikeSync(k, nextLiked);
+  }}
+  onArtistClick={(uploaderId) => uploaderId && openProfile(uploaderId)}
+  isLiked={isPlayerLiked}
+  ownerUser={resolveTrackOwner(currentAudioTrack)}
+  currentUser={currentUser}
+  users={users}
+  totalPlays={currentAudioTrack ? (trackPlays[`${currentAudioTrack.type}:${String(currentAudioTrack.id)}`] || 0) : 0}
+  totalPlaysLoading={playsLoading}
+  onStarted={onStarted}
+  
+  // ✅ FIXED: Use consistent key format with type prefix
+  reactionCount={
+    currentAudioTrack 
+      ? (trackReactions[`${currentAudioTrack.type}:${currentAudioTrack.id}`]?.count || 0)
+      : 0
+  }
+  
+  // ✅ FIXED: Use consistent key format with type prefix
+  myReaction={
+    currentAudioTrack 
+      ? trackReactions[`${currentAudioTrack.type}:${currentAudioTrack.id}`]?.myReaction
+      : undefined
+  }
+  
+  commentCount={
+    currentAudioTrack 
+      ? (trackComments[`${currentAudioTrack.type}:${currentAudioTrack.id}`] || 0)
+      : 0
+  }
+  
+  shareCount={
+    currentAudioTrack 
+      ? (trackShares[`${currentAudioTrack.type}:${currentAudioTrack.id}`] || 0)
+      : 0
+  }
+  
+  // ✅ Use the correct handler
+  onReact={(track, type) => {
+    if (currentAudioTrack && track.id === currentAudioTrack.id) {
+      handleMusicReact(track, type);
+    }
+  }}
+  
+  onOpenComments={(track) => handleOpenMusicComments(track)}
+  onShare={(track) => handleMusicShare(track)}
+/>
+
+
+
 
     {fullScreenImage && <ImageViewer imageUrl={fullScreenImage} onClose={() => setFullScreenImage(null)} />}
 
