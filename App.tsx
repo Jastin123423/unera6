@@ -6857,91 +6857,82 @@ const toggleMemberPosting = useCallback(async (groupId: number, userId: number, 
 }, [requireAuth]);
 
 //===HANDLE MUSIC REACT
-    // ============================================================================
-// ADD THIS MUSIC-SPECIFIC REACTION HANDLER IN App.tsx
-// ============================================================================
-
-/**
- * Handle reaction for music/podcast tracks (called from GlobalAudioPlayer)
- */
-const handleMusicReaction = useCallback(async (track: AudioTrack, type: ReactionType) => {
+const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionType) => {
   if (!requireAuth('Reacting')) return;
   if (!currentUser || !track) return;
 
   const trackId = track.id;
   const trackType = track.type || 'music';
   const meId = currentUser.id;
-  const trackKey = `${trackType}:${trackId}`;
-
-  // Lock to prevent double reactions
-  const reactionLockKey = `reaction_${trackKey}`;
-  if (reactingMap[reactionLockKey]) return;
   
-  // Set reacting lock
+  // ✅ CONSISTENT KEY FORMAT: type:id
+  const trackKey = `${trackType}:${trackId}`;
+  const reactionLockKey = `reaction_${trackKey}`;
+
+  // Prevent double-tap
+  if (reactingMap[reactionLockKey]) {
+    console.log('Reaction already in progress for:', trackKey);
+    return;
+  }
+
   reactingMap[reactionLockKey] = true;
 
-  // Optimistic update for track reactions
-  setTrackReactions(prev => {
-    const current = prev[trackKey] || { count: 0, myReaction: undefined };
-    const isRemoving = current.myReaction === type;
-    const isChanging = current.myReaction && current.myReaction !== type;
-    
-    return {
-      ...prev,
-      [trackKey]: {
-        count: isRemoving 
-          ? Math.max(0, current.count - 1)
-          : isChanging 
-            ? current.count  // Same count when changing reaction
-            : current.count + 1,
-        myReaction: isRemoving ? undefined : type
-      }
-    };
-  });
+  // ---- OPTIMISTIC UPDATE ----
+  const currentReaction = trackReactions[trackKey];
+  const currentType = currentReaction?.myReaction;
+  const currentCount = currentReaction?.count || 0;
 
-  // Also update songs state if the track exists there
-  setSongs(prev => 
-    prev.map(song => {
-      if (String(song.id) === String(trackId)) {
-        const currentReaction = (song as any).myReaction;
-        const currentCount = (song as any).reactionCount || 0;
-        const isRemoving = currentReaction === type;
-        const isChanging = currentReaction && currentReaction !== type;
-        
-        return {
-          ...song,
-          myReaction: isRemoving ? undefined : type,
-          reactionCount: isRemoving 
-            ? Math.max(0, currentCount - 1)
-            : isChanging 
-              ? currentCount
-              : currentCount + 1
-        };
-      }
-      return song;
-    })
-  );
+  // Calculate optimistic values (matches backend toggle logic)
+  const isRemoving = currentType === type;
+  const isChanging = currentType && currentType !== type;
+  const isNew = !currentType;
+
+  const optimisticMyReaction = isRemoving ? undefined : type;
+  const optimisticCount = isRemoving 
+    ? Math.max(0, currentCount - 1)
+    : isNew 
+      ? currentCount + 1
+      : currentCount;
+
+  // Apply optimistic update using CONSISTENT key
+  setTrackReactions(prev => ({
+    ...prev,
+    [trackKey]: {
+      count: optimisticCount,
+      myReaction: optimisticMyReaction
+    }
+  }));
 
   try {
-    // Call the music reaction API
-    const endpoint = trackType === 'podcast' 
-      ? `/api/podcasts/${trackId}/react`
-      : `/api/songs/${trackId}/react`;
-    
-    const data = await apiFetch(endpoint, {
+    const data = await apiFetch(`/api/songs/${trackId}/react`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': String(meId),
+      },
       body: JSON.stringify({ 
-        user_id: meId, 
+        user_id: meId,
         type: type 
       }),
     });
 
-    // Apply server response if successful
     if (data?.success !== false) {
-      const serverMyReaction = data?.my_reaction ?? data?.myReaction ?? null;
-      const serverCount = Number(data?.reactions_count ?? data?.reactionsCount ?? 0);
+      const serverMyReaction = data?.my_reaction || data?.myReaction || null;
+      const serverCount = Number(
+        data?.reactions_count || 
+        data?.reactionsCount || 
+        data?.likes_count || 
+        data?.likesCount || 
+        0
+      );
 
-      // Update track reactions with server truth
+      console.log('✅ Song reaction success:', {
+        trackKey,
+        myReaction: serverMyReaction,
+        count: serverCount
+      });
+
+      // Update track reactions with CONSISTENT key
       setTrackReactions(prev => ({
         ...prev,
         [trackKey]: {
@@ -6950,71 +6941,71 @@ const handleMusicReaction = useCallback(async (track: AudioTrack, type: Reaction
         }
       }));
 
-      // Update songs state with server truth
-      setSongs(prev =>
+      // Update songs array if exists
+      setSongs(prev => 
         prev.map(song => {
           if (String(song.id) === String(trackId)) {
             return {
               ...song,
+              reactionCount: serverCount,
               myReaction: serverMyReaction || undefined,
-              reactionCount: serverCount
+              stats: {
+                ...(song.stats || {}),
+                reactions: serverCount
+              }
             };
           }
           return song;
         })
       );
-
-      // If this track is currently playing, update currentTrack reference
-      if (currentTrack && String(currentTrack.id) === String(trackId)) {
-        // The currentTrack state might need updating if you're storing reaction data there
-      }
+    } else {
+      throw new Error(data?.error || 'Reaction failed');
     }
-  } catch (error) {
-    console.error('Failed to react to track:', error);
+  } catch (error: any) {
+    console.error('❌ Failed to react to song:', error);
     
-    // Rollback optimistic update
-    setTrackReactions(prev => {
-      const current = prev[trackKey];
-      if (!current) return prev;
-      return {
-        ...prev,
-        [trackKey]: {
-          count: Math.max(0, current.count - 1),
-          myReaction: current.myReaction === type ? undefined : current.myReaction
-        }
-      };
-    });
+    // Rollback using CONSISTENT key
+    setTrackReactions(prev => ({
+      ...prev,
+      [trackKey]: {
+        count: currentCount,
+        myReaction: currentType
+      }
+    }));
 
-    setSongs(prev =>
+    // Rollback songs array
+    setSongs(prev => 
       prev.map(song => {
         if (String(song.id) === String(trackId)) {
           return {
             ...song,
-            myReaction: undefined,
-            reactionCount: Math.max(0, ((song as any).reactionCount || 0) - 1)
+            reactionCount: currentCount,
+            myReaction: currentType
           };
         }
         return song;
       })
     );
-    
-    setLoginError('Failed to react to track');
+
+    setLoginError(error?.message || 'Failed to react. Please try again.');
   } finally {
-    // Clear lock after a short delay
     setTimeout(() => {
       delete reactingMap[reactionLockKey];
-    }, 300);
+    }, 500);
   }
 }, [
   currentUser,
-  currentTrack,
   requireAuth,
   reactingMap,
+  trackReactions,
   setTrackReactions,
   setSongs,
-  setLoginError
+  setLoginError,
+  apiFetch
 ]);
     
+
+  
 
   //====UPDATE GROUP IMAGE ======
 const updateGroupImage = useCallback(
