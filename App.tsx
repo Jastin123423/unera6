@@ -3358,7 +3358,7 @@ const mixedFeedItems = useMemo(() => {
   // ============================================================================
   // ✅ MUSIC HANDLERS
   // ============================================================================
-    
+
 const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionType) => {
   if (!requireAuth('Reacting')) return;
   if (!currentUser || !track) return;
@@ -3383,6 +3383,7 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
   const currentReaction = trackReactions[trackKey];
   const currentType = currentReaction?.myReaction;
   const currentCount = currentReaction?.count || 0;
+  const currentCommentsCount = trackComments[trackKey] || 0;
 
   // Calculate optimistic values (matches backend toggle logic)
   const isRemoving = currentType === type;
@@ -3427,11 +3428,15 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
         data?.likesCount || 
         0
       );
+      
+      // ✅ ALSO UPDATE comments count from backend response
+      const serverCommentsCount = Number(data?.comments_count || 0);
 
       console.log('✅ Song reaction success:', {
         trackKey,
         myReaction: serverMyReaction,
-        count: serverCount
+        count: serverCount,
+        commentsCount: serverCommentsCount
       });
 
       // Update track reactions with CONSISTENT key
@@ -3442,6 +3447,14 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
           myReaction: serverMyReaction || undefined
         }
       }));
+      
+      // ✅ Update comments count if returned from backend
+      if (serverCommentsCount > 0) {
+        setTrackComments(prev => ({
+          ...prev,
+          [trackKey]: serverCommentsCount
+        }));
+      }
 
       // Update songs array if exists
       setSongs(prev => 
@@ -3460,6 +3473,32 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
           return song;
         })
       );
+      
+      // ✅ After successful reaction, refresh full reaction data from GET endpoint
+      // This ensures we have latest counts, previews, and user data
+      fetchSongReactionsData(trackId).then(reactionData => {
+        if (reactionData) {
+          setTrackReactions(prev => ({
+            ...prev,
+            [trackKey]: {
+              count: reactionData.reactionsCount,
+              myReaction: reactionData.myReaction || undefined,
+              // Optionally store full reaction data
+              counts: reactionData.counts,
+              reactions: reactionData.reactions,
+            }
+          }));
+          
+          // Update comments count from GET endpoint
+          if (reactionData.commentsCount > 0) {
+            setTrackComments(prev => ({
+              ...prev,
+              [trackKey]: reactionData.commentsCount
+            }));
+          }
+        }
+      });
+      
     } else {
       throw new Error(data?.error || 'Reaction failed');
     }
@@ -3473,6 +3512,12 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
         count: currentCount,
         myReaction: currentType
       }
+    }));
+
+    // Rollback comments count
+    setTrackComments(prev => ({
+      ...prev,
+      [trackKey]: currentCommentsCount
     }));
 
     // Rollback songs array
@@ -3500,12 +3545,198 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
   requireAuth,
   reactingMap,
   trackReactions,
+  trackComments,
   setTrackReactions,
+  setTrackComments,
   setSongs,
   setLoginError,
   apiFetch
 ]);
 
+// ============================================================================
+// ✅ ADD THIS: Helper function to fetch song reactions from GET endpoint
+// ============================================================================
+
+/**
+ * Fetch full reaction data for a song from GET endpoint
+ * Used to sync after POST reaction or refresh data
+ */
+const fetchSongReactionsData = useCallback(async (songId: string | number) => {
+  if (!songId) return null;
+  
+  try {
+    const viewerId = currentUser?.id || 0;
+    const url = `/api/songs/${songId}/reactions${viewerId ? `?viewerId=${viewerId}` : ''}`;
+    
+    const response = await apiFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(viewerId ? { 'x-user-id': String(viewerId) } : {}),
+      },
+    });
+    
+    if (response?.success) {
+      return {
+        reactions: response.reactions || [],
+        reactionsCount: response.reactions_count || 0,
+        counts: response.counts || {},
+        myReaction: response.my_reaction || null,
+        commentsCount: response.comments_count || 0,
+      };
+    }
+    
+    console.warn('Failed to fetch song reactions:', response?.error);
+    return null;
+  } catch (error) {
+    console.error('Error fetching song reactions:', error);
+    return null;
+  }
+}, [currentUser, apiFetch]);
+
+// ============================================================================
+// ✅ ADD THIS: Bulk fetch reactions for multiple songs
+// ============================================================================
+
+/**
+ * Fetch reactions for multiple songs efficiently
+ * Used when loading music feed to populate reaction counts
+ */
+const fetchBulkSongReactionsData = useCallback(async (songIds: (string | number)[]) => {
+  if (!songIds.length) return;
+  
+  const viewerId = currentUser?.id || 0;
+  
+  // Fetch reactions for each song in parallel (limit to 10 concurrent)
+  const batchSize = 10;
+  const batches = [];
+  
+  for (let i = 0; i < songIds.length; i += batchSize) {
+    batches.push(songIds.slice(i, i + batchSize));
+  }
+  
+  const allResults: any[] = [];
+  
+  for (const batch of batches) {
+    const promises = batch.map(async (songId) => {
+      try {
+        const url = `/api/songs/${songId}/reactions${viewerId ? `?viewerId=${viewerId}` : ''}`;
+        const response = await apiFetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(viewerId ? { 'x-user-id': String(viewerId) } : {}),
+          },
+        });
+        
+        if (response?.success) {
+          return {
+            songId: String(songId),
+            reactionsCount: response.reactions_count || 0,
+            myReaction: response.my_reaction || null,
+            counts: response.counts || {},
+            commentsCount: response.comments_count || 0,
+            reactions: response.reactions || [],
+          };
+        }
+        return null;
+      } catch (error) {
+        console.error(`Failed to fetch reactions for song ${songId}:`, error);
+        return null;
+      }
+    });
+    
+    const results = await Promise.all(promises);
+    allResults.push(...results.filter(Boolean));
+  }
+  
+  // Update state with fetched data
+  const newTrackReactions: Record<string, { count: number; myReaction?: ReactionType; counts?: Record<string, number>; reactions?: any[] }> = {};
+  const newTrackComments: Record<string, number> = {};
+  
+  allResults.forEach(result => {
+    if (result) {
+      const key = `music:${result.songId}`;
+      newTrackReactions[key] = {
+        count: result.reactionsCount,
+        myReaction: result.myReaction || undefined,
+        counts: result.counts,
+        reactions: result.reactions,
+      };
+      
+      if (result.commentsCount > 0) {
+        newTrackComments[key] = result.commentsCount;
+      }
+    }
+  });
+  
+  // Merge with existing state
+  setTrackReactions(prev => {
+    const merged = { ...prev };
+    Object.entries(newTrackReactions).forEach(([key, value]) => {
+      merged[key] = {
+        ...merged[key],
+        ...value,
+      };
+    });
+    return merged;
+  });
+  
+  setTrackComments(prev => ({ ...prev, ...newTrackComments }));
+  
+  console.log('✅ Bulk loaded reactions for', Object.keys(newTrackReactions).length, 'songs');
+  
+  return newTrackReactions;
+}, [currentUser, apiFetch, setTrackReactions, setTrackComments]);
+
+// ============================================================================
+// ✅ ADD THIS: Load reactions when songs first appear
+// ============================================================================
+
+useEffect(() => {
+  if (songs.length > 0) {
+    const songIds = songs.map(s => s.id);
+    fetchBulkSongReactionsData(songIds);
+  }
+}, [songs.length > 0]); // Only run when songs array becomes non-empty
+
+// ============================================================================
+// ✅ ADD THIS: Refresh reactions when track changes
+// ============================================================================
+
+useEffect(() => {
+  if (currentAudioTrack?.id) {
+    const trackKey = `${currentAudioTrack.type || 'music'}:${currentAudioTrack.id}`;
+    
+    // Only refresh if we don't already have data
+    if (!trackReactions[trackKey]) {
+      fetchSongReactionsData(currentAudioTrack.id).then(reactionData => {
+        if (reactionData) {
+          setTrackReactions(prev => ({
+            ...prev,
+            [trackKey]: {
+              count: reactionData.reactionsCount,
+              myReaction: reactionData.myReaction || undefined,
+              counts: reactionData.counts,
+              reactions: reactionData.reactions,
+            }
+          }));
+          
+          if (reactionData.commentsCount > 0) {
+            setTrackComments(prev => ({
+              ...prev,
+              [trackKey]: reactionData.commentsCount
+            }));
+          }
+        }
+      });
+    }
+  }
+}, [currentAudioTrack?.id]);
+
+
+
+        
 
   // Handle open music comments
   const handleOpenMusicComments = useCallback((track: AudioTrack) => {
