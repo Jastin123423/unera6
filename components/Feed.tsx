@@ -6166,12 +6166,31 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount}
-        onReact={(type) => onMusicReact?.(musicTrack, type)}
-        isGuest={!currentUser}
-      />
+    <ReactionButton
+  currentUserReactions={musicMyReaction || undefined}
+  reactionCount={musicReactionsCount || 0}
+  onReact={(type) => {
+    // Build AudioTrack from song data if musicTrack prop is not provided
+    if (musicTrack) {
+      onMusicReact?.(musicTrack, type);
+    } else if (song) {
+      const track: AudioTrack = {
+        id: String(song.id),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || '',
+        uploaderId: Number(song.uploader_id || 0),
+        cover: song.cover_image_url || '',
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      };
+      onMusicReact?.(track, type);
+    }
+  }}
+  isGuest={!currentUser}
+/>
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
