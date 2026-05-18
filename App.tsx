@@ -8442,7 +8442,7 @@ const reactToFeedItem = useCallback(async (item: any, type: ReactionType) => {
 }, [currentUser, requireAuth, reactingMap, view, posts, profilePosts, activeCommentsIdentity, setReacting]);
 
 
-          //===HANDLE MUSIC REACT
+          
 
 const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionType) => {
   if (!requireAuth('Reacting')) return;
