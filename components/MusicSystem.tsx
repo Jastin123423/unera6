@@ -11,9 +11,8 @@ const DEFAULT_MUSIC_COVER = 'https://media.unera.social/task_01kftb3024ed7bm84gy
 ========================================================= */
 
 // Global reference for tracking pending upload type
-
 let pendingUploadTypeRef: 'audio' | 'cover' | 'album_track_audio' | 'album_track_cover' | null = null;
-export const setPendingUploadType = (type: 'audio' | 'cover' | null) => {
+export const setPendingUploadType = (type: 'audio' | 'cover' | 'album_track_audio' | 'album_track_cover' | null) => {
   pendingUploadTypeRef = type;
 };
 
@@ -35,11 +34,10 @@ const openNativeAudioPicker = (): boolean => {
   
   if (!isUneraNativeApp()) return false;
   
-  // Use 'pick_file' action - opens file picker, not recorder
   if ((window as any).UneraNative?.postMessage) {
     (window as any).UneraNative.postMessage(
       JSON.stringify({ 
-        action: 'pick_file',  // Key change: use file picker, not audio recorder
+        action: 'pick_file',
         fileType: 'audio',
         mimeTypes: ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/flac']
       })
@@ -297,7 +295,6 @@ const MusicFeedCard: React.FC<{
   onLike: () => void;
   onArtistClick?: () => void;
   trackPlays?: Record<string, number>;
-  // ✅ ADD REACTION PROPS
   reactionCount?: number;
   myReaction?: ReactionType;
   onReact?: (type: ReactionType) => void;
@@ -314,7 +311,6 @@ const MusicFeedCard: React.FC<{
   onLike,
   onArtistClick,
   trackPlays,
-  // ✅ DESTRUCTURE REACTION PROPS
   reactionCount = 0,
   myReaction,
   onReact,
@@ -338,7 +334,6 @@ const MusicFeedCard: React.FC<{
             </div>
           ) : null}
           
-          {/* ✅ REPLACE like button with full ReactionButton */}
           {onReact && currentUser ? (
             <div className="absolute top-2 right-2">
               <div className="scale-75 origin-top-right">
@@ -351,7 +346,6 @@ const MusicFeedCard: React.FC<{
               </div>
             </div>
           ) : (
-            // Fallback to simple like button if reaction props not provided
             <button
               type="button"
               onClick={(e) => {
@@ -399,7 +393,6 @@ const MusicFeedCard: React.FC<{
   );
 };
 
-
 const HorizontalMusicRow: React.FC<{
   title: string;
   subtitle?: string;
@@ -411,7 +404,6 @@ const HorizontalMusicRow: React.FC<{
   onArtistClick: (id: number) => void;
   badgeBuilder?: (song: Song, index: number) => { text?: string; className?: string };
   trackPlays?: Record<string, number>;
-  // ✅ ADD REACTION PROPS
   reactionCounts?: Record<string, { count: number; myReaction?: ReactionType }>;
   onReact?: (track: AudioTrack, type: ReactionType) => void;
   currentUser?: User | null;
@@ -426,7 +418,6 @@ const HorizontalMusicRow: React.FC<{
   onArtistClick,
   badgeBuilder,
   trackPlays,
-  // ✅ DESTRUCTURE REACTION PROPS
   reactionCounts,
   onReact,
   currentUser,
@@ -459,11 +450,9 @@ const HorizontalMusicRow: React.FC<{
               onLike={() => onLikeSong(String(song.id))}
               onArtistClick={() => song.uploaderId && onArtistClick(song.uploaderId)}
               trackPlays={trackPlays}
-              // ✅ PASS REACTION PROPS
               reactionCount={reactionData.count}
               myReaction={reactionData.myReaction}
               onReact={(type) => {
-                // Convert Song to AudioTrack for reaction
                 const uploaderProfileLocal = users.find((u) => u.id === song.uploaderId);
                 const artistNameLocal = uploaderProfileLocal?.name || uploaderProfileLocal?.username || song.artist;
                 const audioTrack: AudioTrack = {
@@ -488,10 +477,6 @@ const HorizontalMusicRow: React.FC<{
     </div>
   );
 };
-
-
-
-
 
 /* =========================================================
    REACTION BUTTON COMPONENT (with Spark icon - same as Feed.tsx)
@@ -1236,9 +1221,23 @@ const uploadCompressedCoverToR2 = async (file: File) => {
   return uploadToR2(compressed);
 };
 
-// Forward declaration for uploadToR2 (defined in AudioUploadModal)
 declare function uploadToR2(file: File): Promise<string>;
 
+// ✅ FIXED: reactToItem with x-user-id header
+async function reactToItem(itemId: string, type: 'music' | 'podcast', userId: number, reactionType: string) {
+  const endpoint = `/api/songs/${itemId}/react`;
+  
+  return apiJson<any>(endpoint, {
+    method: 'POST',
+    headers: {
+      'x-user-id': String(userId),
+    },
+    body: JSON.stringify({ 
+      user_id: userId, 
+      type: reactionType 
+    }),
+  });
+}
 
 /* =========================================================
    MODERN GLOBAL AUDIO PLAYER (Optimized for Mobile)
@@ -1511,13 +1510,11 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     setDownloadProgress(0);
     
     try {
-      // Get artist name properly
       const displayUser = ownerUser || uploaderProfile;
       const artistName = displayUser 
         ? (displayUser.name || displayUser.username || currentTrack.artist)
         : currentTrack.artist;
       
-      // Clean both artist and title for filename
       const cleanArtist = artistName
         .replace(/[^\w\s.-]/g, '')
         .replace(/\s+/g, ' ')
@@ -1528,14 +1525,11 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
         .replace(/\s+/g, ' ')
         .trim();
       
-      // Format: Artist - Song Title.mp3
       const fileName = `${cleanArtist} - ${cleanTitle}.mp3`;
       
       console.log('📥 Downloading:', fileName);
       
-      // Native UNERA app download with progress tracking
       if (isUneraNativeApp() && (window as any).UneraNative?.postMessage) {
-        // Listen for download progress events from native
         const progressHandler = (event: any) => {
           const data = event.detail;
           if (data && data.fileName === fileName) {
@@ -1554,7 +1548,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
               setDownloadingTrackId(null);
               setDownloadProgress(0);
             }, 1000);
-            // Clean up listeners
             window.removeEventListener('uneraNativeDownloadProgress', progressHandler);
             window.removeEventListener('uneraNativeDownloadComplete', completeHandler);
             window.removeEventListener('uneraNativeDownloadError', errorHandler);
@@ -1586,14 +1579,11 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
           })
         );
         
-        // Don't clear immediately - wait for events
         return;
       }
       
-      // Web browser download
       console.log('🌐 Web download starting...');
       
-      // Try to fetch with proper headers
       const response = await fetch(currentTrack.url, {
         mode: 'cors',
         credentials: 'omit',
@@ -1601,21 +1591,17 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
       
-      // Get the blob
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
       
-      // Create download link
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
       
-      // Simulate progress for web download
       setDownloadProgress(100);
       
-      // Cleanup
       setTimeout(() => {
         document.body.removeChild(a);
         URL.revokeObjectURL(blobUrl);
@@ -1628,7 +1614,6 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     } catch (error) {
       console.error('Download failed:', error);
       
-      // Fallback: Try opening in new tab for direct download
       if (!isUneraNativeApp()) {
         try {
           console.log('🔄 Trying fallback: opening in new tab');
@@ -1886,7 +1871,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
                 <ReactionButton
                   currentUserReactions={myReaction}
                   reactionCount={reactionCount}
-                   onReact={onReact}
+                  onReact={handleReact}
                   isGuest={!currentUser}
                 />
 
@@ -2041,7 +2026,7 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
       )}
       {currentTrack && (
         <ShareBottomSheet
-        isOpen={showShare}
+          isOpen={showShare}
           onClose={() => setShowShare(false)}
           track={currentTrack}
           currentUser={currentUser || null}
@@ -2096,7 +2081,6 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
   const coverInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
 
-  // Receive native files
   useEffect(() => {
     if (initialNativeAudioFile && !audioFile) {
       setAudioFile(initialNativeAudioFile);
@@ -2110,45 +2094,40 @@ const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
     }
   }, [initialNativeCoverFile, coverFile]);
 
+  useEffect(() => {
+    const handleAlbumTrackAudio = (event: any) => {
+      const file = event.detail;
+      if (file) {
+        setTempTrackFile(file);
+        console.log('📀 Album track audio received:', file.name);
+      }
+    };
 
+    window.addEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
+    return () => {
+      window.removeEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
+    };
+  }, []);
 
-// Listen for album track audio selection
-useEffect(() => {
-  const handleAlbumTrackAudio = (event: any) => {
-    const file = event.detail;
-    if (file) {
-      setTempTrackFile(file);
-      console.log('📀 Album track audio received:', file.name);
-    }
-  };
+  useEffect(() => {
+    const handleAlbumTrackCover = (event: any) => {
+      const file = event.detail;
+      if (file) {
+        setTempTrackCoverFile(file);
+        console.log('📀 Album track cover received:', file.name);
+      }
+    };
 
-  window.addEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
-  return () => {
-    window.removeEventListener('albumTrackAudioSelected', handleAlbumTrackAudio);
-  };
-}, []);
+    window.addEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
+    return () => {
+      window.removeEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
+    };
+  }, []);
 
-// Listen for album track cover selection
-useEffect(() => {
-  const handleAlbumTrackCover = (event: any) => {
-    const file = event.detail;
-    if (file) {
-      setTempTrackCoverFile(file);
-      console.log('📀 Album track cover received:', file.name);
-    }
-  };
-
-  window.addEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
-  return () => {
-    window.removeEventListener('albumTrackCoverSelected', handleAlbumTrackCover);
-  };
-}, []);
-
-  // Native pick handlers - BOTH use file picker, not recorder!
   const handlePickAudio = () => {
     if (isUneraNativeApp()) {
       setPendingUploadType('audio');
-      openNativeAudioPicker(); // Uses 'pick_file' action
+      openNativeAudioPicker();
     } else {
       fileInputRef.current?.click();
     }
@@ -2163,26 +2142,23 @@ useEffect(() => {
     }
   };
    
-// Replace the existing handlePickTrackAudio
-const handlePickTrackAudio = () => {
-  if (isUneraNativeApp()) {
-    setPendingUploadType('album_track_audio');
-    openNativeAudioPicker();
-  } else {
-    trackInputRef.current?.click();
-  }
-};
+  const handlePickTrackAudio = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('album_track_audio');
+      openNativeAudioPicker();
+    } else {
+      trackInputRef.current?.click();
+    }
+  };
 
-// Add this new handler for track cover
-const handlePickTrackCover = () => {
-  if (isUneraNativeApp()) {
-    setPendingUploadType('album_track_cover');
-    openNativeImagePicker();
-  } else {
-    tempTrackCoverInputRef.current?.click();
-  }
-};
-
+  const handlePickTrackCover = () => {
+    if (isUneraNativeApp()) {
+      setPendingUploadType('album_track_cover');
+      openNativeImagePicker();
+    } else {
+      tempTrackCoverInputRef.current?.click();
+    }
+  };
 
   const handleAddTrack = () => {
     if (!tempTrackTitle || !tempTrackFile) {
@@ -2394,7 +2370,6 @@ const handlePickTrackCover = () => {
                 />
               </div>
 
-              {/* SINGLE MODE - Uses file picker (NOT recorder!) */}
               {mode === 'single' && (
                 <div>
                   <label className="block text-[#888] text-xs font-bold mb-1.5 uppercase">Audio File</label>
@@ -2479,12 +2454,10 @@ const handlePickTrackCover = () => {
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Song Name" value={tempTrackTitle} onChange={(e) => setTempTrackTitle(e.target.value)} />
                       <input className="bg-[#151515] border border-[#333] p-2 rounded text-white text-sm" placeholder="Artist Name" value={tempTrackArtist} onChange={(e) => setTempTrackArtist(e.target.value)} />
                     </div>
-                     <div
-                    onClick={handlePickTrackCover}
-                   className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
+                    <div
+                      onClick={handlePickTrackCover}
+                      className="w-full bg-[#151515] border border-[#333] p-2 rounded text-sm text-[#888] hover:text-white cursor-pointer"
                     >
-   
-        
                       {tempTrackCoverFile ? (
                         <span className="text-[#1877F2] font-bold">
                           <i className="fas fa-image"></i> {tempTrackCoverFile.name}
@@ -2616,15 +2589,6 @@ async function toggleSongLike(songId: string, userId: any, method: 'POST' | 'DEL
   }
 }
 
-async function reactToItem(itemId: string, type: 'music' | 'podcast', userId: number, reactionType: string) {
-  const endpoint = `/api/songs/${itemId}/react`;
-  
-  return apiJson<any>(endpoint, {
-    method: 'POST',
-    body: JSON.stringify({ user_id: userId, type: reactionType }),
-  });
-}
-
 /* =========================================================
    MAIN MUSIC SYSTEM (MODERN FEED LAYOUT)
 ========================================================= */
@@ -2687,108 +2651,109 @@ const MusicSystem: React.FC<MusicSystemProps> = ({
   const [likedTracks, setLikedTracks] = useState<string[]>(initialLikedTracks);
   const [downloads, setDownloads] = useState<string[]>([]);
 
-  // Native upload state
   const [nativeAudioFile, setNativeAudioFile] = useState<File | null>(null);
   const [nativeCoverFile, setNativeCoverFile] = useState<File | null>(null);
 
   const isAdmin = (currentUser as any)?.role === 'admin';
   const musicSeed = useMemo(() => Date.now(), []);
    
-
-useEffect(() => {
-  const handleNativeUpload = (event: any) => {
-    const media = event.detail;
-    console.log('📱 MusicSystem: Native upload received:', media);
-    
-    if (!media) return;
-    
-    // Detect if this is audio or image
-    const url = media.full || media.feed || media.url || '';
-    const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
-    const isAudioByMime = media.mimeType?.startsWith('audio/');
-    const isExplicitAudio = media.type === 'audio';
-    const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
-    
-    const isImage = media.type === 'image' || media.mimeType?.startsWith('image/');
-    
-    const pendingType = getPendingUploadType();
-    console.log('📱 Pending type:', pendingType);
-    
-    // Single music audio upload
-    if (isAudio && pendingType === 'audio') {
-      const audioUrl = media.full || media.feed || media.url;
-      if (audioUrl) {
-        fetch(audioUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
-            const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
-            setNativeAudioFile(file);
-            console.log('✅ Single audio file created:', file.name);
-          })
-          .catch(err => console.error('Failed to process native audio:', err));
-      }
-      setPendingUploadType(null);
-    } 
-    // Album track audio upload
-    else if (isAudio && pendingType === 'album_track_audio') {
-      const audioUrl = media.full || media.feed || media.url;
-      if (audioUrl) {
-        fetch(audioUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
-            const file = new File([blob], `album-track-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
-            // This needs to set tempTrackFile - but we need access to setTempTrackFile
-            // We'll use a global callback or pass it through context
-            window.dispatchEvent(new CustomEvent('albumTrackAudioSelected', { detail: file }));
-            console.log('✅ Album track audio file created:', file.name);
-          })
-          .catch(err => console.error('Failed to process album track audio:', err));
-      }
-      setPendingUploadType(null);
+  // ✅ Local reaction handler that connects to parent
+  const handleMusicReact = useCallback((track: AudioTrack, type: ReactionType) => {
+    if (!currentUser) {
+      alert('Please login to react.');
+      return;
     }
-    // Main cover image upload
-    else if (isImage && pendingType === 'cover') {
-      const imageUrl = media.full || media.feed || media.url;
-      if (imageUrl) {
-        fetch(imageUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-            const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
-            setNativeCoverFile(file);
-            console.log('✅ Cover file created:', file.name);
-          })
-          .catch(err => console.error('Failed to process native cover:', err));
-      }
-      setPendingUploadType(null);
+    
+    if (onReact) {
+      onReact(track, type);
     }
-    // Album track cover upload
-    else if (isImage && pendingType === 'album_track_cover') {
-      const imageUrl = media.full || media.feed || media.url;
-      if (imageUrl) {
-        fetch(imageUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-            const file = new File([blob], `album-track-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
-            // Dispatch event for album track cover
-            window.dispatchEvent(new CustomEvent('albumTrackCoverSelected', { detail: file }));
-            console.log('✅ Album track cover file created:', file.name);
-          })
-          .catch(err => console.error('Failed to process album track cover:', err));
+  }, [currentUser, onReact]);
+
+  useEffect(() => {
+    const handleNativeUpload = (event: any) => {
+      const media = event.detail;
+      console.log('📱 MusicSystem: Native upload received:', media);
+      
+      if (!media) return;
+      
+      const url = media.full || media.feed || media.url || '';
+      const isAudioByUrl = /\.(mp3|wav|m4a|ogg|aac|flac|webm)$/i.test(url);
+      const isAudioByMime = media.mimeType?.startsWith('audio/');
+      const isExplicitAudio = media.type === 'audio';
+      const isAudio = isExplicitAudio || isAudioByUrl || isAudioByMime;
+      
+      const isImage = media.type === 'image' || media.mimeType?.startsWith('image/');
+      
+      const pendingType = getPendingUploadType();
+      console.log('📱 Pending type:', pendingType);
+      
+      if (isAudio && pendingType === 'audio') {
+        const audioUrl = media.full || media.feed || media.url;
+        if (audioUrl) {
+          fetch(audioUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+              const file = new File([blob], `native-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
+              setNativeAudioFile(file);
+              console.log('✅ Single audio file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process native audio:', err));
+        }
+        setPendingUploadType(null);
+      } 
+      else if (isAudio && pendingType === 'album_track_audio') {
+        const audioUrl = media.full || media.feed || media.url;
+        if (audioUrl) {
+          fetch(audioUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3';
+              const file = new File([blob], `album-track-audio-${Date.now()}.${ext}`, { type: media.mimeType || 'audio/mpeg' });
+              window.dispatchEvent(new CustomEvent('albumTrackAudioSelected', { detail: file }));
+              console.log('✅ Album track audio file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process album track audio:', err));
+        }
+        setPendingUploadType(null);
       }
-      setPendingUploadType(null);
-    }
-  };
+      else if (isImage && pendingType === 'cover') {
+        const imageUrl = media.full || media.feed || media.url;
+        if (imageUrl) {
+          fetch(imageUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+              const file = new File([blob], `native-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+              setNativeCoverFile(file);
+              console.log('✅ Cover file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process native cover:', err));
+        }
+        setPendingUploadType(null);
+      }
+      else if (isImage && pendingType === 'album_track_cover') {
+        const imageUrl = media.full || media.feed || media.url;
+        if (imageUrl) {
+          fetch(imageUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const ext = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+              const file = new File([blob], `album-track-cover-${Date.now()}.${ext}`, { type: 'image/jpeg' });
+              window.dispatchEvent(new CustomEvent('albumTrackCoverSelected', { detail: file }));
+              console.log('✅ Album track cover file created:', file.name);
+            })
+            .catch(err => console.error('Failed to process album track cover:', err));
+        }
+        setPendingUploadType(null);
+      }
+    };
 
-  window.addEventListener('uneraNativeUpload', handleNativeUpload);
-  return () => {
-    window.removeEventListener('uneraNativeUpload', handleNativeUpload);
-  };
-}, []);
-
+    window.addEventListener('uneraNativeUpload', handleNativeUpload);
+    return () => {
+      window.removeEventListener('uneraNativeUpload', handleNativeUpload);
+    };
+  }, []);
 
   const albums = useMemo(() => {
     const grouped = new Map<string, Song[]>();
@@ -3141,7 +3106,7 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Horizontal feed sections */}
+            {/* Horizontal feed sections with reaction props */}
             {!searchQuery ? (
               <>
                 <HorizontalMusicRow
@@ -3158,6 +3123,9 @@ useEffect(() => {
                     className: index === 0 ? 'bg-[#FF7A00] text-white' : 'bg-black/65 text-white'
                   })}
                   trackPlays={trackPlays}
+                  reactionCounts={reactionCounts}
+                  onReact={handleMusicReact}
+                  currentUser={currentUser}
                 />
                 <HorizontalMusicRow
                   title="Handpicked User Gems"
@@ -3173,6 +3141,9 @@ useEffect(() => {
                     className: 'bg-[#8B5CF6] text-white'
                   })}
                   trackPlays={trackPlays}
+                  reactionCounts={reactionCounts}
+                  onReact={handleMusicReact}
+                  currentUser={currentUser}
                 />
                 <HorizontalMusicRow
                   title="Best Picks For You"
@@ -3188,6 +3159,9 @@ useEffect(() => {
                     className: 'bg-[#1877F2] text-white'
                   })}
                   trackPlays={trackPlays}
+                  reactionCounts={reactionCounts}
+                  onReact={handleMusicReact}
+                  currentUser={currentUser}
                 />
                 <HorizontalMusicRow
                   title="Fresh Releases"
@@ -3203,6 +3177,9 @@ useEffect(() => {
                     className: 'bg-[#1877F2] text-white'
                   })}
                   trackPlays={trackPlays}
+                  reactionCounts={reactionCounts}
+                  onReact={handleMusicReact}
+                  currentUser={currentUser}
                 />
               </>
             ) : (
@@ -3214,6 +3191,9 @@ useEffect(() => {
                       const uploaderProfile = users.find((u) => u.id === song.uploaderId);
                       const artistName = uploaderProfile?.name || uploaderProfile?.username || song.artist;
                       const artistAvatar = (uploaderProfile as any)?.profileImage || (uploaderProfile as any)?.profile_image_url || null;
+                      const trackKey = `music:${song.id}`;
+                      const reactionData = reactionCounts?.[trackKey] || { count: 0, myReaction: undefined };
+                      
                       return (
                         <MusicFeedCard
                           key={song.id}
@@ -3228,6 +3208,24 @@ useEffect(() => {
                           onLike={() => toggleLike(String(song.id))}
                           onArtistClick={() => song.uploaderId && handleArtistClick(song.uploaderId)}
                           trackPlays={trackPlays}
+                          reactionCount={reactionData.count}
+                          myReaction={reactionData.myReaction}
+                          onReact={(type) => {
+                            const audioTrack: AudioTrack = {
+                              id: String(song.id),
+                              title: song.title,
+                              artist: artistName,
+                              duration: typeof song.duration === 'string' ? 180 : (song.duration as any) || 180,
+                              url: song.audioUrl || '',
+                              uploaderId: song.uploaderId || 1,
+                              cover: song.cover || DEFAULT_MUSIC_COVER,
+                              type: 'music',
+                              isVerified: Boolean((uploaderProfile as any)?.isVerified),
+                              likesCount: Number((song.stats as any)?.likes || 0),
+                            } as any;
+                            handleMusicReact(audioTrack, type);
+                          }}
+                          currentUser={currentUser}
                         />
                       );
                     })
@@ -3463,8 +3461,6 @@ useEffect(() => {
             </div>
           </div>
         )}
-
-
 
         {/* ARTIST VIEW */}
         {view === 'artist' && !showLoading && (
