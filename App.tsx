@@ -3553,6 +3553,85 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
   apiFetch
 ]);
 
+
+// ============================================================================
+//====Feed-specific music reaction handler
+// ============================================================================
+
+const handleFeedMusicReact = useCallback(async (track: AudioTrack, type: ReactionType) => {
+  if (!track?.id) return;
+  
+  // Call the main music reaction handler (already exists)
+  await handleMusicReact(track, type);
+  
+  const trackId = String(track.id);
+  
+  // Update posts that contain this music track
+  setPosts(prev => prev.map(post => {
+    if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
+      const currentReaction = post.musicReaction;
+      const currentCount = post.musicReactionsCount || 0;
+      const isRemoving = currentReaction === type;
+      const isChanging = currentReaction && currentReaction !== type;
+      const isNew = !currentReaction;
+      
+      return {
+        ...post,
+        musicReaction: isRemoving ? undefined : type,
+        musicReactionsCount: isRemoving 
+          ? Math.max(0, currentCount - 1)
+          : isNew 
+            ? currentCount + 1
+            : currentCount
+      };
+    }
+    return post;
+  }));
+  
+  // Update profile posts if they contain this music track
+  setProfilePosts(prev => prev.map(post => {
+    if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
+      const currentReaction = post.musicReaction;
+      const currentCount = post.musicReactionsCount || 0;
+      const isRemoving = currentReaction === type;
+      
+      return {
+        ...post,
+        musicReaction: isRemoving ? undefined : type,
+        musicReactionsCount: isRemoving 
+          ? Math.max(0, currentCount - 1)
+          : currentCount + 1
+      };
+    }
+    return post;
+  }));
+}, [handleMusicReact, setPosts, setProfilePosts]);
+
+// ============================================================================
+//=====Compute musicReactions map for Feed
+// ============================================================================
+
+const feedMusicReactions = useMemo(() => {
+  const map: Record<string, { myReaction?: ReactionType; count: number }> = {};
+  
+  posts.forEach(post => {
+    const songId = post.meta?.song?.id || post.song?.id;
+    if (songId) {
+      const trackKey = `music:${songId}`;
+      const trackReaction = trackReactions[trackKey];
+      if (trackReaction) {
+        map[String(post.id)] = {
+          myReaction: trackReaction.myReaction,
+          count: trackReaction.count
+        };
+      }
+    }
+  });
+  
+  return map;
+}, [posts, trackReactions]);
+    
+
 // ============================================================================
 // ✅ ADD THIS: Helper function to fetch song reactions from GET endpoint
 // ============================================================================
