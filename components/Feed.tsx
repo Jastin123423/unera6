@@ -6164,12 +6164,48 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount}
-        onReact={(type) => onMusicReact?.(musicTrack, type)}
-        isGuest={!currentUser}
-      />
+     <ReactionButton
+  currentUserReactions={musicMyReaction || undefined}
+  reactionCount={musicReactionsCount || 0}
+  onReact={(type) => {
+    console.log('🔍 FEED MUSIC REACT CLICK:', {
+      type,
+      hasMusicTrack: !!musicTrack,
+      musicTrackId: musicTrack?.id,
+      hasSong: !!song,
+      songId: songId,
+      songTitle: song?.title,
+      isMusic,
+      isPodcast,
+      postId: p?.id,
+      musicMyReaction,
+      musicReactionsCount,
+    });
+
+    if (musicTrack) {
+      console.log('✅ Using musicTrack prop');
+      onMusicReact?.(musicTrack, type);
+    } else if (song && songId) {
+      const track: AudioTrack = {
+        id: String(songId),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || '',
+        uploaderId: Number(song.uploader_id || 0),
+        cover: song.cover_image_url || '',
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      };
+      console.log('✅ Built track from song:', track);
+      onMusicReact?.(track, type);
+    } else {
+      console.error('❌ Cannot react - no track data available');
+    }
+  }}
+  isGuest={!currentUser}
+/>
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6553,11 +6589,48 @@ const handleReactClick = async (type: ReactionType) => {
     {!isMusic && !isPodcast && (
       <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
         <ReactionButton
-          currentUserReactions={finalMyReaction || undefined}
-          reactionCount={finalReactionCount}
-          onReact={handleReactClick}
-          isGuest={!currentUser}
-        />
+  currentUserReactions={musicMyReaction || undefined}
+  reactionCount={musicReactionsCount || 0}
+  onReact={(type) => {
+    console.log('🔍 FEED MUSIC REACT CLICK:', {
+      type,
+      hasMusicTrack: !!musicTrack,
+      musicTrackId: musicTrack?.id,
+      hasSong: !!song,
+      songId: songId,
+      songTitle: song?.title,
+      isMusic,
+      isPodcast,
+      postId: p?.id,
+      musicMyReaction,
+      musicReactionsCount,
+    });
+
+    if (musicTrack) {
+      console.log('✅ Using musicTrack prop');
+      onMusicReact?.(musicTrack, type);
+    } else if (song && songId) {
+      const track: AudioTrack = {
+        id: String(songId),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || '',
+        uploaderId: Number(song.uploader_id || 0),
+        cover: song.cover_image_url || '',
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      };
+      console.log('✅ Built track from song:', track);
+      onMusicReact?.(track, type);
+    } else {
+      console.error('❌ Cannot react - no track data available');
+    }
+  }}
+  isGuest={!currentUser}
+/>
+      
         <button
           type="button"
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
