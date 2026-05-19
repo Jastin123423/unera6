@@ -6574,45 +6574,74 @@ const handleReactClick = async (type: ReactionType) => {
     </div>
 
     {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
+
     {!isMusic && !isPodcast && (
-      <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-        <ReactionButton
-      currentUserReactions={finalMyReaction}
-      reactionCount={finalReactionCount}
-      onReact={(type) => onReact(p, type)}
+  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+    <ReactionButton
+      currentUserReactions={
+        // If post has song data, use music reaction; otherwise use post reaction
+        song 
+          ? (musicMyReaction || undefined)
+          : finalMyReaction
+      }
+      reactionCount={
+        song 
+          ? (musicReactionsCount || 0)
+          : finalReactionCount
+      }
+      onReact={(type) => {
+        if (song) {
+          // Has song data → route to music table
+          const track: AudioTrack = {
+            id: String(song.id || songId || p?.id),
+            title: song.title || 'Untitled',
+            artist: song.artist_name || 'Unknown',
+            duration: song.duration_seconds || 180,
+            url: song.audio_url || '',
+            uploaderId: Number(song.uploader_id || p?.user_id || 0),
+            cover: song.cover_image_url || '',
+            type: 'music',
+            isVerified: false,
+            likesCount: 0,
+          };
+          onMusicReact?.(track, type);
+        } else {
+          // Regular post → route to post table
+          onReact(p, type);
+        }
+      }}
       isGuest={!currentUser}
-/>
-      
-        <button
-          type="button"
-          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleOpenComments(e);
-          }}
-        >
-          <DiscussSignalIcon size={28} color="#1877F2" />
-          <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-            Discuss
-          </span>
-        </button>
-        <button
-          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-          onClick={() => {
-            if (!currentUser) {
-              alert('Please login to share posts.');
-              return;
-            }
-            setShowShareSheet(true);
-          }}
-        >
-          <i className="fas fa-share text-[22px]"></i>
-          <span className="text-[19px] font-bold">Share</span>
-        </button>
-        {pushButton && <div className="ml-2">{pushButton}</div>}
-      </div>
-    )}
+    />
+    <button
+      type="button"
+      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleOpenComments(e);
+      }}
+    >
+      <DiscussSignalIcon size={28} color="#1877F2" />
+      <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+        Discuss
+      </span>
+    </button>
+    <button
+      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+      onClick={() => {
+        if (!currentUser) {
+          alert('Please login to share posts.');
+          return;
+        }
+        setShowShareSheet(true);
+      }}
+    >
+      <i className="fas fa-share text-[22px]"></i>
+      <span className="text-[19px] font-bold">Share</span>
+    </button>
+    {pushButton && <div className="ml-2">{pushButton}</div>}
+  </div>
+)}                                              
   </>
 )}
 
