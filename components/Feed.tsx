@@ -6156,17 +6156,32 @@ const handleReactClick = async (type: ReactionType) => {
           {isMusic ? song?.artist_name : podcast?.description}
         </div>
       </div>
-
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenAudio?.(isMusic ? song : podcast);
-        }}
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
-      >
-        Play
-      </button>
+<button
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation();
+    // Build proper AudioTrack from song data
+    if (isMusic && song) {
+      onPlayAudioTrack?.({
+        id: String(song.id || p?.id),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || p?.audio_url || '',
+        cover: song.cover_image_url || '',
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      });
+    } else if (podcast) {
+      onPlayAudioTrack?.(podcast);
+    }
+  }}
+  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+>
+  Play
+</button>
     </div>
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
