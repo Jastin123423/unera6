@@ -3634,12 +3634,25 @@ const handleFeedMusicReact = useCallback(async (track: AudioTrack, type: Reactio
 const feedMusicReactions = useMemo(() => {
   const map: Record<string, { myReaction?: ReactionType; count: number }> = {};
   
+  let postsWithMusic = 0;
+  let postsWithReactions = 0;
+  
   posts.forEach(post => {
     const songId = post.meta?.song?.id || post.song?.id;
     if (songId) {
+      postsWithMusic++;
       const trackKey = `music:${songId}`;
       const trackReaction = trackReactions[trackKey];
+      
+      console.log(`🔍 [FeedReactions] Post ${post.id}:`, {
+        songId,
+        trackKey,
+        hasReaction: !!trackReaction,
+        trackReaction
+      });
+      
       if (trackReaction) {
+        postsWithReactions++;
         map[String(post.id)] = {
           myReaction: trackReaction.myReaction,
           count: trackReaction.count
@@ -3647,6 +3660,10 @@ const feedMusicReactions = useMemo(() => {
       }
     }
   });
+  
+  console.log(`📊 [FeedReactions] Map built: ${postsWithMusic} music posts, ${postsWithReactions} with reactions, ${Object.keys(map).length} entries`);
+  console.log('📊 [FeedReactions] Final map:', map);
+  console.log('📊 [FeedReactions] trackReactions state:', trackReactions);
   
   return map;
 }, [posts, trackReactions]);
