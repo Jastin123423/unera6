@@ -490,7 +490,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     `;
 
 
-
 // ============================================================
 // 2) SONGS
 // ============================================================
@@ -553,19 +552,8 @@ const baseSelectSongs = `
 
     NULL AS media_url,
     NULL AS media_type,
-
-    CASE
-      WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
-      THEN json_array(s.cover_image_url)
-      ELSE NULL
-    END AS media_urls,
-
-    CASE
-      WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
-      THEN json_array('image')
-      ELSE NULL
-    END AS media_types,
-
+    NULL AS media_urls,
+    NULL AS media_types,
     NULL AS media_meta,
 
     (SELECT COUNT(*) FROM song_comments sc WHERE sc.song_id = s.id) AS comments_count,
@@ -683,7 +671,9 @@ const baseSelectSongs = `
   FROM songs s
   LEFT JOIN users u ON u.id = s.uploader_id
 `;
-  
+
+
+    
     // ============================================================
     // 3) PODCASTS
     // ============================================================
