@@ -6132,97 +6132,83 @@ const handleReactClick = async (type: ReactionType) => {
                   fontSizePx={23}
                 />
               </div>
-      )}
+            )}
+
 {(isMusic || isPodcast) && (
-  <div className="mx-3 md:mx-4 mb-3 rounded-2xl overflow-hidden relative">
-    {/* Full cover image as background */}
-    <div className="relative h-[200px] sm:h-[240px] w-full">
+  <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+    <div className="flex items-center gap-3 p-3">
       <img
-        src={isMusic ? (song?.cover_image_url || DEFAULT_MUSIC_COVER) : (podcast?.cover_image_url || DEFAULT_MUSIC_COVER)}
-        className="absolute inset-0 w-full h-full object-cover"
+        src={
+          (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
+          ''
+        }
+        className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
         alt=""
         onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = DEFAULT_MUSIC_COVER;
+          (e.currentTarget as HTMLImageElement).src = avatarFrom(a);
         }}
       />
-      
-      {/* Gradient overlay for readability */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-      
-      {/* Song info + Play button overlay at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-3">
-        {/* Mini cover thumbnail */}
-        <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border-2 border-white/20 shadow-lg">
-          <img
-            src={isMusic ? (song?.cover_image_url || DEFAULT_MUSIC_COVER) : (podcast?.cover_image_url || DEFAULT_MUSIC_COVER)}
-            className="w-full h-full object-cover"
-            alt=""
-          />
+      <div className="flex-1 overflow-hidden">
+        <div className="text-white font-bold text-[17px] truncate">
+          {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
         </div>
-        
-        {/* Title + Artist */}
-        <div className="flex-1 min-w-0">
-          <h3 className="text-white font-bold text-[17px] truncate leading-tight">
-            {isMusic ? (song?.title || 'Untitled') : (podcast?.title || 'Untitled')}
-          </h3>
-          <p className="text-white/80 text-[14px] truncate">
-            {isMusic ? (song?.artist_name || 'Unknown Artist') : (podcast?.description || '')}
-          </p>
+        <div className="text-[#B0B3B8] text-[14px] truncate">
+          {isMusic ? song?.artist_name : podcast?.description}
         </div>
-        
-        {/* Play Button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isMusic && song) {
-              onPlayAudioTrack?.({
-                id: String(song.id || p?.id),
-                title: song.title || 'Untitled',
-                artist: song.artist_name || 'Unknown',
-                duration: song.duration_seconds || 180,
-                url: song.audio_url || '',
-                cover: song.cover_image_url || DEFAULT_MUSIC_COVER,
-                uploaderId: Number(song.uploader_id || p?.user_id || 0),
-                type: 'music',
-                isVerified: false,
-                likesCount: 0,
-              });
-            } else if (podcast) {
-              onPlayAudioTrack?.(podcast);
-            }
-          }}
-          className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center flex-shrink-0 shadow-xl hover:scale-105 active:scale-95 transition-transform"
-        >
-          <i className="fas fa-play text-lg ml-0.5"></i>
-        </button>
       </div>
+<button
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation();
+    // Build proper AudioTrack from song data
+    if (isMusic && song) {
+      onPlayAudioTrack?.({
+        id: String(song.id || p?.id),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || p?.audio_url || '',
+        cover: song.cover_image_url || '',
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      });
+    } else if (podcast) {
+      onPlayAudioTrack?.(podcast);
+    }
+  }}
+  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+>
+  Play
+</button>
     </div>
     
-    {/* Reaction, Discuss, and Share buttons */}
-    <div className="bg-[#242526] px-2 py-1 flex items-center justify-between border-t border-white/10">
-      <ReactionButton
-        currentUserReactions={musicMyReaction || undefined}
-        reactionCount={musicReactionsCount || 0}
-        onReact={(type) => {
-          if (song) {
-            const track: AudioTrack = {
-              id: String(song.id || songId || p?.id),
-              title: song.title || 'Untitled',
-              artist: song.artist_name || 'Unknown',
-              duration: song.duration_seconds || 180,
-              url: song.audio_url || '',
-              uploaderId: Number(song.uploader_id || p?.user_id || 0),
-              cover: song.cover_image_url || DEFAULT_MUSIC_COVER,
-              type: 'music',
-              isVerified: false,
-              likesCount: 0,
-            };
-            onMusicReact?.(track, type);
-          }
-        }}
-        isGuest={!currentUser}
-      />
+    {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
+    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+     <ReactionButton
+  currentUserReactions={musicMyReaction || undefined}
+  reactionCount={musicReactionsCount || 0}
+  onReact={(type) => {
+    // ✅ Just use song data directly since we know it exists here
+    if (song) {
+      const track: AudioTrack = {
+        id: String(song.id || songId || p?.id),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || '',
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        cover: song.cover_image_url || '',
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      };
+      onMusicReact?.(track, type);
+    }
+  }}
+  isGuest={!currentUser}
+/>
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6233,7 +6219,9 @@ const handleReactClick = async (type: ReactionType) => {
         }}
       >
         <DiscussSignalIcon size={28} color="#1877F2" />
-        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">Discuss</span>
+        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+          Discuss
+        </span>
       </button>
       <button
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6252,7 +6240,6 @@ const handleReactClick = async (type: ReactionType) => {
     </div>
   </div>
 )}
-
 
 {isMarketplace ? (
   <>
