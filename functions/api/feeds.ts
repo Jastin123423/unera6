@@ -493,24 +493,6 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     // 2) SONGS
     // ============================================================
 
-    // ============================================================
-// 2) SONGS (UPDATED - uses song_reactions table + proper type/kind/meta)
-// ============================================================
-const whereSongs: string[] = [];
-const bindsSongs: any[] = [];
-
-if (cursor && cursor.trim()) {
-  whereSongs.push(`s.created_at < ?`);
-  bindsSongs.push(cursor.trim());
-}
-if (seen.length > 0) {
-  whereSongs.push(`s.id NOT IN (${seen.map(() => "?").join(",")})`);
-  bindsSongs.push(...seen);
-}
-
-const whereSongsSql = whereSongs.length
-  ? `WHERE ${whereSongs.join(" AND ")}`
-  : "";
 
 const baseSelectSongs = `
   SELECT
@@ -553,8 +535,9 @@ const baseSelectSongs = `
     0 AS views,
     0 AS shares,
 
-    s.audio_url AS media_url,
-    'audio/mpeg' AS media_type,
+    -- ✅ Set to NULL to avoid duplicate audio card
+    NULL AS media_url,
+    NULL AS media_type,
 
     CASE
       WHEN s.cover_image_url IS NOT NULL AND s.cover_image_url != ''
@@ -572,7 +555,6 @@ const baseSelectSongs = `
 
     (SELECT COUNT(*) FROM song_comments sc WHERE sc.song_id = s.id) AS comments_count,
 
-    -- ✅ UPDATED: Use song_reactions instead of song_likes
     (SELECT COUNT(*) FROM song_reactions sr WHERE sr.song_id = s.id) AS reactions_count,
     (SELECT sr.type FROM song_reactions sr WHERE sr.song_id = s.id AND sr.user_id = ? LIMIT 1) AS my_reaction,
 
@@ -642,7 +624,6 @@ const baseSelectSongs = `
     s.duration_seconds AS song_duration_seconds,
     s.genre AS song_genre,
 
-    -- ✅ UPDATED: Use song_reactions for likes count
     (SELECT COUNT(*) FROM song_reactions sr WHERE sr.song_id = s.id) AS song_likes_count,
     (
       (SELECT COUNT(*) FROM song_play_events spe WHERE spe.song_id = s.id)
@@ -662,7 +643,6 @@ const baseSelectSongs = `
     NULL AS interested_count,
     NULL AS my_rsvp_status,
 
-    -- ✅ UPDATED: Set proper type/kind/meta for music detection in Feed.tsx
     'music' AS type,
     'music' AS post_type,
     'music' AS kind,
@@ -694,7 +674,7 @@ const baseSelectSongs = `
   FROM songs s
   LEFT JOIN users u ON u.id = s.uploader_id
 `;
-  
+ 
   
     // ============================================================
     // 3) PODCASTS
