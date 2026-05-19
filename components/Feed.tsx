@@ -5782,12 +5782,23 @@ export const Post = memo(
     const [showReactionsSheet, setShowReactionsSheet] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
-const isMusic = meta?.kind === 'music' || meta?.type === 'music' || p?.type === 'music' || p?.item_type === 'music' || p?.kind === 'music' || !!(meta?.song || p?.song);
-const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast' || p?.type === 'podcast' || p?.item_type === 'podcast' || p?.kind === 'podcast';
-const song = meta?.song || p?.song;
-const podcast = meta?.podcast;
-const songId = song?.id || p?.song_id || meta?.song_id || p?.id;
+// Check all possible locations for music/podcast type
+const isMusic = meta?.kind === 'music' 
+  || meta?.type === 'music' 
+  || p?.type === 'music' 
+  || p?.item_type === 'music' 
+  || p?.kind === 'music' 
+  || !!(meta?.song || p?.song);  // Has song data = music
 
+const isPodcast = meta?.kind === 'podcast' 
+  || meta?.type === 'podcast' 
+  || p?.type === 'podcast' 
+  || p?.item_type === 'podcast' 
+  || p?.kind === 'podcast';
+
+const song = meta?.song || p?.song;
+const podcast = meta?.podcast || p?.podcast;
+const songId = song?.id || p?.song_id || meta?.song_id || p?.id;
     
 
 
