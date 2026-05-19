@@ -489,10 +489,24 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       LEFT JOIN users u ON u.id = p.user_id
     `;
 
-    // ============================================================
-    // 2) SONGS
-    // ============================================================
+// ============================================================
+// 2) SONGS (UPDATED - uses song_reactions table + proper type/kind/meta)
+// ============================================================
+const whereSongs: string[] = [];
+const bindsSongs: any[] = [];
 
+if (cursor && cursor.trim()) {
+  whereSongs.push(`s.created_at < ?`);
+  bindsSongs.push(cursor.trim());
+}
+if (seen.length > 0) {
+  whereSongs.push(`s.id NOT IN (${seen.map(() => "?").join(",")})`);
+  bindsSongs.push(...seen);
+}
+
+const whereSongsSql = whereSongs.length
+  ? `WHERE ${whereSongs.join(" AND ")}`
+  : "";
 
 const baseSelectSongs = `
   SELECT
@@ -535,7 +549,6 @@ const baseSelectSongs = `
     0 AS views,
     0 AS shares,
 
-    -- ✅ Set to NULL to avoid duplicate audio card
     NULL AS media_url,
     NULL AS media_type,
 
@@ -673,6 +686,31 @@ const baseSelectSongs = `
     NULL AS group_image
   FROM songs s
   LEFT JOIN users u ON u.id = s.uploader_id
+`;
+
+// ============================================================
+// RUN SONGS QUERIES (Fresh + Explore)
+// ============================================================
+const freshSongsRes = await env.DB.prepare(
+  `${baseSelectSongs} ${whereSongsSql} ORDER BY s.created_at DESC LIMIT ?`
+)
+  .bind(reactionUserId, ...bindsSongs, freshCount)
+  .all();
+const freshSongs = Array.isArray(freshSongsRes?.results)
+  ? freshSongsRes.results
+  : [];
+
+let exploreSongs: any[] = [];
+if (exploreCount > 0) {
+  const exploreSongsRes = await env.DB.prepare(
+    `${baseSelectSongs} ${whereSongsSql} ORDER BY RANDOM() LIMIT ?`
+  )
+    .bind(reactionUserId, ...bindsSongs, exploreCount)
+    .all();
+  exploreSongs = Array.isArray(exploreSongsRes?.results)
+    ? exploreSongsRes.results
+    : [];
+    
 `;
  
   
