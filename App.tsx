@@ -9949,9 +9949,10 @@ return (
   onPushMore={pushMore}
   pushedPosts={pushedPosts}
   
-  // ✅ ADDED THESE MUSIC REACTION PROPS:
-  musicReactions={trackReactions}
-  onMusicReact={handleMusicReact}
+  // ✅ MUSIC REACTION PROPS
+  musicReactions={feedMusicReactions}
+  onMusicReact={handleFeedMusicReact}
+  
   // =========================
   // Reels
   // =========================
