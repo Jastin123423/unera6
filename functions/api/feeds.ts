@@ -592,7 +592,8 @@ const freshSongs = Array.isArray(freshSongsRes?.results)
   ? freshSongsRes.results
   : [];
 
-// Explore songs
+
+ // Explore songs
 let exploreSongs: any[] = [];
 if (exploreCount > 0) {
   const exploreSongsRes = await env.DB.prepare(
@@ -605,8 +606,6 @@ if (exploreCount > 0) {
     : [];
 }
 
-`;
- 
   
     // ============================================================
     // 3) PODCASTS
