@@ -710,7 +710,7 @@ if (exploreCount > 0) {
   exploreSongs = Array.isArray(exploreSongsRes?.results)
     ? exploreSongsRes.results
     : [];
-    
+  }
 `;
  
   
