@@ -6164,21 +6164,21 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-    <ReactionButton
+<ReactionButton
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    // Build AudioTrack from song data if musicTrack prop is not provided
+    // ✅ FIX: Use musicTrack if available, otherwise build from song
     if (musicTrack) {
       onMusicReact?.(musicTrack, type);
-    } else if (song) {
+    } else if (song && songId) {
       const track: AudioTrack = {
-        id: String(song.id),
+        id: String(songId),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || 0),
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
@@ -6575,17 +6575,17 @@ const handleReactClick = async (type: ReactionType) => {
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    // Build AudioTrack from song data if musicTrack prop is not provided
+    // ✅ FIX: Use musicTrack if available, otherwise build from song
     if (musicTrack) {
       onMusicReact?.(musicTrack, type);
-    } else if (song) {
+    } else if (song && songId) {
       const track: AudioTrack = {
-        id: String(song.id),
+        id: String(songId),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || 0),
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
@@ -6596,6 +6596,7 @@ const handleReactClick = async (type: ReactionType) => {
   }}
   isGuest={!currentUser}
 />
+                      
         <button
           type="button"
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
