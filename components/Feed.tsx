@@ -8910,7 +8910,29 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
-  
+            
+// ✅ ADD MUSIC REACTION PROPS
+  musicMyReaction={musicReactions?.[post.id]?.myReaction}
+  musicReactionsCount={musicReactions?.[post.id]?.count || 0}
+  onMusicReact={(track, type) => onMusicReact?.(track, type)}
+  musicTrack={
+    // Build music track from post data if available
+    (post as any).meta?.song || (post as any).song
+      ? {
+          id: String(((post as any).meta?.song || (post as any).song).id),
+          title: ((post as any).meta?.song || (post as any).song).title || 'Untitled',
+          artist: ((post as any).meta?.song || (post as any).song).artist_name || 'Unknown',
+          duration: ((post as any).meta?.song || (post as any).song).duration_seconds || 180,
+          url: ((post as any).meta?.song || (post as any).song).audio_url || '',
+          uploaderId: Number(((post as any).meta?.song || (post as any).song).uploader_id || post.user_id || 0),
+          cover: ((post as any).meta?.song || (post as any).song).cover_image_url || '',
+          type: 'music' as const,
+          isVerified: false,
+          likesCount: 0,
+        }
+      : undefined
+  }
+            
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -8921,7 +8943,7 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
-            
+
     
 
             {showFirstPymk && (
