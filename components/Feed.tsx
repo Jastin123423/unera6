@@ -5784,71 +5784,73 @@ export const Post = memo(
 
       
 
-const isMusic = meta?.kind === 'music' || meta?.type === 'music';
-const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+      
+      
+      const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+    const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+    const song = meta?.song;
+    const podcast = meta?.podcast;
+    
 
-// ✅ FIXED: Get song from meta first, fallback to p.song
-const song = meta?.song || p?.song;
-const podcast = meta?.podcast;
-
-// ✅ FIXED: Get the correct song ID as string for reactions
+// ✅ ADDed THIS - Get the correct song ID for reactions
 const songId = isMusic 
-  ? String(song?.id || p?.song_id2 || p?.song_id || meta?.song_id || p?.id || '')
+  ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
   : null;
 
-const isGroupPost = !!(p?.group_id || p?.group);
-const groupId = Number(
-  p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
-);
-const groupName =
-  p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
-const group = p?.group || groups?.find((g) => g.id === groupId);
+      
+    const isGroupPost = !!(p?.group_id || p?.group);
+    const groupId = Number(
+      p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
+    );
+    const groupName =
+      p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
+    const group = p?.group || groups?.find((g) => g.id === groupId);
 
-const myReaction = p.myReaction ?? p.my_reaction ?? null;
-const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+    const myReaction = p.myReaction ?? p.my_reaction ?? null;
+ const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+      
 
-const reactionsArr: any[] = Array.isArray(p.reactions)
-  ? p.reactions
-  : Array.isArray(p.reactions_preview)
-  ? p.reactions_preview
-  : [];
+    const reactionsArr: any[] = Array.isArray(p.reactions)
+      ? p.reactions
+      : Array.isArray(p.reactions_preview)
+      ? p.reactions_preview
+      : [];
 
-const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
+    const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
 
-const finalMyReaction: ReactionType | undefined =
-  myReaction ||
-  (currentUser && reactionsArr.length
-    ? (reactionsArr.find(
-        (r: any) => Number(r.user_id) === safeUserId(currentUser)
-      )?.type as ReactionType)
-    : undefined);
+    const finalMyReaction: ReactionType | undefined =
+      myReaction ||
+      (currentUser && reactionsArr.length
+        ? (reactionsArr.find(
+            (r: any) => Number(r.user_id) === safeUserId(currentUser)
+          )?.type as ReactionType)
+        : undefined);
 
-const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
+    const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
 
-const [commentCount, setCommentCount] = useState(() => {
-  if (typeof p.comments_count === 'number') return p.comments_count;
-  if (Array.isArray(p.comments)) return p.comments.length;
-  return 0;
-});
+    const [commentCount, setCommentCount] = useState(() => {
+      if (typeof p.comments_count === 'number') return p.comments_count;
+      if (Array.isArray(p.comments)) return p.comments.length;
+      return 0;
+    });
 
-const [shareCount, setShareCount] = useState(() =>
-  safeNumber(p.shares ?? p.shares_count, 0)
-);
+    const [shareCount, setShareCount] = useState(() =>
+      safeNumber(p.shares ?? p.shares_count, 0)
+    );
 
-const createdAtLabel = formatRelativeTime(p.created_at);
-const postId = getFeedItemId(p);
+    const createdAtLabel = formatRelativeTime(p.created_at);
+    const postId = getFeedItemId(p);
 
-const mediaInfo = getMediaTypeInfo(p);
-const mediaList = useMemo(() => getPostMediaList(p), [p]);
-const imageMedia = mediaList.filter((m) => m.kind === 'image');
-const videoMedia = mediaList.filter((m) => m.kind === 'video');
+    const mediaInfo = getMediaTypeInfo(p);
+    const mediaList = useMemo(() => getPostMediaList(p), [p]);
+    const imageMedia = mediaList.filter((m) => m.kind === 'image');
+    const videoMedia = mediaList.filter((m) => m.kind === 'video');
 
-const formatCount = (count: number): string => {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-  return count.toString();
-};
-
+    const formatCount = (count: number): string => {
+      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+      return count.toString();
+    };
 
     const emojiList = useMemo(() => {
       if (reactionsArr.length > 0) {
@@ -6164,30 +6166,16 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-<ReactionButton
+    <ReactionButton
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    console.log('🔍 FEED MUSIC REACT CLICK:', {
-      type,
-      hasMusicTrack: !!musicTrack,
-      musicTrackId: musicTrack?.id,
-      hasSong: !!song,
-      songId: songId,
-      songTitle: song?.title,
-      isMusic,
-      isPodcast,
-      postId: p?.id,
-      musicMyReaction,
-      musicReactionsCount,
-    });
-
+    // Build AudioTrack from song data if musicTrack prop is not provided
     if (musicTrack) {
-      console.log('✅ Using musicTrack prop');
       onMusicReact?.(musicTrack, type);
-    } else if (song && songId) {
+    } else if (song) {
       const track: AudioTrack = {
-        id: String(songId),
+        id: String(song.id),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
@@ -6198,10 +6186,7 @@ const handleReactClick = async (type: ReactionType) => {
         isVerified: false,
         likesCount: 0,
       };
-      console.log('✅ Built track from song:', track);
       onMusicReact?.(track, type);
-    } else {
-      console.error('❌ Cannot react - no track data available');
     }
   }}
   isGuest={!currentUser}
@@ -6588,31 +6573,16 @@ const handleReactClick = async (type: ReactionType) => {
     {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
     {!isMusic && !isPodcast && (
       <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-
-          <ReactionButton
+<ReactionButton
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    console.log('🔍 FEED MUSIC REACT CLICK:', {
-      type,
-      hasMusicTrack: !!musicTrack,
-      musicTrackId: musicTrack?.id,
-      hasSong: !!song,
-      songId: songId,
-      songTitle: song?.title,
-      isMusic,
-      isPodcast,
-      postId: p?.id,
-      musicMyReaction,
-      musicReactionsCount,
-    });
-
+    // Build AudioTrack from song data if musicTrack prop is not provided
     if (musicTrack) {
-      console.log('✅ Using musicTrack prop');
       onMusicReact?.(musicTrack, type);
-    } else if (song && songId) {
+    } else if (song) {
       const track: AudioTrack = {
-        id: String(songId),
+        id: String(song.id),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
@@ -6623,14 +6593,11 @@ const handleReactClick = async (type: ReactionType) => {
         isVerified: false,
         likesCount: 0,
       };
-      console.log('✅ Built track from song:', track);
       onMusicReact?.(track, type);
-    } else {
-      console.error('❌ Cannot react - no track data available');
     }
   }}
   isGuest={!currentUser}
-/>            
+/>
         <button
           type="button"
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
