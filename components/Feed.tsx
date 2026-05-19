@@ -6168,8 +6168,22 @@ const handleReactClick = async (type: ReactionType) => {
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    // ✅ FIX: Use musicTrack if available, otherwise build from song
+    console.log('🔍 FEED MUSIC REACT CLICK:', {
+      type,
+      hasMusicTrack: !!musicTrack,
+      musicTrackId: musicTrack?.id,
+      hasSong: !!song,
+      songId: songId,
+      songTitle: song?.title,
+      isMusic,
+      isPodcast,
+      postId: p?.id,
+      musicMyReaction,
+      musicReactionsCount,
+    });
+
     if (musicTrack) {
+      console.log('✅ Using musicTrack prop');
       onMusicReact?.(musicTrack, type);
     } else if (song && songId) {
       const track: AudioTrack = {
@@ -6178,13 +6192,16 @@ const handleReactClick = async (type: ReactionType) => {
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        uploaderId: Number(song.uploader_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
         likesCount: 0,
       };
+      console.log('✅ Built track from song:', track);
       onMusicReact?.(track, type);
+    } else {
+      console.error('❌ Cannot react - no track data available');
     }
   }}
   isGuest={!currentUser}
@@ -6571,12 +6588,27 @@ const handleReactClick = async (type: ReactionType) => {
     {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
     {!isMusic && !isPodcast && (
       <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-<ReactionButton
+
+          <ReactionButton
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    // ✅ FIX: Use musicTrack if available, otherwise build from song
+    console.log('🔍 FEED MUSIC REACT CLICK:', {
+      type,
+      hasMusicTrack: !!musicTrack,
+      musicTrackId: musicTrack?.id,
+      hasSong: !!song,
+      songId: songId,
+      songTitle: song?.title,
+      isMusic,
+      isPodcast,
+      postId: p?.id,
+      musicMyReaction,
+      musicReactionsCount,
+    });
+
     if (musicTrack) {
+      console.log('✅ Using musicTrack prop');
       onMusicReact?.(musicTrack, type);
     } else if (song && songId) {
       const track: AudioTrack = {
@@ -6585,18 +6617,20 @@ const handleReactClick = async (type: ReactionType) => {
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        uploaderId: Number(song.uploader_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
         likesCount: 0,
       };
+      console.log('✅ Built track from song:', track);
       onMusicReact?.(track, type);
+    } else {
+      console.error('❌ Cannot react - no track data available');
     }
   }}
   isGuest={!currentUser}
-/>
-                      
+/>            
         <button
           type="button"
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
