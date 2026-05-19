@@ -3557,55 +3557,75 @@ const handleMusicReact = useCallback(async (track: AudioTrack, type: ReactionTyp
 // ============================================================================
 //====Feed-specific music reaction handler
 // ============================================================================
-
 const handleFeedMusicReact = useCallback(async (track: AudioTrack, type: ReactionType) => {
-  if (!track?.id) return;
+  console.log('🔍 [FeedReact] Called:', { trackId: track?.id, type, trackType: track?.type });
   
-  // Call the main music reaction handler (already exists)
+  if (!track?.id) {
+    console.error('❌ [FeedReact] No track ID - aborting');
+    return;
+  }
+  
+  // Call the main music reaction handler
+  console.log('📤 [FeedReact] Calling handleMusicReact...');
   await handleMusicReact(track, type);
+  console.log('✅ [FeedReact] handleMusicReact completed');
   
   const trackId = String(track.id);
   
   // Update posts that contain this music track
-  setPosts(prev => prev.map(post => {
-    if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
-      const currentReaction = post.musicReaction;
-      const currentCount = post.musicReactionsCount || 0;
-      const isRemoving = currentReaction === type;
-      const isChanging = currentReaction && currentReaction !== type;
-      const isNew = !currentReaction;
-      
-      return {
-        ...post,
-        musicReaction: isRemoving ? undefined : type,
-        musicReactionsCount: isRemoving 
-          ? Math.max(0, currentCount - 1)
-          : isNew 
-            ? currentCount + 1
-            : currentCount
-      };
-    }
-    return post;
-  }));
+  setPosts(prev => {
+    let updatedCount = 0;
+    const updated = prev.map(post => {
+      if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
+        updatedCount++;
+        const currentReaction = post.musicReaction;
+        const currentCount = post.musicReactionsCount || 0;
+        const isRemoving = currentReaction === type;
+        const isChanging = currentReaction && currentReaction !== type;
+        const isNew = !currentReaction;
+        
+        return {
+          ...post,
+          musicReaction: isRemoving ? undefined : type,
+          musicReactionsCount: isRemoving 
+            ? Math.max(0, currentCount - 1)
+            : isNew 
+              ? currentCount + 1
+              : currentCount
+        };
+      }
+      return post;
+    });
+    console.log(`📝 [FeedReact] Updated ${updatedCount} posts`);
+    return updated;
+  });
   
   // Update profile posts if they contain this music track
-  setProfilePosts(prev => prev.map(post => {
-    if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
-      const currentReaction = post.musicReaction;
-      const currentCount = post.musicReactionsCount || 0;
-      const isRemoving = currentReaction === type;
-      
-      return {
-        ...post,
-        musicReaction: isRemoving ? undefined : type,
-        musicReactionsCount: isRemoving 
-          ? Math.max(0, currentCount - 1)
-          : currentCount + 1
-      };
-    }
-    return post;
-  }));
+  setProfilePosts(prev => {
+    let updatedCount = 0;
+    const updated = prev.map(post => {
+      if (post.meta?.song?.id === trackId || post.song?.id === trackId) {
+        updatedCount++;
+        const currentReaction = post.musicReaction;
+        const currentCount = post.musicReactionsCount || 0;
+        const isRemoving = currentReaction === type;
+        
+        return {
+          ...post,
+          musicReaction: isRemoving ? undefined : type,
+          musicReactionsCount: isRemoving 
+            ? Math.max(0, currentCount - 1)
+            : currentCount + 1
+        };
+      }
+      return post;
+    });
+    console.log(`📝 [FeedReact] Updated ${updatedCount} profile posts`);
+    return updated;
+  });
 }, [handleMusicReact, setPosts, setProfilePosts]);
+
+
 
 // ============================================================================
 //=====Compute musicReactions map for Feed
