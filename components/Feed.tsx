@@ -5791,9 +5791,8 @@ const song = meta?.song || p?.song;
 const podcast = meta?.podcast;
 
 // ✅ FIXED: Get the correct song ID as string for reactions
-const songId = isMusic 
-  ? String(song?.id || p?.song_id2 || p?.song_id || meta?.song_id || p?.id || '')
-  : null;
+  const songId = song?.id || p?.song_id || meta?.song_id || p?.id;
+
 
 const isGroupPost = !!(p?.group_id || p?.group);
 const groupId = Number(
@@ -6168,40 +6167,21 @@ const handleReactClick = async (type: ReactionType) => {
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    console.log('🔍 FEED MUSIC REACT CLICK:', {
-      type,
-      hasMusicTrack: !!musicTrack,
-      musicTrackId: musicTrack?.id,
-      hasSong: !!song,
-      songId: songId,
-      songTitle: song?.title,
-      isMusic,
-      isPodcast,
-      postId: p?.id,
-      musicMyReaction,
-      musicReactionsCount,
-    });
-
-    if (musicTrack) {
-      console.log('✅ Using musicTrack prop');
-      onMusicReact?.(musicTrack, type);
-    } else if (song && songId) {
+    // ✅ Just use song data directly since we know it exists here
+    if (song) {
       const track: AudioTrack = {
-        id: String(songId),
+        id: String(song.id || songId || p?.id),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || 0),
+        uploaderId: Number(song.uploader_id || p?.user_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
         likesCount: 0,
       };
-      console.log('✅ Built track from song:', track);
       onMusicReact?.(track, type);
-    } else {
-      console.error('❌ Cannot react - no track data available');
     }
   }}
   isGuest={!currentUser}
