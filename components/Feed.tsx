@@ -5946,22 +5946,22 @@ const formatCount = (count: number): string => {
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-const handleReactClick = async (type: ReactionType) => {
+
+   const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
   
-  // Just pass to parent (App.tsx) - let it handle everything
-  if (onReact) {
+  // If onToggleGroupPostLike is provided and this is a group post, use it
+  if (onToggleGroupPostLike && isGroupPost) {
+    await onToggleGroupPostLike(postId, type);
+  } else if (onReact) {
+    // Otherwise use regular onReact
     onReact(p, type);
   }
-};
+};   
 
-      
-
-
-  
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
@@ -6536,39 +6536,11 @@ const handleReactClick = async (type: ReactionType) => {
 
     {!isMusic && !isPodcast && (
   <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+ 
     <ReactionButton
-      currentUserReactions={
-        // If post has song data, use music reaction; otherwise use post reaction
-        song 
-          ? (musicMyReaction || undefined)
-          : finalMyReaction
-      }
-      reactionCount={
-        song 
-          ? (musicReactionsCount || 0)
-          : finalReactionCount
-      }
-      onReact={(type) => {
-        if (song) {
-          // Has song data → route to music table
-          const track: AudioTrack = {
-            id: String(song.id || songId || p?.id),
-            title: song.title || 'Untitled',
-            artist: song.artist_name || 'Unknown',
-            duration: song.duration_seconds || 180,
-            url: song.audio_url || '',
-            uploaderId: Number(song.uploader_id || p?.user_id || 0),
-            cover: song.cover_image_url || '',
-            type: 'music',
-            isVerified: false,
-            likesCount: 0,
-          };
-          onMusicReact?.(track, type);
-        } else {
-          // Regular post → route to post table
-          onReact(p, type);
-        }
-      }}
+      currentUserReactions={finalMyReaction}
+      reactionCount={finalReactionCount}
+      onReact={handleReactClick}  // ✅ Use handleReactClick which checks for group posts
       isGuest={!currentUser}
     />
     <button
