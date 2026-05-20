@@ -1340,6 +1340,13 @@ export const GlobalAudioPlayer: React.FC<GlobalAudioPlayerProps> = ({
     return () => el.removeEventListener("playing", onPlaying);
   }, [currentTrack, onStarted]);
 
+// Auto-expand when track changes from external source (like Feed)
+useEffect(() => {
+  if (currentTrack && isPlaying) {
+    setExpanded(true);
+  }
+}, [currentTrack?.id]);
+       
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
