@@ -5519,6 +5519,7 @@ export const ReactionButton = memo(
       prev.currentUserReactions === next.currentUserReactions &&
       prev.reactionCount === next.reactionCount &&
       prev.isGuest === next.isGuest
+      prev.onReact === next.onReact
     );
   }
 );
