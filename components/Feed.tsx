@@ -5518,21 +5518,16 @@ export const ReactionButton = memo(
     return (
       prev.currentUserReactions === next.currentUserReactions &&
       prev.reactionCount === next.reactionCount &&
-      prev.isGuest === next.isGuest &&
-      prev.onReact === next.onReact  // ✅ ADD THIS LINE
+      prev.isGuest === next.isGuest
     );
   }
 );
-
-      
-      
 
 /**
  * =========================
  * ✅ MAIN POST COMPONENT (with integrated Facebook-style sponsored support)
  * =========================
  */
-
 export const Post = memo(
   ({
     post,
@@ -5565,11 +5560,6 @@ export const Post = memo(
     onHide,
     pushButton,
     onToggleGroupPostLike,
-    // ✅ ADD THESE THREE PROPS:
-    musicMyReaction,
-    musicReactionsCount,
-    onMusicReact,
-    musicTrack,
   }: {
     post: PostType;
     author: User | any;
@@ -5577,40 +5567,64 @@ export const Post = memo(
     users?: User[];
 
     onProfileClick: (id: number) => void;
+
     onReact: (post: PostType, type: ReactionType) => void;
+
     onShare: (id: number, newShareCount: number) => void;
+
     onDelete?: (id: number) => void;
+
     onEdit?: (id: number, content: string) => void;
+
     onViewImage: (url: string) => void;
+
     onOpenComments: (post: PostType) => void;
+
     onVideoClick: (p: PostType) => void;
+
     onPlayAudioTrack?: (t: AudioTrack) => void;
+
     onHashtagClick?: (tag: string) => void;
+
     onViewProductFromPost?: (productId: number) => void;
+
     onOpenGroup?: (groupId: number) => void;
+
     onOpenAudio?: (item: any) => void;
-    onRSVP?: (eventId: number, status: 'going' | 'interested' | 'not_going') => Promise<void>;
+
+    onRSVP?: (
+      eventId: number,
+      status: 'going' | 'interested' | 'not_going'
+    ) => Promise<void>;
+
     groups?: Group[];
+
     brands?: Brand[];
+
     chats?: any[];
+
     isFollowing?: boolean;
+
     onFollow?: (id: number) => void;
+
     followLoading?: boolean;
+
     onEventClick?: (eventId: number) => void;
+
     onOpenReactions?: (post: PostType) => void;
+
     onReport?: (postId: number, reason?: string) => void;
+
     onHide?: (postId: number) => void;
+
     pushButton?: React.ReactNode;
-    onToggleGroupPostLike?: (postId: number, type?: ReactionType) => Promise<{ liked: boolean; likes_count: number } | void>;
-    
-    // ✅ ADD THESE TYPE DEFINITIONS:
-    musicMyReaction?: ReactionType;
-    musicReactionsCount?: number;
-    onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
-    musicTrack?: AudioTrack;
+
+    onToggleGroupPostLike?: (
+      postId: number,
+      type?: ReactionType
+    ) => Promise<{ liked: boolean; likes_count: number } | void>;
   }) => {
 
-    console.log('Post component received onReact:', typeof onReact);
                                                                                                      
     const { onViewProduct, getProductData } = useContext(MarketplaceContext);
     const p: any = post as any;
@@ -5786,80 +5800,71 @@ export const Post = memo(
     const [showReactionsSheet, setShowReactionsSheet] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
-// Check all possible locations for music/podcast type
-const isMusic = meta?.kind === 'music' 
-  || meta?.type === 'music' 
-  || p?.type === 'music' 
-  || p?.item_type === 'music' 
-  || p?.kind === 'music' 
-  || !!(meta?.song || p?.song);  // Has song data = music
-
-const isPodcast = meta?.kind === 'podcast' 
-  || meta?.type === 'podcast' 
-  || p?.type === 'podcast' 
-  || p?.item_type === 'podcast' 
-  || p?.kind === 'podcast';
-
-const song = meta?.song || p?.song;
-const podcast = meta?.podcast || p?.podcast;
-const songId = song?.id || p?.song_id || meta?.song_id || p?.id;
+    const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+    const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+    const song = meta?.song;
+    const podcast = meta?.podcast;
     
 
+// ✅ ADDed THIS - Get the correct song ID for reactions
+const songId = isMusic 
+  ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
+  : null;
 
-const isGroupPost = !!(p?.group_id || p?.group);
-const groupId = Number(
-  p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
-);
-const groupName =
-  p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
-const group = p?.group || groups?.find((g) => g.id === groupId);
+      
+    const isGroupPost = !!(p?.group_id || p?.group);
+    const groupId = Number(
+      p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
+    );
+    const groupName =
+      p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
+    const group = p?.group || groups?.find((g) => g.id === groupId);
 
-const myReaction = p.myReaction ?? p.my_reaction ?? null;
-const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+    const myReaction = p.myReaction ?? p.my_reaction ?? null;
+ const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+      
 
-const reactionsArr: any[] = Array.isArray(p.reactions)
-  ? p.reactions
-  : Array.isArray(p.reactions_preview)
-  ? p.reactions_preview
-  : [];
+    const reactionsArr: any[] = Array.isArray(p.reactions)
+      ? p.reactions
+      : Array.isArray(p.reactions_preview)
+      ? p.reactions_preview
+      : [];
 
-const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
+    const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
 
-const finalMyReaction: ReactionType | undefined =
-  myReaction ||
-  (currentUser && reactionsArr.length
-    ? (reactionsArr.find(
-        (r: any) => Number(r.user_id) === safeUserId(currentUser)
-      )?.type as ReactionType)
-    : undefined);
+    const finalMyReaction: ReactionType | undefined =
+      myReaction ||
+      (currentUser && reactionsArr.length
+        ? (reactionsArr.find(
+            (r: any) => Number(r.user_id) === safeUserId(currentUser)
+          )?.type as ReactionType)
+        : undefined);
 
-const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
+    const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
 
-const [commentCount, setCommentCount] = useState(() => {
-  if (typeof p.comments_count === 'number') return p.comments_count;
-  if (Array.isArray(p.comments)) return p.comments.length;
-  return 0;
-});
+    const [commentCount, setCommentCount] = useState(() => {
+      if (typeof p.comments_count === 'number') return p.comments_count;
+      if (Array.isArray(p.comments)) return p.comments.length;
+      return 0;
+    });
 
-const [shareCount, setShareCount] = useState(() =>
-  safeNumber(p.shares ?? p.shares_count, 0)
-);
+    const [shareCount, setShareCount] = useState(() =>
+      safeNumber(p.shares ?? p.shares_count, 0)
+    );
 
-const createdAtLabel = formatRelativeTime(p.created_at);
-const postId = getFeedItemId(p);
+    const createdAtLabel = formatRelativeTime(p.created_at);
+    const postId = getFeedItemId(p);
 
-const mediaInfo = getMediaTypeInfo(p);
-const mediaList = useMemo(() => getPostMediaList(p), [p]);
-const imageMedia = mediaList.filter((m) => m.kind === 'image');
-const videoMedia = mediaList.filter((m) => m.kind === 'video');
+    const mediaInfo = getMediaTypeInfo(p);
+    const mediaList = useMemo(() => getPostMediaList(p), [p]);
+    const imageMedia = mediaList.filter((m) => m.kind === 'image');
+    const videoMedia = mediaList.filter((m) => m.kind === 'video');
 
-const formatCount = (count: number): string => {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-  return count.toString();
-};      
-
-
+    const formatCount = (count: number): string => {
+      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+      return count.toString();
+    };
 
     const emojiList = useMemo(() => {
       if (reactionsArr.length > 0) {
@@ -5927,7 +5932,6 @@ const formatCount = (count: number): string => {
         setCommentCount(newCommentCount);
       }
 
-
       const newShareCount = safeNumber(p.shares ?? p.shares_count, 0);
       if (newShareCount !== shareCount) {
         setShareCount(newShareCount);
@@ -5950,6 +5954,7 @@ const formatCount = (count: number): string => {
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
+
       
 const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
@@ -5957,14 +5962,57 @@ const handleReactClick = async (type: ReactionType) => {
     return;
   }
   
-  if (onToggleGroupPostLike && isGroupPost) {
-    // ✅ Use group_post_id for group posts from feed
-    const groupPostId = p?.group_post_id || postId;
-    await onToggleGroupPostLike(groupPostId, type);
-  } else if (onReact) {
-    onReact(p, type);
+  // Check if this is a music post
+  const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
+  const songId = isMusicPost 
+    ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
+    : null;
+  
+  // If it's a music post, handle directly here
+  if (isMusicPost && songId) {
+    try {
+      // Optimistic update - update local state immediately
+      const newMyReaction = finalMyReaction === type ? null : type;
+      const newCount = finalMyReaction === type 
+        ? Math.max(0, finalReactionCount - 1)
+        : finalMyReaction 
+          ? finalReactionCount
+          : finalReactionCount + 1;
+      
+      // Update local state optimistically
+      setMyReaction(newMyReaction);
+      setReactionsCount(newCount);
+      
+      // Make API call
+      const endpoint = `/api/songs/${songId}/react`;
+      const result = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          user_id: safeUserId(currentUser), 
+          type: type,
+          song_id: songId 
+        }),
+      });
+      
+      // Update with server response
+      if (result) {
+        setMyReaction(result.my_reaction || null);
+        setReactionsCount(result.reactions_count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to react to music:', error);
+      // Revert optimistic update on error
+      setMyReaction(finalMyReaction);
+      setReactionsCount(finalReactionCount);
+      alert('Failed to react. Please try again.');
+    }
+    return;
   }
+  
+  // Regular post reaction - pass to parent
+  onReact?.(p, type);
 };
+      
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
@@ -6136,6 +6184,9 @@ const handleReactClick = async (type: ReactionType) => {
                 />
               </div>
             )}
+
+
+   
 {(isMusic || isPodcast) && (
   <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
     <div className="flex items-center gap-3 p-3">
@@ -6146,9 +6197,6 @@ const handleReactClick = async (type: ReactionType) => {
         }
         className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
         alt=""
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = avatarFrom(a);
-        }}
       />
       <div className="flex-1 overflow-hidden">
         <div className="text-white font-bold text-[17px] truncate">
@@ -6158,141 +6206,27 @@ const handleReactClick = async (type: ReactionType) => {
           {isMusic ? song?.artist_name : podcast?.description}
         </div>
       </div>
+
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (isMusic && song) {
-            onPlayAudioTrack?.({
-              id: String(song.id || p?.id),
-              title: song.title || 'Untitled',
-              artist: song.artist_name || 'Unknown',
-              duration: song.duration_seconds || 180,
-              url: song.audio_url || p?.audio_url || '',
-              cover: song.cover_image_url || '',
-              uploaderId: Number(song.uploader_id || p?.user_id || 0),
-              type: 'music',
-              isVerified: false,
-              likesCount: 0,
-            });
-          } else if (podcast) {
-            onPlayAudioTrack?.(podcast);
-          }
+          onOpenAudio?.(isMusic ? song : podcast);
         }}
         className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
       >
         Play
       </button>
     </div>
-  </div>
-)}
-
-
-{isMarketplace ? (
-  <>
-    {marketplaceGridData.mediaForGrid.length > 0 && (
-      <div className="w-full">
-        <div className="w-full bg-black">
-          <MediaGrid
-            media={marketplaceGridData.mediaForGrid}
-            onOpen={(url, index) => {
-              openGallery(marketplaceGridData.galleryUrls, index);
-            }}
-          />
-        </div>
-      </div>
-    )}
-
-    {price && (
-      <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
-        <div className="flex items-center gap-1">
-          <span className="text-[#E4E6EB] text-[19px] font-bold">
-            {currency}
-          </span>
-          <span className="text-[#E4E6EB] text-[22px] font-bold">
-            {price}
-          </span>
-        </div>
-
-        <button
-          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (productId) onViewProduct?.(productId);
-          }}
-        >
-          View product
-        </button>
-      </div>
-    )}
-
-    {shouldShowSponsoredButton && (
-      <div className="px-3 pt-2 pb-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSponsoredClick();
-          }}
-          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
-        >
-          {sponsoredCtaText}
-        </button>
-      </div>
-    )}
-
-    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-      <div className="flex items-center gap-2">
-        {finalReactionCount > 0 && (
-          <div
-            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenReactionsSheet();
-            }}
-          >
-            <div className="flex -space-x-2">
-              {emojiList.slice(0, 2).map((e, i) => (
-                <span
-                  key={i}
-                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                  style={{ zIndex: 10 - i }}
-                >
-                  {e}
-                </span>
-              ))}
-            </div>
-
-            {reactionText && (
-              <span className="text-[17px] text-[#E4E6EB] font-bold">
-                {reactionText}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-4">
-        <span
-          className="hover:underline cursor-pointer text-[16px]"
-          onClick={() => handleOpenComments()}
-        >
-          {formatCount(commentCount)} Discussions
-        </span>
-        {shareCount > 0 && (
-          <span className="hover:underline text-[16px]">
-            {formatCount(shareCount)} Shares
-          </span>
-        )}
-      </div>
-    </div>
-
+    
+    {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-      <ReactionButton
-        currentUserReactions={finalMyReaction || undefined}
-        reactionCount={finalReactionCount}
-        onReact={handleReactClick}
-        isGuest={!currentUser}
-      />
+     <ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
+  reactionCount={finalReactionCount}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+/>
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6322,314 +6256,452 @@ const handleReactClick = async (type: ReactionType) => {
       </button>
       {pushButton && <div className="ml-2">{pushButton}</div>}
     </div>
-  </>
-) : (
-  <>
-    {!p.background && imageMedia.length > 0 && (
-      <MediaGrid
-        media={imageMedia.map((m) => ({
-          url: m.feed || m.url,
-          thumb: m.thumb || m.url,
-          feed: m.feed || m.url,
-          full: m.full || m.feed || m.url,
-        }))}
-        onOpen={(url, index) => {
-          const urls = imageMedia.map((m) => m.full || m.feed || m.url);
-          openGallery(urls, index);
-        }}
-      />
-    )}
-
-    {!p.background && videoMedia.length > 0 && (
-      <div
-        className="cursor-pointer relative h-[500px] bg-black"
-        onClick={() => onVideoClick(post)}
-      >
-        <video
-          src={videoMedia[0].url}
-          className="w-full h-full object-cover"
-          preload="metadata"
-          playsInline
-          muted
-          onError={(e) => {
-            console.error('Failed to load video:', videoMedia[0].url);
-            e.currentTarget.style.display = 'none';
-          }}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <i className="fas fa-play text-white text-4xl opacity-50"></i>
-        </div>
-      </div>
-    )}
-
-    {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
-      <div className="my-3">
-        {(() => {
-          const cover =
-            (p as any).song_cover_image_url ||
-            imageMedia?.[0]?.url ||
-            a.profile_image_url;
-
-          const titleText = p.content || 'Audio';
-          const artistText =
-            (p as any).song_artist_name || a.name || 'Unknown';
-
-          return (
-            <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
-              {cover ? (
-                <div className="relative">
-                  <img
-                    src={cover}
-                    alt="Cover"
-                    className="w-full h-[260px] md:h-[320px] object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      const img = e.currentTarget as HTMLImageElement;
-                      if (
-                        a.profile_image_url &&
-                        img.src !== a.profile_image_url
-                      ) {
-                        img.src = a.profile_image_url;
-                      }
-                    }}
-                  />
-
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-
-                  <div className="absolute left-3 right-3 bottom-3">
-                    <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
-                          <img
-                            src={cover}
-                            alt="Mini cover"
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[#E4E6EB] font-bold text-[17px]">
-                            Audio Track
-                          </div>
-                          <div className="text-[#B0B3B8] text-[15px] truncate">
-                            {titleText}
-                          </div>
-                          <div className="text-[#B0B3B8] text-[14px] truncate">
-                            {artistText}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() =>
-                            onPlayAudioTrack!({
-                              id: postId,
-                              title: titleText,
-                              artist: artistText,
-                              url: mediaInfo.mediaUrl,
-                              duration: 0,
-                              coverImage: cover || a.profile_image_url,
-                            })
-                          }
-                          className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
-                        >
-                          <i className="fas fa-play mr-1"></i> Play
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 bg-[#3A3B3C]">
-                  <div className="flex items-center gap-3">
-                    <i className="fas fa-music text-[#1877F2] text-2xl"></i>
-                    <div className="flex-1">
-                      <div className="text-[#E4E6EB] font-bold text-[17px]">
-                        Audio Track
-                      </div>
-                      <div className="text-[#B0B3B8] text-[15px]">
-                        {p.content || 'Listen to audio'}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() =>
-                        onPlayAudioTrack!({
-                          id: postId,
-                          title: titleText,
-                          artist: artistText,
-                          url: mediaInfo.mediaUrl,
-                          duration: 0,
-                          coverImage: a.profile_image_url,
-                        })
-                      }
-                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
-                    >
-                      <i className="fas fa-play mr-1"></i> Play
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-      </div>
-    )}
-
-    {shouldShowSponsoredButton && (
-      <div className="px-3 pt-2 pb-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSponsoredClick();
-          }}
-          className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
-        >
-          {sponsoredCtaText}
-        </button>
-      </div>
-    )}
-
-    <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
-      <div className="flex items-center gap-2">
-        {finalReactionCount > 0 && (
-          <div
-            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenReactionsSheet();
-            }}
-          >
-            <div className="flex -space-x-2">
-              {emojiList.slice(0, 2).map((e, i) => (
-                <span
-                  key={i}
-                  className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
-                  style={{ zIndex: 10 - i }}
-                >
-                  {e}
-                </span>
-              ))}
-            </div>
-
-            {reactionText && (
-              <span className="text-[17px] text-[#E4E6EB] font-bold">
-                {reactionText}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-4">
-        <span
-          className="hover:underline cursor-pointer text-[16px]"
-          onClick={() => handleOpenComments()}
-        >
-          {formatCount(commentCount)} Discussions
-        </span>
-        {shareCount > 0 && (
-          <span className="hover:underline text-[16px]">
-            {formatCount(shareCount)} Shares
-          </span>
-        )}
-      </div>
-    </div>
-
-    {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
-
-    {!isMusic && !isPodcast && (
-  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
- 
-    <ReactionButton
-      currentUserReactions={finalMyReaction}
-      reactionCount={finalReactionCount}
-      onReact={handleReactClick}  // ✅ Use handleReactClick which checks for group posts
-      isGuest={!currentUser}
-    />
-    <button
-      type="button"
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleOpenComments(e);
-      }}
-    >
-      <DiscussSignalIcon size={28} color="#1877F2" />
-      <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-        Discuss
-      </span>
-    </button>
-    <button
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={() => {
-        if (!currentUser) {
-          alert('Please login to share posts.');
-          return;
-        }
-        setShowShareSheet(true);
-      }}
-    >
-      <i className="fas fa-share text-[22px]"></i>
-      <span className="text-[19px] font-bold">Share</span>
-    </button>
-    {pushButton && <div className="ml-2">{pushButton}</div>}
   </div>
-)}                                              
-  </>
 )}
 
-{/* End of main content */}
-</div>
 
-<div className="h-[10px] bg-[#18191A] border-t border-white/10" />
-</div>
+    
+      
+            
+            {isMarketplace ? (
+              <>
+                {marketplaceGridData.mediaForGrid.length > 0 && (
+                  <div className="w-full">
+                    <div className="w-full bg-black">
+                      <MediaGrid
+                        media={marketplaceGridData.mediaForGrid}
+                        onOpen={(url, index) => {
+                          openGallery(marketplaceGridData.galleryUrls, index);
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-{/* Modals */}
-<ShareBottomSheet
-  isOpen={showShareSheet}
-  onClose={() => setShowShareSheet(false)}
-  post={{
-    ...p,
-    source: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-    item_type: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
-    product_id: productId,
-    group_id: groupId,
-  }}
-  currentUser={currentUser}
-  users={users}
-  groups={groups}
-  brands={brands}
-  chats={chats}
-  onShareComplete={handleShareComplete}
-/>
+                {price && (
+                  <div className="px-4 py-2 flex items-center justify-between border-t border-[#3E4042] mt-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[#E4E6EB] text-[19px] font-bold">
+                        {currency}
+                      </span>
+                      <span className="text-[#E4E6EB] text-[22px] font-bold">
+                        {price}
+                      </span>
+                    </div>
 
-<ReactionsSheet
-  isOpen={showReactionsSheet}
-  onClose={() => setShowReactionsSheet(false)}
-  post={post}
-  onProfileClick={onProfileClick}
-  onOpenComments={onOpenComments}
-/>
+                    <button
+                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-1.5 rounded-full font-bold text-[15px] transition-colors shadow-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (productId) onViewProduct?.(productId);
+                      }}
+                    >
+                      View product
+                    </button>
+                  </div>
+                )}
 
-<GalleryViewer
-  isOpen={galleryOpen}
-  urls={galleryUrls}
-  startIndex={galleryIndex}
-  onClose={() => setGalleryOpen(false)}
-  post={post}
-  currentUser={currentUser}
+                {shouldShowSponsoredButton && (
+                  <div className="px-3 pt-2 pb-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSponsoredClick();
+                      }}
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+                    >
+                      {sponsoredCtaText}
+                    </button>
+                  </div>
+                )}
+
+                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                  <div className="flex items-center gap-2">
+                    {finalReactionCount > 0 && (
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenReactionsSheet();
+                        }}
+                      >
+                        <div className="flex -space-x-2">
+                          {emojiList.slice(0, 2).map((e, i) => (
+                            <span
+                              key={i}
+                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                              style={{ zIndex: 10 - i }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
+
+                        {reactionText && (
+                          <span className="text-[17px] text-[#E4E6EB] font-bold">
+                            {reactionText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-4">
+                    <span
+                      className="hover:underline cursor-pointer text-[16px]"
+                      onClick={() => handleOpenComments()}
+                    >
+                      {formatCount(commentCount)} Discussions
+                    </span>
+                    {shareCount > 0 && (
+                      <span className="hover:underline text-[16px]">
+                        {formatCount(shareCount)} Shares
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                 
+<ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
   reactionCount={finalReactionCount}
-  commentCount={commentCount}
-  shareCount={shareCount}
-  myReaction={finalMyReaction}
-  onReact={(post, type) => onReact(post, type)}
-  onOpenComments={() => handleOpenComments()}
-  onShare={() => setShowShareSheet(true)}
-  onOpenReactions={handleOpenReactionsSheet}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+  postId={productId}
 />
-</>
-);
+                  
+                  <button
+                    type="button"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleOpenComments(e);
+                    }}
+                  >
+                    <DiscussSignalIcon size={28} color="#1877F2" />
+                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                      Discuss
+                    </span>
+                  </button>
+                  <button
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
+                  >
+                    <i className="fas fa-share text-[22px]"></i>
+                    <span className="text-[19px] font-bold">Share</span>
+                  </button>
+                  {pushButton && <div className="ml-2">{pushButton}</div>}
+                </div>
+              </>
+            ) : (
+              <>   
+                {!p.background && imageMedia.length > 0 && (
+                  <MediaGrid
+                    media={imageMedia.map((m) => ({
+                      url: m.feed || m.url,
+                      thumb: m.thumb || m.url,
+                      feed: m.feed || m.url,
+                      full: m.full || m.feed || m.url,
+                    }))}
+                    onOpen={(url, index) => {
+                      const urls = imageMedia.map((m) => m.full || m.feed || m.url);
+                      openGallery(urls, index);
+                    }}
+                  />
+                )}
+
+                {!p.background && videoMedia.length > 0 && (
+                  <div
+                    className="cursor-pointer relative h-[500px] bg-black"
+                    onClick={() => onVideoClick(post)}
+                  >
+                    <video
+                      src={videoMedia[0].url}
+                      className="w-full h-full object-cover"
+                      preload="metadata"
+                      playsInline
+                      muted
+                      onError={(e) => {
+                        console.error('Failed to load video:', videoMedia[0].url);
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <i className="fas fa-play text-white text-4xl opacity-50"></i>
+                    </div>
+                  </div>
+                )}
+
+                {!p.background && mediaInfo.mediaUrl && mediaInfo.isAudio && onPlayAudioTrack && (
+                  <div className="my-3">
+                    {(() => {
+                      const cover =
+                        (p as any).song_cover_image_url ||
+                        imageMedia?.[0]?.url ||
+                        a.profile_image_url;
+
+                      const titleText = p.content || 'Audio';
+                      const artistText =
+                        (p as any).song_artist_name || a.name || 'Unknown';
+
+                      return (
+                        <div className="rounded-lg overflow-hidden border border-[#3E4042] bg-[#3A3B3C]">
+                          {cover ? (
+                            <div className="relative">
+                              <img
+                                src={cover}
+                                alt="Cover"
+                                className="w-full h-[260px] md:h-[320px] object-cover"
+                                loading="lazy"
+                                onError={(e) => {
+                                  const img = e.currentTarget as HTMLImageElement;
+                                  if (
+                                    a.profile_image_url &&
+                                    img.src !== a.profile_image_url
+                                  ) {
+                                    img.src = a.profile_image_url;
+                                  }
+                                }}
+                              />
+
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+                              <div className="absolute left-3 right-3 bottom-3">
+                                <div className="p-3 rounded-lg bg-[#2F3031]/90 border border-[#3E4042] backdrop-blur-sm">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#2F3031] flex-shrink-0">
+                                      <img
+                                        src={cover}
+                                        alt="Mini cover"
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                      />
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[#E4E6EB] font-bold text-[17px]">
+                                        Audio Track
+                                      </div>
+                                      <div className="text-[#B0B3B8] text-[15px] truncate">
+                                        {titleText}
+                                      </div>
+                                      <div className="text-[#B0B3B8] text-[14px] truncate">
+                                        {artistText}
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() =>
+                                        onPlayAudioTrack!({
+                                          id: postId,
+                                          title: titleText,
+                                          artist: artistText,
+                                          url: mediaInfo.mediaUrl,
+                                          duration: 0,
+                                          coverImage: cover || a.profile_image_url,
+                                        })
+                                      }
+                                      className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors flex-shrink-0"
+                                    >
+                                      <i className="fas fa-play mr-1"></i> Play
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-[#3A3B3C]">
+                              <div className="flex items-center gap-3">
+                                <i className="fas fa-music text-[#1877F2] text-2xl"></i>
+                                <div className="flex-1">
+                                  <div className="text-[#E4E6EB] font-bold text-[17px]">
+                                    Audio Track
+                                  </div>
+                                  <div className="text-[#B0B3B8] text-[15px]">
+                                    {p.content || 'Listen to audio'}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() =>
+                                    onPlayAudioTrack!({
+                                      id: postId,
+                                      title: titleText,
+                                      artist: artistText,
+                                      url: mediaInfo.mediaUrl,
+                                      duration: 0,
+                                      coverImage: a.profile_image_url,
+                                    })
+                                  }
+                                  className="bg-[#1877F2] hover:bg-[#166FE5] text-white px-4 py-2 rounded-lg font-bold text-[15px] transition-colors"
+                                >
+                                  <i className="fas fa-play mr-1"></i> Play
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {shouldShowSponsoredButton && (
+                  <div className="px-3 pt-2 pb-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSponsoredClick();
+                      }}
+                      className="w-full bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold py-2 text-[15px] rounded-lg border border-[#3E4042] transition-colors"
+                    >
+                      {sponsoredCtaText}
+                    </button>
+                  </div>
+                )}
+
+                <div className="px-3 md:px-4 py-2.5 flex items-center justify-between text-[#B0B3B8] text-[16px] border-t border-[#3E4042]">
+                  <div className="flex items-center gap-2">
+                    {finalReactionCount > 0 && (
+                      <div
+                        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenReactionsSheet();
+                        }}
+                      >
+                        <div className="flex -space-x-2">
+                          {emojiList.slice(0, 2).map((e, i) => (
+                            <span
+                              key={i}
+                              className="w-[24px] h-[24px] rounded-full bg-[#3A3B3C] border border-[#242526] flex items-center justify-center text-[16px]"
+                              style={{ zIndex: 10 - i }}
+                            >
+                              {e}
+                            </span>
+                          ))}
+                        </div>
+
+                        {reactionText && (
+                          <span className="text-[17px] text-[#E4E6EB] font-bold">
+                            {reactionText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-4">
+                    <span
+                      className="hover:underline cursor-pointer text-[16px]"
+                      onClick={() => handleOpenComments()}
+                    >
+                      {formatCount(commentCount)} Discussions
+                    </span>
+                    {shareCount > 0 && (
+                      <span className="hover:underline text-[16px]">
+                        {formatCount(shareCount)} Shares
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+
+              <ReactionButton
+  currentUserReactions={finalMyReaction || undefined}
+  reactionCount={finalReactionCount}
+  onReact={handleReactClick}
+  isGuest={!currentUser}
+  
+/>
+                  <button
+                    type="button"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleOpenComments(e);
+                    }}
+                  >
+                    <DiscussSignalIcon size={28} color="#1877F2" />
+                    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                      Discuss
+                    </span>
+                  </button>
+                  <button
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                    onClick={() => {
+                      if (!currentUser) {
+                        alert('Please login to share posts.');
+                        return;
+                      }
+                      setShowShareSheet(true);
+                    }}
+                  >
+                    <i className="fas fa-share text-[22px]"></i>
+                    <span className="text-[19px] font-bold">Share</span>
+                  </button>
+                  {pushButton && <div className="ml-2">{pushButton}</div>}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
+        </div>
+
+        <ShareBottomSheet
+          isOpen={showShareSheet}
+          onClose={() => setShowShareSheet(false)}
+          post={{
+            ...p,
+            source: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
+            item_type: isMarketplace ? 'product' : isGroupPost ? 'group_post' : 'post',
+            product_id: productId,
+            group_id: groupId,
+          }}
+          currentUser={currentUser}
+          users={users}
+          groups={groups}
+          brands={brands}
+          chats={chats}
+          onShareComplete={handleShareComplete}
+        />
+
+        <ReactionsSheet
+          isOpen={showReactionsSheet}
+          onClose={() => setShowReactionsSheet(false)}
+          post={post}
+          onProfileClick={onProfileClick}
+          onOpenComments={onOpenComments}
+        />
+
+        <GalleryViewer
+          isOpen={galleryOpen}
+          urls={galleryUrls}
+          startIndex={galleryIndex}
+          onClose={() => setGalleryOpen(false)}
+          post={post}
+          currentUser={currentUser}
+          reactionCount={finalReactionCount}
+          commentCount={commentCount}
+          shareCount={shareCount}
+          myReaction={finalMyReaction}
+          onReact={(post, type) => onReact(post, type)}
+          onOpenComments={() => handleOpenComments()}
+          onShare={() => setShowShareSheet(true)}
+          onOpenReactions={handleOpenReactionsSheet}
+        />
+      </>
+    );
   },
   postPropsEqual
 );
@@ -8577,6 +8649,8 @@ export {
  * ✅ FEED PROPS INTERFACE
  * =========================
  */
+
+
 interface FeedProps {
   // ========== NEW PROPS ==========
   items?: FeedItem[];
@@ -8686,16 +8760,7 @@ interface FeedProps {
     postId: number,
     type?: ReactionType
   ) => Promise<{ liked: boolean; likes_count: number } | void>;
-
-  // =========================
-// ✅ MUSIC REACTION PROPS
-// =========================
-musicReactions?: Record<string, { myReaction?: ReactionType; count: number }>;
-    
-onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
 }
-
-
   
     
 /**
@@ -8703,6 +8768,8 @@ onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
  * ✅ MAIN FEED COMPONENT (NO SPONSORED CARD - ALL POSTS GO THROUGH Post COMPONENT)
  * =========================
  */
+
+
 
 export const Feed = memo(({
   items,
@@ -8747,12 +8814,7 @@ export const Feed = memo(({
   onLoadMoreFeed,
   hasMoreFeed = true,
   feedLoadingMore = false,
-  
-  // ✅ ADD MUSIC REACTION PROPS
-  musicReactions = {},
-  onMusicReact,
 }: FeedProps) => {
-
   const feedMoreRef = useRef<HTMLDivElement | null>(null);
 
   const safeFeedItems = React.useMemo(() => {
@@ -8898,29 +8960,7 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
-            
-// ✅ ADD MUSIC REACTION PROPS
-  musicMyReaction={musicReactions?.[post.id]?.myReaction}
-  musicReactionsCount={musicReactions?.[post.id]?.count || 0}
-  onMusicReact={(track, type) => onMusicReact?.(track, type)}
-  musicTrack={
-    // Build music track from post data if available
-    (post as any).meta?.song || (post as any).song
-      ? {
-          id: String(((post as any).meta?.song || (post as any).song).id),
-          title: ((post as any).meta?.song || (post as any).song).title || 'Untitled',
-          artist: ((post as any).meta?.song || (post as any).song).artist_name || 'Unknown',
-          duration: ((post as any).meta?.song || (post as any).song).duration_seconds || 180,
-          url: ((post as any).meta?.song || (post as any).song).audio_url || '',
-          uploaderId: Number(((post as any).meta?.song || (post as any).song).uploader_id || post.user_id || 0),
-          cover: ((post as any).meta?.song || (post as any).song).cover_image_url || '',
-          type: 'music' as const,
-          isVerified: false,
-          likesCount: 0,
-        }
-      : undefined
-  }
-            
+  
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -8931,7 +8971,7 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
-
+            
     
 
             {showFirstPymk && (
