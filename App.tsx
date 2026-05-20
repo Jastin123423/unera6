@@ -9985,6 +9985,8 @@ return (
   getPostAuthor={getPostAuthor}
   onPushMore={pushMore}
   pushedPosts={pushedPosts}
+  //group react  
+  onToggleGroupPostLike={toggleGroupPostLike}
   
   // ✅ MUSIC REACTION PROPS
   musicReactions={feedMusicReactions}
