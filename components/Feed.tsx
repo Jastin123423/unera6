@@ -5782,80 +5782,75 @@ export const Post = memo(
     const [showReactionsSheet, setShowReactionsSheet] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
 
-// Check all possible locations for music/podcast type
-const isMusic = meta?.kind === 'music' 
-  || meta?.type === 'music' 
-  || p?.type === 'music' 
-  || p?.item_type === 'music' 
-  || p?.kind === 'music' 
-  || !!(meta?.song || p?.song);  // Has song data = music
+      
 
-const isPodcast = meta?.kind === 'podcast' 
-  || meta?.type === 'podcast' 
-  || p?.type === 'podcast' 
-  || p?.item_type === 'podcast' 
-  || p?.kind === 'podcast';
-
-const song = meta?.song || p?.song;
-const podcast = meta?.podcast || p?.podcast;
-const songId = song?.id || p?.song_id || meta?.song_id || p?.id;
+      
+      
+      const isMusic = meta?.kind === 'music' || meta?.type === 'music';
+    const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
+    const song = meta?.song;
+    const podcast = meta?.podcast;
     
 
+// ✅ ADDed THIS - Get the correct song ID for reactions
+const songId = isMusic 
+  ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
+  : null;
 
-const isGroupPost = !!(p?.group_id || p?.group);
-const groupId = Number(
-  p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
-);
-const groupName =
-  p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
-const group = p?.group || groups?.find((g) => g.id === groupId);
+      
+    const isGroupPost = !!(p?.group_id || p?.group);
+    const groupId = Number(
+      p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
+    );
+    const groupName =
+      p?.group_name || p?.groupName || meta?.group_name || meta?.groupName || '';
+    const group = p?.group || groups?.find((g) => g.id === groupId);
 
-const myReaction = p.myReaction ?? p.my_reaction ?? null;
-const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+    const myReaction = p.myReaction ?? p.my_reaction ?? null;
+ const likesCount = Number(p.likesCount ?? p.reactionsCount ?? p.reactions_count ?? 0);
+      
 
-const reactionsArr: any[] = Array.isArray(p.reactions)
-  ? p.reactions
-  : Array.isArray(p.reactions_preview)
-  ? p.reactions_preview
-  : [];
+    const reactionsArr: any[] = Array.isArray(p.reactions)
+      ? p.reactions
+      : Array.isArray(p.reactions_preview)
+      ? p.reactions_preview
+      : [];
 
-const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
+    const reactorNameFromApi = String(p.reactor_name ?? p.reactorName ?? '').trim();
 
-const finalMyReaction: ReactionType | undefined =
-  myReaction ||
-  (currentUser && reactionsArr.length
-    ? (reactionsArr.find(
-        (r: any) => Number(r.user_id) === safeUserId(currentUser)
-      )?.type as ReactionType)
-    : undefined);
+    const finalMyReaction: ReactionType | undefined =
+      myReaction ||
+      (currentUser && reactionsArr.length
+        ? (reactionsArr.find(
+            (r: any) => Number(r.user_id) === safeUserId(currentUser)
+          )?.type as ReactionType)
+        : undefined);
 
-const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
+    const finalReactionCount = likesCount > 0 ? likesCount : reactionsArr.length;
 
-const [commentCount, setCommentCount] = useState(() => {
-  if (typeof p.comments_count === 'number') return p.comments_count;
-  if (Array.isArray(p.comments)) return p.comments.length;
-  return 0;
-});
+    const [commentCount, setCommentCount] = useState(() => {
+      if (typeof p.comments_count === 'number') return p.comments_count;
+      if (Array.isArray(p.comments)) return p.comments.length;
+      return 0;
+    });
 
-const [shareCount, setShareCount] = useState(() =>
-  safeNumber(p.shares ?? p.shares_count, 0)
-);
+    const [shareCount, setShareCount] = useState(() =>
+      safeNumber(p.shares ?? p.shares_count, 0)
+    );
 
-const createdAtLabel = formatRelativeTime(p.created_at);
-const postId = getFeedItemId(p);
+    const createdAtLabel = formatRelativeTime(p.created_at);
+    const postId = getFeedItemId(p);
 
-const mediaInfo = getMediaTypeInfo(p);
-const mediaList = useMemo(() => getPostMediaList(p), [p]);
-const imageMedia = mediaList.filter((m) => m.kind === 'image');
-const videoMedia = mediaList.filter((m) => m.kind === 'video');
+    const mediaInfo = getMediaTypeInfo(p);
+    const mediaList = useMemo(() => getPostMediaList(p), [p]);
+    const imageMedia = mediaList.filter((m) => m.kind === 'image');
+    const videoMedia = mediaList.filter((m) => m.kind === 'video');
 
-const formatCount = (count: number): string => {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
-  return count.toString();
-};      
-
-
+    const formatCount = (count: number): string => {
+      if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+      if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+      return count.toString();
+    };
 
     const emojiList = useMemo(() => {
       if (reactionsArr.length > 0) {
@@ -6156,49 +6151,36 @@ const handleReactClick = async (type: ReactionType) => {
           {isMusic ? song?.artist_name : podcast?.description}
         </div>
       </div>
-<button
-  type="button"
-  onClick={(e) => {
-    e.stopPropagation();
-    // Build proper AudioTrack from song data
-    if (isMusic && song) {
-      onPlayAudioTrack?.({
-        id: String(song.id || p?.id),
-        title: song.title || 'Untitled',
-        artist: song.artist_name || 'Unknown',
-        duration: song.duration_seconds || 180,
-        url: song.audio_url || p?.audio_url || '',
-        cover: song.cover_image_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
-        type: 'music',
-        isVerified: false,
-        likesCount: 0,
-      });
-    } else if (podcast) {
-      onPlayAudioTrack?.(podcast);
-    }
-  }}
-  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
->
-  Play
-</button>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenAudio?.(isMusic ? song : podcast);
+        }}
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+      >
+        Play
+      </button>
     </div>
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-     <ReactionButton
+    <ReactionButton
   currentUserReactions={musicMyReaction || undefined}
   reactionCount={musicReactionsCount || 0}
   onReact={(type) => {
-    // ✅ Just use song data directly since we know it exists here
-    if (song) {
+    // Build AudioTrack from song data if musicTrack prop is not provided
+    if (musicTrack) {
+      onMusicReact?.(musicTrack, type);
+    } else if (song) {
       const track: AudioTrack = {
-        id: String(song.id || songId || p?.id),
+        id: String(song.id),
         title: song.title || 'Untitled',
         artist: song.artist_name || 'Unknown',
         duration: song.duration_seconds || 180,
         url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
+        uploaderId: Number(song.uploader_id || 0),
         cover: song.cover_image_url || '',
         type: 'music',
         isVerified: false,
@@ -6589,74 +6571,63 @@ const handleReactClick = async (type: ReactionType) => {
     </div>
 
     {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
-
     {!isMusic && !isPodcast && (
-  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-    <ReactionButton
-      currentUserReactions={
-        // If post has song data, use music reaction; otherwise use post reaction
-        song 
-          ? (musicMyReaction || undefined)
-          : finalMyReaction
-      }
-      reactionCount={
-        song 
-          ? (musicReactionsCount || 0)
-          : finalReactionCount
-      }
-      onReact={(type) => {
-        if (song) {
-          // Has song data → route to music table
-          const track: AudioTrack = {
-            id: String(song.id || songId || p?.id),
-            title: song.title || 'Untitled',
-            artist: song.artist_name || 'Unknown',
-            duration: song.duration_seconds || 180,
-            url: song.audio_url || '',
-            uploaderId: Number(song.uploader_id || p?.user_id || 0),
-            cover: song.cover_image_url || '',
-            type: 'music',
-            isVerified: false,
-            likesCount: 0,
-          };
-          onMusicReact?.(track, type);
-        } else {
-          // Regular post → route to post table
-          onReact(p, type);
-        }
-      }}
-      isGuest={!currentUser}
-    />
-    <button
-      type="button"
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleOpenComments(e);
-      }}
-    >
-      <DiscussSignalIcon size={28} color="#1877F2" />
-      <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-        Discuss
-      </span>
-    </button>
-    <button
-      className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-      onClick={() => {
-        if (!currentUser) {
-          alert('Please login to share posts.');
-          return;
-        }
-        setShowShareSheet(true);
-      }}
-    >
-      <i className="fas fa-share text-[22px]"></i>
-      <span className="text-[19px] font-bold">Share</span>
-    </button>
-    {pushButton && <div className="ml-2">{pushButton}</div>}
-  </div>
-)}                                              
+      <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+<ReactionButton
+  currentUserReactions={musicMyReaction || undefined}
+  reactionCount={musicReactionsCount || 0}
+  onReact={(type) => {
+    // Build AudioTrack from song data if musicTrack prop is not provided
+    if (musicTrack) {
+      onMusicReact?.(musicTrack, type);
+    } else if (song) {
+      const track: AudioTrack = {
+        id: String(song.id),
+        title: song.title || 'Untitled',
+        artist: song.artist_name || 'Unknown',
+        duration: song.duration_seconds || 180,
+        url: song.audio_url || '',
+        uploaderId: Number(song.uploader_id || 0),
+        cover: song.cover_image_url || '',
+        type: 'music',
+        isVerified: false,
+        likesCount: 0,
+      };
+      onMusicReact?.(track, type);
+    }
+  }}
+  isGuest={!currentUser}
+/>
+        <button
+          type="button"
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleOpenComments(e);
+          }}
+        >
+          <DiscussSignalIcon size={28} color="#1877F2" />
+          <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+            Discuss
+          </span>
+        </button>
+        <button
+          className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+          onClick={() => {
+            if (!currentUser) {
+              alert('Please login to share posts.');
+              return;
+            }
+            setShowShareSheet(true);
+          }}
+        >
+          <i className="fas fa-share text-[22px]"></i>
+          <span className="text-[19px] font-bold">Share</span>
+        </button>
+        {pushButton && <div className="ml-2">{pushButton}</div>}
+      </div>
+    )}
   </>
 )}
 
@@ -8768,12 +8739,12 @@ interface FeedProps {
     type?: ReactionType
   ) => Promise<{ liked: boolean; likes_count: number } | void>;
 
+    // =========================
+  // ✅ MUSIC REACTION PROPS
   // =========================
-// ✅ MUSIC REACTION PROPS
-// =========================
-musicReactions?: Record<string, { myReaction?: ReactionType; count: number }>;
-    
-onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
+  musicReactions?: Record<string, { myReaction?: ReactionType; count: number }>;
+  
+  onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
 }
 
 
@@ -8958,7 +8929,7 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-          <Post
+      <Post
   post={post as PostType}
   author={getPostAuthor?.(post as PostType) || post.author || post}
   currentUser={currentUser}
@@ -8979,8 +8950,8 @@ export const Feed = memo(({
   followLoading={followLoading?.[postAuthorId] || false}
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
-            
-// ✅ ADD MUSIC REACTION PROPS
+  
+  // ✅ ADD MUSIC REACTION PROPS
   musicMyReaction={musicReactions?.[post.id]?.myReaction}
   musicReactionsCount={musicReactions?.[post.id]?.count || 0}
   onMusicReact={(track, type) => onMusicReact?.(track, type)}
@@ -9001,7 +8972,7 @@ export const Feed = memo(({
         }
       : undefined
   }
-            
+  
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -9012,9 +8983,10 @@ export const Feed = memo(({
     </button>
   ) : undefined}
 />
-
-    
-
+            
+      
+                                
+      
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
