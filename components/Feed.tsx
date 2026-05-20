@@ -5518,11 +5518,14 @@ export const ReactionButton = memo(
     return (
       prev.currentUserReactions === next.currentUserReactions &&
       prev.reactionCount === next.reactionCount &&
-      prev.isGuest === next.isGuest
-      prev.onReact === next.onReact
+      prev.isGuest === next.isGuest &&
+      prev.onReact === next.onReact  // ✅ ADD THIS LINE
     );
   }
 );
+
+      
+      
 
 /**
  * =========================
