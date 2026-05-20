@@ -6133,7 +6133,6 @@ const handleReactClick = async (type: ReactionType) => {
                 />
               </div>
             )}
-
 {(isMusic || isPodcast) && (
   <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
     <div className="flex items-center gap-3 p-3">
@@ -6156,90 +6155,35 @@ const handleReactClick = async (type: ReactionType) => {
           {isMusic ? song?.artist_name : podcast?.description}
         </div>
       </div>
-<button
-  type="button"
-  onClick={(e) => {
-    e.stopPropagation();
-    // Build proper AudioTrack from song data
-    if (isMusic && song) {
-      onPlayAudioTrack?.({
-        id: String(song.id || p?.id),
-        title: song.title || 'Untitled',
-        artist: song.artist_name || 'Unknown',
-        duration: song.duration_seconds || 180,
-        url: song.audio_url || p?.audio_url || '',
-        cover: song.cover_image_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
-        type: 'music',
-        isVerified: false,
-        likesCount: 0,
-      });
-    } else if (podcast) {
-      onPlayAudioTrack?.(podcast);
-    }
-  }}
-  className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
->
-  Play
-</button>
-    </div>
-    
-    {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
-    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-     <ReactionButton
-  currentUserReactions={musicMyReaction || undefined}
-  reactionCount={musicReactionsCount || 0}
-  onReact={(type) => {
-    // ✅ Just use song data directly since we know it exists here
-    if (song) {
-      const track: AudioTrack = {
-        id: String(song.id || songId || p?.id),
-        title: song.title || 'Untitled',
-        artist: song.artist_name || 'Unknown',
-        duration: song.duration_seconds || 180,
-        url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || p?.user_id || 0),
-        cover: song.cover_image_url || '',
-        type: 'music',
-        isVerified: false,
-        likesCount: 0,
-      };
-      onMusicReact?.(track, type);
-    }
-  }}
-  isGuest={!currentUser}
-/>
       <button
         type="button"
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
         onClick={(e) => {
-          e.preventDefault();
           e.stopPropagation();
-          handleOpenComments(e);
-        }}
-      >
-        <DiscussSignalIcon size={28} color="#1877F2" />
-        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-          Discuss
-        </span>
-      </button>
-      <button
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={() => {
-          if (!currentUser) {
-            alert('Please login to share posts.');
-            return;
+          if (isMusic && song) {
+            onPlayAudioTrack?.({
+              id: String(song.id || p?.id),
+              title: song.title || 'Untitled',
+              artist: song.artist_name || 'Unknown',
+              duration: song.duration_seconds || 180,
+              url: song.audio_url || p?.audio_url || '',
+              cover: song.cover_image_url || '',
+              uploaderId: Number(song.uploader_id || p?.user_id || 0),
+              type: 'music',
+              isVerified: false,
+              likesCount: 0,
+            });
+          } else if (podcast) {
+            onPlayAudioTrack?.(podcast);
           }
-          setShowShareSheet(true);
         }}
+        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
       >
-        <i className="fas fa-share text-[22px]"></i>
-        <span className="text-[19px] font-bold">Share</span>
+        Play
       </button>
-      {pushButton && <div className="ml-2">{pushButton}</div>}
     </div>
   </div>
 )}
+
 
 {isMarketplace ? (
   <>
