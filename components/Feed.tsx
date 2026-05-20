@@ -5946,22 +5946,36 @@ const formatCount = (count: number): string => {
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-
-   const handleReactClick = async (type: ReactionType) => {
+const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
   
-  // If onToggleGroupPostLike is provided and this is a group post, use it
+  console.log('🔍 GROUP POST DEBUG:', {
+    isGroupPost,
+    hasToggleFn: !!onToggleGroupPostLike,
+    postId,
+    p_id: p?.id,
+    p_group_post_id: p?.group_post_id,
+    p_group_id: p?.group_id,
+    source: p?.source,
+    item_type: p?.item_type,
+    feed_key: p?.feed_key,
+    full_p: p,
+  });
+  
   if (onToggleGroupPostLike && isGroupPost) {
+    console.log('✅ Using group post reaction with postId:', postId);
     await onToggleGroupPostLike(postId, type);
   } else if (onReact) {
-    // Otherwise use regular onReact
+    console.log('⚠️ Falling back to regular onReact');
     onReact(p, type);
   }
-};   
+};
 
+
+    
 
     const openGallery = (urls: string[], index: number) => {
       setGalleryUrls(urls);
