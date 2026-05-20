@@ -6166,31 +6166,12 @@ const handleReactClick = async (type: ReactionType) => {
     
     {/* Reaction, Discuss, and Share buttons for Music/Podcast */}
     <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-    <ReactionButton
-  currentUserReactions={musicMyReaction || undefined}
-  reactionCount={musicReactionsCount || 0}
-  onReact={(type) => {
-    // Build AudioTrack from song data if musicTrack prop is not provided
-    if (musicTrack) {
-      onMusicReact?.(musicTrack, type);
-    } else if (song) {
-      const track: AudioTrack = {
-        id: String(song.id),
-        title: song.title || 'Untitled',
-        artist: song.artist_name || 'Unknown',
-        duration: song.duration_seconds || 180,
-        url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || 0),
-        cover: song.cover_image_url || '',
-        type: 'music',
-        isVerified: false,
-        likesCount: 0,
-      };
-      onMusicReact?.(track, type);
-    }
-  }}
-  isGuest={!currentUser}
-/>
+      <ReactionButton
+        currentUserReactions={musicMyReaction || undefined}
+        reactionCount={musicReactionsCount}
+        onReact={(type) => onMusicReact?.(musicTrack, type)}
+        isGuest={!currentUser}
+      />
       <button
         type="button"
         className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -6573,31 +6554,12 @@ const handleReactClick = async (type: ReactionType) => {
     {/* ✅ ONLY SHOW BOTTOM ACTION BAR FOR NON-MUSIC AND NON-PODCAST POSTS */}
     {!isMusic && !isPodcast && (
       <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-<ReactionButton
-  currentUserReactions={musicMyReaction || undefined}
-  reactionCount={musicReactionsCount || 0}
-  onReact={(type) => {
-    // Build AudioTrack from song data if musicTrack prop is not provided
-    if (musicTrack) {
-      onMusicReact?.(musicTrack, type);
-    } else if (song) {
-      const track: AudioTrack = {
-        id: String(song.id),
-        title: song.title || 'Untitled',
-        artist: song.artist_name || 'Unknown',
-        duration: song.duration_seconds || 180,
-        url: song.audio_url || '',
-        uploaderId: Number(song.uploader_id || 0),
-        cover: song.cover_image_url || '',
-        type: 'music',
-        isVerified: false,
-        likesCount: 0,
-      };
-      onMusicReact?.(track, type);
-    }
-  }}
-  isGuest={!currentUser}
-/>
+        <ReactionButton
+          currentUserReactions={finalMyReaction || undefined}
+          reactionCount={finalReactionCount}
+          onReact={handleReactClick}
+          isGuest={!currentUser}
+        />
         <button
           type="button"
           className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
@@ -8739,11 +8701,10 @@ interface FeedProps {
     type?: ReactionType
   ) => Promise<{ liked: boolean; likes_count: number } | void>;
 
-    // =========================
+  // =========================
   // ✅ MUSIC REACTION PROPS
   // =========================
   musicReactions?: Record<string, { myReaction?: ReactionType; count: number }>;
-  
   onMusicReact?: (track: AudioTrack, type: ReactionType) => void;
 }
 
@@ -8929,7 +8890,7 @@ export const Feed = memo(({
 
         return (
           <React.Fragment key={`post-${post.id}-${index}`}>
-      <Post
+          <Post
   post={post as PostType}
   author={getPostAuthor?.(post as PostType) || post.author || post}
   currentUser={currentUser}
@@ -8951,28 +8912,6 @@ export const Feed = memo(({
   onViewProductFromPost={onViewProductFromPost}
   onRSVP={onRSVPEvent}
   
-  // ✅ ADD MUSIC REACTION PROPS
-  musicMyReaction={musicReactions?.[post.id]?.myReaction}
-  musicReactionsCount={musicReactions?.[post.id]?.count || 0}
-  onMusicReact={(track, type) => onMusicReact?.(track, type)}
-  musicTrack={
-    // Build music track from post data if available
-    (post as any).meta?.song || (post as any).song
-      ? {
-          id: String(((post as any).meta?.song || (post as any).song).id),
-          title: ((post as any).meta?.song || (post as any).song).title || 'Untitled',
-          artist: ((post as any).meta?.song || (post as any).song).artist_name || 'Unknown',
-          duration: ((post as any).meta?.song || (post as any).song).duration_seconds || 180,
-          url: ((post as any).meta?.song || (post as any).song).audio_url || '',
-          uploaderId: Number(((post as any).meta?.song || (post as any).song).uploader_id || post.user_id || 0),
-          cover: ((post as any).meta?.song || (post as any).song).cover_image_url || '',
-          type: 'music' as const,
-          isVerified: false,
-          likesCount: 0,
-        }
-      : undefined
-  }
-  
   pushButton={showPushButton ? (
     <button
       onClick={() => onPushMore?.(post.id)}
@@ -8984,9 +8923,8 @@ export const Feed = memo(({
   ) : undefined}
 />
             
-      
-                                
-      
+    
+
             {showFirstPymk && (
               <PeopleYouMayKnowGrid
                 users={peopleYouMayKnow}
