@@ -1236,35 +1236,12 @@ const isSameFeedItem = (a: any, b: any): boolean => {
 // ==================== CUSTOM COMPARISON FUNCTIONS ====================
 
 
-const postPropsEqual = (prev: any, next: any) => {
-return (
-isSameFeedItem(prev.post, next.post) &&
-prev.post?.reactions_count === next.post?.reactions_count &&
-prev.post?.comments_count === next.post?.comments_count &&
-prev.post?.shares === next.post?.shares &&
-prev.myReaction === next.myReaction &&
-prev.isFollowing === next.isFollowing &&
-prev.followLoading === next.followLoading
-);
-};
+const postPropsEqual = () => false;
 
-const eventPostPropsEqual = (prev: any, next: any) => {
-return (
-prev.event?.id === next.event?.id &&
-prev.event?.attendees_count === next.event?.attendees_count &&
-prev.event?.interested_count === next.event?.interested_count &&
-prev.event?.user_rsvp_status === next.event?.user_rsvp_status
-);
-};
+const eventPostPropsEqual = () => false;
 
-const reelCardPropsEqual = (prev: any, next: any) => {
-return (
-prev.reel?.id === next.reel?.id &&
-prev.reel?.views === next.reel?.views &&
-prev.reel?.likes === next.reel?.likes &&
-prev.reel?.comments === next.reel?.comments
-);
-};
+const reelCardPropsEqual = () => false;
+
 
 
 
@@ -1670,8 +1647,6 @@ export const GalleryViewer = memo(
  * ✅ SHARE BOTTOM SHEET
  * =========================
  */
-
-
 export const ShareBottomSheet = memo(
   ({
     isOpen,
@@ -1698,11 +1673,8 @@ export const ShareBottomSheet = memo(
       'sheet'
     );
     const [isAnimating, setIsAnimating] = useState(false);
-    const [shareMessage, setShareMessage] = useState('');
     const sheetRef = useRef<HTMLDivElement>(null);
     const backdropRef = useRef<HTMLDivElement>(null);
-    const startYRef = useRef<number>(0);
-    const currentYRef = useRef<number>(0);
 
     const getShareEndpoint = () => {
       const itemType = getFeedItemType(post);
@@ -1731,7 +1703,6 @@ export const ShareBottomSheet = memo(
         destination: destination,
         shared_at: new Date().toISOString(),
         item_type: itemType,
-        share_message: shareMessage,
       };
       
       const itemId = getFeedItemId(post);
@@ -1763,7 +1734,6 @@ export const ShareBottomSheet = memo(
       };
       if (isOpen) {
         setActiveFlow('sheet');
-        setShareMessage('');
         setIsAnimating(true);
         setTimeout(() => setIsAnimating(false), 300);
         document.body.style.overflow = 'hidden';
@@ -1782,7 +1752,6 @@ export const ShareBottomSheet = memo(
       setTimeout(() => {
         onClose();
         setActiveFlow('sheet');
-        setShareMessage('');
         setIsAnimating(false);
       }, 200);
     };
@@ -1818,42 +1787,6 @@ export const ShareBottomSheet = memo(
       }
     };
 
-    const handleWhatsAppShare = () => {
-      const text = `Check out this post on UNERA: ${window.location.origin}/post/${getFeedItemId(post)}`;
-      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-      closeSheet();
-    };
-
-    const handleCopyLink = () => {
-      const url = `${window.location.origin}/post/${getFeedItemId(post)}`;
-      navigator.clipboard.writeText(url);
-      alert('Link copied to clipboard!');
-      closeSheet();
-    };
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-      startYRef.current = e.touches[0].clientY;
-    };
-
-    const handleTouchMove = (e: React.TouchEvent) => {
-      if (!sheetRef.current) return;
-      currentYRef.current = e.touches[0].clientY;
-      const delta = currentYRef.current - startYRef.current;
-      if (delta > 0) {
-        sheetRef.current.style.transform = `translateY(${delta}px)`;
-      }
-    };
-
-    const handleTouchEnd = () => {
-      if (!sheetRef.current) return;
-      const delta = currentYRef.current - startYRef.current;
-      if (delta > 100) {
-        closeSheet();
-      } else {
-        sheetRef.current.style.transform = '';
-      }
-    };
-
     const textPreview = getPostTextPreview(post, 100);
     const previewUrl = useMemo(() => {
       return (
@@ -1872,16 +1805,16 @@ export const ShareBottomSheet = memo(
           <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
             <div className="flex items-center gap-4">
               <i
-                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer active:scale-95 transition-transform duration-150"
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
                 onClick={() => setActiveFlow('sheet')}
               ></i>
               <h3 className="text-[#E4E6EB] text-[22px] font-medium">
-                Share to Feed
+                Share to UNERA Feed
               </h3>
             </div>
             <button
               onClick={() => handleShareAction('feed')}
-              className="text-[#1877F2] font-bold text-[19px] active:scale-95 transition-transform duration-150"
+              className="text-[#1877F2] font-bold text-[19px]"
             >
               POST
             </button>
@@ -1904,36 +1837,10 @@ export const ShareBottomSheet = memo(
                 </select>
               </div>
             </div>
-            
-            {/* Shared content preview */}
-            <div className="mb-4 p-3 bg-[#3A3B3C] rounded-xl">
-              <div className="flex items-start gap-3">
-                {previewUrl ? (
-                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                    <img src={previewUrl} className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <div className="w-16 h-16 rounded-lg bg-[#1877F2]/10 flex items-center justify-center flex-shrink-0">
-                    <i className="fas fa-share-alt text-[#1877F2] text-xl"></i>
-                  </div>
-                )}
-                <div className="flex-1">
-                  <div className="text-[#E4E6EB] font-semibold text-[15px]">
-                    {post.author?.name || 'Original Author'}
-                  </div>
-                  <p className="text-[#B0B3B8] text-[14px] line-clamp-2 mt-1">
-                    {textPreview || 'Shared post'}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
             <textarea
-              value={shareMessage}
-              onChange={(e) => setShareMessage(e.target.value)}
-              className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[22px] outline-none resize-none min-h-[150px]"
-              placeholder="Say something about this..."
-            />
+              className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] text-[22px] outline-none resize-none min-h-[200px]"
+              placeholder="Write something..."
+            ></textarea>
           </div>
         </div>
       );
@@ -1945,7 +1852,7 @@ export const ShareBottomSheet = memo(
           <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
             <div className="flex items-center gap-4">
               <i
-                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer active:scale-95 transition-transform duration-150"
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
                 onClick={() => setActiveFlow('sheet')}
               ></i>
               <h3 className="text-[#E4E6EB] text-[22px] font-medium">
@@ -1954,7 +1861,7 @@ export const ShareBottomSheet = memo(
             </div>
             <button
               onClick={() => handleShareAction('group')}
-              className="text-[#1877F2] font-bold text-[19px] active:scale-95 transition-transform duration-150"
+              className="text-[#1877F2] font-bold text-[19px]"
             >
               SHARE
             </button>
@@ -1979,7 +1886,7 @@ export const ShareBottomSheet = memo(
               groups.slice(0, 5).map((group) => (
                 <div
                   key={group.id}
-                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2 active:scale-98 transition-all duration-150"
+                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2"
                 >
                   <div className="flex items-center gap-3">
                     <img
@@ -1998,7 +1905,7 @@ export const ShareBottomSheet = memo(
                   </div>
                   <button
                     onClick={() => handleShareAction('group')}
-                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px] active:scale-95 transition-transform duration-150"
+                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
                   >
                     Share
                   </button>
@@ -2016,7 +1923,7 @@ export const ShareBottomSheet = memo(
           <div className="flex items-center justify-between p-4 border-b border-[#3E4042]">
             <div className="flex items-center gap-4">
               <i
-                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer active:scale-95 transition-transform duration-150"
+                className="fas fa-arrow-left text-[#E4E6EB] text-xl cursor-pointer"
                 onClick={() => setActiveFlow('sheet')}
               ></i>
               <h3 className="text-[#E4E6EB] text-[22px] font-medium">
@@ -2044,7 +1951,7 @@ export const ShareBottomSheet = memo(
               .map((user) => (
                 <div
                   key={user.id}
-                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2 active:scale-98 transition-all duration-150"
+                  className="flex items-center justify-between p-3 hover:bg-[#3A3B3C] rounded-lg mb-2"
                 >
                   <div className="flex items-center gap-3">
                     <img
@@ -2061,7 +1968,7 @@ export const ShareBottomSheet = memo(
                   </div>
                   <button
                     onClick={() => handleShareAction('message')}
-                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px] active:scale-95 transition-transform duration-150"
+                    className="px-4 py-1 bg-[#1877F2] text-white rounded-lg text-[15px]"
                   >
                     Send
                   </button>
@@ -2072,7 +1979,6 @@ export const ShareBottomSheet = memo(
       );
     }
 
-    // Main Share Sheet - Facebook Style
     return (
       <>
         <div
@@ -2083,63 +1989,17 @@ export const ShareBottomSheet = memo(
         />
         <div
           ref={sheetRef}
-          className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl flex flex-col transition-all duration-300 ease-out ${
+          className={`fixed bottom-0 left-0 right-0 z-[301] bg-[#242526] rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col transition-transform duration-300 ease-out ${
             isAnimating ? 'translate-y-full' : 'translate-y-0'
           }`}
           onClick={(e) => e.stopPropagation()}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          style={{ maxHeight: '85vh' }}
         >
-          {/* Drag Handle */}
-          <div className="p-3 pb-2">
-            <div className="flex justify-center">
+          <div className="p-4 pb-2">
+            <div className="flex justify-center mb-3">
               <div className="w-10 h-1 bg-[#3E4042] rounded-full"></div>
             </div>
-          </div>
-
-          {/* Composer Block - Facebook Style */}
-          <div className="px-4 pt-2 pb-4">
-            <div className="bg-[#3A3B3C] rounded-xl p-4">
-              <div className="flex items-center gap-3 mb-3">
-                <img
-                  src={avatarFrom(currentUser)}
-                  className="w-10 h-10 rounded-full object-cover"
-                  alt=""
-                />
-                <div>
-                  <div className="text-[#E4E6EB] font-semibold text-[15px]">
-                    {currentUser?.name || 'User'}
-                  </div>
-                  <div className="text-[#B0B3B8] text-[13px] flex items-center gap-1">
-                    <i className="fas fa-globe-americas text-[11px]"></i>
-                    <span>Public</span>
-                  </div>
-                </div>
-              </div>
-              
-              <input
-                type="text"
-                placeholder="Say something about this..."
-                value={shareMessage}
-                onChange={(e) => setShareMessage(e.target.value)}
-                className="w-full bg-transparent text-[#E4E6EB] placeholder-[#B0B3B8] outline-none text-[16px] mb-3"
-              />
-              
-              <button
-                onClick={() => handleShareAction('feed')}
-                className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white py-2.5 rounded-lg font-semibold text-[15px] active:scale-95 transition-all duration-150"
-              >
-                Share now
-              </button>
-            </div>
-          </div>
-
-          {/* Shared Post Preview */}
-          {post && (
-            <div className="px-4 mb-4">
-              <div className="flex items-start gap-3 p-3 bg-[#3A3B3C] rounded-xl">
+            {post && (
+              <div className="flex items-start gap-3 mb-4 p-3 bg-[#3A3B3C] rounded-xl">
                 {previewUrl ? (
                   <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                     <img
@@ -2168,177 +2028,157 @@ export const ShareBottomSheet = memo(
                   </p>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Horizontal Quick Share Row - Facebook Style */}
-          <div className="px-4 mb-4">
-            <div className="text-[#B0B3B8] text-[14px] font-semibold mb-3">
-              Share to
-            </div>
-            <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
-              {[
-                { 
-                  icon: 'users', 
-                  label: 'Groups', 
-                  action: () => {
-                    if (!currentUser) alert('Please login to share to groups/brands');
-                    else setActiveFlow('groups');
-                  },
-                  bgColor: '#45BD62'
-                },
-                { 
-                  icon: 'user-friends', 
-                  label: "Friend's profile", 
-                  action: () => {
-                    if (!currentUser) alert('Please login to share to feed');
-                    else setActiveFlow('feed');
-                  },
-                  bgColor: '#1877F2'
-                },
-                { 
-                  icon: 'whatsapp', 
-                  label: 'WhatsApp', 
-                  action: handleWhatsAppShare,
-                  bgColor: '#25D366'
-                },
-                { 
-                  icon: 'facebook-messenger', 
-                  label: 'Messages', 
-                  action: () => {
-                    if (!currentUser) alert('Please login to send messages');
-                    else setActiveFlow('messages');
-                  },
-                  bgColor: '#0084FF'
-                },
-              ].map((item, i) => (
-                <button
-                  key={i}
-                  onClick={item.action}
-                  className="flex flex-col items-center gap-2 min-w-[70px] active:scale-95 transition-all duration-150 group"
-                >
-                  <div 
-                    className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-105"
-                    style={{ backgroundColor: item.bgColor }}
-                  >
-                    <i className={`fab fa-${item.icon} text-white text-xl`} />
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  if (!currentUser) alert('Please login to share to feed');
+                  else setActiveFlow('feed');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-newspaper text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Share to UNERA Feed
                   </div>
-                  <span className="text-[#E4E6EB] text-[12px] font-medium text-center">
-                    {item.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="h-[1px] bg-[#3E4042] mx-4 my-2"></div>
-
-          {/* Secondary Actions - Copy Link & More */}
-          <div className="px-4 mb-4">
-            <div className="flex gap-6">
-              <button
-                onClick={handleCopyLink}
-                className="flex flex-col items-center gap-2 active:scale-95 transition-all duration-150 group"
-              >
-                <div className="w-12 h-12 rounded-full bg-[#3A3B3C] flex items-center justify-center group-hover:bg-[#4E4F50] transition-colors duration-200">
-                  <i className="fas fa-link text-white text-lg" />
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share to your profile feed
+                  </div>
                 </div>
-                <span className="text-[#E4E6EB] text-[12px] font-medium">Copy link</span>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
               </button>
-              
+
               <button
-                className="flex flex-col items-center gap-2 active:scale-95 transition-all duration-150 group"
-                onClick={() => alert('More options coming soon')}
+                onClick={() => {
+                  if (!currentUser) alert('Please login to share to groups/brands');
+                  else setActiveFlow('groups');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
               >
-                <div className="w-12 h-12 rounded-full bg-[#3A3B3C] flex items-center justify-center group-hover:bg-[#4E4F50] transition-colors duration-200">
-                  <i className="fas fa-ellipsis-h text-white text-lg" />
+                <div className="w-10 h-10 rounded-full bg-[#45BD6215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-users text-[#45BD62] text-lg"></i>
                 </div>
-                <span className="text-[#E4E6EB] text-[12px] font-medium">More</span>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Share to Groups & Brands
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share with up to 10 groups/brands
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (!currentUser) alert('Please login to send messages');
+                  else setActiveFlow('messages');
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-comment-alt text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Send as a Message
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share via direct message
+                  </div>
+                </div>
+                <i className="fas fa-chevron-right text-[#B0B3B8] text-[15px]"></i>
+              </button>
+
+              <button
+                onClick={() => {
+                  const text = `Check out this post on UNERA: ${window.location.origin}/post/${getFeedItemId(post)}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                  closeSheet();
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#25D36615] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fab fa-whatsapp text-[#25D366] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Send via WhatsApp
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Share to WhatsApp
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/post/${getFeedItemId(post)}`;
+                  navigator.clipboard.writeText(url);
+                  alert('Link copied to clipboard!');
+                  closeSheet();
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-[#3A3B3C] active:bg-[#4E4F50] transition-all duration-200 group"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#1877F215] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <i className="fas fa-link text-[#1877F2] text-lg"></i>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-[#E4E6EB] font-medium text-[17px]">
+                    Copy Post Link
+                  </div>
+                  <div className="text-[#B0B3B8] text-[13px] mt-0.5">
+                    Copy link to clipboard
+                  </div>
+                </div>
               </button>
             </div>
-          </div>
 
-          {/* Recent Contacts Section */}
-          {currentUser && users.filter(u => u.id !== currentUser.id).length > 0 && (
-            <>
-              <div className="h-[1px] bg-[#3E4042] mx-4 my-2"></div>
-              <div className="px-4 pb-4">
-                <div className="text-[#B0B3B8] text-[14px] font-semibold mb-3">
-                  Recent contacts
+            {currentUser && users.length > 0 && (
+              <div className="mt-6">
+                <div className="text-[#B0B3B8] text-[13px] font-semibold uppercase tracking-wider mb-3 px-1">
+                  Share with recent contacts
                 </div>
-                <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-3">
                   {users
                     .filter((u) => u.id !== currentUser.id)
-                    .slice(0, 5)
+                    .slice(0, 3)
                     .map((user) => (
                       <button
                         key={user.id}
                         onClick={() => setActiveFlow('messages')}
-                        className="flex flex-col items-center gap-2 min-w-[70px] active:scale-95 transition-all duration-150 group"
+                        className="flex flex-col items-center gap-2"
                       >
-                        <div className="relative">
-                          <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
-                            <img
-                              src={avatarFrom(user)}
-                              alt={user.name}
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          </div>
-                          <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#45BD62] rounded-full border-2 border-[#242526] flex items-center justify-center">
-                            <i className="fas fa-check text-white text-[8px]"></i>
-                          </div>
+                        <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-[#1877F2] p-0.5">
+                          <img
+                            src={avatarFrom(user)}
+                            alt={user.name}
+                            className="w-full h-full rounded-full object-cover"
+                          />
                         </div>
-                        <span className="text-[#E4E6EB] text-[12px] font-medium max-w-[70px] truncate">
+                        <span className="text-[#E4E6EB] text-[13px] font-medium max-w-[60px] truncate">
                           {user.name.split(' ')[0]}
                         </span>
                       </button>
                     ))}
                 </div>
               </div>
-            </>
-          )}
-
-          {/* Cancel Button */}
-          <div className="p-4 pt-2 pb-5 border-t border-[#3E4042] mt-2">
+            )}
+          </div>
+          <div className="p-4 pt-3 border-t border-[#3E4042]">
             <button
               onClick={closeSheet}
-              className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-all duration-200 text-[17px] active:scale-95"
+              className="w-full py-3 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] font-semibold rounded-xl transition-colors text-[17px]"
             >
               Cancel
             </button>
           </div>
         </div>
-
-        {/* Add animation keyframes to document if not already present */}
-        {typeof document !== 'undefined' && !document.querySelector('#share-sheet-styles') && (
-          <style id="share-sheet-styles">
-            {`
-              @keyframes slideUp {
-                0% { transform: translateY(100%); }
-                80% { transform: translateY(-4%); }
-                100% { transform: translateY(0); }
-              }
-              
-              .animate-slide-up {
-                animation: slideUp 0.3s ease-out;
-              }
-              
-              .active\\:scale-98:active {
-                transform: scale(0.98);
-              }
-              
-              .scrollbar-hide::-webkit-scrollbar {
-                display: none;
-              }
-              
-              .scrollbar-hide {
-                -ms-overflow-style: none;
-                scrollbar-width: none;
-              }
-            `}
-          </style>
-        )}
       </>
     );
   },
@@ -2350,12 +2190,6 @@ export const ShareBottomSheet = memo(
     );
   }
 );
-
-
-
-
-
-
 
 /**
  * =========================
@@ -4947,26 +4781,34 @@ export const EventPost = memo(
             </div>
 
             <div
-  className="px-2 py-1 border-t border-white/10 flex items-center justify-between gap-2"
-  onClick={(e) => e.stopPropagation()}
->
-  <button
-    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
-    onClick={handleOpenComments}
-  >
-    <DiscussSignalIcon size={28} color="#1877F2" />
-    <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-      Discuss
-    </span>
-  </button>
-  <button
-    className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-    onClick={handleShare}
-  >
-    <i className="fas fa-share text-[22px]"></i>
-    <span className="text-[19px] font-bold">Share</span>
-  </button>
+              className="px-2 py-1 border-t border-white/10 flex items-center justify-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+          <div className="flex-1">
+  <ReactionButton
+    currentUserReactions={(event as any).my_reaction || undefined}
+    reactionCount={Number((event as any).reactions_count || 0)}
+    onReact={handleReact}
+    isGuest={!currentUser}
+  />
 </div>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group"
+                onClick={handleOpenComments}
+              >
+                <DiscussSignalIcon size={28} color="#1877F2" />
+                <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
+                  Discuss
+                </span>
+              </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
+                onClick={handleShare}
+              >
+                <i className="fas fa-share text-[22px]"></i>
+                <span className="text-[19px] font-bold">Share</span>
+              </button>
+            </div>
           </div>
 
           <div className="h-[10px] bg-[#18191A] border-t border-white/10" />
@@ -5741,8 +5583,6 @@ export const Post = memo(
       meta?.kind === 'product' ||
       !!p?.product_id ||
       !!p?.meta?.marketplace?.id;
-      
-
 
     const isEventPost =
       p?.item_type === 'event' ||
@@ -5804,14 +5644,7 @@ export const Post = memo(
     const isPodcast = meta?.kind === 'podcast' || meta?.type === 'podcast';
     const song = meta?.song;
     const podcast = meta?.podcast;
-    
 
-// ✅ ADDed THIS - Get the correct song ID for reactions
-const songId = isMusic 
-  ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
-  : null;
-
-      
     const isGroupPost = !!(p?.group_id || p?.group);
     const groupId = Number(
       p?.group_id || p?.groupId || meta?.group_id || meta?.groupId || 0
@@ -5954,64 +5787,16 @@ const songId = isMusic
     };
 
     // ✅ UPDATED: Complete handleReactClick with proper group post detection
-
       
-const handleReactClick = async (type: ReactionType) => {
+   const handleReactClick = async (type: ReactionType) => {
   if (!currentUser) {
     alert("Please login to react.");
     return;
   }
-  
-  // Check if this is a music post
-  const isMusicPost = meta?.kind === 'music' || meta?.type === 'music';
-  const songId = isMusicPost 
-    ? Number(p?.song_id2 ?? p?.song_id ?? meta?.song_id ?? song?.id ?? p?.id ?? 0)
-    : null;
-  
-  // If it's a music post, handle directly here
-  if (isMusicPost && songId) {
-    try {
-      // Optimistic update - update local state immediately
-      const newMyReaction = finalMyReaction === type ? null : type;
-      const newCount = finalMyReaction === type 
-        ? Math.max(0, finalReactionCount - 1)
-        : finalMyReaction 
-          ? finalReactionCount
-          : finalReactionCount + 1;
-      
-      // Update local state optimistically
-      setMyReaction(newMyReaction);
-      setReactionsCount(newCount);
-      
-      // Make API call
-      const endpoint = `/api/songs/${songId}/react`;
-      const result = await apiFetch(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          user_id: safeUserId(currentUser), 
-          type: type,
-          song_id: songId 
-        }),
-      });
-      
-      // Update with server response
-      if (result) {
-        setMyReaction(result.my_reaction || null);
-        setReactionsCount(result.reactions_count || 0);
-      }
-    } catch (error) {
-      console.error('Failed to react to music:', error);
-      // Revert optimistic update on error
-      setMyReaction(finalMyReaction);
-      setReactionsCount(finalReactionCount);
-      alert('Failed to react. Please try again.');
-    }
-    return;
-  }
-  
-  // Regular post reaction - pass to parent
+
   onReact?.(p, type);
 };
+      
       
 
     const openGallery = (urls: string[], index: number) => {
@@ -6185,83 +5970,81 @@ const handleReactClick = async (type: ReactionType) => {
               </div>
             )}
 
+            {(isMusic || isPodcast) && (
+              <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-3 p-3">
+                  <img
+                    src={
+                      (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
+                      ''
+                    }
+                    className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
+                    alt=""
+                  />
+                  <div className="flex-1 overflow-hidden">
+                    <div className="text-white font-bold text-[17px] truncate">
+                      {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
+                    </div>
+                    <div className="text-[#B0B3B8] text-[14px] truncate">
+                      {isMusic ? song?.artist_name : podcast?.description}
+                    </div>
+                  </div>
 
-   
-{(isMusic || isPodcast) && (
-  <div className="mx-3 md:mx-4 mb-3 bg-[#18191A] border border-[#3E4042] rounded-2xl overflow-hidden">
-    <div className="flex items-center gap-3 p-3">
-      <img
-        src={
-          (isMusic ? song?.cover_image_url : podcast?.cover_image_url) ||
-          ''
-        }
-        className="w-14 h-14 rounded-xl object-cover bg-[#242526]"
-        alt=""
-      />
-      <div className="flex-1 overflow-hidden">
-        <div className="text-white font-bold text-[17px] truncate">
-          {(isMusic ? song?.title : podcast?.title) || 'Untitled'}
-        </div>
-        <div className="text-[#B0B3B8] text-[14px] truncate">
-          {isMusic ? song?.artist_name : podcast?.description}
-        </div>
-      </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenAudio?.(isMusic ? song : podcast);
+                    }}
+                    className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
+                  >
+                    Play
+                  </button>
+                </div>
+              </div>
+            )}
 
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenAudio?.(isMusic ? song : podcast);
-        }}
-        className="bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold px-4 py-2 rounded-xl text-[15px]"
-      >
-        Play
-      </button>
-    </div>
-    
-    {/* ✅ ADDED: Reaction, Discuss, and Share buttons for Music/Podcast */}
-    <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
-     <ReactionButton
-  currentUserReactions={finalMyReaction || undefined}
-  reactionCount={finalReactionCount}
-  onReact={handleReactClick}
-  isGuest={!currentUser}
-/>
-      <button
-        type="button"
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComments(e);
-        }}
-      >
-        <DiscussSignalIcon size={28} color="#1877F2" />
-        <span className="text-[19px] font-bold text-[#B0B3B8] group-hover:text-[#E4E6EB]">
-          Discuss
-        </span>
-      </button>
-      <button
-        className="flex-1 flex items-center justify-center gap-2 h-10 rounded hover:bg-[#3A3B3C] transition-colors group text-[#B0B3B8]"
-        onClick={() => {
-          if (!currentUser) {
-            alert('Please login to share posts.');
-            return;
-          }
-          setShowShareSheet(true);
-        }}
-      >
-        <i className="fas fa-share text-[22px]"></i>
-        <span className="text-[19px] font-bold">Share</span>
-      </button>
-      {pushButton && <div className="ml-2">{pushButton}</div>}
-    </div>
-  </div>
-)}
+            {p.link_preview && !mediaInfo.mediaUrl && !isMarketplace && (
+              <div
+                className="mx-3 md:mx-4 mb-2 bg-[#242526] border border-[#3E4042] overflow-hidden cursor-pointer hover:bg-[#3A3B3C] transition-colors rounded-lg"
+                onClick={() =>
+                  window.open(p.link_preview.url, '_blank', 'noopener noreferrer')
+                }
+              >
+                {p.link_preview.image && (
+                  <div className="w-full h-48 bg-[#3A3B3C] overflow-hidden">
+                    <img
+                      src={p.link_preview.image}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="p-4 bg-[#3A3B3C]">
+                  <div className="text-[#B0B3B8] text-[13px] uppercase font-bold mb-1">
+                    {p.link_preview.domain}
+                  </div>
+                  <div className="text-[#E4E6EB] font-bold text-[19px] mb-1 line-clamp-2">
+                    {p.link_preview.title}
+                  </div>
+                  <div className="text-[#B0B3B8] text-[16px] line-clamp-3">
+                    {p.link_preview.description}
+                  </div>
+                </div>
+              </div>
+            )}
 
-
-    
-      
+            {p.background && !mediaInfo.mediaUrl && !isMarketplace && (
+              <div
+                className="h-[300px] flex items-center justify-center p-8 text-center text-white font-bold text-2xl"
+                style={{ background: p.background, backgroundSize: 'cover' }}
+              >
+                {p.content}
+              </div>
+            )}
             
             {isMarketplace ? (
               <>
@@ -6361,7 +6144,7 @@ const handleReactClick = async (type: ReactionType) => {
                   </div>
                 </div>
 
-  <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
+                <div className="px-2 py-1 border-t border-white/10 flex items-center justify-between">
                  
 <ReactionButton
   currentUserReactions={finalMyReaction || undefined}
