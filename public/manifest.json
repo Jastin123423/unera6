@@ -1,47 +1,63 @@
 {
-  "name": "UNERA Social",
+  "id": "/",
+  "name": "UNERA",
   "short_name": "UNERA",
-  "description": "Connecting with friends and the world around you on UNERA Social Network",
+  "description": "UNERA Social Network",
   "start_url": "/",
-  "display": "standalone",
-  "background_color": "#18191A",
-  "theme_color": "#1877F2",
-  "orientation": "portrait",
   "scope": "/",
+  "display": "standalone",
+
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+
+  "orientation": "portrait",
+
+  "theme_color": "#18191A",
+  "background_color": "#000000",
+
   "lang": "en",
   "dir": "ltr",
-  "categories": ["social", "communication"],
+
+  "categories": [
+    "social",
+    "entertainment",
+    "photo",
+    "video",
+    "communication"
+  ],
+
   "prefer_related_applications": false,
-  "related_applications": [],
-  
+
+  "handle_links": "preferred",
+
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+
   "icons": [
     {
-      "src": "https://media.unera.social/e6fdc17a-b364-436d-8da8-3a96dc98c251.png",
+      "src": "https://media.unera.social/unera_icon_192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "https://media.unera.social/a7d8ff6c-01b8-459f-8f6c-4f012fda59da.png",
+      "src": "https://media.unera.social/unera_icon_512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
-    },
-    {
-      "src": "https://media.unera.social/e6fdc17a-b364-436d-8da8-3a96dc98c251.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "monochrome"
     }
   ],
 
   "screenshots": [
     {
-      "src": "https://media.unera.social/screenshot1.png",
-      "sizes": "1080x1920",
+      "src": "https://media.unera.social/unera_icon_512x512.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "form_factor": "wide",
-      "label": "Home Feed"
+      "form_factor": "wide"
     }
   ],
 
@@ -49,70 +65,160 @@
     {
       "name": "Feed",
       "short_name": "Feed",
-      "description": "View your feed",
+      "description": "Open UNERA Feed",
       "url": "/",
-      "icons": [{ 
-        "src": "https://media.unera.social/e6fdc17a-b364-436d-8da8-3a96dc98c251.png", 
-        "sizes": "192x192" 
-      }]
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
-    {
-      "name": "Notifications",
-      "short_name": "Notifs",
-      "description": "View notifications",
-      "url": "/notifications",
-      "icons": [{ 
-        "src": "https://media.unera.social/e6fdc17a-b364-436d-8da8-3a96dc98c251.png", 
-        "sizes": "192x192" 
-      }]
-    },
+
     {
       "name": "Messages",
       "short_name": "Chat",
-      "description": "View messages",
+      "description": "Open Messages",
       "url": "/messages",
-      "icons": [{ 
-        "src": "https://media.unera.social/e6fdc17a-b364-436d-8da8-3a96dc98c251.png", 
-        "sizes": "192x192" 
-      }]
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+
+    {
+      "name": "Reels",
+      "short_name": "Reels",
+      "description": "Watch Reels",
+      "url": "/reels",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+
+    {
+      "name": "Notifications",
+      "short_name": "Alerts",
+      "description": "View Notifications",
+      "url": "/notifications",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+
+    {
+      "name": "Create Post",
+      "short_name": "Post",
+      "description": "Create New Post",
+      "url": "/create",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ],
 
   "share_target": {
-    "action": "/share",
+    "action": "/share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
+
     "params": {
       "title": "title",
       "text": "text",
       "url": "url",
+
       "files": [
         {
-          "name": "images",
-          "accept": ["image/*", "image/jpeg", "image/png", "image/gif", "image/webp"]
-        },
-        {
-          "name": "videos",
-          "accept": ["video/*", "video/mp4", "video/quicktime"]
+          "name": "media",
+
+          "accept": [
+            "image/*",
+            "video/*",
+            "audio/*",
+
+            ".pdf",
+            ".doc",
+            ".docx",
+
+            ".xls",
+            ".xlsx",
+
+            ".ppt",
+            ".pptx",
+
+            ".txt",
+            ".csv",
+
+            ".json"
+          ]
         }
       ]
     }
   },
 
-  "launch_handler": {
-    "client_mode": ["navigate-existing", "auto"]
-  },
+  "file_handlers": [
+    {
+      "action": "/open-media",
 
-  "edge_side_panel": {
-    "preferred_width": 480
-  },
+      "accept": {
+        "image/*": [
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".gif",
+          ".webp"
+        ],
+
+        "video/*": [
+          ".mp4",
+          ".mov",
+          ".webm",
+          ".mkv"
+        ],
+
+        "audio/*": [
+          ".mp3",
+          ".wav",
+          ".m4a",
+          ".aac",
+          ".ogg",
+          ".flac"
+        ],
+
+        "application/pdf": [
+          ".pdf"
+        ],
+
+        "text/plain": [
+          ".txt"
+        ]
+      }
+    }
+  ],
 
   "protocol_handlers": [
     {
       "protocol": "web+unera",
-      "url": "/post?url=%s"
+      "url": "/open?url=%s"
     }
   ],
 
-  "url_handlers": ["https://unera.social/*"]
+  "edge_side_panel": {
+    "preferred_width": 420
+  },
+
+  "permissions": [
+    "notifications"
+  ]
 }
