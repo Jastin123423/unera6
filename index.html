@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
@@ -10,7 +10,10 @@
 
     <title>UNERA Social - Connect & Share</title>
 
-    <!-- Primary Meta -->
+    <!-- =========================================
+         PRIMARY META
+    ========================================== -->
+
     <meta
         name="description"
         content="UNERA Social - Connect with friends and the world around you."
@@ -19,18 +22,31 @@
     <meta name="theme-color" content="#18191A" />
     <meta name="background-color" content="#000000" />
 
-    <!-- PWA -->
+    <meta name="application-name" content="UNERA" />
+    <meta name="apple-mobile-web-app-title" content="UNERA" />
+
+    <!-- =========================================
+         PWA
+    ========================================== -->
+
     <link rel="manifest" href="/manifest.json" />
 
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <meta
+        name="apple-mobile-web-app-capable"
+        content="yes"
+    />
+
     <meta
         name="apple-mobile-web-app-status-bar-style"
         content="black-translucent"
     />
-    <meta name="apple-mobile-web-app-title" content="UNERA" />
 
-    <!-- Icons -->
+    <!-- =========================================
+         ICONS
+    ========================================== -->
+
     <link
         rel="icon"
         type="image/png"
@@ -43,39 +59,104 @@
         href="https://media.unera.social/unera_icon_192x192.png"
     />
 
-    <!-- Open Graph -->
+    <link
+        rel="shortcut icon"
+        href="https://media.unera.social/unera_icon_192x192.png"
+    />
+
+    <!-- =========================================
+         OPEN GRAPH
+    ========================================== -->
+
     <meta property="og:title" content="UNERA Social" />
+
     <meta
         property="og:description"
         content="Connect with friends and the world around you."
     />
+
     <meta
         property="og:image"
         content="https://media.unera.social/unera_icon_512x512.png"
     />
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://unera.social" />
 
-    <!-- Twitter -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="UNERA Social" />
+    <meta property="og:type" content="website" />
+
+    <meta
+        property="og:url"
+        content="https://unera.social"
+    />
+
+    <!-- =========================================
+         TWITTER
+    ========================================== -->
+
+    <meta
+        name="twitter:card"
+        content="summary_large_image"
+    />
+
+    <meta
+        name="twitter:title"
+        content="UNERA Social"
+    />
+
     <meta
         name="twitter:description"
         content="Connect with friends and the world around you."
     />
+
     <meta
         name="twitter:image"
         content="https://media.unera.social/unera_icon_512x512.png"
     />
 
-    <!-- Tailwind CSS -->
+    <!-- =========================================
+         FIREBASE WEB SDK
+    ========================================== -->
+
+    <script type="module">
+        import {
+            initializeApp
+        } from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js';
+
+        window.uneraFirebaseConfig = {
+            apiKey: 'AIzaSyChcgu2yOmsugrh2rjc9KhZWe6sD2yZqqI',
+            authDomain: 'unera-50aae.firebaseapp.com',
+            projectId: 'unera-50aae',
+            storageBucket: 'unera-50aae.firebasestorage.app',
+            messagingSenderId: '649631105841',
+            appId: '1:649631105841:web:861869624fdfec132ca610'
+        };
+
+        window.uneraFirebaseApp =
+            initializeApp(
+                window.uneraFirebaseConfig
+            );
+
+        console.log(
+            '🔥 UNERA Firebase initialized'
+        );
+    </script>
+
+    <!-- =========================================
+         TAILWIND
+    ========================================== -->
+
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- FontAwesome -->
+    <!-- =========================================
+         FONT AWESOME
+    ========================================== -->
+
     <link
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         rel="stylesheet"
     />
+
+    <!-- =========================================
+         STYLES
+    ========================================== -->
 
     <style>
         html,
@@ -83,115 +164,55 @@
             background-color: #18191A;
             color: #E4E6EB;
             overflow-y: scroll;
-            font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+            font-family:
+                'Segoe UI',
+                Helvetica,
+                Arial,
+                sans-serif;
+
             overscroll-behavior-y: contain;
-            -webkit-tap-highlight-color: transparent;
+
+            -webkit-tap-highlight-color:
+                transparent;
+
+            width: 100%;
+            min-height: 100%;
         }
 
         body {
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
+            padding-top:
+                env(safe-area-inset-top);
+
+            padding-bottom:
+                env(safe-area-inset-bottom);
+
+            margin: 0;
         }
 
-        /* HIDE SCROLLBARS GLOBALLY */
+        #root {
+            min-height: 100vh;
+        }
+
+        /* =========================================
+           HIDE SCROLLBARS
+        ========================================== */
+
         ::-webkit-scrollbar {
             display: none;
         }
 
         * {
             -ms-overflow-style: none;
+
             scrollbar-width: none;
+
             box-sizing: border-box;
         }
 
-        /* Animation for Like Heart in Reels */
-        @keyframes pop-heart {
-            0% {
-                transform: scale(0) rotate(-45deg);
-                opacity: 0;
-            }
-            50% {
-                transform: scale(1.5) rotate(-45deg);
-                opacity: 1;
-            }
-            100% {
-                transform: scale(1) rotate(-45deg);
-                opacity: 0;
-            }
-        }
+        /* =========================================
+           TOUCH EXPERIENCE
+        ========================================== */
 
-        .animate-pop-heart {
-            animation: pop-heart 0.8s ease-out forwards;
-        }
-
-        .animate-fade-in {
-            animation: fadeIn 0.2s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(100%);
-            }
-            to {
-                transform: translateY(0);
-            }
-        }
-
-        .animate-slide-up {
-            animation: slideUp 0.3s cubic-bezier(0.1, 0.7, 0.1, 1) forwards;
-        }
-
-        @keyframes slideUpHalf {
-            from {
-                transform: translateY(50%);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .animate-slide-up-half {
-            animation: slideUpHalf 0.3s cubic-bezier(0.1, 0.7, 0.1, 1)
-                forwards;
-        }
-
-        @keyframes slideDown {
-            from {
-                transform: translateY(-100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .animate-slide-down {
-            animation: slideDown 0.3s cubic-bezier(0.1, 0.7, 0.1, 1)
-                forwards;
-        }
-
-        /* Dark Mode Input Autofill fix */
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover,
-        input:-webkit-autofill:focus,
-        input:-webkit-autofill:active {
-            -webkit-box-shadow: 0 0 0 30px #3A3B3C inset !important;
-            -webkit-text-fill-color: #E4E6EB !important;
-        }
-
-        /* Better touch experience */
         button,
         a,
         input,
@@ -200,33 +221,232 @@
             touch-action: manipulation;
         }
 
-        /* Waveform Trimmer Styles */
+        img,
+        video {
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* =========================================
+           LIKE HEART
+        ========================================== */
+
+        @keyframes pop-heart {
+            0% {
+                transform:
+                    scale(0)
+                    rotate(-45deg);
+
+                opacity: 0;
+            }
+
+            50% {
+                transform:
+                    scale(1.5)
+                    rotate(-45deg);
+
+                opacity: 1;
+            }
+
+            100% {
+                transform:
+                    scale(1)
+                    rotate(-45deg);
+
+                opacity: 0;
+            }
+        }
+
+        .animate-pop-heart {
+            animation:
+                pop-heart
+                0.8s
+                ease-out
+                forwards;
+        }
+
+        /* =========================================
+           FADE IN
+        ========================================== */
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .animate-fade-in {
+            animation:
+                fadeIn
+                0.2s
+                ease-out;
+        }
+
+        /* =========================================
+           SLIDE UP
+        ========================================== */
+
+        @keyframes slideUp {
+            from {
+                transform:
+                    translateY(100%);
+            }
+
+            to {
+                transform:
+                    translateY(0);
+            }
+        }
+
+        .animate-slide-up {
+            animation:
+                slideUp
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
+        }
+
+        /* =========================================
+           SLIDE HALF
+        ========================================== */
+
+        @keyframes slideUpHalf {
+            from {
+                transform:
+                    translateY(50%);
+
+                opacity: 0;
+            }
+
+            to {
+                transform:
+                    translateY(0);
+
+                opacity: 1;
+            }
+        }
+
+        .animate-slide-up-half {
+            animation:
+                slideUpHalf
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
+        }
+
+        /* =========================================
+           SLIDE DOWN
+        ========================================== */
+
+        @keyframes slideDown {
+            from {
+                transform:
+                    translateY(-100%);
+
+                opacity: 0;
+            }
+
+            to {
+                transform:
+                    translateY(0);
+
+                opacity: 1;
+            }
+        }
+
+        .animate-slide-down {
+            animation:
+                slideDown
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
+        }
+
+        /* =========================================
+           DARK AUTOFILL FIX
+        ========================================== */
+
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+
+            -webkit-box-shadow:
+                0 0 0 30px #3A3B3C inset !important;
+
+            -webkit-text-fill-color:
+                #E4E6EB !important;
+        }
+
+        /* =========================================
+           WAVEFORM
+        ========================================== */
+
         .waveform-track {
             position: relative;
+
             height: 60px;
+
             width: 100%;
+
             display: flex;
+
             align-items: center;
+
             overflow: hidden;
+
             border-radius: 8px;
         }
 
         .waveform-bar {
             background-color: #4A4A4A;
+
             width: 3px;
+
             margin-right: 2px;
+
             border-radius: 2px;
         }
 
         .trim-window {
             position: absolute;
+
             height: 100%;
-            background-color: rgba(254, 44, 85, 0.3);
-            border-left: 3px solid #FE2C55;
-            border-right: 3px solid #FE2C55;
+
+            background-color:
+                rgba(254, 44, 85, 0.3);
+
+            border-left:
+                3px solid #FE2C55;
+
+            border-right:
+                3px solid #FE2C55;
+
             cursor: grab;
+
             display: flex;
+
             align-items: center;
+
             justify-content: space-between;
         }
 
@@ -236,11 +456,18 @@
 
         .trim-handle {
             width: 10px;
+
             height: 24px;
+
             background-color: #FFF;
+
             border-radius: 3px;
         }
     </style>
+
+    <!-- =========================================
+         IMPORT MAP
+    ========================================== -->
 
     <script type="importmap">
     {
@@ -262,6 +489,9 @@
 <body>
     <div id="root"></div>
 
-    <script type="module" src="/index.tsx"></script>
+    <script
+        type="module"
+        src="/index.tsx"
+    ></script>
 </body>
 </html>
