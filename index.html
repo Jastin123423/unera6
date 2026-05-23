@@ -31,7 +31,10 @@
 
     <link rel="manifest" href="/manifest.json" />
 
-    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+        name="mobile-web-app-capable"
+        content="yes"
+    />
 
     <meta
         name="apple-mobile-web-app-capable"
@@ -68,7 +71,10 @@
          OPEN GRAPH
     ========================================== -->
 
-    <meta property="og:title" content="UNERA Social" />
+    <meta
+        property="og:title"
+        content="UNERA Social"
+    />
 
     <meta
         property="og:description"
@@ -80,7 +86,10 @@
         content="https://media.unera.social/unera_icon_512x512.png"
     />
 
-    <meta property="og:type" content="website" />
+    <meta
+        property="og:type"
+        content="website"
+    />
 
     <meta
         property="og:url"
@@ -159,11 +168,25 @@
     ========================================== -->
 
     <style>
+
+        /* =========================================
+           ROOT LAYOUT FIX
+        ========================================== */
+
         html,
         body {
+            width: 100%;
+            min-height: 100%;
+
+            margin: 0;
+            padding: 0;
+
             background-color: #18191A;
             color: #E4E6EB;
-            overflow-y: scroll;
+
+            overflow-x: hidden;
+            overflow-y: auto;
+
             font-family:
                 'Segoe UI',
                 Helvetica,
@@ -175,8 +198,9 @@
             -webkit-tap-highlight-color:
                 transparent;
 
-            width: 100%;
-            min-height: 100%;
+            touch-action: pan-x pan-y;
+
+            -webkit-text-size-adjust: 100%;
         }
 
         body {
@@ -185,12 +209,15 @@
 
             padding-bottom:
                 env(safe-area-inset-bottom);
-
-            margin: 0;
         }
 
         #root {
+            width: 100%;
             min-height: 100vh;
+
+            overflow-x: hidden;
+
+            position: relative;
         }
 
         /* =========================================
@@ -224,7 +251,29 @@
         img,
         video {
             user-select: none;
+
             -webkit-user-drag: none;
+        }
+
+        /* =========================================
+           HORIZONTAL SCROLL HELPERS
+        ========================================== */
+
+        .horizontal-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+
+            -webkit-overflow-scrolling: touch;
+
+            scroll-behavior: smooth;
+
+            touch-action: pan-x;
+
+            overscroll-behavior-x: contain;
+        }
+
+        .horizontal-scroll::-webkit-scrollbar {
+            display: none;
         }
 
         /* =========================================
@@ -232,6 +281,7 @@
         ========================================== */
 
         @keyframes pop-heart {
+
             0% {
                 transform:
                     scale(0)
@@ -270,6 +320,7 @@
         ========================================== */
 
         @keyframes fadeIn {
+
             from {
                 opacity: 0;
             }
@@ -291,6 +342,7 @@
         ========================================== */
 
         @keyframes slideUp {
+
             from {
                 transform:
                     translateY(100%);
@@ -320,6 +372,7 @@
         ========================================== */
 
         @keyframes slideUpHalf {
+
             from {
                 transform:
                     translateY(50%);
@@ -353,6 +406,7 @@
         ========================================== */
 
         @keyframes slideDown {
+
             from {
                 transform:
                     translateY(-100%);
@@ -378,6 +432,33 @@
                     0.1,
                     1
                 )
+                forwards;
+        }
+
+        /* =========================================
+           SPLASH LOADER
+        ========================================== */
+
+        @keyframes unera-loader {
+
+            0% {
+                width: 0%;
+            }
+
+            50% {
+                width: 70%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        .animate-unera-loader {
+            animation:
+                unera-loader
+                3s
+                linear
                 forwards;
         }
 
@@ -463,6 +544,7 @@
 
             border-radius: 3px;
         }
+
     </style>
 
     <!-- =========================================
@@ -484,14 +566,17 @@
       }
     }
     </script>
+
 </head>
 
 <body>
+
     <div id="root"></div>
 
     <script
         type="module"
         src="/index.tsx"
     ></script>
+
 </body>
 </html>
