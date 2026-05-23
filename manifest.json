@@ -12,15 +12,18 @@
     "minimal-ui"
   ],
   "orientation": "portrait",
-  "theme_color": "#0f172a",
+  "theme_color": "#18191A",
   "background_color": "#000000",
   "lang": "en",
   "dir": "ltr",
+
   "categories": [
     "social",
     "entertainment",
-    "lifestyle"
+    "photo",
+    "video"
   ],
+
   "prefer_related_applications": false,
 
   "icons": [
@@ -42,46 +45,92 @@
     {
       "name": "Feed",
       "short_name": "Feed",
-      "url": "/",
-      "icons": [
-        {
-          "src": "https://media.unera.social/unera_icon_192x192.png",
-          "sizes": "192x192"
-        }
-      ]
+      "url": "/"
     },
     {
       "name": "Messages",
       "short_name": "Chat",
-      "url": "/messages",
-      "icons": [
-        {
-          "src": "https://media.unera.social/unera_icon_192x192.png",
-          "sizes": "192x192"
-        }
-      ]
+      "url": "/messages"
     },
     {
       "name": "Reels",
       "short_name": "Reels",
-      "url": "/reels",
-      "icons": [
-        {
-          "src": "https://media.unera.social/unera_icon_192x192.png",
-          "sizes": "192x192"
-        }
-      ]
+      "url": "/reels"
     },
     {
       "name": "Notifications",
       "short_name": "Alerts",
-      "url": "/notifications",
-      "icons": [
+      "url": "/notifications"
+    },
+    {
+      "name": "Create Post",
+      "short_name": "Post",
+      "url": "/create"
+    }
+  ],
+
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
         {
-          "src": "https://media.unera.social/unera_icon_192x192.png",
-          "sizes": "192x192"
+          "name": "media",
+          "accept": [
+            "image/*",
+            "video/*",
+            "audio/*",
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".txt",
+            ".csv"
+          ]
         }
       ]
     }
-  ]
+  },
+
+  "file_handlers": [
+    {
+      "action": "/open-media",
+      "accept": {
+        "image/*": [
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".gif",
+          ".webp"
+        ],
+        "video/*": [
+          ".mp4",
+          ".mov",
+          ".webm",
+          ".mkv"
+        ],
+        "audio/*": [
+          ".mp3",
+          ".wav",
+          ".m4a",
+          ".aac",
+          ".ogg"
+        ],
+        "application/pdf": [
+          ".pdf"
+        ]
+      }
+    }
+  ],
+
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
 }
