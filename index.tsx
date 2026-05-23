@@ -1,15 +1,24 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+
 import App from './App';
+
 import { LanguageProvider } from './contexts/LanguageContext';
 
-const rootElement = document.getElementById('root');
+import { setupUneraPush } from './firebase';
+
+const rootElement =
+  document.getElementById('root');
 
 if (!rootElement) {
-  throw new Error('Could not find root element to mount to');
+
+  throw new Error(
+    'Could not find root element to mount to'
+  );
 }
 
-const root = ReactDOM.createRoot(rootElement);
+const root =
+  ReactDOM.createRoot(rootElement);
 
 root.render(
   <React.StrictMode>
@@ -24,194 +33,231 @@ root.render(
 ========================================= */
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    try {
 
-      const registration =
-        await navigator.serviceWorker.register('/sw.js');
+  window.addEventListener(
+    'load',
+    async () => {
 
-      console.log(
-        '✅ UNERA SW registered:',
-        registration.scope
-      );
+      try {
 
-      /* =========================================
-         FORCE WAITING SW TO ACTIVATE
-      ========================================= */
+        /* =========================================
+           MAIN PWA SERVICE WORKER
+        ========================================= */
 
-      if (registration.waiting) {
-        registration.waiting.postMessage({
-          type: 'SKIP_WAITING',
-        });
-      }
+        const registration =
+          await navigator
+            .serviceWorker
+            .register('/sw.js');
 
-      /* =========================================
-         LISTEN FOR NEW SW
-      ========================================= */
+        console.log(
+          '✅ UNERA SW registered:',
+          registration.scope
+        );
 
-      registration.addEventListener(
-        'updatefound',
-        () => {
+        /* =========================================
+           FIREBASE MESSAGING SW
+        ========================================= */
 
-          const newWorker =
-            registration.installing;
+        await navigator.serviceWorker.register(
+          '/firebase-messaging-sw.js'
+        );
 
-          if (!newWorker) return;
+        console.log(
+          '🔥 Firebase Messaging SW registered'
+        );
 
-          console.log(
-            '⬇️ New UNERA update found'
-          );
+        /* =========================================
+           SETUP PUSH NOTIFICATIONS
+        ========================================= */
 
-          newWorker.addEventListener(
-            'statechange',
-            () => {
+        await setupUneraPush();
 
-              console.log(
-                'SW STATE:',
-                newWorker.state
-              );
+        /* =========================================
+           FORCE WAITING SW TO ACTIVATE
+        ========================================= */
 
-              if (
-                newWorker.state ===
-                  'installed' &&
-                navigator.serviceWorker.controller
-              ) {
+        if (registration.waiting) {
+
+          registration.waiting.postMessage({
+            type: 'SKIP_WAITING',
+          });
+        }
+
+        /* =========================================
+           LISTEN FOR NEW SW
+        ========================================= */
+
+        registration.addEventListener(
+          'updatefound',
+          () => {
+
+            const newWorker =
+              registration.installing;
+
+            if (!newWorker) return;
+
+            console.log(
+              '⬇️ New UNERA update found'
+            );
+
+            newWorker.addEventListener(
+              'statechange',
+              () => {
 
                 console.log(
-                  '🔄 UNERA updated'
+                  'SW STATE:',
+                  newWorker.state
                 );
 
-                /* =========================================
-                   OPTIONAL:
-                   SHOW UPDATE UI IN FUTURE
-                ========================================= */
+                if (
+                  newWorker.state ===
+                    'installed' &&
+                  navigator
+                    .serviceWorker
+                    .controller
+                ) {
 
-                window.dispatchEvent(
-                  new CustomEvent(
-                    'uneraUpdateAvailable'
-                  )
-                );
+                  console.log(
+                    '🔄 UNERA updated'
+                  );
 
-                /* =========================================
-                   AUTO REFRESH
-                ========================================= */
+                  /* =========================================
+                     UPDATE EVENT
+                  ========================================= */
 
-                window.location.reload();
+                  window.dispatchEvent(
+                    new CustomEvent(
+                      'uneraUpdateAvailable'
+                    )
+                  );
+
+                  /* =========================================
+                     AUTO REFRESH
+                  ========================================= */
+
+                  window.location.reload();
+                }
               }
-            }
-          );
-        }
-      );
+            );
+          }
+        );
 
-      /* =========================================
-         SW MESSAGE CHANNEL
-      ========================================= */
+        /* =========================================
+           SW MESSAGE CHANNEL
+        ========================================= */
 
-      navigator.serviceWorker.addEventListener(
-        'message',
-        (event) => {
+        navigator.serviceWorker.addEventListener(
+          'message',
+          (event) => {
 
-          console.log(
-            '📩 SW MESSAGE:',
-            event.data
-          );
+            console.log(
+              '📩 SW MESSAGE:',
+              event.data
+            );
 
-          window.dispatchEvent(
-            new CustomEvent(
-              'uneraSWMessage',
-              {
-                detail: event.data,
-              }
-            )
-          );
-        }
-      );
+            window.dispatchEvent(
+              new CustomEvent(
+                'uneraSWMessage',
+                {
+                  detail: event.data,
+                }
+              )
+            );
+          }
+        );
 
-      /* =========================================
-         ONLINE / OFFLINE EVENTS
-      ========================================= */
+        /* =========================================
+           ONLINE EVENT
+        ========================================= */
 
-      window.addEventListener(
-        'online',
-        () => {
-          console.log(
-            '🌐 UNERA back online'
-          );
+        window.addEventListener(
+          'online',
+          () => {
 
-          window.dispatchEvent(
-            new CustomEvent(
-              'uneraOnline'
-            )
-          );
-        }
-      );
+            console.log(
+              '🌐 UNERA back online'
+            );
 
-      window.addEventListener(
-        'offline',
-        () => {
-          console.log(
-            '📴 UNERA offline'
-          );
+            window.dispatchEvent(
+              new CustomEvent(
+                'uneraOnline'
+              )
+            );
+          }
+        );
 
-          window.dispatchEvent(
-            new CustomEvent(
-              'uneraOffline'
-            )
-          );
-        }
-      );
+        /* =========================================
+           OFFLINE EVENT
+        ========================================= */
 
-      /* =========================================
-         PWA INSTALL READY EVENT
-      ========================================= */
+        window.addEventListener(
+          'offline',
+          () => {
 
-      window.addEventListener(
-        'beforeinstallprompt',
-        (event: any) => {
+            console.log(
+              '📴 UNERA offline'
+            );
 
-          console.log(
-            '📲 UNERA install available'
-          );
+            window.dispatchEvent(
+              new CustomEvent(
+                'uneraOffline'
+              )
+            );
+          }
+        );
 
-          event.preventDefault();
+        /* =========================================
+           PWA INSTALL READY
+        ========================================= */
 
-          (window as any).deferredPrompt =
-            event;
+        window.addEventListener(
+          'beforeinstallprompt',
+          (event: any) => {
 
-          window.dispatchEvent(
-            new CustomEvent(
-              'uneraInstallReady'
-            )
-          );
-        }
-      );
+            console.log(
+              '📲 UNERA install available'
+            );
 
-      /* =========================================
-         PWA INSTALLED EVENT
-      ========================================= */
+            event.preventDefault();
 
-      window.addEventListener(
-        'appinstalled',
-        () => {
+            (window as any)
+              .deferredPrompt = event;
 
-          console.log(
-            '🎉 UNERA installed'
-          );
+            window.dispatchEvent(
+              new CustomEvent(
+                'uneraInstallReady'
+              )
+            );
+          }
+        );
 
-          window.dispatchEvent(
-            new CustomEvent(
-              'uneraInstalled'
-            )
-          );
-        }
-      );
+        /* =========================================
+           PWA INSTALLED
+        ========================================= */
 
-    } catch (err) {
+        window.addEventListener(
+          'appinstalled',
+          () => {
 
-      console.error(
-        '❌ UNERA SW registration failed:',
-        err
-      );
+            console.log(
+              '🎉 UNERA installed'
+            );
+
+            window.dispatchEvent(
+              new CustomEvent(
+                'uneraInstalled'
+              )
+            );
+          }
+        );
+
+      } catch (err) {
+
+        console.error(
+          '❌ UNERA SW registration failed:',
+          err
+        );
+      }
     }
-  });
+  );
 }
