@@ -6,14 +6,18 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+
   "display_override": [
     "window-controls-overlay",
     "standalone",
     "minimal-ui"
   ],
+
   "orientation": "portrait",
+
   "theme_color": "#18191A",
   "background_color": "#000000",
+
   "lang": "en",
   "dir": "ltr",
 
@@ -21,10 +25,17 @@
     "social",
     "entertainment",
     "photo",
-    "video"
+    "video",
+    "communication"
   ],
 
   "prefer_related_applications": false,
+
+  "handle_links": "preferred",
+
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
 
   "icons": [
     {
@@ -41,31 +52,79 @@
     }
   ],
 
+  "screenshots": [
+    {
+      "src": "https://media.unera.social/unera_icon_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+
   "shortcuts": [
     {
       "name": "Feed",
       "short_name": "Feed",
-      "url": "/"
+      "description": "Open UNERA Feed",
+      "url": "/",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
+
     {
       "name": "Messages",
       "short_name": "Chat",
-      "url": "/messages"
+      "description": "Open Messages",
+      "url": "/messages",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
+
     {
       "name": "Reels",
       "short_name": "Reels",
-      "url": "/reels"
+      "description": "Watch Reels",
+      "url": "/reels",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
+
     {
       "name": "Notifications",
       "short_name": "Alerts",
-      "url": "/notifications"
+      "description": "View Notifications",
+      "url": "/notifications",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
+
     {
       "name": "Create Post",
       "short_name": "Post",
-      "url": "/create"
+      "description": "Create New Post",
+      "url": "/create",
+      "icons": [
+        {
+          "src": "https://media.unera.social/unera_icon_192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ],
 
@@ -73,26 +132,35 @@
     "action": "/share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
+
     "params": {
       "title": "title",
       "text": "text",
       "url": "url",
+
       "files": [
         {
           "name": "media",
+
           "accept": [
             "image/*",
             "video/*",
             "audio/*",
+
             ".pdf",
             ".doc",
             ".docx",
+
             ".xls",
             ".xlsx",
+
             ".ppt",
             ".pptx",
+
             ".txt",
-            ".csv"
+            ".csv",
+
+            ".json"
           ]
         }
       ]
@@ -102,6 +170,7 @@
   "file_handlers": [
     {
       "action": "/open-media",
+
       "accept": {
         "image/*": [
           ".png",
@@ -110,27 +179,46 @@
           ".gif",
           ".webp"
         ],
+
         "video/*": [
           ".mp4",
           ".mov",
           ".webm",
           ".mkv"
         ],
+
         "audio/*": [
           ".mp3",
           ".wav",
           ".m4a",
           ".aac",
-          ".ogg"
+          ".ogg",
+          ".flac"
         ],
+
         "application/pdf": [
           ".pdf"
+        ],
+
+        "text/plain": [
+          ".txt"
         ]
       }
     }
   ],
 
-  "launch_handler": {
-    "client_mode": "focus-existing"
-  }
+  "protocol_handlers": [
+    {
+      "protocol": "web+unera",
+      "url": "/open?url=%s"
+    }
+  ],
+
+  "edge_side_panel": {
+    "preferred_width": 420
+  },
+
+  "permissions": [
+    "notifications"
+  ]
 }
