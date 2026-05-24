@@ -5,7 +5,7 @@
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
 
     <title>UNERA Social - Connect & Share</title>
@@ -50,11 +50,6 @@
 
     <link
         rel="apple-touch-icon"
-        href="https://media.unera.social/unera_icon_192x192.png"
-    />
-
-    <link
-        rel="shortcut icon"
         href="https://media.unera.social/unera_icon_192x192.png"
     />
 
@@ -141,25 +136,10 @@
     <!-- STYLES -->
 
     <style>
-        html {
-            background-color: #18191A;
-            color: #E4E6EB;
-            font-family:
-                'Segoe UI',
-                Helvetica,
-                Arial,
-                sans-serif;
-
-            -webkit-tap-highlight-color:
-                transparent;
-
-            overflow-x: hidden;
-        }
-
         body {
             background-color: #18191A;
             color: #E4E6EB;
-
+            overflow-y: scroll;
             font-family:
                 'Segoe UI',
                 Helvetica,
@@ -168,20 +148,17 @@
 
             margin: 0;
 
-            overflow-x: hidden;
-            overflow-y: auto;
-
-            min-height: 100vh;
+            -webkit-tap-highlight-color:
+                transparent;
         }
 
         /* IMPORTANT:
-           DO NOT MODIFY APP HEADER/STICKY SYSTEM
-           LET REACT CONTROL IT
+           DO NOT CONTROL STICKY HEADER HERE
+           LET REACT HANDLE IT
         */
 
         #root {
             width: 100%;
-            min-height: 100vh;
         }
 
         /* HIDE SCROLLBARS */
