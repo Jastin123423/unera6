@@ -1,146 +1,542 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="UNERA Social - Connect with friends and the world around you.">
-    <meta name="theme-color" content="#18191A">
+    <meta charset="UTF-8" />
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+
     <title>UNERA Social - Connect & Share</title>
-    
-    <!-- Tailwind CSS -->
+
+    <!-- =========================================
+         PRIMARY META
+    ========================================== -->
+
+    <meta
+        name="description"
+        content="UNERA Social - Connect with friends and the world around you."
+    />
+
+    <meta name="theme-color" content="#18191A" />
+    <meta name="background-color" content="#000000" />
+
+    <meta name="application-name" content="UNERA" />
+    <meta name="apple-mobile-web-app-title" content="UNERA" />
+
+    <!-- =========================================
+         PWA
+    ========================================== -->
+
+    <link rel="manifest" href="/manifest.json" />
+
+    <meta
+        name="mobile-web-app-capable"
+        content="yes"
+    />
+
+    <meta
+        name="apple-mobile-web-app-capable"
+        content="yes"
+    />
+
+    <meta
+        name="apple-mobile-web-app-status-bar-style"
+        content="black-translucent"
+    />
+
+    <!-- =========================================
+         ICONS
+    ========================================== -->
+
+    <link
+        rel="icon"
+        type="image/png"
+        sizes="192x192"
+        href="https://media.unera.social/unera_icon_192x192.png"
+    />
+
+    <link
+        rel="apple-touch-icon"
+        href="https://media.unera.social/unera_icon_192x192.png"
+    />
+
+    <link
+        rel="shortcut icon"
+        href="https://media.unera.social/unera_icon_192x192.png"
+    />
+
+    <!-- =========================================
+         OPEN GRAPH
+    ========================================== -->
+
+    <meta
+        property="og:title"
+        content="UNERA Social"
+    />
+
+    <meta
+        property="og:description"
+        content="Connect with friends and the world around you."
+    />
+
+    <meta
+        property="og:image"
+        content="https://media.unera.social/unera_icon_512x512.png"
+    />
+
+    <meta
+        property="og:type"
+        content="website"
+    />
+
+    <meta
+        property="og:url"
+        content="https://unera.social"
+    />
+
+    <!-- =========================================
+         TWITTER
+    ========================================== -->
+
+    <meta
+        name="twitter:card"
+        content="summary_large_image"
+    />
+
+    <meta
+        name="twitter:title"
+        content="UNERA Social"
+    />
+
+    <meta
+        name="twitter:description"
+        content="Connect with friends and the world around you."
+    />
+
+    <meta
+        name="twitter:image"
+        content="https://media.unera.social/unera_icon_512x512.png"
+    />
+
+    <!-- =========================================
+         FIREBASE WEB SDK
+    ========================================== -->
+
+    <script type="module">
+
+        import {
+            initializeApp
+        } from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js';
+
+        window.uneraFirebaseConfig = {
+            apiKey: 'AIzaSyChcgu2yOmsugrh2rjc9KhZWe6sD2yZqqI',
+            authDomain: 'unera-50aae.firebaseapp.com',
+            projectId: 'unera-50aae',
+            storageBucket: 'unera-50aae.firebasestorage.app',
+            messagingSenderId: '649631105841',
+            appId: '1:649631105841:web:861869624fdfec132ca610'
+        };
+
+        window.uneraFirebaseApp =
+            initializeApp(
+                window.uneraFirebaseConfig
+            );
+
+        console.log(
+            '🔥 UNERA Firebase initialized'
+        );
+
+    </script>
+
+    <!-- =========================================
+         TAILWIND
+    ========================================== -->
+
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- FontAwesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    
+
+    <!-- =========================================
+         FONT AWESOME
+    ========================================== -->
+
+    <link
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        rel="stylesheet"
+    />
+
+    <!-- =========================================
+         STYLES
+    ========================================== -->
+
     <style>
+
+        html,
         body {
             background-color: #18191A;
             color: #E4E6EB;
+
+            font-family:
+                'Segoe UI',
+                Helvetica,
+                Arial,
+                sans-serif;
+
+            margin: 0;
+            padding: 0;
+
+            width: 100%;
+            min-height: 100%;
+
             overflow-y: scroll;
-            font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+
+            -webkit-tap-highlight-color:
+                transparent;
+
+            overscroll-behavior-y: contain;
         }
-        
-        /* HIDE SCROLLBARS GLOBALLY */
+
+        body {
+            padding-top:
+                env(safe-area-inset-top);
+
+            padding-bottom:
+                env(safe-area-inset-bottom);
+        }
+
+        #root {
+            min-height: 100vh;
+        }
+
+        /* =========================================
+           HIDE SCROLLBARS GLOBALLY
+        ========================================== */
+
         ::-webkit-scrollbar {
             display: none;
         }
+
         * {
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+            box-sizing: border-box;
         }
-        
-        /* Animation for Like Heart in Reels */
+
+        /* =========================================
+           TOUCH EXPERIENCE
+        ========================================== */
+
+        button,
+        a,
+        input,
+        textarea,
+        select {
+            touch-action: manipulation;
+        }
+
+        img,
+        video {
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* =========================================
+           LIKE HEART
+        ========================================== */
+
         @keyframes pop-heart {
-            0% { transform: scale(0) rotate(-45deg); opacity: 0; }
-            50% { transform: scale(1.5) rotate(-45deg); opacity: 1; }
-            100% { transform: scale(1) rotate(-45deg); opacity: 0; }
+
+            0% {
+                transform:
+                    scale(0)
+                    rotate(-45deg);
+
+                opacity: 0;
+            }
+
+            50% {
+                transform:
+                    scale(1.5)
+                    rotate(-45deg);
+
+                opacity: 1;
+            }
+
+            100% {
+                transform:
+                    scale(1)
+                    rotate(-45deg);
+
+                opacity: 0;
+            }
         }
+
         .animate-pop-heart {
-            animation: pop-heart 0.8s ease-out forwards;
+            animation:
+                pop-heart
+                0.8s
+                ease-out
+                forwards;
+        }
+
+        /* =========================================
+           FADE IN
+        ========================================== */
+
+        @keyframes fadeIn {
+
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
 
         .animate-fade-in {
-            animation: fadeIn 0.2s ease-out;
+            animation:
+                fadeIn
+                0.2s
+                ease-out;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
+        /* =========================================
+           SLIDE UP
+        ========================================== */
 
         @keyframes slideUp {
-            from { transform: translateY(100%); }
-            to { transform: translateY(0); }
+
+            from {
+                transform:
+                    translateY(100%);
+            }
+
+            to {
+                transform:
+                    translateY(0);
+            }
         }
 
         .animate-slide-up {
-            animation: slideUp 0.3s cubic-bezier(0.1, 0.7, 0.1, 1) forwards;
-        }
-        
-        @keyframes slideUpHalf {
-            from { transform: translateY(50%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        
-        .animate-slide-up-half {
-             animation: slideUpHalf 0.3s cubic-bezier(0.1, 0.7, 0.1, 1) forwards;
+            animation:
+                slideUp
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
         }
 
+        /* =========================================
+           SLIDE HALF
+        ========================================== */
+
+        @keyframes slideUpHalf {
+
+            from {
+                transform:
+                    translateY(50%);
+
+                opacity: 0;
+            }
+
+            to {
+                transform:
+                    translateY(0);
+
+                opacity: 1;
+            }
+        }
+
+        .animate-slide-up-half {
+            animation:
+                slideUpHalf
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
+        }
+
+        /* =========================================
+           SLIDE DOWN
+        ========================================== */
+
         @keyframes slideDown {
-            from { transform: translateY(-100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+
+            from {
+                transform:
+                    translateY(-100%);
+
+                opacity: 0;
+            }
+
+            to {
+                transform:
+                    translateY(0);
+
+                opacity: 1;
+            }
         }
 
         .animate-slide-down {
-            animation: slideDown 0.3s cubic-bezier(0.1, 0.7, 0.1, 1) forwards;
+            animation:
+                slideDown
+                0.3s
+                cubic-bezier(
+                    0.1,
+                    0.7,
+                    0.1,
+                    1
+                )
+                forwards;
         }
-        
-        /* Dark Mode Input Autofill fix */
+
+        /* =========================================
+           SPLASH LOADER
+        ========================================== */
+
+        @keyframes unera-loader {
+
+            0% {
+                width: 0%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        .animate-unera-loader {
+            animation:
+                unera-loader
+                3s
+                linear
+                forwards;
+        }
+
+        /* =========================================
+           DARK AUTOFILL FIX
+        ========================================== */
+
         input:-webkit-autofill,
-        input:-webkit-autofill:hover, 
-        input:-webkit-autofill:focus, 
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
         input:-webkit-autofill:active {
-            -webkit-box-shadow: 0 0 0 30px #3A3B3C inset !important;
-            -webkit-text-fill-color: #E4E6EB !important;
+
+            -webkit-box-shadow:
+                0 0 0 30px #3A3B3C inset !important;
+
+            -webkit-text-fill-color:
+                #E4E6EB !important;
         }
-        
-        /* Waveform Trimmer Styles */
+
+        /* =========================================
+           WAVEFORM
+        ========================================== */
+
         .waveform-track {
             position: relative;
+
             height: 60px;
+
             width: 100%;
+
             display: flex;
+
             align-items: center;
+
             overflow: hidden;
+
             border-radius: 8px;
         }
+
         .waveform-bar {
             background-color: #4A4A4A;
+
             width: 3px;
+
             margin-right: 2px;
+
             border-radius: 2px;
         }
+
         .trim-window {
             position: absolute;
+
             height: 100%;
-            background-color: rgba(254, 44, 85, 0.3);
-            border-left: 3px solid #FE2C55;
-            border-right: 3px solid #FE2C55;
+
+            background-color:
+                rgba(254, 44, 85, 0.3);
+
+            border-left:
+                3px solid #FE2C55;
+
+            border-right:
+                3px solid #FE2C55;
+
             cursor: grab;
+
             display: flex;
+
             align-items: center;
+
             justify-content: space-between;
         }
-         .trim-window:active {
+
+        .trim-window:active {
             cursor: grabbing;
         }
+
         .trim-handle {
             width: 10px;
+
             height: 24px;
+
             background-color: #FFF;
+
             border-radius: 3px;
         }
-        
+
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "hono": "https://esm.sh/hono@^4.11.3",
-    "hono/": "https://esm.sh/hono@^4.11.3/",
-    "@hono/zod-validator": "https://esm.sh/@hono/zod-validator@^0.7.6",
-    "zod": "https://esm.sh/zod@^4.2.1",
-    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
-    "jose": "https://esm.sh/jose@^6.1.3"
-  }
-}
-</script>
+
+    <!-- =========================================
+         IMPORT MAP
+    ========================================== -->
+
+    <script type="importmap">
+    {
+      "imports": {
+        "react/": "https://aistudiocdn.com/react@^19.2.1/",
+        "react": "https://aistudiocdn.com/react@^19.2.1",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+        "hono": "https://esm.sh/hono@^4.11.3",
+        "hono/": "https://esm.sh/hono@^4.11.3/",
+        "@hono/zod-validator": "https://esm.sh/@hono/zod-validator@^0.7.6",
+        "zod": "https://esm.sh/zod@^4.2.1",
+        "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+        "jose": "https://esm.sh/jose@^6.1.3"
+      }
+    }
+    </script>
+
 </head>
+
 <body>
+
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+
+    <script
+        type="module"
+        src="/index.tsx"
+    ></script>
+
 </body>
 </html>
