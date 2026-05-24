@@ -31,10 +31,7 @@
 
     <link rel="manifest" href="/manifest.json" />
 
-    <meta
-        name="mobile-web-app-capable"
-        content="yes"
-    />
+    <meta name="mobile-web-app-capable" content="yes" />
 
     <meta
         name="apple-mobile-web-app-capable"
@@ -71,10 +68,7 @@
          OPEN GRAPH
     ========================================== -->
 
-    <meta
-        property="og:title"
-        content="UNERA Social"
-    />
+    <meta property="og:title" content="UNERA Social" />
 
     <meta
         property="og:description"
@@ -86,10 +80,7 @@
         content="https://media.unera.social/unera_icon_512x512.png"
     />
 
-    <meta
-        property="og:type"
-        content="website"
-    />
+    <meta property="og:type" content="website" />
 
     <meta
         property="og:url"
@@ -125,7 +116,6 @@
     ========================================== -->
 
     <script type="module">
-
         import {
             initializeApp
         } from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js';
@@ -147,7 +137,6 @@
         console.log(
             '🔥 UNERA Firebase initialized'
         );
-
     </script>
 
     <!-- =========================================
@@ -170,30 +159,24 @@
     ========================================== -->
 
     <style>
-
         html,
         body {
             background-color: #18191A;
             color: #E4E6EB;
-
+            overflow-y: scroll;
             font-family:
                 'Segoe UI',
                 Helvetica,
                 Arial,
                 sans-serif;
 
-            margin: 0;
-            padding: 0;
-
-            width: 100%;
-            min-height: 100%;
-
-            overflow-y: scroll;
+            overscroll-behavior-y: contain;
 
             -webkit-tap-highlight-color:
                 transparent;
 
-            overscroll-behavior-y: contain;
+            width: 100%;
+            min-height: 100%;
         }
 
         body {
@@ -202,6 +185,8 @@
 
             padding-bottom:
                 env(safe-area-inset-bottom);
+
+            margin: 0;
         }
 
         #root {
@@ -209,7 +194,7 @@
         }
 
         /* =========================================
-           HIDE SCROLLBARS GLOBALLY
+           HIDE SCROLLBARS
         ========================================== */
 
         ::-webkit-scrollbar {
@@ -218,7 +203,9 @@
 
         * {
             -ms-overflow-style: none;
+
             scrollbar-width: none;
+
             box-sizing: border-box;
         }
 
@@ -245,7 +232,6 @@
         ========================================== */
 
         @keyframes pop-heart {
-
             0% {
                 transform:
                     scale(0)
@@ -284,7 +270,6 @@
         ========================================== */
 
         @keyframes fadeIn {
-
             from {
                 opacity: 0;
             }
@@ -306,7 +291,6 @@
         ========================================== */
 
         @keyframes slideUp {
-
             from {
                 transform:
                     translateY(100%);
@@ -336,7 +320,6 @@
         ========================================== */
 
         @keyframes slideUpHalf {
-
             from {
                 transform:
                     translateY(50%);
@@ -370,7 +353,6 @@
         ========================================== */
 
         @keyframes slideDown {
-
             from {
                 transform:
                     translateY(-100%);
@@ -396,29 +378,6 @@
                     0.1,
                     1
                 )
-                forwards;
-        }
-
-        /* =========================================
-           SPLASH LOADER
-        ========================================== */
-
-        @keyframes unera-loader {
-
-            0% {
-                width: 0%;
-            }
-
-            100% {
-                width: 100%;
-            }
-        }
-
-        .animate-unera-loader {
-            animation:
-                unera-loader
-                3s
-                linear
                 forwards;
         }
 
@@ -504,7 +463,6 @@
 
             border-radius: 3px;
         }
-
     </style>
 
     <!-- =========================================
@@ -526,17 +484,14 @@
       }
     }
     </script>
-
 </head>
 
 <body>
-
     <div id="root"></div>
 
     <script
         type="module"
         src="/index.tsx"
     ></script>
-
 </body>
 </html>
