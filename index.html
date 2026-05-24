@@ -10,9 +10,7 @@
 
     <title>UNERA Social - Connect & Share</title>
 
-    <!-- =========================================
-         PRIMARY META
-    ========================================== -->
+    <!-- PRIMARY META -->
 
     <meta
         name="description"
@@ -25,9 +23,7 @@
     <meta name="application-name" content="UNERA" />
     <meta name="apple-mobile-web-app-title" content="UNERA" />
 
-    <!-- =========================================
-         PWA
-    ========================================== -->
+    <!-- PWA -->
 
     <link rel="manifest" href="/manifest.json" />
 
@@ -43,9 +39,7 @@
         content="black-translucent"
     />
 
-    <!-- =========================================
-         ICONS
-    ========================================== -->
+    <!-- ICONS -->
 
     <link
         rel="icon"
@@ -64,9 +58,7 @@
         href="https://media.unera.social/unera_icon_192x192.png"
     />
 
-    <!-- =========================================
-         OPEN GRAPH
-    ========================================== -->
+    <!-- OPEN GRAPH -->
 
     <meta property="og:title" content="UNERA Social" />
 
@@ -87,9 +79,7 @@
         content="https://unera.social"
     />
 
-    <!-- =========================================
-         TWITTER
-    ========================================== -->
+    <!-- TWITTER -->
 
     <meta
         name="twitter:card"
@@ -111,9 +101,7 @@
         content="https://media.unera.social/unera_icon_512x512.png"
     />
 
-    <!-- =========================================
-         FIREBASE WEB SDK
-    ========================================== -->
+    <!-- FIREBASE -->
 
     <script type="module">
         import {
@@ -139,63 +127,64 @@
         );
     </script>
 
-    <!-- =========================================
-         TAILWIND
-    ========================================== -->
+    <!-- TAILWIND -->
 
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- =========================================
-         FONT AWESOME
-    ========================================== -->
+    <!-- FONT AWESOME -->
 
     <link
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         rel="stylesheet"
     />
 
-    <!-- =========================================
-         STYLES
-    ========================================== -->
+    <!-- STYLES -->
 
     <style>
-        html,
-        body {
+        html {
             background-color: #18191A;
             color: #E4E6EB;
-            overflow-y: scroll;
             font-family:
                 'Segoe UI',
                 Helvetica,
                 Arial,
                 sans-serif;
 
-            overscroll-behavior-y: contain;
-
             -webkit-tap-highlight-color:
                 transparent;
 
-            width: 100%;
-            min-height: 100%;
+            overflow-x: hidden;
         }
 
         body {
-            padding-top:
-                env(safe-area-inset-top);
+            background-color: #18191A;
+            color: #E4E6EB;
 
-            padding-bottom:
-                env(safe-area-inset-bottom);
+            font-family:
+                'Segoe UI',
+                Helvetica,
+                Arial,
+                sans-serif;
 
             margin: 0;
-        }
 
-        #root {
+            overflow-x: hidden;
+            overflow-y: auto;
+
             min-height: 100vh;
         }
 
-        /* =========================================
-           HIDE SCROLLBARS
-        ========================================== */
+        /* IMPORTANT:
+           DO NOT MODIFY APP HEADER/STICKY SYSTEM
+           LET REACT CONTROL IT
+        */
+
+        #root {
+            width: 100%;
+            min-height: 100vh;
+        }
+
+        /* HIDE SCROLLBARS */
 
         ::-webkit-scrollbar {
             display: none;
@@ -203,15 +192,11 @@
 
         * {
             -ms-overflow-style: none;
-
             scrollbar-width: none;
-
             box-sizing: border-box;
         }
 
-        /* =========================================
-           TOUCH EXPERIENCE
-        ========================================== */
+        /* TOUCH */
 
         button,
         a,
@@ -227,9 +212,7 @@
             -webkit-user-drag: none;
         }
 
-        /* =========================================
-           LIKE HEART
-        ========================================== */
+        /* LIKE HEART */
 
         @keyframes pop-heart {
             0% {
@@ -265,9 +248,7 @@
                 forwards;
         }
 
-        /* =========================================
-           FADE IN
-        ========================================== */
+        /* FADE */
 
         @keyframes fadeIn {
             from {
@@ -286,9 +267,7 @@
                 ease-out;
         }
 
-        /* =========================================
-           SLIDE UP
-        ========================================== */
+        /* SLIDE UP */
 
         @keyframes slideUp {
             from {
@@ -315,9 +294,7 @@
                 forwards;
         }
 
-        /* =========================================
-           SLIDE HALF
-        ========================================== */
+        /* SLIDE HALF */
 
         @keyframes slideUpHalf {
             from {
@@ -348,9 +325,7 @@
                 forwards;
         }
 
-        /* =========================================
-           SLIDE DOWN
-        ========================================== */
+        /* SLIDE DOWN */
 
         @keyframes slideDown {
             from {
@@ -381,9 +356,7 @@
                 forwards;
         }
 
-        /* =========================================
-           DARK AUTOFILL FIX
-        ========================================== */
+        /* AUTOFILL */
 
         input:-webkit-autofill,
         input:-webkit-autofill:hover,
@@ -397,41 +370,28 @@
                 #E4E6EB !important;
         }
 
-        /* =========================================
-           WAVEFORM
-        ========================================== */
+        /* WAVEFORM */
 
         .waveform-track {
             position: relative;
-
             height: 60px;
-
             width: 100%;
-
             display: flex;
-
             align-items: center;
-
             overflow: hidden;
-
             border-radius: 8px;
         }
 
         .waveform-bar {
             background-color: #4A4A4A;
-
             width: 3px;
-
             margin-right: 2px;
-
             border-radius: 2px;
         }
 
         .trim-window {
             position: absolute;
-
             height: 100%;
-
             background-color:
                 rgba(254, 44, 85, 0.3);
 
@@ -444,9 +404,7 @@
             cursor: grab;
 
             display: flex;
-
             align-items: center;
-
             justify-content: space-between;
         }
 
@@ -456,18 +414,13 @@
 
         .trim-handle {
             width: 10px;
-
             height: 24px;
-
             background-color: #FFF;
-
             border-radius: 3px;
         }
     </style>
 
-    <!-- =========================================
-         IMPORT MAP
-    ========================================== -->
+    <!-- IMPORT MAP -->
 
     <script type="importmap">
     {
