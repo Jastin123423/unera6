@@ -3,6 +3,6 @@
       "target": {
         "namespace": "android_app",
         "package_name": "social.unera.twa",
-        "sha256_cert_fingerprints": ["EF:71:15:1D:F5:DE:20:BC:25:C1:38:41:1B:4D:BF:B7:3C:73:F6:AD:EF:5D:51:77:06:71:16:49:7D:4F:8D:D4"]
+        "sha256_cert_fingerprints": ["0A:9B:31:77:7F:24:5C:B1:B6:74:B6:0F:05:24:40:2E:C7:39:FF:91:B6:03:26:07:DD:E8:38:31:38:02:EF:A7"]
       }
     }]
