@@ -27,7 +27,10 @@
 
     <link rel="manifest" href="/manifest.json" />
 
-    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+        name="mobile-web-app-capable"
+        content="yes"
+    />
 
     <meta
         name="apple-mobile-web-app-capable"
@@ -136,10 +139,20 @@
     <!-- STYLES -->
 
     <style>
+        html {
+            box-sizing: border-box;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: inherit;
+        }
+
         body {
             background-color: #18191A;
             color: #E4E6EB;
-            overflow-y: scroll;
+
             font-family:
                 'Segoe UI',
                 Helvetica,
@@ -148,29 +161,33 @@
 
             margin: 0;
 
+            overflow-x: hidden;
+
             -webkit-tap-highlight-color:
                 transparent;
+
+            overscroll-behavior-y: none;
         }
 
         /* IMPORTANT:
-           DO NOT CONTROL STICKY HEADER HERE
-           LET REACT HANDLE IT
+           LET REACT CONTROL HEADER/STICKY SYSTEM
         */
 
         #root {
             width: 100%;
         }
 
-        /* HIDE SCROLLBARS */
+        /* HIDE SCROLLBAR
+           WITHOUT BREAKING STICKY
+        */
 
-        ::-webkit-scrollbar {
+        body::-webkit-scrollbar {
             display: none;
         }
 
-        * {
+        body {
             -ms-overflow-style: none;
             scrollbar-width: none;
-            box-sizing: border-box;
         }
 
         /* TOUCH */
