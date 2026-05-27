@@ -1,8 +1,0 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "social.unera.twa",
-        "sha256_cert_fingerprints": ["0A:9B:31:77:7F:24:5C:B1:B6:74:B6:0F:05:24:40:2E:C7:39:FF:91:B6:03:26:07:DD:E8:38:31:38:02:EF:A7"]
-      }
-    }]
