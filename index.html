@@ -139,8 +139,28 @@
     <!-- STYLES -->
 
     <style>
+        :root {
+            --unera-blue: #1877F2;
+            --unera-black: #18191A;
+            --unera-surface: #242526;
+            --unera-surface-2: #3A3B3C;
+            --unera-border: rgba(255,255,255,0.12);
+            --unera-border-strong: rgba(255,255,255,0.22);
+            --unera-text: #E4E6EB;
+        }
+
         html {
             box-sizing: border-box;
+
+            text-size-adjust: 100%;
+            -webkit-text-size-adjust: 100%;
+
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+
+            scroll-behavior: smooth;
+
+            background: var(--unera-black);
         }
 
         *,
@@ -150,11 +170,12 @@
         }
 
         body {
-            background-color: #18191A;
-            color: #E4E6EB;
+            background-color: var(--unera-black);
+            color: var(--unera-text);
 
             font-family:
                 'Segoe UI',
+                Inter,
                 Helvetica,
                 Arial,
                 sans-serif;
@@ -167,14 +188,23 @@
                 transparent;
 
             overscroll-behavior-y: none;
+
+            text-rendering: optimizeLegibility;
+
+            font-size: 17px;
+            line-height: 1.45;
+
+            letter-spacing: 0.1px;
         }
 
         /* IMPORTANT:
            LET REACT CONTROL HEADER/STICKY SYSTEM
+           DO NOT TOUCH OVERFLOW ON HTML/BODY
         */
 
         #root {
             width: 100%;
+            min-height: 100vh;
         }
 
         /* HIDE SCROLLBAR
@@ -188,6 +218,148 @@
         body {
             -ms-overflow-style: none;
             scrollbar-width: none;
+        }
+
+        /* HIGH QUALITY TEXT */
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6,
+        strong,
+        b {
+            font-weight: 700;
+            letter-spacing: -0.2px;
+        }
+
+        p,
+        span,
+        div,
+        button,
+        input,
+        textarea,
+        a {
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        /* GLOBAL BUTTON QUALITY */
+
+        button,
+        .btn,
+        [role="button"] {
+            border-radius: 14px;
+
+            border:
+                1.5px solid
+                var(--unera-border-strong);
+
+            background:
+                linear-gradient(
+                    180deg,
+                    rgba(255,255,255,0.05),
+                    rgba(255,255,255,0.02)
+                );
+
+            color: #FFFFFF;
+
+            font-weight: 600;
+
+            transition:
+                transform 0.15s ease,
+                opacity 0.15s ease,
+                background 0.2s ease,
+                border-color 0.2s ease,
+                box-shadow 0.2s ease;
+
+            box-shadow:
+                0 1px 2px rgba(0,0,0,0.25),
+                0 0 0 1px rgba(255,255,255,0.03) inset;
+        }
+
+        button:active,
+        .btn:active,
+        [role="button"]:active {
+            transform: scale(0.98);
+        }
+
+        /* BLUE BUTTONS */
+
+        .bg-blue-500,
+        .bg-blue-600,
+        .bg-blue-700 {
+            border:
+                1.5px solid
+                rgba(255,255,255,0.18) !important;
+
+            box-shadow:
+                0 4px 16px rgba(24,119,242,0.35),
+                inset 0 1px 0 rgba(255,255,255,0.15);
+        }
+
+        /* WHITE BUTTONS */
+
+        .bg-white,
+        .bg-gray-100 {
+            border:
+                1.5px solid
+                rgba(0,0,0,0.12) !important;
+
+            color: #111 !important;
+
+            box-shadow:
+                0 2px 10px rgba(0,0,0,0.12),
+                inset 0 1px 0 rgba(255,255,255,0.7);
+        }
+
+        /* DARK SURFACES */
+
+        .bg-gray-800,
+        .bg-gray-900,
+        .bg-black {
+            border:
+                1px solid
+                rgba(255,255,255,0.08);
+
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+
+        /* INPUTS */
+
+        input,
+        textarea,
+        select {
+            font-size: 17px !important;
+
+            border-radius: 16px;
+
+            border:
+                1.5px solid
+                rgba(255,255,255,0.10);
+
+            background: #3A3B3C;
+
+            color: #E4E6EB;
+
+            outline: none;
+
+            transition:
+                border-color 0.2s ease,
+                box-shadow 0.2s ease,
+                background 0.2s ease;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color:
+                rgba(24,119,242,0.7);
+
+            box-shadow:
+                0 0 0 3px rgba(24,119,242,0.18);
         }
 
         /* TOUCH */
@@ -204,6 +376,12 @@
         video {
             user-select: none;
             -webkit-user-drag: none;
+        }
+
+        /* BETTER IMAGE QUALITY */
+
+        img {
+            image-rendering: auto;
         }
 
         /* LIKE HEART */
@@ -362,6 +540,8 @@
 
             -webkit-text-fill-color:
                 #E4E6EB !important;
+
+            caret-color: #FFFFFF;
         }
 
         /* WAVEFORM */
@@ -373,7 +553,7 @@
             display: flex;
             align-items: center;
             overflow: hidden;
-            border-radius: 8px;
+            border-radius: 12px;
         }
 
         .waveform-bar {
@@ -400,6 +580,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+
+            backdrop-filter: blur(8px);
         }
 
         .trim-window:active {
@@ -411,6 +593,28 @@
             height: 24px;
             background-color: #FFF;
             border-radius: 3px;
+        }
+
+        /* SMOOTH SCROLL */
+
+        * {
+            scroll-behavior: smooth;
+        }
+
+        /* MOBILE NATIVE FEEL */
+
+        @media (max-width: 768px) {
+
+            body {
+                font-size: 18px;
+            }
+
+            button,
+            input,
+            textarea,
+            select {
+                min-height: 46px;
+            }
         }
     </style>
 
