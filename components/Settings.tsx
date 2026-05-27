@@ -8,6 +8,7 @@ interface SettingsProps {
   onLogout: () => void;
   onUpdateUserDetails: (data: Partial<User>) => void;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  onDeleteAccount?: () => Promise<void>; // ✅ NEW: Delete account callback
 }
 
 // ============================================================
@@ -67,7 +68,6 @@ const ChangePasswordModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
       <div className="bg-[#242526] w-full max-w-[500px] rounded-xl border border-[#3E4042] shadow-2xl">
-        {/* Header */}
         <div className="p-4 border-b border-[#3E4042] flex items-center gap-3">
           <button
             onClick={onClose}
@@ -78,7 +78,6 @@ const ChangePasswordModal: React.FC<{
           <h2 className="text-xl font-bold text-[#E4E6EB]">Change Password</h2>
         </div>
 
-        {/* Body */}
         <div className="p-6 space-y-5">
           {error && (
             <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg flex items-center gap-2">
@@ -94,7 +93,6 @@ const ChangePasswordModal: React.FC<{
             </div>
           )}
 
-          {/* Current Password */}
           <div>
             <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
               Current Password
@@ -116,7 +114,6 @@ const ChangePasswordModal: React.FC<{
             </div>
           </div>
 
-          {/* New Password */}
           <div>
             <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
               New Password
@@ -139,7 +136,6 @@ const ChangePasswordModal: React.FC<{
             <p className="text-[#B0B3B8] text-xs mt-1">Minimum 6 characters</p>
           </div>
 
-          {/* Confirm Password */}
           <div>
             <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
               Confirm New Password
@@ -162,7 +158,6 @@ const ChangePasswordModal: React.FC<{
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-[#3E4042]">
           <button
             onClick={handleSubmit}
@@ -176,6 +171,161 @@ const ChangePasswordModal: React.FC<{
               </span>
             ) : (
               'Save Changes'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// DELETE ACCOUNT MODAL (NEW)
+// ============================================================
+const DeleteAccountModal: React.FC<{
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+  userEmail?: string;
+}> = ({ onClose, onConfirm, userEmail }) => {
+  const [confirmText, setConfirmText] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'confirm' | 'password'>('confirm');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleConfirm = async () => {
+    setError('');
+    
+    if (step === 'confirm') {
+      if (confirmText !== 'DELETE') {
+        setError('Please type "DELETE" to confirm');
+        return;
+      }
+      setStep('password');
+      return;
+    }
+    
+    if (step === 'password') {
+      if (!password.trim()) {
+        setError('Please enter your password to confirm deletion');
+        return;
+      }
+      
+      setLoading(true);
+      try {
+        await onConfirm();
+        // Modal will close automatically after success
+      } catch (err: any) {
+        setError(err?.message || 'Failed to delete account. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
+      <div className="bg-[#242526] w-full max-w-[500px] rounded-xl border border-[#3E4042] shadow-2xl">
+        <div className="p-4 border-b border-[#3E4042] flex items-center gap-3 bg-red-900/20">
+          <div className="w-10 h-10 rounded-full bg-red-900/50 flex items-center justify-center">
+            <i className="fas fa-trash-alt text-red-500 text-lg"></i>
+          </div>
+          <h2 className="text-xl font-bold text-[#E4E6EB]">Delete Account</h2>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {step === 'confirm' ? (
+            <>
+              <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg">
+                <p className="text-red-400 font-semibold mb-2">⚠️ Warning: This action is irreversible!</p>
+                <p className="text-[#B0B3B8] text-sm">
+                  Deleting your account will permanently remove:
+                </p>
+                <ul className="text-[#B0B3B8] text-sm list-disc list-inside mt-2 space-y-1">
+                  <li>All your posts, comments, and reactions</li>
+                  <li>Your stories and reels</li>
+                  <li>Your messages and conversations</li>
+                  <li>Your groups and marketplace listings</li>
+                  <li>All your personal data</li>
+                </ul>
+              </div>
+              
+              <div>
+                <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
+                  Type <span className="text-red-500 font-bold">DELETE</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg py-3 px-4 text-[#E4E6EB] outline-none focus:border-red-500 transition-colors"
+                  placeholder="Type DELETE here"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg">
+                <p className="text-red-400 font-semibold">⚠️ Final Step: Confirm with Password</p>
+                <p className="text-[#B0B3B8] text-sm mt-1">
+                  Please enter your password to permanently delete your account.
+                </p>
+              </div>
+              
+              <div>
+                <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
+                  Your Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="w-full bg-[#3A3B3C] border border-[#3E4042] rounded-lg py-3 px-4 pr-12 text-[#E4E6EB] outline-none focus:border-red-500 transition-colors"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <button
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#B0B3B8] hover:text-[#E4E6EB] transition-colors"
+                  >
+                    <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {error && (
+            <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg flex items-center gap-2">
+              <i className="fas fa-exclamation-circle text-red-400"></i>
+              <span className="text-red-300 text-sm">{error}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-[#3E4042] flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 bg-[#3A3B3C] hover:bg-[#4E4F50] text-[#E4E6EB] py-3 rounded-lg font-bold transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={loading}
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-bold transition-colors"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <i className="fas fa-spinner fa-spin"></i>
+                Deleting...
+              </span>
+            ) : step === 'confirm' ? (
+              'Confirm Deletion'
+            ) : (
+              'Permanently Delete Account'
             )}
           </button>
         </div>
@@ -223,7 +373,6 @@ const EditProfileDetailsModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-fade-in font-sans">
       <div className="bg-[#242526] w-full max-w-[600px] rounded-xl border border-[#3E4042] shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Header */}
         <div className="p-4 border-b border-[#3E4042] flex items-center gap-3">
           <button
             onClick={onClose}
@@ -234,7 +383,6 @@ const EditProfileDetailsModal: React.FC<{
           <h2 className="text-xl font-bold text-[#E4E6EB]">Edit Profile Details</h2>
         </div>
 
-        {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
           {error && (
             <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg flex items-center gap-2">
@@ -243,7 +391,6 @@ const EditProfileDetailsModal: React.FC<{
             </div>
           )}
 
-          {/* Name */}
           <div>
             <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
               <i className="fas fa-user w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -258,7 +405,6 @@ const EditProfileDetailsModal: React.FC<{
             />
           </div>
 
-          {/* Bio */}
           <div>
             <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
               <i className="fas fa-pen w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -275,14 +421,12 @@ const EditProfileDetailsModal: React.FC<{
             <p className="text-[#B0B3B8] text-xs mt-1">{bio.length}/500 characters</p>
           </div>
 
-          {/* Divider */}
           <div className="border-t border-[#3E4042] pt-5">
             <h3 className="text-[#E4E6EB] font-bold text-lg mb-4">
               <i className="fas fa-info-circle text-[#1877F2] mr-2"></i>
               Additional Details
             </h3>
 
-            {/* Work */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-briefcase w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -297,7 +441,6 @@ const EditProfileDetailsModal: React.FC<{
               />
             </div>
 
-            {/* Education */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-graduation-cap w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -312,7 +455,6 @@ const EditProfileDetailsModal: React.FC<{
               />
             </div>
 
-            {/* Location */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-map-marker-alt w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -327,7 +469,6 @@ const EditProfileDetailsModal: React.FC<{
               />
             </div>
 
-            {/* Website */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-link w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -342,7 +483,6 @@ const EditProfileDetailsModal: React.FC<{
               />
             </div>
 
-            {/* Gender */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-venus-mars w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -365,7 +505,6 @@ const EditProfileDetailsModal: React.FC<{
               </div>
             </div>
 
-            {/* Birthday */}
             <div className="mb-4">
               <label className="text-[#E4E6EB] font-semibold text-sm block mb-2">
                 <i className="fas fa-birthday-cake w-5 text-center mr-2 text-[#B0B3B8]"></i>
@@ -381,7 +520,6 @@ const EditProfileDetailsModal: React.FC<{
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-[#3E4042] bg-[#242526] rounded-b-xl">
           <button
             onClick={handleSave}
@@ -487,6 +625,14 @@ const OTHER_SECTIONS = [
     desc: 'View and manage blocked accounts',
     color: '#F3425F',
   },
+  {
+    id: 'delete-account', // ✅ NEW SECTION
+    icon: 'fas fa-trash-alt',
+    title: 'Delete Account',
+    desc: 'Permanently delete your account and all data',
+    color: '#DC3545',
+    action: 'delete-account',
+  },
 ];
 
 // ============================================================
@@ -498,10 +644,12 @@ export const SettingsPage: React.FC<SettingsProps> = ({
   onLogout,
   onUpdateUserDetails,
   onChangePassword,
+  onDeleteAccount,
 }) => {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
 
   if (!currentUser) {
     return (
@@ -519,6 +667,16 @@ export const SettingsPage: React.FC<SettingsProps> = ({
       setShowChangePassword(true);
     } else if (action === 'edit-profile') {
       setShowEditProfile(true);
+    } else if (sectionId === 'delete-account') {
+      setShowDeleteAccount(true);
+    }
+  };
+
+  const handleDeleteAccountConfirm = async () => {
+    if (onDeleteAccount) {
+      await onDeleteAccount();
+      // The parent component will handle logout and redirect
+      onClose();
     }
   };
 
@@ -649,7 +807,7 @@ export const SettingsPage: React.FC<SettingsProps> = ({
           </div>
         </div>
 
-        {/* Other Settings Section */}
+        {/* Other Settings Section - Including Delete Account */}
         <div>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full bg-[#B250B3]/20 flex items-center justify-center">
@@ -657,7 +815,7 @@ export const SettingsPage: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h2 className="text-xl font-bold text-[#E4E6EB]">More Settings</h2>
-              <p className="text-[#B0B3B8] text-sm">Privacy, notifications, and blocked users</p>
+              <p className="text-[#B0B3B8] text-sm">Privacy, notifications, and account management</p>
             </div>
           </div>
 
@@ -665,9 +823,11 @@ export const SettingsPage: React.FC<SettingsProps> = ({
             {OTHER_SECTIONS.map((section, index) => (
               <div
                 key={section.id}
-                onClick={() => handleSectionClick(section.id)}
+                onClick={() => handleSectionClick(section.id, section.action)}
                 className={`flex items-center gap-4 p-4 hover:bg-[#3A3B3C] cursor-pointer transition-colors group ${
                   index !== OTHER_SECTIONS.length - 1 ? 'border-b border-[#3E4042]' : ''
+                } ${
+                  section.id === 'delete-account' ? 'hover:bg-red-900/20' : ''
                 }`}
               >
                 <div
@@ -678,13 +838,21 @@ export const SettingsPage: React.FC<SettingsProps> = ({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[#E4E6EB] font-semibold text-[16px] group-hover:text-white transition-colors">
+                  <h3 className={`text-[16px] font-semibold transition-colors ${
+                    section.id === 'delete-account' 
+                      ? 'text-red-400 group-hover:text-red-300' 
+                      : 'text-[#E4E6EB] group-hover:text-white'
+                  }`}>
                     {section.title}
                   </h3>
                   <p className="text-[#B0B3B8] text-sm truncate">{section.desc}</p>
                 </div>
 
-                <i className="fas fa-chevron-right text-[#B0B3B8] group-hover:text-[#E4E6EB] transition-colors"></i>
+                <i className={`fas fa-chevron-right transition-colors ${
+                  section.id === 'delete-account' 
+                    ? 'text-red-500 group-hover:text-red-400' 
+                    : 'text-[#B0B3B8] group-hover:text-[#E4E6EB]'
+                }`}></i>
               </div>
             ))}
           </div>
@@ -717,6 +885,15 @@ export const SettingsPage: React.FC<SettingsProps> = ({
           user={currentUser}
           onClose={() => setShowEditProfile(false)}
           onSave={onUpdateUserDetails}
+        />
+      )}
+
+      {/* Delete Account Modal - NEW */}
+      {showDeleteAccount && (
+        <DeleteAccountModal
+          onClose={() => setShowDeleteAccount(false)}
+          onConfirm={handleDeleteAccountConfirm}
+          userEmail={currentUser.email}
         />
       )}
     </div>
