@@ -32,6 +32,7 @@ import MusicSystem, { GlobalAudioPlayer, MusicCommentsSheet } from './components
 import { GroupsPage } from './components/Groups';
 import { ToolsPage } from './components/Tools';
 import { PrivacyPolicyPage } from './components/PrivacyPolicy';
+import { SettingsPage } from './components/Settings';
 import { TermsOfServicePage } from './components/TermsOfService';
 import { ChatWindow } from './components/Chat';
 import { ChatsList } from './components/ChatsList';
