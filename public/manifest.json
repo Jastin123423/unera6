@@ -3,15 +3,11 @@
   "name": "UNERA",
   "short_name": "UNERA",
   "description": "UNERA Social Network",
+
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
 
-  "display_override": [
-    "window-controls-overlay",
-    "standalone",
-    "minimal-ui"
-  ],
+  "display": "standalone",
 
   "orientation": "portrait",
 
