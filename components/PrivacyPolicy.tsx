@@ -1,10 +1,10 @@
-// components/TermsOfService.tsx - Add named export
+
 
 // components/PrivacyPolicy.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export const TermsOfServicePage: React.FC = () => {
+export const PrivacyPolicyPage: React.FC = () => {
   const navigate = useNavigate();
 
   const handleGoHome = () => {
@@ -229,4 +229,5 @@ export const TermsOfServicePage: React.FC = () => {
   );
 };
 
-export default TermsOfServicePage;
+export default PrivacyPolicyPage;
+
