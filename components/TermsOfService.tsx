@@ -1,8 +1,12 @@
+
+
+
+
 // components/TermsOfService.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const TermsOfService: React.FC = () => {
+export const TermsOfServicePage: React.FC = () => {
   const navigate = useNavigate();
 
   const handleGoHome = () => {
@@ -348,5 +352,5 @@ const TermsOfService: React.FC = () => {
     </div>
   );
 };
+export default TermsOfServicePage; 
 
-export default TermsOfService;
