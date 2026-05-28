@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Notification } from '../types';
 import { NotificationDropdown } from './Notifications';
+import { useNavigate } from 'react-router-dom';
 
 /* ============================================================
    GLOBAL ONLINE PRESENCE
@@ -37,6 +38,8 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   onNavigate,
   onLogout,
 }) => {
+  const navigate = useNavigate();
+
   const menuItems = [
     { id: 'marketplace', title: 'Marketplace', icon: 'fas fa-store', color: '#1877F2' },
     { id: 'events', title: 'Events', icon: 'fas fa-calendar-alt', color: '#F3425F' },
@@ -54,10 +57,33 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
 
   const bottomItems = [
     { id: 'settings', title: 'Settings & Privacy', icon: 'fas fa-cog' },
-    { id: 'privacy', title: 'Privacy Policy', icon: 'fas fa-user-shield' },
+    { 
+      id: 'privacy', 
+      title: 'Privacy Policy', 
+      icon: 'fas fa-user-shield',
+      route: '/privacy'
+    },
     { id: 'help', title: 'Help & Support', icon: 'fas fa-question-circle' },
-    { id: 'terms', title: 'Terms of Service', icon: 'fas fa-file-alt' },
+    { 
+      id: 'terms', 
+      title: 'Terms of Service', 
+      icon: 'fas fa-file-alt',
+      route: '/terms'
+    },
   ];
+
+  const handleMenuItemClick = (item: any) => {
+    // If item has a route, navigate to it as a page
+    if (item.route) {
+      navigate(item.route);
+      onClose();
+      return;
+    }
+    
+    // Otherwise use the existing navigation system
+    onNavigate(item.id);
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-[200] bg-[#18191A] animate-slide-down flex flex-col font-sans overflow-hidden">
@@ -100,10 +126,7 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
             <div
               key={item.id}
               className="bg-[#242526] rounded-xl p-4 shadow-sm flex flex-col gap-3 cursor-pointer hover:bg-[#3A3B3C] transition-colors"
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
+              onClick={() => handleMenuItemClick(item)}
             >
               <i className={`${item.icon} text-[28px]`} style={{ color: item.color }}></i>
               <div>
@@ -122,10 +145,7 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
             <div
               key={item.id}
               className="flex items-center justify-between p-3 rounded-lg hover:bg-[#3A3B3C] cursor-pointer"
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
+              onClick={() => handleMenuItemClick(item)}
             >
               <div className="flex items-center gap-3">
                 <i className={`${item.icon} text-[#B0B3B8] text-xl w-6 text-center`}></i>
