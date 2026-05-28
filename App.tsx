@@ -4279,23 +4279,7 @@ const loadMoreFeed = useCallback(async () => {
   feedNextCursor,
 ]);
 
-  //===TRIAL
-  
-// Navigation function with history tracking
-const navigateTo = useCallback((target: View) => {
-  setView(prevView => {
-    if (prevView === target) return prevView;
-    
-    setNavigationHistory(prev => [...prev, prevView]);
-    return target;
-  });
-  
-  if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(target)) {
-    setActiveTab(target as any);
-  }
-  window.scrollTo(0, 0);
-}, []);
-  
+
         
 
   // ============================================================================
@@ -5103,20 +5087,96 @@ const createStory = useCallback(async (storyData: Partial<Story> & {
     }
   };
 
-  // Navigation function with history tracking
-  const navigateTo = useCallback((target: View) => {
-    setView(prevView => {
-      if (prevView === target) return prevView;
-      
-      setNavigationHistory(prev => [...prev, prevView]);
-      return target;
-    });
+// Navigation function with history tracking + React Router
+const navigateTo = useCallback((target: View) => {
+  setView(prevView => {
+    if (prevView === target) return prevView;
     
-    if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(target)) {
-      setActiveTab(target as any);
-    }
-    window.scrollTo(0, 0);
-  }, []);
+    setNavigationHistory(prev => [...prev, prevView]);
+    return target;
+  });
+  
+  // Update URL using React Router
+  switch(target) {
+    case 'home':
+      navigate('/');
+      setActiveTab('home');
+      break;
+    case 'reels':
+      navigate('/reels');
+      setActiveTab('reels');
+      break;
+    case 'marketplace':
+      navigate('/marketplace');
+      setActiveTab('marketplace');
+      break;
+    case 'groups':
+      navigate('/groups');
+      setActiveTab('groups');
+      break;
+    case 'music':
+      navigate('/music');
+      setActiveTab('music');
+      break;
+    case 'events':
+      navigate('/events');
+      setActiveTab('events');
+      break;
+    case 'brands':
+      navigate('/brands');
+      setActiveTab('brands');
+      break;
+    case 'privacy':
+      navigate('/privacy');
+      break;
+    case 'terms':
+      navigate('/terms');
+      break;
+    case 'settings':
+      navigate('/settings');
+      break;
+    case 'help':
+      navigate('/help');
+      break;
+    case 'notifications':
+      navigate('/notifications');
+      break;
+    case 'messages':
+      navigate('/messages');
+      break;
+    case 'profile':
+      if (currentUser) {
+        navigate(`/@${currentUser.username}`);
+      }
+      break;
+    case 'tools':
+      navigate('/tools');
+      break;
+    case 'ads':
+      navigate('/ads');
+      break;
+    case 'birthdays':
+      navigate('/birthdays');
+      break;
+    case 'memories':
+      navigate('/memories');
+      break;
+    case 'profiles':
+      navigate('/profiles');
+      break;
+    case 'story-feed':
+      navigate('/story-feed');
+      break;
+    default:
+      navigate('/');
+  }
+  
+  window.scrollTo(0, 0);
+}, [navigate, currentUser]);
+  
+                     
+      
+
 
   // Back navigation function
   const goBack = useCallback(() => {
