@@ -2,14 +2,13 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
-import ScrollRestoration from './components/ScrollRestoration';
+import ScrollRestoration from './components/ScrollRestoration'; // ✅ Import
 
 export default function AppRouter() {
   return (
     <BrowserRouter>
-      <ScrollRestoration />
+      <ScrollRestoration /> {/* ✅ Add this - Facebook style scroll restoration */}
       <Routes>
-        {/* Main routes */}
         <Route path="/" element={<App initialView="home" />} />
         <Route path="/feed" element={<App initialView="home" />} />
         
@@ -29,32 +28,34 @@ export default function AppRouter() {
         <Route path="/events" element={<App initialView="events" />} />
         <Route path="/notifications" element={<App initialView="notifications" />} />
         <Route path="/messages" element={<App initialView="messages" />} />
+        <Route path="/profiles" element={<App initialView="profiles" />} />
+        <Route path="/story-feed" element={<App initialView="story-feed" />} />
+        <Route path="/birthdays" element={<App initialView="birthdays" />} />
+        <Route path="/memories" element={<App initialView="memories" />} />
+        <Route path="/tools" element={<App initialView="tools" />} />
+        <Route path="/ads" element={<App initialView="ads" />} />
+        <Route path="/brands" element={<App initialView="brands" />} />
         
         {/* Profile Routes */}
         <Route path="/profile/:userId" element={<App initialView="profile" />} />
         <Route path="/@:username" element={<App initialView="profile" />} />
         
-        {/* ✅ SEO-FRIENDLY DEEP LINK ROUTES WITH OPTIONAL SLUGS */}
-        <Route path="/post/:postId/:slug?" element={<App initialView="post" />} />
-        <Route path="/p/:postId/:slug?" element={<App initialView="post" />} />
-        
-        <Route path="/reel/:reelId/:slug?" element={<App initialView="reel" />} />
-        <Route path="/r/:reelId/:slug?" element={<App initialView="reel" />} />
-        
-        <Route path="/group/:groupId/:slug?" element={<App initialView="group" />} />
-        <Route path="/g/:groupId/:slug?" element={<App initialView="group" />} />
-        
-        <Route path="/event/:eventId/:slug?" element={<App initialView="event" />} />
-        <Route path="/e/:eventId/:slug?" element={<App initialView="event" />} />
-        
-        <Route path="/music/:musicId/:slug?" element={<App initialView="music-item" />} />
-        <Route path="/m/:musicId/:slug?" element={<App initialView="music-item" />} />
-        
-        <Route path="/product/:productId/:slug?" element={<App initialView="product" />} />
+        {/* Deep Link Routes */}
+        <Route path="/post/:postId" element={<App initialView="post" />} />
+        <Route path="/p/:postId" element={<App initialView="post" />} />
+        <Route path="/reel/:reelId" element={<App initialView="reel" />} />
+        <Route path="/r/:reelId" element={<App initialView="reel" />} />
+        <Route path="/group/:groupId" element={<App initialView="group" />} />
+        <Route path="/g/:groupId" element={<App initialView="group" />} />
+        <Route path="/event/:eventId" element={<App initialView="event" />} />
+        <Route path="/e/:eventId" element={<App initialView="event" />} />
+        <Route path="/music/:musicId" element={<App initialView="music-item" />} />
+        <Route path="/m/:musicId" element={<App initialView="music-item" />} />
+        <Route path="/product/:productId" element={<App initialView="product" />} />
         
         {/* Group Posts */}
-        <Route path="/group/:groupId/post/:postId/:slug?" element={<App initialView="group-post" />} />
-        <Route path="/gp/:groupId/:postId/:slug?" element={<App initialView="group-post" />} />
+        <Route path="/group/:groupId/post/:postId" element={<App initialView="group-post" />} />
+        <Route path="/gp/:groupId/:postId" element={<App initialView="group-post" />} />
         
         {/* Catch all */}
         <Route path="*" element={<App initialView="home" />} />
