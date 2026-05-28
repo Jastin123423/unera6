@@ -2412,8 +2412,20 @@ const shuffleArray = <T,>(arr: T[]): T[] => {
   return copy;
 };
 
-export default function App() {
+// Add this interface BEFORE the App function
+interface AppProps {
+  initialView?: View;
+}
+
+// Change the App function signature
+export default function App({ initialView = 'home' }: AppProps) {
+  // Add these hooks right after useLanguage() or at the beginning
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  
   useLanguage();
+
 
   /** ---------- State ---------- */
 const [users, setUsers] = useState<User[]>([]);
