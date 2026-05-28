@@ -144,8 +144,6 @@
             --unera-black: #18191A;
             --unera-surface: #242526;
             --unera-surface-2: #3A3B3C;
-            --unera-border: rgba(255,255,255,0.12);
-            --unera-border-strong: rgba(255,255,255,0.22);
             --unera-text: #E4E6EB;
         }
 
@@ -192,14 +190,15 @@
             text-rendering: optimizeLegibility;
 
             font-size: 17px;
-            line-height: 1.45;
+            line-height: 1.5;
 
             letter-spacing: 0.1px;
+
+            -webkit-font-smoothing: antialiased;
         }
 
         /* IMPORTANT:
            LET REACT CONTROL HEADER/STICKY SYSTEM
-           DO NOT TOUCH OVERFLOW ON HTML/BODY
         */
 
         #root {
@@ -241,29 +240,21 @@
         input,
         textarea,
         a {
-            -webkit-font-smoothing: antialiased;
             text-rendering: optimizeLegibility;
+            -webkit-font-smoothing: antialiased;
         }
 
-        /* GLOBAL BUTTON QUALITY */
+        /* SMOOTH BUTTONS
+           NO AGGRESSIVE BORDERS
+        */
 
         button,
         .btn,
         [role="button"] {
+            border: none;
+            outline: none;
+
             border-radius: 14px;
-
-            border:
-                1.5px solid
-                var(--unera-border-strong);
-
-            background:
-                linear-gradient(
-                    180deg,
-                    rgba(255,255,255,0.05),
-                    rgba(255,255,255,0.02)
-                );
-
-            color: #FFFFFF;
 
             font-weight: 600;
 
@@ -271,12 +262,15 @@
                 transform 0.15s ease,
                 opacity 0.15s ease,
                 background 0.2s ease,
-                border-color 0.2s ease,
                 box-shadow 0.2s ease;
 
+            -webkit-font-smoothing: antialiased;
+
             box-shadow:
-                0 1px 2px rgba(0,0,0,0.25),
-                0 0 0 1px rgba(255,255,255,0.03) inset;
+                0 2px 10px rgba(0,0,0,0.18);
+
+            backface-visibility: hidden;
+            transform: translateZ(0);
         }
 
         button:active,
@@ -285,44 +279,18 @@
             transform: scale(0.98);
         }
 
-        /* BLUE BUTTONS */
-
-        .bg-blue-500,
-        .bg-blue-600,
-        .bg-blue-700 {
-            border:
-                1.5px solid
-                rgba(255,255,255,0.18) !important;
-
-            box-shadow:
-                0 4px 16px rgba(24,119,242,0.35),
-                inset 0 1px 0 rgba(255,255,255,0.15);
-        }
-
-        /* WHITE BUTTONS */
+        /* BETTER SURFACES */
 
         .bg-white,
-        .bg-gray-100 {
-            border:
-                1.5px solid
-                rgba(0,0,0,0.12) !important;
-
-            color: #111 !important;
-
+        .bg-gray-100,
+        .bg-gray-200 {
             box-shadow:
-                0 2px 10px rgba(0,0,0,0.12),
-                inset 0 1px 0 rgba(255,255,255,0.7);
+                0 2px 10px rgba(0,0,0,0.10);
         }
 
-        /* DARK SURFACES */
-
-        .bg-gray-800,
+        .bg-black,
         .bg-gray-900,
-        .bg-black {
-            border:
-                1px solid
-                rgba(255,255,255,0.08);
-
+        .bg-gray-800 {
             box-shadow:
                 inset 0 1px 0 rgba(255,255,255,0.03);
         }
@@ -336,9 +304,7 @@
 
             border-radius: 16px;
 
-            border:
-                1.5px solid
-                rgba(255,255,255,0.10);
+            border: none;
 
             background: #3A3B3C;
 
@@ -346,20 +312,24 @@
 
             outline: none;
 
+            padding-left: 14px;
+            padding-right: 14px;
+
             transition:
-                border-color 0.2s ease,
-                box-shadow 0.2s ease,
-                background 0.2s ease;
+                background 0.2s ease,
+                box-shadow 0.2s ease;
+
+            box-shadow:
+                inset 0 1px 2px rgba(0,0,0,0.18);
         }
 
         input:focus,
         textarea:focus,
         select:focus {
-            border-color:
-                rgba(24,119,242,0.7);
+            background: #454648;
 
             box-shadow:
-                0 0 0 3px rgba(24,119,242,0.18);
+                0 0 0 2px rgba(24,119,242,0.18);
         }
 
         /* TOUCH */
@@ -378,7 +348,7 @@
             -webkit-user-drag: none;
         }
 
-        /* BETTER IMAGE QUALITY */
+        /* IMAGE QUALITY */
 
         img {
             image-rendering: auto;
