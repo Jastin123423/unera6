@@ -4279,7 +4279,23 @@ const loadMoreFeed = useCallback(async () => {
   feedNextCursor,
 ]);
 
-
+  //===TRIAL
+  
+// Navigation function with history tracking
+const navigateTo = useCallback((target: View) => {
+  setView(prevView => {
+    if (prevView === target) return prevView;
+    
+    setNavigationHistory(prev => [...prev, prevView]);
+    return target;
+  });
+  
+  if (['home', 'reels', 'marketplace', 'groups', 'brands', 'music', 'events'].includes(target)) {
+    setActiveTab(target as any);
+  }
+  window.scrollTo(0, 0);
+}, []);
+  
         
 
   // ============================================================================
