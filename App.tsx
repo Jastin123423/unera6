@@ -10269,21 +10269,15 @@ feedLoadingMore={feedLoadingMore}
             chats={chats}
           />
         )}
-
-        
-        
-    
-    {view === 'settings' && currentUser && (
+{view === 'settings' && currentUser && (
   <SettingsPage 
     currentUser={currentUser} 
     onClose={() => setView('home')}
     onLogout={handleLogout}
     onUpdateUserDetails={(data) => {
-      // Your existing update handler
       setCurrentUser(prev => prev ? { ...prev, ...data } : null);
     }}
     onChangePassword={async (currentPw, newPw) => {
-      // API call for password change
       const token = localStorage.getItem('unera_token');
       const res = await fetch('/api/user/change-password', {
         method: 'POST',
@@ -10302,8 +10296,36 @@ feedLoadingMore={feedLoadingMore}
         throw new Error(err.error || 'Failed to change password');
       }
     }}
+    // ✅ ADD THIS:
+    onDeleteAccount={async () => {
+      const token = localStorage.getItem('unera_token');
+      const res = await fetch('/api/user/delete-account', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ 
+          user_id: currentUser.id,
+          // password is already sent from the modal in the request
+        }),
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to delete account');
+      }
+      
+      // Log out the user after successful deletion
+      handleLogout();
+      setView('home');
+    }}
   />
 )}
+        
+
+        
+
 
         {view === 'privacy' && <PrivacyPolicyPage onNavigateHome={() => setView('home')} />}
         {view === 'terms' && <TermsOfServicePage onNavigateHome={() => setView('home')} />}
