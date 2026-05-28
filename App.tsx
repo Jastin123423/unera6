@@ -3370,7 +3370,7 @@ const mixedFeedItems = useMemo(() => {
   }, [myTotalPlays, currentUser?.id]);
 
 
-  // Handle URL routing and initialView prop
+// Handle URL routing and initialView prop
 useEffect(() => {
   if (!initialView) return;
   
@@ -3395,7 +3395,6 @@ useEffect(() => {
   // Handle post from URL
   if (initialView === 'post' && params.postId) {
     setView('home');
-    // Store postId for opening comments
     setActivePostId(Number(params.postId));
     return;
   }
@@ -3404,6 +3403,7 @@ useEffect(() => {
   if (initialView === 'reel' && params.reelId) {
     setSelectedReelId(Number(params.reelId));
     setView('reels');
+    setActiveTab('reels');
     return;
   }
   
@@ -3411,6 +3411,7 @@ useEffect(() => {
   if (initialView === 'group' && params.groupId) {
     setView('groups');
     setActiveGroupId(Number(params.groupId));
+    setActiveTab('groups');
     return;
   }
   
@@ -3418,18 +3419,21 @@ useEffect(() => {
   if (initialView === 'event' && params.eventId) {
     setActiveEventId(Number(params.eventId));
     setView('events');
+    setActiveTab('events');
     return;
   }
   
   // Handle music from URL
   if ((initialView === 'music-item' || initialView === 'music') && params.musicId) {
     setView('music');
+    setActiveTab('music');
     return;
   }
   
   // Handle product from URL
   if (initialView === 'product' && params.productId) {
     setView('marketplace');
+    setActiveTab('marketplace');
     return;
   }
   
@@ -3437,6 +3441,7 @@ useEffect(() => {
   if (initialView === 'group-post' && params.groupId && params.postId) {
     setView('groups');
     setActiveGroupId(Number(params.groupId));
+    setActiveTab('groups');
     return;
   }
   
@@ -3447,23 +3452,16 @@ useEffect(() => {
     setView(initialView as View);
   }
   
-  // Update active tab based on view
-  if (['reels', 'reel'].includes(initialView)) {
-    setActiveTab('reels');
-  } else if (['marketplace', 'product'].includes(initialView)) {
-    setActiveTab('marketplace');
-  } else if (['groups', 'group', 'group-post'].includes(initialView)) {
-    setActiveTab('groups');
-  } else if (['music', 'music-item'].includes(initialView)) {
-    setActiveTab('music');
-  } else if (['events', 'event'].includes(initialView)) {
-    setActiveTab('events');
-  } else if (initialView === 'home') {
+  // Update active tab for simple views
+  if (['home', 'feed'].includes(initialView)) {
     setActiveTab('home');
+  } else if (initialView === 'notifications') {
+    setActiveTab('notifications');
+  } else if (initialView === 'messages') {
+    setActiveTab('messages');
   }
   
-  // Scroll to top on view change
-  window.scrollTo(0, 0);
+  // ❌ REMOVED: window.scrollTo(0, 0);
 }, [initialView, params, users]);
     
   // ============================================================================
