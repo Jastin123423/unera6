@@ -3369,6 +3369,103 @@ const mixedFeedItems = useMemo(() => {
     localStorage.setItem('unera_my_total_plays', String(myTotalPlays));
   }, [myTotalPlays, currentUser?.id]);
 
+
+  // Handle URL routing and initialView prop
+useEffect(() => {
+  if (!initialView) return;
+  
+  // Handle profile from URL
+  if (initialView === 'profile') {
+    const userId = params.userId;
+    const username = params.username;
+    
+    if (userId) {
+      setSelectedUserId(Number(userId));
+      setView('profile');
+    } else if (username) {
+      const user = users.find(u => u.username === username);
+      if (user) {
+        setSelectedUserId(user.id);
+        setView('profile');
+      }
+    }
+    return;
+  }
+  
+  // Handle post from URL
+  if (initialView === 'post' && params.postId) {
+    setView('home');
+    // Store postId for opening comments
+    setActivePostId(Number(params.postId));
+    return;
+  }
+  
+  // Handle reel from URL
+  if (initialView === 'reel' && params.reelId) {
+    setSelectedReelId(Number(params.reelId));
+    setView('reels');
+    return;
+  }
+  
+  // Handle group from URL
+  if (initialView === 'group' && params.groupId) {
+    setView('groups');
+    setActiveGroupId(Number(params.groupId));
+    return;
+  }
+  
+  // Handle event from URL
+  if (initialView === 'event' && params.eventId) {
+    setActiveEventId(Number(params.eventId));
+    setView('events');
+    return;
+  }
+  
+  // Handle music from URL
+  if ((initialView === 'music-item' || initialView === 'music') && params.musicId) {
+    setView('music');
+    return;
+  }
+  
+  // Handle product from URL
+  if (initialView === 'product' && params.productId) {
+    setView('marketplace');
+    return;
+  }
+  
+  // Handle group post from URL
+  if (initialView === 'group-post' && params.groupId && params.postId) {
+    setView('groups');
+    setActiveGroupId(Number(params.groupId));
+    return;
+  }
+  
+  // For all other simple views (privacy, terms, settings, etc.)
+  if (['privacy', 'terms', 'settings', 'help', 'notifications', 'messages', 
+       'profiles', 'story-feed', 'birthdays', 'memories', 'tools', 'ads', 
+       'brands'].includes(initialView)) {
+    setView(initialView as View);
+  }
+  
+  // Update active tab based on view
+  if (['reels', 'reel'].includes(initialView)) {
+    setActiveTab('reels');
+  } else if (['marketplace', 'product'].includes(initialView)) {
+    setActiveTab('marketplace');
+  } else if (['groups', 'group', 'group-post'].includes(initialView)) {
+    setActiveTab('groups');
+  } else if (['music', 'music-item'].includes(initialView)) {
+    setActiveTab('music');
+  } else if (['events', 'event'].includes(initialView)) {
+    setActiveTab('events');
+  } else if (initialView === 'home') {
+    setActiveTab('home');
+  }
+  
+  // Scroll to top on view change
+  window.scrollTo(0, 0);
+}, [initialView, params, users]);
+    
   // ============================================================================
   // ✅ MUSIC HANDLERS
   // ============================================================================
