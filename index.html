@@ -139,17 +139,26 @@
     <!-- STYLES -->
 
     <style>
+
         :root {
             --unera-blue: #1877F2;
             --unera-black: #18191A;
             --unera-surface: #242526;
             --unera-surface-2: #3A3B3C;
             --unera-text: #E4E6EB;
-            --unera-soft: rgba(255,255,255,0.05);
         }
 
+        /* =========================
+           HTML
+        ========================= */
+
         html {
-            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+
+            overflow: hidden;
+
+            background: var(--unera-black);
 
             text-size-adjust: 100%;
             -webkit-text-size-adjust: 100%;
@@ -157,21 +166,45 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
 
-            scroll-behavior: smooth;
-
-            background: var(--unera-black);
+            text-rendering: optimizeLegibility;
 
             overscroll-behavior: none;
+
+            touch-action: manipulation;
+
+            scroll-behavior: smooth;
         }
+
+        /* =========================
+           GLOBAL
+        ========================= */
 
         *,
         *::before,
         *::after {
-            box-sizing: inherit;
+            box-sizing: border-box;
+
+            -webkit-tap-highlight-color: transparent;
+
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
         }
 
+        /* =========================
+           BODY
+        ========================= */
+
         body {
-            background-color: var(--unera-black);
+            width: 100%;
+            height: 100%;
+
+            margin: 0;
+            padding: 0;
+
+            overflow-x: hidden;
+            overflow-y: auto;
+
+            background: var(--unera-black);
             color: var(--unera-text);
 
             font-family:
@@ -181,48 +214,52 @@
                 Arial,
                 sans-serif;
 
-            margin: 0;
-
-            overflow-x: hidden;
-
-            -webkit-tap-highlight-color:
-                transparent;
-
-            overscroll-behavior-y: none;
-
-            text-rendering: optimizeLegibility;
-
             font-size: 17px;
             line-height: 1.5;
 
-            letter-spacing: 0.15px;
+            letter-spacing: 0.1px;
 
             -webkit-font-smoothing: antialiased;
 
-            font-synthesis: none;
+            text-rendering: optimizeLegibility;
+
+            -webkit-tap-highlight-color: transparent;
+
+            overscroll-behavior-y: none;
+
+            -webkit-overflow-scrolling: touch;
+
+            touch-action: manipulation;
+
+            transform: translateZ(0);
+
+            perspective: 1000px;
+
+            contain: layout style paint;
+
+            scrollbar-width: none;
         }
 
-        /* ROOT */
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* =========================
+           ROOT
+        ========================= */
 
         #root {
             width: 100%;
             min-height: 100vh;
 
             isolation: isolate;
+
+            transform: translateZ(0);
         }
 
-        /* HIDE SCROLLBAR */
-
-        body::-webkit-scrollbar {
-            display: none;
-        }
-
-        body {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-
-        /* HIGH QUALITY TEXT */
+        /* =========================
+           TEXT QUALITY
+        ========================= */
 
         h1,
         h2,
@@ -233,7 +270,10 @@
         strong,
         b {
             font-weight: 700;
+
             letter-spacing: -0.25px;
+
+            text-rendering: geometricPrecision;
         }
 
         p,
@@ -244,14 +284,18 @@
         textarea,
         a {
             text-rendering: optimizeLegibility;
+
             -webkit-font-smoothing: antialiased;
         }
 
-        /* SMOOTH BUTTONS */
+        /* =========================
+           BUTTONS
+        ========================= */
 
         button,
         .btn,
         [role="button"] {
+
             border: none;
             outline: none;
 
@@ -262,95 +306,168 @@
             transition:
                 transform 0.14s ease,
                 opacity 0.14s ease,
-                background 0.18s ease,
-                box-shadow 0.18s ease;
-
-            -webkit-font-smoothing: antialiased;
+                background 0.2s ease,
+                box-shadow 0.2s ease;
 
             box-shadow:
-                0 2px 10px rgba(0,0,0,0.14);
-
-            backface-visibility: hidden;
+                0 2px 10px rgba(0,0,0,0.18);
 
             transform: translateZ(0);
+
+            will-change: transform;
         }
 
         button:active,
         .btn:active,
         [role="button"]:active {
+
             transform:
-                scale(0.98)
+                scale(0.985)
                 translateZ(0);
         }
 
-        /* NATIVE FEEL SURFACES */
+        /* =========================
+           FEED SURFACES
+        ========================= */
 
-        .bg-white,
-        .bg-gray-100,
-        .bg-gray-200 {
+        .post,
+        .feed-card,
+        .card,
+        [class*="post"],
+        [class*="card"] {
+
+            background: #242526;
+
+            border-radius: 18px;
+
+            overflow: hidden;
+
+            transform: translateZ(0);
+
             box-shadow:
-                0 2px 10px rgba(0,0,0,0.08);
+                0 1px 2px rgba(0,0,0,0.20),
+                0 6px 24px rgba(0,0,0,0.12);
+
+            contain: layout paint;
         }
 
-        .bg-black,
-        .bg-gray-900,
-        .bg-gray-800 {
+        /* =========================
+           NAVBAR
+        ========================= */
+
+        header,
+        nav,
+        .topbar,
+        .bottom-nav,
+        .sidebar {
+
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+
+            transform: translateZ(0);
+        }
+
+        /* =========================
+           MEDIA QUALITY
+        ========================= */
+
+        img,
+        video,
+        canvas {
+
+            image-rendering: auto;
+
+            transform: translateZ(0);
+
+            object-fit: cover;
+
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        .post img,
+        .post video,
+        .feed-card img,
+        .feed-card video,
+        [class*="post"] img,
+        [class*="post"] video {
+
+            background: #111;
+
             box-shadow:
-                inset 0 1px 0 rgba(255,255,255,0.02);
+                inset 0 0 0 1px rgba(255,255,255,0.03);
+
+            will-change: transform;
         }
 
-        /* GLASS EFFECT */
+        video {
+            background: #000;
 
-        .glass,
-        .backdrop-blur,
-        .backdrop-blur-md,
-        .backdrop-blur-lg {
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
+            outline: none;
         }
 
-        /* INPUTS */
+        /* =========================
+           INPUTS
+        ========================= */
 
         input,
         textarea,
         select {
-            font-size: 17px !important;
-
-            border-radius: 16px;
 
             border: none;
+            outline: none;
+
+            border-radius: 16px;
 
             background: #3A3B3C;
 
             color: #E4E6EB;
 
-            outline: none;
+            font-size: 17px !important;
 
-            padding-left: 14px;
-            padding-right: 14px;
+            padding: 14px;
 
             transition:
-                background 0.18s ease,
-                box-shadow 0.18s ease,
-                transform 0.12s ease;
+                background 0.2s ease,
+                box-shadow 0.2s ease;
 
             box-shadow:
                 inset 0 1px 2px rgba(0,0,0,0.16);
 
-            appearance: none;
-            -webkit-appearance: none;
+            transform: translateZ(0);
         }
 
         input:focus,
         textarea:focus,
         select:focus {
+
             background: #454648;
 
             box-shadow:
                 0 0 0 2px rgba(24,119,242,0.16);
         }
 
-        /* TOUCH */
+        /* =========================
+           AUTOFILL
+        ========================= */
+
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+
+            -webkit-box-shadow:
+                0 0 0 30px #3A3B3C inset !important;
+
+            -webkit-text-fill-color:
+                #E4E6EB !important;
+
+            caret-color: #FFFFFF;
+        }
+
+        /* =========================
+           TOUCH
+        ========================= */
 
         button,
         a,
@@ -360,25 +477,37 @@
             touch-action: manipulation;
         }
 
+        a,
+        button,
+        div,
         img,
         video {
-            user-select: none;
-            -webkit-user-drag: none;
+            -webkit-touch-callout: none;
         }
 
-        /* IMAGE QUALITY */
+        /* =========================
+           FEED PERFORMANCE
+        ========================= */
 
-        img {
-            image-rendering: auto;
+        .feed,
+        .feed-container,
+        .reels-container,
+        .post-list,
+        .virtualized-list {
+
+            transform: translateZ(0);
+
+            will-change: transform;
+
+            contain: layout style paint;
         }
 
-        video {
-            object-fit: cover;
-        }
-
-        /* LIKE HEART */
+        /* =========================
+           ANIMATIONS
+        ========================= */
 
         @keyframes pop-heart {
+
             0% {
                 transform:
                     scale(0)
@@ -412,9 +541,8 @@
                 forwards;
         }
 
-        /* FADE */
-
         @keyframes fadeIn {
+
             from {
                 opacity: 0;
             }
@@ -426,14 +554,11 @@
 
         .animate-fade-in {
             animation:
-                fadeIn
-                0.2s
-                ease-out;
+                fadeIn 0.18s ease-out;
         }
 
-        /* SLIDE UP */
-
         @keyframes slideUp {
+
             from {
                 transform:
                     translateY(100%);
@@ -448,19 +573,18 @@
         .animate-slide-up {
             animation:
                 slideUp
-                0.3s
+                0.24s
                 cubic-bezier(
-                    0.1,
-                    0.7,
-                    0.1,
+                    0.2,
+                    0.8,
+                    0.2,
                     1
                 )
                 forwards;
         }
 
-        /* SLIDE HALF */
-
         @keyframes slideUpHalf {
+
             from {
                 transform:
                     translateY(50%);
@@ -479,19 +603,18 @@
         .animate-slide-up-half {
             animation:
                 slideUpHalf
-                0.3s
+                0.24s
                 cubic-bezier(
-                    0.1,
-                    0.7,
-                    0.1,
+                    0.2,
+                    0.8,
+                    0.2,
                     1
                 )
                 forwards;
         }
 
-        /* SLIDE DOWN */
-
         @keyframes slideDown {
+
             from {
                 transform:
                     translateY(-100%);
@@ -510,54 +633,52 @@
         .animate-slide-down {
             animation:
                 slideDown
-                0.3s
+                0.24s
                 cubic-bezier(
-                    0.1,
-                    0.7,
-                    0.1,
+                    0.2,
+                    0.8,
+                    0.2,
                     1
                 )
                 forwards;
         }
 
-        /* AUTOFILL */
-
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover,
-        input:-webkit-autofill:focus,
-        input:-webkit-autofill:active {
-
-            -webkit-box-shadow:
-                0 0 0 30px #3A3B3C inset !important;
-
-            -webkit-text-fill-color:
-                #E4E6EB !important;
-
-            caret-color: #FFFFFF;
-        }
-
-        /* WAVEFORM */
+        /* =========================
+           WAVEFORM
+        ========================= */
 
         .waveform-track {
+
             position: relative;
+
             height: 60px;
             width: 100%;
+
             display: flex;
             align-items: center;
+
             overflow: hidden;
+
             border-radius: 12px;
         }
 
         .waveform-bar {
+
             background-color: #4A4A4A;
+
             width: 3px;
+
             margin-right: 2px;
+
             border-radius: 2px;
         }
 
         .trim-window {
+
             position: absolute;
+
             height: 100%;
+
             background-color:
                 rgba(254, 44, 85, 0.3);
 
@@ -581,26 +702,18 @@
         }
 
         .trim-handle {
+
             width: 10px;
             height: 24px;
+
             background-color: #FFF;
+
             border-radius: 3px;
         }
 
-        /* SMOOTH SCROLL */
-
-        * {
-            scroll-behavior: smooth;
-        }
-
-        /* PERFORMANCE */
-
-        * {
-            -webkit-backface-visibility: hidden;
-            backface-visibility: hidden;
-        }
-
-        /* MOBILE NATIVE FEEL */
+        /* =========================
+           MOBILE FEEL
+        ========================= */
 
         @media (max-width: 768px) {
 
@@ -615,6 +728,7 @@
                 min-height: 46px;
             }
         }
+
     </style>
 
     <!-- IMPORT MAP -->
@@ -637,11 +751,13 @@
 </head>
 
 <body>
+
     <div id="root"></div>
 
     <script
         type="module"
         src="/index.tsx"
     ></script>
+
 </body>
 </html>
